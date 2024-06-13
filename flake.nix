@@ -26,86 +26,107 @@
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        ###########################################################################################
-        # This changes every time `Cargo.lock` changes. Set to `null` to force re-vendoring
-        cargoHash = null;
-        # cargoHash = "sha256-LloF3jrvFkOlZ2lQXB+/sFthfJQLLu8BvHBE88gRvFc=";
-        ###########################################################################################
-        officialRelease = false;
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+    rust-overlay,
+  }:
+    flake-utils.lib.eachDefaultSystem (system: let
+      ###########################################################################################
+      # This changes every time `Cargo.lock` changes. Set to `null` to force re-vendoring
+      cargoHash = null;
+      # cargoHash = "sha256-LloF3jrvFkOlZ2lQXB+/sFthfJQLLu8BvHBE88gRvFc=";
+      ###########################################################################################
+      officialRelease = false;
 
-        versionSuffix =
-          if officialRelease
-          then ""
-          else "pre${builtins.substring 0 8 (self.lastModifiedDate or self.lastModified or "19700101")}_${self.shortRev or "dirty"}";
+      versionSuffix =
+        if officialRelease
+        then ""
+        else "pre${builtins.substring 0 8 (self.lastModifiedDate or self.lastModified or "19700101")}_${self.shortRev or "dirty"}";
 
-        pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [rust-overlay.overlays.default];
+      };
 
-        # patched version of cargo to support `cargo vendor` for vendoring dependencies
-        # see https://github.com/matter-labs/zksync-era/issues/1086
-        # used as `cargo vendor --no-merge-sources`
-        cargo-vendor = pkgs.rustPlatform.buildRustPackage {
-          pname = "cargo-vendor";
-          version = "0.78.0";
-          src = pkgs.fetchFromGitHub {
-            owner = "haraldh";
-            repo = "cargo";
-            rev = "3ee1557d2bd95ca9d0224c5dbf1d1e2d67186455";
-            hash = "sha256-A8xrOG+NmF8dQ7tA9I2vJSNHlYxsH44ZRXdptLblCXk=";
-          };
-          doCheck = false;
-          cargoHash = "sha256-LtuNtdoX+FF/bG5LQc+L2HkFmgCtw5xM/m0/0ShlX2s=";
-          nativeBuildInputs = [
-            pkgs.pkg-config
-            pkgs.rustPlatform.bindgenHook
-          ];
-          buildInputs = [
-            pkgs.openssl
-          ];
+      # patched version of cargo to support `cargo vendor` for vendoring dependencies
+      # see https://github.com/matter-labs/zksync-era/issues/1086
+      # used as `cargo vendor --no-merge-sources`
+      cargo-vendor = pkgs.rustPlatform.buildRustPackage {
+        pname = "cargo-vendor";
+        version = "0.78.0";
+        src = pkgs.fetchFromGitHub {
+          owner = "haraldh";
+          repo = "cargo";
+          rev = "3ee1557d2bd95ca9d0224c5dbf1d1e2d67186455";
+          hash = "sha256-A8xrOG+NmF8dQ7tA9I2vJSNHlYxsH44ZRXdptLblCXk=";
         };
+        doCheck = false;
+        cargoHash = "sha256-LtuNtdoX+FF/bG5LQc+L2HkFmgCtw5xM/m0/0ShlX2s=";
+        nativeBuildInputs = [
+          pkgs.pkg-config
+          pkgs.rustPlatform.bindgenHook
+        ];
+        buildInputs = [
+          pkgs.openssl
+        ];
+      };
 
-        # custom import-cargo-lock to import Cargo.lock file and vendor dependencies
-        # see https://github.com/matter-labs/zksync-era/issues/1086
-        import-cargo-lock = { lib, cacert, runCommand }: { src, cargoHash ? null }:
-          runCommand "import-cargo-lock"
-            {
-              inherit src;
-              nativeBuildInputs = [ cargo-vendor cacert ];
-              preferLocalBuild = true;
-              outputHashMode = "recursive";
-              outputHashAlgo = "sha256";
-              outputHash = if cargoHash != null then cargoHash else lib.fakeSha256;
-            }
-            ''
-              mkdir -p $out/.cargo
-              mkdir -p $out/cargo-vendor-dir
+      # custom import-cargo-lock to import Cargo.lock file and vendor dependencies
+      # see https://github.com/matter-labs/zksync-era/issues/1086
+      import-cargo-lock = {
+        lib,
+        cacert,
+        runCommand,
+      }: {
+        src,
+        cargoHash ? null,
+      }:
+        runCommand "import-cargo-lock"
+        {
+          inherit src;
+          nativeBuildInputs = [cargo-vendor cacert];
+          preferLocalBuild = true;
+          outputHashMode = "recursive";
+          outputHashAlgo = "sha256";
+          outputHash =
+            if cargoHash != null
+            then cargoHash
+            else lib.fakeSha256;
+        }
+        ''
+          mkdir -p $out/.cargo
+          mkdir -p $out/cargo-vendor-dir
 
-              HOME=$(pwd)
-              pushd ${src}
-              HOME=$HOME cargo vendor --no-merge-sources $out/cargo-vendor-dir > $out/.cargo/config
-              sed -i -e "s#$out#import-cargo-lock#g" $out/.cargo/config
-              cp $(pwd)/Cargo.lock $out/Cargo.lock
-              popd
-            ''
-        ;
-        cargoDeps = pkgs.buildPackages.callPackage import-cargo-lock { } { inherit src; inherit cargoHash; };
+          HOME=$(pwd)
+          pushd ${src}
+          HOME=$HOME cargo vendor --no-merge-sources $out/cargo-vendor-dir > $out/.cargo/config
+          sed -i -e "s#$out#import-cargo-lock#g" $out/.cargo/config
+          cp $(pwd)/Cargo.lock $out/Cargo.lock
+          popd
+        '';
+      cargoDeps = pkgs.buildPackages.callPackage import-cargo-lock {} {
+        inherit src;
+        inherit cargoHash;
+      };
 
-        rustVersion = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain;
+      rustVersion = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain;
+      # rustVersion = pkgs.rust-bin.nightly."latest".default.override {};
 
-        stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.clangStdenv;
+      stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.clangStdenv;
 
-        rustPlatform = pkgs.makeRustPlatform {
-          cargo = rustVersion;
-          rustc = rustVersion;
-          inherit stdenv;
-        };
-        zksync_server_cargoToml = builtins.fromTOML (builtins.readFile ./core/bin/zksync_server/Cargo.toml);
+      rustPlatform = pkgs.makeRustPlatform {
+        cargo = rustVersion;
+        rustc = rustVersion;
+        inherit stdenv;
+      };
+      zksync_server_cargoToml = builtins.fromTOML (builtins.readFile ./core/bin/zksync_server/Cargo.toml);
 
-        hardeningEnable = [ "fortify3" "pie" "relro" ];
+      hardeningEnable = ["fortify3" "pie" "relro"];
 
-        src = with pkgs.lib.fileset; toSource {
+      src = with pkgs.lib.fileset;
+        toSource {
           root = ./.;
           fileset = unions [
             ./Cargo.lock
@@ -116,7 +137,8 @@
           ];
         };
 
-        zksync_server = with pkgs; stdenv.mkDerivation {
+      zksync_server = with pkgs;
+        stdenv.mkDerivation {
           pname = "zksync";
           version = zksync_server_cargoToml.package.version + versionSuffix;
 
@@ -176,36 +198,37 @@
             echo "block_reverter" >> $server/nix-support/propagated-user-env-packages
           '';
         };
-      in
-      {
-        formatter = pkgs.nixpkgs-fmt;
+    in {
+      formatter = pkgs.nixpkgs-fmt;
 
-        packages = {
-          inherit zksync_server;
-          default = zksync_server;
-          inherit cargo-vendor;
-          inherit cargoDeps;
-        };
+      packages = {
+        inherit zksync_server;
+        default = zksync_server;
+        inherit cargo-vendor;
+        inherit cargoDeps;
+      };
 
-        devShells = with pkgs; {
-          default = pkgs.mkShell.override { inherit stdenv; } {
-            inputsFrom = [ zksync_server ];
+      devShells = with pkgs; {
+        default = pkgs.mkShell.override {inherit stdenv;} {
+          inputsFrom = [zksync_server];
 
-            packages = [
-              docker-compose
-              nodejs
-              yarn
-              axel
-              postgresql
-              python3
-              solc
-              sqlx-cli
-              mold
-            ];
+          packages = [
+            docker-compose
+            nodejs
+            yarn
+            axel
+            postgresql
+            python3
+            solc
+            sqlx-cli
+            mold
+          ];
 
-            inherit hardeningEnable;
+          inherit hardeningEnable;
 
-            shellHook = ''
+          shellHook = ''
+              export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [pkgs.zlib]}:$LD_LIBRARY_PATH
+              export LD_LIBRARY_PATH=${pkgs.stdenv.cc.cc.lib.outPath}/lib:$LD_LIBRARY_PATH
               export ZKSYNC_HOME=$PWD
               export PATH=$ZKSYNC_HOME/bin:$PATH
               export RUSTFLAGS='-C link-arg=-fuse-ld=${pkgs.mold}/bin/mold'
@@ -219,11 +242,11 @@
               else
                 export NIX_LD_LIBRARY_PATH="$NIX_LD_LIBRARY_PATH:$ZK_NIX_LD_LIBRARY_PATH"
               fi
-            '';
-
+          '';
             ZK_NIX_LD_LIBRARY_PATH = lib.makeLibraryPath [ ];
+            ZK_NIX_LD = builtins.readFile "${clangStdenv.cc}/nix-support/dynamic-linker";
           };
         };
-      });
+      };
+    });
 }
-
