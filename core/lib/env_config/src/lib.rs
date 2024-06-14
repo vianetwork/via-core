@@ -3,6 +3,7 @@ use serde::de::DeserializeOwned;
 
 mod api;
 mod chain;
+mod clients;
 mod contract_verifier;
 mod contracts;
 mod database;

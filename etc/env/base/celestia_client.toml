@@ -1,0 +1,3 @@
+[celestia_client]
+api_node_url = "localhost"
+api_private_key = "localhost"

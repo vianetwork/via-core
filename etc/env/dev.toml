@@ -6,6 +6,7 @@ base = [
     'base/contracts.toml',
     'base/database.toml',
     'base/eth_client.toml',
+    'base/celestia_client.toml',
     'base/eth_sender.toml',
     'base/eth_watch.toml',
     'base/misc.toml',

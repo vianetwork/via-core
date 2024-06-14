@@ -8022,6 +8022,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "zksync_celestia_client"
+version = "0.1.0"
+dependencies = [
+ "assert_matches",
+ "async-trait",
+ "hex",
+ "jsonrpsee",
+ "pretty_assertions",
+ "rlp",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "zksync_config",
+ "zksync_types",
+]
+
+[[package]]
 name = "zksync_circuit_breaker"
 version = "0.1.0"
 dependencies = [
