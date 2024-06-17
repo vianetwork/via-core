@@ -7231,6 +7231,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
+name = "via_zksync_da_client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+ "tracing",
+ "zksync_config",
+ "zksync_types",
+]
+
+[[package]]
 name = "vise"
 version = "0.1.0"
 source = "git+https://github.com/matter-labs/vise.git?rev=a5bb80c9ce7168663114ee30e794d6dc32159ee4#a5bb80c9ce7168663114ee30e794d6dc32159ee4"
@@ -8025,6 +8037,7 @@ dependencies = [
 name = "zksync_celestia_client"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "assert_matches",
  "async-trait",
  "hex",
@@ -8035,7 +8048,9 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "via_zksync_da_client",
  "zksync_config",
+ "zksync_env_config",
  "zksync_types",
 ]
 

@@ -10,11 +10,14 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+via_zksync_da_client.workspace = true
+zksync_env_config.workspace = true
 zksync_types.workspace = true
 zksync_config.workspace = true
 
 thiserror.workspace = true
-async-trait.workspace = true
 jsonrpsee = { workspace = true, features = [
     "client",
     "macros",
