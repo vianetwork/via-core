@@ -131,6 +131,7 @@ jsonrpsee = { version = "0.21.0", default-features = false }
 lazy_static = "1.4"
 leb128 = "0.2.5"
 lru = { version = "0.12.1", default-features = false }
+lumina = "0.1.0"
 metrics = "0.21"
 metrics-exporter-prometheus = "0.12"
 mini-moka = "0.10.0"
@@ -176,8 +177,8 @@ tokio = "1"
 tower = "0.4.13"
 tower-http = "0.4.1"
 tracing = "0.1"
-tracing-subscriber = "0.3"
 tracing-opentelemetry = "0.21.0"
+tracing-subscriber = "0.3"
 url = "2"
 web3 = "0.19.0"
 
