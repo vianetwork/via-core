@@ -10,6 +10,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+celestia-types.workspace = true
+celestia-rpc.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 via_zksync_da_client.workspace = true
@@ -17,17 +19,7 @@ zksync_env_config.workspace = true
 zksync_types.workspace = true
 zksync_config.workspace = true
 
-thiserror.workspace = true
-jsonrpsee = { workspace = true, features = [
-    "client",
-    "macros",
-] }
-tracing.workspace = true
-rlp.workspace = true
-
 [dev-dependencies]
 assert_matches.workspace = true
 tokio = { workspace = true, features = ["full"] }
 pretty_assertions.workspace = true
-hex.workspace = true
-serde_json.workspace = true

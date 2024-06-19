@@ -19,7 +19,7 @@ mod tests {
     fn celestia_client_from_env() {
         let mut lock = MUTEX.lock();
         let config = r#"
-            CELESTIA_CLIENT_API_NODE_URL="localhost:12345"
+            CELESTIA_CLIENT_API_NODE_URL="localhost:26658"
             CELESTIA_CLIENT_PRIVATE_KEY="0xf55baf7c0e4e33b1d78fbf52f069c426bc36cff1aceb9bc8f45d14c07f034d73"
         "#;
 

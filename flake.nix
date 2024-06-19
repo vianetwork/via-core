@@ -35,8 +35,8 @@
     flake-utils.lib.eachDefaultSystem (system: let
       ###########################################################################################
       # This changes every time `Cargo.lock` changes. Set to `null` to force re-vendoring
-      cargoHash = null;
-      # cargoHash = "sha256-LloF3jrvFkOlZ2lQXB+/sFthfJQLLu8BvHBE88gRvFc=";
+      # cargoHash = null;
+      cargoHash = "sha256-4NwQpXTXg3k5dWVCk/CGy4HgOmY79cBX1hRhJ45Iw10=";
       ###########################################################################################
       officialRelease = false;
 
@@ -153,6 +153,7 @@
           ];
 
           buildInputs = [
+            protobuf
             libclang
             openssl
             snappy.dev
