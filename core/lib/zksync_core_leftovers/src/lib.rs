@@ -1,11 +1,6 @@
 #![allow(clippy::upper_case_acronyms, clippy::derive_partial_eq_without_eq)]
 
-use std::{
-    net::Ipv4Addr,
-    str::FromStr,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::str::FromStr;
 
 use anyhow::Context as _;
 use prometheus_exporter::PrometheusExporterConfig;
@@ -67,18 +62,6 @@ use zksync_node_fee_model::{
     l1_gas_price::GasAdjusterSingleton, BatchFeeModelInputProvider, MainNodeFeeInputProvider,
 };
 use zksync_node_genesis::{ensure_genesis_state, GenesisParams};
-use zksync_object_store::{ObjectStore, ObjectStoreFactory};
-use zksync_queued_job_processor::JobProcessor;
-use zksync_shared_metrics::{InitStage, APP_METRICS};
-use zksync_state::{PostgresStorageCaches, RocksdbStorageOptions};
-use zksync_state_keeper::{
-    create_state_keeper, io::seal_logic::l2_block_seal_subtasks::L2BlockSealProcess,
-    AsyncRocksdbCache, MempoolFetcher, MempoolGuard, OutputHandler, StateKeeperPersistence,
-    TreeWritesPersistence,
-};
-use zksync_tee_verifier_input_producer::TeeVerifierInputProducer;
-use zksync_types::{ethabi::Contract, fee_model::FeeModelConfig, Address, L2ChainId};
-use zksync_web3_decl::client::{Client, DynClient, L1};
 
 pub mod temp_config_store;
 
