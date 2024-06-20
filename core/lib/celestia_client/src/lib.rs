@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use celestia_rpc::{BlobClient, Client};
 use celestia_types::{blob::GasPrice, nmt::Namespace, Blob};
@@ -42,7 +43,7 @@ impl DataAvailabilityClient for CelestiaClient {
         batch_number: u32,
         data: Vec<u8>,
     ) -> Result<types::DispatchResponse, types::DAError> {
-        let my_namespace = Namespace::new_v0(&[0xDE, 0xAD, 0xBE, 0xEF]).expect("Invalid namespace");
+        let my_namespace = Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).expect("Invalid namespace");
         let blob = Blob::new(my_namespace, data).expect("Failed to create a blob");
 
         self.inner
@@ -61,17 +62,29 @@ impl DataAvailabilityClient for CelestiaClient {
         &self,
         blob_id: &str,
     ) -> Result<Option<types::InclusionData>, types::DAError> {
-        // let my_namespace = Namespace::new_v0(&[0u8; 28]);
-        let my_namespace =
-            Namespace::new_v0(&[0x42, 0x69, 0x0C, 0x20, 0x4D, 0x39, 0x60, 0x0F, 0xDD, 0xD3])
-                .expect("Invalid namespace");
-        let r = self
+        let my_namespace = Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).expect("Invalid namespace");
+        match self
             .inner
             .blob_get_all(blob_id.parse().unwrap(), &[my_namespace])
             .await
-            .unwrap();
-        println!("return {r:?}");
-        Ok(Some(types::InclusionData { data: vec![] }))
+        {
+            // the vector must has exactly 1 item, otherwise it's an error
+            Ok(data) if data.len() != 1 => Err(types::DAError {
+                error: anyhow!(if data.is_empty() {
+                    "No blobs found"
+                } else {
+                    "More than one blob found"
+                }),
+                is_transient: true,
+            }),
+            Ok(mut data) => Ok(Some(types::InclusionData {
+                data: std::mem::take(&mut data[0].data),
+            })),
+            Err(error) => Err(types::DAError {
+                error: error.into(),
+                is_transient: true,
+            }),
+        }
     }
 
     fn clone_boxed(&self) -> Box<dyn DataAvailabilityClient> {
@@ -98,11 +111,16 @@ mod tests {
     #[tokio::test]
     async fn dispatch_blob() {
         let client = CelestiaClient::new().await.unwrap();
-        // let result = client.dispatch_blob(0, b"cui bono?".to_vec()).await;
-        // println!("{result:#?}");
-        let result = client.get_inclusion_data("1292258").await;
-        let x = result.unwrap().unwrap().data;
-        // assert!(result.is_ok());
-        assert!(false);
+
+        let result = client.dispatch_blob(0, b"cui bono?".to_vec()).await;
+
+        assert!(result.is_ok());
+
+        let result = client
+            .get_inclusion_data(&result.unwrap().blob_id)
+            .await
+            .unwrap();
+
+        assert!(result.is_some());
     }
 }
