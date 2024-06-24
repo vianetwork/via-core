@@ -14,10 +14,14 @@ celestia-types.workspace = true
 celestia-rpc.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
-via_zksync_da_client.workspace = true
-zksync_env_config.workspace = true
 zksync_types.workspace = true
 zksync_config.workspace = true
+serde = { workspace = true, features = ["derive"] }
+
+zksync_object_store.workspace = true
+zksync_da_client.workspace = true
+zksync_node_framework.workspace = true
+zksync_env_config.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true

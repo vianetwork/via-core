@@ -7,9 +7,10 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use celestia_rpc::{BlobClient, Client};
 use celestia_types::{blob::GasPrice, nmt::Namespace, Blob};
-pub use via_zksync_da_client::{types, DataAvailabilityClient};
 use zksync_config::configs::clients::CelestiaConfig;
+pub use zksync_da_client::{types, DataAvailabilityClient};
 use zksync_env_config::FromEnv;
+pub mod wiring_layer;
 
 #[derive(Clone)]
 pub struct CelestiaClient {

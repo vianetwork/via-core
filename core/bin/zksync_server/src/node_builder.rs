@@ -3,6 +3,7 @@
 
 use anyhow::Context;
 use prometheus_exporter::PrometheusExporterConfig;
+use zksync_celestia_client::wiring_layer::ViaNoDAClientWiringLayer;
 use zksync_config::{
     configs::{
         consensus::ConsensusConfig, eth_sender::PubdataSendingMode, wallets::Wallets,
@@ -446,6 +447,11 @@ impl MainNodeBuilder {
         Ok(self)
     }
 
+    fn add_via_no_da_client_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ViaNoDAClientWiringLayer);
+        Ok(self)
+    }
+
     #[allow(dead_code)]
     fn add_object_storage_da_client_layer(mut self) -> anyhow::Result<Self> {
         let object_store_config = DAObjectStoreConfig::from_env()?;
@@ -569,7 +575,9 @@ impl MainNodeBuilder {
                     self = self.add_commitment_generator_layer()?;
                 }
                 Component::DADispatcher => {
-                    self = self.add_no_da_client_layer()?.add_da_dispatcher_layer()?;
+                    self = self
+                        .add_via_no_da_client_layer()?
+                        .add_da_dispatcher_layer()?;
                 }
                 Component::VmRunnerProtectiveReads => {
                     self = self.add_vm_runner_protective_reads_layer()?;

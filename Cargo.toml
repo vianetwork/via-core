@@ -75,8 +75,6 @@ members = [
     "core/tests/loadnext",
     "core/tests/vm-benchmark",
     "core/tests/vm-benchmark/harness",
-    # Via
-    "core/lib/via_da_client",
 ]
 resolver = "2"
 
@@ -280,6 +278,3 @@ zksync_node_consensus = { path = "core/node/consensus" }
 zksync_contract_verification_server = { path = "core/node/contract_verification_server" }
 zksync_node_api_server = { path = "core/node/api_server" }
 zksync_tee_verifier_input_producer = { path = "core/node/tee_verifier_input_producer" }
-
-# Via dependencies
-via_zksync_da_client = { path = "core/lib/via_da_client" }
