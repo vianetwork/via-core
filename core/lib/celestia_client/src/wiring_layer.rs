@@ -10,12 +10,12 @@ use zksync_node_framework::{
 use crate::CelestiaClient;
 
 #[derive(Debug, Default)]
-pub struct ViaNoDAClientWiringLayer;
+pub struct ViaDAClientWiringLayer;
 
 #[async_trait::async_trait]
-impl WiringLayer for ViaNoDAClientWiringLayer {
+impl WiringLayer for ViaDAClientWiringLayer {
     fn layer_name(&self) -> &'static str {
-        "via_no_da_layer"
+        "via_da_layer"
     }
 
     async fn wire(self: Box<Self>, mut context: ServiceContext<'_>) -> Result<(), WiringError> {

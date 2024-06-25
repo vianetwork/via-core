@@ -9152,6 +9152,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "zksync_node_db_pruner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "vise",
+ "zksync_dal",
+ "zksync_health_check",
+ "zksync_types",
+]
+
+[[package]]
 name = "zksync_node_fee_model"
 version = "0.1.0"
 dependencies = [
@@ -9201,6 +9218,7 @@ dependencies = [
  "zksync_metadata_calculator",
  "zksync_node_api_server",
  "zksync_node_consensus",
+ "zksync_node_db_pruner",
  "zksync_node_fee_model",
  "zksync_node_sync",
  "zksync_object_store",
