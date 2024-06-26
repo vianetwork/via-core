@@ -29,14 +29,14 @@ impl Display for DAError {
 impl error::Error for DAError {}
 
 /// `DispatchResponse` is the response received from the DA layer after dispatching a blob.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct DispatchResponse {
     /// The blob_id is needed to fetch the inclusion data.
     pub blob_id: String,
 }
 
 /// `InclusionData` is the data needed to verify on L1 that a blob is included in the DA layer.
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Debug)]
 pub struct InclusionData {
     /// The inclusion data serialized by the DA client. Serialization is done in a way that allows
     /// the deserialization of the data in Solidity contracts.
