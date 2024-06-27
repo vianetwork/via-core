@@ -17,6 +17,8 @@ async-trait.workspace = true
 zksync_types.workspace = true
 zksync_config.workspace = true
 serde = { workspace = true, features = ["derive"] }
+hex = "0.4"
+
 
 zksync_object_store.workspace = true
 zksync_da_client.workspace = true

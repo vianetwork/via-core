@@ -9026,6 +9026,7 @@ dependencies = [
  "async-trait",
  "celestia-rpc",
  "celestia-types",
+ "hex",
  "pretty_assertions",
  "serde",
  "tokio",
