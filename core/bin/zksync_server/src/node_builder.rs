@@ -3,7 +3,6 @@
 
 use anyhow::Context;
 use prometheus_exporter::PrometheusExporterConfig;
-use zksync_celestia_client::wiring_layer::ViaDAClientWiringLayer;
 use zksync_config::{
     configs::{
         consensus::ConsensusConfig, eth_sender::PubdataSendingMode, wallets::Wallets,
@@ -16,6 +15,8 @@ use zksync_default_da_clients::{
     no_da::wiring_layer::NoDAClientWiringLayer,
     object_store::{config::DAObjectStoreConfig, wiring_layer::ObjectStorageClientWiringLayer},
 };
+use via_da_clients::celestia::{config::ViaCelestiaConf, wiring_layer::ViaCelestiaClientWiringLayer};
+
 use zksync_metadata_calculator::MetadataCalculatorConfig;
 use zksync_node_api_server::{
     tx_sender::{ApiContracts, TxSenderConfig},
@@ -171,6 +172,7 @@ impl MainNodeBuilder {
         Ok(self)
     }
 
+    #[allow(dead_code)]
     fn add_l1_batch_commitment_mode_validation_layer(mut self) -> anyhow::Result<Self> {
         let layer = L1BatchCommitmentModeValidationLayer::new(
             self.contracts_config.diamond_proxy_addr,
@@ -442,13 +444,15 @@ impl MainNodeBuilder {
         Ok(self)
     }
 
+    #[allow(dead_code)]
     fn add_no_da_client_layer(mut self) -> anyhow::Result<Self> {
         self.node.add_layer(NoDAClientWiringLayer);
         Ok(self)
     }
 
     fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(ViaDAClientWiringLayer);
+        let config = ViaCelestiaConf::from_env()?;
+        self.node.add_layer(ViaCelestiaClientWiringLayer::new(config.0));
         Ok(self)
     }
 

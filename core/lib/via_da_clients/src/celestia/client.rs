@@ -8,31 +8,24 @@ use async_trait::async_trait;
 use celestia_rpc::{BlobClient, Client};
 use celestia_types::{blob::GasPrice, nmt::Namespace, Blob, Commitment};
 use hex;
-use zksync_config::configs::clients::CelestiaConfig;
 pub use zksync_da_client::{types, DataAvailabilityClient};
-use zksync_env_config::FromEnv;
-pub mod wiring_layer;
+pub use zksync_config::ViaCelestiaConfig;
 
+/// An implementation of the `DataAvailabilityClient` trait that stores the pubdata in the Celestia DA.
 #[derive(Clone)]
 pub struct CelestiaClient {
     light_node_url: String,
-    private_key: String,
-    auth_token: String,
     inner: Arc<Client>,
 }
 
 impl CelestiaClient {
-    pub async fn new() -> anyhow::Result<Self> {
-        let config = CelestiaConfig::from_env()?;
-
-        let client = Client::new(&config.api_node_url, Some(&config.auth_token))
+    pub async fn new(celestia_conf: ViaCelestiaConfig) -> anyhow::Result<Self> {
+        let client = Client::new(&celestia_conf.api_node_url, Some(&celestia_conf.auth_token))
             .await
             .expect("Failed creating rpc client");
 
         Ok(Self {
-            light_node_url: config.api_node_url,
-            private_key: config.api_private_key,
-            auth_token: config.auth_token,
+            light_node_url: celestia_conf.api_node_url,
             inner: Arc::new(client),
         })
     }
@@ -42,7 +35,7 @@ impl CelestiaClient {
 impl DataAvailabilityClient for CelestiaClient {
     async fn dispatch_blob(
         &self,
-        batch_number: u32,
+        _batch_number: u32,
         data: Vec<u8>,
     ) -> Result<types::DispatchResponse, types::DAError> {
         let my_namespace = Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).expect("Invalid namespace");
@@ -137,23 +130,4 @@ impl Debug for CelestiaClient {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[tokio::test]
-    async fn dispatch_blob() {
-        let client = CelestiaClient::new().await.unwrap();
-
-        let result = client.dispatch_blob(0, b"cui bono?".to_vec()).await;
-
-        assert!(result.is_ok());
-
-        let result = client
-            .get_inclusion_data(&result.unwrap().blob_id)
-            .await
-            .unwrap();
-
-        assert!(result.is_some());
-    }
-}

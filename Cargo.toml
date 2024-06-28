@@ -48,7 +48,7 @@ members = [
     "core/lib/da_client",
     "core/lib/default_da_clients",
     "core/lib/eth_client",
-    "core/lib/celestia_client",
+    "core/lib/via_da_clients",
     "core/lib/eth_signer",
     "core/lib/l1_contract_interface",
     "core/lib/mempool",
@@ -232,7 +232,7 @@ zksync_env_config = { path = "core/lib/env_config" }
 zksync_eth_client = { path = "core/lib/eth_client" }
 zksync_da_client = { path = "core/lib/da_client" }
 zksync_default_da_clients = { path = "core/lib/default_da_clients" }
-zksync_celestia_client = { path = "core/lib/celestia_client" }
+via_da_clients = { path = "core/lib/via_da_clients" }
 zksync_eth_signer = { path = "core/lib/eth_signer" }
 zksync_health_check = { path = "core/lib/health_check" }
 zksync_l1_contract_interface = { path = "core/lib/l1_contract_interface" }
