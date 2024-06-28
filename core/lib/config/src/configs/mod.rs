@@ -16,6 +16,7 @@ pub use self::{
     general::GeneralConfig,
     genesis::GenesisConfig,
     object_store::ObjectStoreConfig,
+    via_celestia::ViaCelestiaConfig,
     observability::{ObservabilityConfig, OpentelemetryConfig},
     proof_data_handler::ProofDataHandlerConfig,
     secrets::{DatabaseSecrets, L1Secrets, Secrets},
@@ -26,7 +27,7 @@ pub use self::{
 
 pub mod api;
 pub mod chain;
-pub mod clients;
+pub mod via_celestia;
 pub mod consensus;
 pub mod contract_verifier;
 pub mod contracts;
