@@ -1,5 +1,5 @@
 [package]
-name = "zksync_celestia_client"
+name = "via_da_clients"
 version = "0.1.0"
 edition.workspace = true
 authors.workspace = true

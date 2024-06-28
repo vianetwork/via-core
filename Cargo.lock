@@ -8239,6 +8239,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
+name = "via_da_clients"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_matches",
+ "async-trait",
+ "celestia-rpc",
+ "celestia-types",
+ "hex",
+ "pretty_assertions",
+ "serde",
+ "tokio",
+ "zksync_config",
+ "zksync_da_client",
+ "zksync_env_config",
+ "zksync_node_framework",
+ "zksync_object_store",
+ "zksync_types",
+]
+
+[[package]]
 name = "vise"
 version = "0.1.0"
 source = "git+https://github.com/matter-labs/vise.git?rev=a5bb80c9ce7168663114ee30e794d6dc32159ee4#a5bb80c9ce7168663114ee30e794d6dc32159ee4"
@@ -9014,27 +9035,6 @@ dependencies = [
  "zksync_object_store",
  "zksync_state",
  "zksync_storage",
- "zksync_types",
-]
-
-[[package]]
-name = "zksync_celestia_client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_matches",
- "async-trait",
- "celestia-rpc",
- "celestia-types",
- "hex",
- "pretty_assertions",
- "serde",
- "tokio",
- "zksync_config",
- "zksync_da_client",
- "zksync_env_config",
- "zksync_node_framework",
- "zksync_object_store",
  "zksync_types",
 ]
 
@@ -10272,8 +10272,8 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tracing",
+ "via_da_clients",
  "vlog",
- "zksync_celestia_client",
  "zksync_concurrency",
  "zksync_config",
  "zksync_consensus_crypto",
