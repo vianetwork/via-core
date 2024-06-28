@@ -16,6 +16,7 @@ pub use zksync_config::ViaCelestiaConfig;
 pub struct CelestiaClient {
     light_node_url: String,
     inner: Arc<Client>,
+    blob_size_limit: usize,
 }
 
 impl CelestiaClient {
@@ -27,6 +28,7 @@ impl CelestiaClient {
         Ok(Self {
             light_node_url: celestia_conf.api_node_url,
             inner: Arc::new(client),
+            blob_size_limit: celestia_conf.blob_size_limit,
         })
     }
 }
@@ -118,7 +120,7 @@ impl DataAvailabilityClient for CelestiaClient {
     }
 
     fn blob_size_limit(&self) -> Option<usize> {
-        Some(1973786)
+        Some(self.blob_size_limit)
     }
 }
 

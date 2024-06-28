@@ -21,6 +21,7 @@ mod tests {
         let config = r#"
             VIA_CELESTIA_CLIENT_API_NODE_URL="ws://localhost:26658"
             VIA_CELESTIA_CLIENT_AUTH_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJwdWJsaWMiLCJyZWFkIiwid3JpdGUiLCJhZG1pbiJdfQ.ut1X4u9XG5cbV0yaRAKfGp9xWVrz3NoEPGGRch13dFU
+            VIA_CELESTIA_CLIENT_BLOB_SIZE_LIMIT=1973786
         "#;
 
         lock.set_env(config);
