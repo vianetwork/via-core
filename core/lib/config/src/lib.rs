@@ -2,8 +2,8 @@
 
 pub use crate::configs::{
     ApiConfig, ContractVerifierConfig, ContractsConfig, DADispatcherConfig, DBConfig, EthConfig,
-    EthWatchConfig, GasAdjusterConfig, GenesisConfig, ObjectStoreConfig, PostgresConfig,ViaCelestiaConfig,
-    SnapshotsCreatorConfig, 
+    EthWatchConfig, GasAdjusterConfig, GenesisConfig, ObjectStoreConfig, PostgresConfig,
+    SnapshotsCreatorConfig, ViaCelestiaConfig,
 };
 
 pub mod configs;

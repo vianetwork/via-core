@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use celestia_rpc::{BlobClient, Client};
 use celestia_types::{blob::GasPrice, nmt::Namespace, Blob, Commitment};
 use hex;
-pub use zksync_da_client::{types, DataAvailabilityClient};
 pub use zksync_config::ViaCelestiaConfig;
+pub use zksync_da_client::{types, DataAvailabilityClient};
 
 /// An implementation of the `DataAvailabilityClient` trait that stores the pubdata in the Celestia DA.
 #[derive(Clone)]
@@ -131,5 +131,3 @@ impl Debug for CelestiaClient {
             .finish()
     }
 }
-
-

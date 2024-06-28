@@ -3,7 +3,6 @@ use serde::de::DeserializeOwned;
 
 mod api;
 mod chain;
-mod via_celestia;
 mod contract_verifier;
 mod contracts;
 mod database;
@@ -21,6 +20,7 @@ mod observability;
 mod proof_data_handler;
 mod snapshots_creator;
 mod utils;
+mod via_celestia;
 
 mod da_dispatcher;
 mod genesis;

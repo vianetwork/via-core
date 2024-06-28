@@ -3,6 +3,9 @@
 
 use anyhow::Context;
 use prometheus_exporter::PrometheusExporterConfig;
+use via_da_clients::celestia::{
+    config::ViaCelestiaConf, wiring_layer::ViaCelestiaClientWiringLayer,
+};
 use zksync_config::{
     configs::{
         consensus::ConsensusConfig, eth_sender::PubdataSendingMode, wallets::Wallets,
@@ -15,7 +18,6 @@ use zksync_default_da_clients::{
     no_da::wiring_layer::NoDAClientWiringLayer,
     object_store::{config::DAObjectStoreConfig, wiring_layer::ObjectStorageClientWiringLayer},
 };
-use via_da_clients::celestia::{config::ViaCelestiaConf, wiring_layer::ViaCelestiaClientWiringLayer};
 
 use zksync_metadata_calculator::MetadataCalculatorConfig;
 use zksync_node_api_server::{
@@ -452,7 +454,8 @@ impl MainNodeBuilder {
 
     fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
         let config = ViaCelestiaConf::from_env()?;
-        self.node.add_layer(ViaCelestiaClientWiringLayer::new(config.0));
+        self.node
+            .add_layer(ViaCelestiaClientWiringLayer::new(config.0));
         Ok(self)
     }
 

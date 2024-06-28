@@ -11,4 +11,3 @@ impl ViaCelestiaConf {
         Ok(Self(config))
     }
 }
-

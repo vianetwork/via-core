@@ -16,18 +16,17 @@ pub use self::{
     general::GeneralConfig,
     genesis::GenesisConfig,
     object_store::ObjectStoreConfig,
-    via_celestia::ViaCelestiaConfig,
     observability::{ObservabilityConfig, OpentelemetryConfig},
     proof_data_handler::ProofDataHandlerConfig,
     secrets::{DatabaseSecrets, L1Secrets, Secrets},
     snapshots_creator::SnapshotsCreatorConfig,
     utils::PrometheusConfig,
+    via_celestia::ViaCelestiaConfig,
     vm_runner::ProtectiveReadsWriterConfig,
 };
 
 pub mod api;
 pub mod chain;
-pub mod via_celestia;
 pub mod consensus;
 pub mod contract_verifier;
 pub mod contracts;
@@ -51,6 +50,7 @@ pub mod proof_data_handler;
 pub mod secrets;
 pub mod snapshots_creator;
 pub mod utils;
+pub mod via_celestia;
 pub mod vm_runner;
 pub mod wallets;
 
