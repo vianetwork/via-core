@@ -1407,6 +1407,7 @@ dependencies = [
  "encode_unicode",
  "lazy_static",
  "libc",
+ "unicode-width",
  "windows-sys 0.45.0",
 ]
 
@@ -1892,6 +1893,18 @@ dependencies = [
  "quote 1.0.33",
  "syn 2.0.38",
  "unicode-xid 0.2.4",
+]
+
+[[package]]
+name = "dialoguer"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61579ada4ec0c6031cfac3f86fdba0d195a7ebeb5e36693bd53cb5999a25beeb"
+dependencies = [
+ "console",
+ "lazy_static",
+ "tempfile",
+ "zeroize",
 ]
 
 [[package]]
@@ -7516,6 +7529,8 @@ dependencies = [
  "async-trait",
  "bitcoin",
  "bitcoincore-rpc",
+ "clap 4.4.6",
+ "dialoguer",
  "hex",
  "jsonrpsee",
  "mockall",
