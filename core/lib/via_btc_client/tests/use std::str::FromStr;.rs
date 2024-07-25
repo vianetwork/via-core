@@ -333,6 +333,8 @@ pub fn process_inscribe() {
 
     let reveal_tx = sighasher.into_transaction();
 
+    let wight = reveal_tx.weight();
+
     // BOOM! Transaction signed and ready to broadcast.
     println!("{:#?}", reveal_tx);
 

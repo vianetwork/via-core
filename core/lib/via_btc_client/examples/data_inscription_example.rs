@@ -11,11 +11,13 @@ use bitcoin::script::{Builder as ScriptBuilder, PushBytesBuf};
 use bitcoin::secp256k1::{rand, Message, Secp256k1, SecretKey, Signing, Verification};
 use bitcoin::sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType};
 
+use bitcoin::blockdata::fee_rate::FeeRate;
 use bitcoin::taproot::{ControlBlock, LeafVersion, TaprootBuilder};
 use bitcoin::{
     transaction, Address, Amount, CompressedPublicKey, Network, OutPoint, PrivateKey, ScriptBuf,
     Sequence, TapLeafHash, Transaction, TxIn, TxOut, Txid, WPubkeyHash, Witness,
 };
+
 use bitcoincore_rpc::RawTx;
 
 use reqwest;
@@ -35,6 +37,80 @@ async fn main() {
     let utxos = get_utxos(&sender_address).await;
 
     let (commit_tx_inputs, unlocked_value, inputs_count) = constructing_commit_tx_input(utxos);
+
+    let inscription_script: ScriptBuf = get_insription_script(&inscription_data, internal_key);
+
+    let inscription_commitment_output =
+        construct_inscription_commitment_output(&secp, inscription_script.clone(), internal_key);
+
+}
+
+async fn calculate_commit_transaction_fee(
+    commit_tx_inputs: Vec<TxIn>,
+    inscription_commitment_output: TxOut,
+    fee_rate: FeeRate,
+) -> Amount {
+    
+    let fake_change_output = TxOut {
+        value: Amount::from_sat(0),
+        script_pubkey: ScriptBuf::default(),
+    };
+
+    let unsigned_commit_tx = Transaction {
+        version: transaction::Version::TWO,  // Post BIP-68.
+        lock_time: absolute::LockTime::ZERO, // Ignore the locktime.
+        input: commit_tx_inputs,                  // Input goes into index 0.
+        output: vec![fake_change_output, inscription_commitment_output],   // Outputs, order does not matter.
+    };
+
+    
+
+
+
+
+    return Amount::ZERO;
+}
+
+async fn get_fee_rate() -> FeeRate {
+    // https://mempool.space/testnet/api/v1/fees/recommended
+    let url = "https://mempool.space/testnet/api/v1/fees/recommended";
+    let res = reqwest::get(url).await.unwrap();
+    let res = res.text().await.unwrap();
+
+    let res_json: Value = serde_json::from_str(&res).unwrap();
+
+    let fastest_fee_rate = res_json.get("fastestFee").unwrap().as_u64().unwrap();
+
+    let res = FeeRate::from_sat_per_vb(fastest_fee_rate).unwrap();
+
+
+    return res;
+}
+
+fn construct_inscription_commitment_output<C: Signing + Verification>(
+    secp: &Secp256k1<C>,
+    inscription_script: ScriptBuf,
+    internal_key: UntweakedPublicKey,
+) -> TxOut {
+    // Create a Taproot builder
+    let mut builder = TaprootBuilder::new();
+    builder = builder
+        .add_leaf(0, inscription_script.clone())
+        .expect("adding leaf should work");
+
+    let taproot_spend_info = builder
+        .finalize(&secp, internal_key)
+        .expect("taproot finalize should work");
+
+    // Create the Taproot output script
+    let taproot_address = Address::p2tr_tweaked(taproot_spend_info.output_key(), Network::Testnet);
+
+    let inscription = TxOut {
+        value: Amount::from_sat(0),
+        script_pubkey: taproot_address.script_pubkey(),
+    };
+
+    return inscription;
 }
 
 fn get_insription_script(inscription_data: &str, internal_key: UntweakedPublicKey) -> ScriptBuf {
@@ -45,6 +121,8 @@ fn get_insription_script(inscription_data: &str, internal_key: UntweakedPublicKe
     let data = inscription_data.as_bytes();
     let mut encoded_data = PushBytesBuf::with_capacity(data.len());
     encoded_data.extend_from_slice(data).ok();
+
+    
 
     let taproot_script = ScriptBuilder::new()
         .push_slice(encoded_pubkey.as_push_bytes())
