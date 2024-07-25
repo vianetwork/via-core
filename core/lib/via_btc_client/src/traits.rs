@@ -51,9 +51,15 @@ pub trait BitcoinSigner<'a>: Send + Sync {
     fn new(private_key: &str, rpc_client: &'a dyn BitcoinRpc) -> types::BitcoinSignerResult<Self>
     where
         Self: Sized;
-    async fn sign_transfer(
+    async fn sign_transfer(&self, unsigned_transaction: &str)
+        -> types::BitcoinSignerResult<String>;
+
+    async fn sign_reveal_transaction(
         &self,
         unsigned_transaction: &str,
+        tapscript: &bitcoin::ScriptBuf,
+        leaf_version: bitcoin::taproot::LeafVersion,
+        control_block: &bitcoin::taproot::ControlBlock,
     ) -> types::BitcoinSignerResult<String>;
 }
 
