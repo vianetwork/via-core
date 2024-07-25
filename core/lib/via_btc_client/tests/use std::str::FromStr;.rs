@@ -101,12 +101,9 @@ fn reveal_transaction_output_p2tr<C: Verification>(
         .finalize(&secp, internal_key)
         .expect("taproot finalize should work");
 
-    let control_block = taproot_spend_info.control_block(
-        &(
-            taproot_script.clone(),
-            LeafVersion::TapScript,
-        )
-    ).unwrap();
+    let control_block = taproot_spend_info
+        .control_block(&(taproot_script.clone(), LeafVersion::TapScript))
+        .unwrap();
     // Create the Taproot output script
     let taproot_address = Address::p2tr_tweaked(taproot_spend_info.output_key(), Network::Testnet);
     println!("taproot address: {}", taproot_address);
@@ -312,12 +309,8 @@ pub fn process_inscribe() {
     let reveal_input_signature = secp.sign_schnorr_no_aux_rand(&msg, &keypair);
 
     // verify
-    secp.verify_schnorr(
-        &reveal_input_signature,
-        &msg,
-        &internal_key,
-    )
-    .expect("signature is valid");
+    secp.verify_schnorr(&reveal_input_signature, &msg, &internal_key)
+        .expect("signature is valid");
 
     // Update the witness stack.
     let reveal_input_signature = bitcoin::taproot::Signature {
@@ -337,7 +330,6 @@ pub fn process_inscribe() {
         .witness_mut(reveal_input_index)
         .ok_or("failed to get witness")
         .unwrap() = witness_data;
-
 
     let reveal_tx = sighasher.into_transaction();
 

@@ -1,5 +1,5 @@
+use inquire::ui::{Attributes, Color, RenderConfig, StyleSheet, Styled};
 use inquire::Text;
-use inquire::ui::{Color,  RenderConfig, Styled, StyleSheet, Attributes};
 use std::str::FromStr;
 
 use bitcoin::hashes::Hash;
@@ -19,8 +19,7 @@ use bitcoin::{
 use bitcoincore_rpc::RawTx;
 
 use reqwest;
-use serde_json;
-
+use serde_json::Value;
 
 #[tokio::main]
 async fn main() {
@@ -29,30 +28,83 @@ async fn main() {
     greeting();
 
     // get user input (private key(wif), the data to inscribe)
-    let (sk, wpkh, sender_address,  keypair, inscription_data) = get_user_input(&secp);
+    let (sk, wpkh, sender_address, keypair, inscription_data) = get_user_input(&secp);
     let (internal_key, _parity) = keypair.x_only_public_key();
-    
 
     println!("calling api to fetch all utxos for the given address...");
-
+    let _utxos = get_utxos(&sender_address).await;
 }
 
-async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)>{
+async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
     // call blockcypher api to get all utxos for the given address
     // https://api.blockcypher.com/v1/btc/test3/addrs/tb1qvxglm3jqsawtct65drunhe6uvat2k58dhfugqu/full?limit=200
 
-    let url = format!("https://api.blockcypher.com/v1/btc/test3/addrs/{}/full?limit=200", addr);
-    let res = reqwest::get(&url).await.unwrap().json::<serde_json::Value>().await.unwrap();
+    let url = format!(
+        "https://api.blockcypher.com/v1/btc/test3/addrs/{}/full?limit=200",
+        addr
+    );
+    let res = reqwest::get(&url).await.unwrap().text().await.unwrap();
 
-    vec![]
+    // Convert the response string to JSON
+    let res_json: Value = serde_json::from_str(&res).unwrap();
+
+    let balance = res_json.get("final_balance").unwrap().as_u64().unwrap();
+
+    println!("your address balance is {:?} sats", balance);
+
+    let txs = res_json.get("txs").unwrap().as_array().unwrap();
+
+    println!("found {} transactions", txs.len());
+
+    let mut utxos: Vec<(OutPoint, TxOut)> = vec![];
+
+    for tx in txs {
+        let txid = tx.get("hash").unwrap().as_str().unwrap();
+        let txid = Txid::from_str(txid).unwrap();
+
+        let vouts = tx.get("outputs").unwrap().as_array().unwrap();
+
+        for (vout_index, vout) in vouts.iter().enumerate() {
+            let mut isValid = true;
+
+            if vout.get("spent_by").is_some() {
+                isValid = false;
+            }
+
+            if vout.get("script_type").unwrap().as_str().unwrap() != "pay-to-witness-pubkey-hash" {
+                println!("skipping non-p2wpkh output ...");
+                isValid = false;
+            }
+
+            if !isValid {
+                continue;
+            }
+
+            let out_point = OutPoint {
+                txid,
+                vout: vout_index as u32,
+            };
+
+            let value = vout.get("value").unwrap().as_u64().unwrap();
+            let tx_out = TxOut {
+                value: Amount::from_sat(value),
+                script_pubkey: ScriptBuf::from_hex(vout.get("script").unwrap().as_str().unwrap())
+                    .unwrap(),
+            };
+
+            utxos.push((out_point, tx_out));
+        }
+    }
+
+    return utxos;
 }
 
-fn get_user_input<C: Signing>(secp: &Secp256k1<C>) -> (SecretKey, WPubkeyHash, Address, Keypair, String) {
-
+fn get_user_input<C: Signing>(
+    secp: &Secp256k1<C>,
+) -> (SecretKey, WPubkeyHash, Address, Keypair, String) {
     let mut render_config = RenderConfig::default();
     render_config.prompt_prefix = Styled::new(">").with_fg(Color::LightGreen);
-    render_config.prompt = StyleSheet::new()
-        .with_fg(Color::LightMagenta);
+    render_config.prompt = StyleSheet::new().with_fg(Color::LightMagenta);
 
     let user_wif_prv = Text::new("Enter your private key (WIF): ")
         .with_render_config(render_config)
@@ -90,7 +142,6 @@ fn get_user_input<C: Signing>(secp: &Secp256k1<C>) -> (SecretKey, WPubkeyHash, A
     (sk, wpkh, address, keypair, trimmed_data)
 }
 
-
 fn greeting() {
     let content = r#"
     
@@ -118,17 +169,17 @@ fn greeting() {
     "#;
 
     let mut render_config = RenderConfig::default();
-    render_config.prompt_prefix = Styled::new("***********************************************************").with_fg(Color::LightRed);
-    render_config.prompt = StyleSheet::new()
-        .with_fg(Color::Grey);
+    render_config.prompt_prefix =
+        Styled::new("***********************************************************")
+            .with_fg(Color::LightRed);
+    render_config.prompt = StyleSheet::new().with_fg(Color::Grey);
 
     let res = Text::new(content)
         .with_render_config(render_config)
         .prompt();
 
     match res {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => println!("Error: {}", e),
     }
-
 }

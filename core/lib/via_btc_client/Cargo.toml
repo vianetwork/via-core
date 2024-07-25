@@ -29,9 +29,9 @@ hex.workspace = true
 secp256k1 = "0.29.0"
 
 dialoguer = "0.9"
-reqwest.workspace = true
-serde.workspace = true
+reqwest = "0.12.5"
 serde_json.workspace = true
+
 inquire = "0.7.5"
 
 [dev-dependencies]
