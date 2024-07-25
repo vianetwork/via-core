@@ -1,106 +1,81 @@
 use async_trait::async_trait;
-use bitcoin::consensus::deserialize;
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::{All, Message, Secp256k1};
-use bitcoin::secp256k1;
-use bitcoin::sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType};
-use bitcoin::taproot::{ControlBlock, LeafVersion};
-use bitcoin::{Amount, PrivateKey, Script, ScriptBuf, TapLeafHash, Transaction, Witness};
-use crate::traits::BitcoinSigner;
-use crate::types::{BitcoinSignerResult, BitcoinError};
+use bitcoin::{
+    PrivateKey, Transaction, consensus::{deserialize, serialize},
+    psbt::Psbt, EcdsaSighashType, sighash::SighashCache,
+    secp256k1::{Secp256k1 as BitcoinSecp256k1, Message},
+};
+use secp256k1::SecretKey;
+use crate::traits::{BitcoinRpc, BitcoinSigner};
+use crate::types::{BitcoinError, BitcoinSignerResult};
 
-struct BitcoinSignerImpl {
+pub struct BasicSigner<'a> {
     private_key: PrivateKey,
-    secp: Secp256k1<All>,
+    rpc_client: &'a dyn BitcoinRpc,
 }
 
 #[async_trait]
-impl BitcoinSigner for BitcoinSignerImpl {
-    async fn new(private_key: &str) -> BitcoinSignerResult<Self> {
+impl<'a> BitcoinSigner<'a> for BasicSigner<'a> {
+    fn new(private_key: &str, rpc_client: &'a dyn BitcoinRpc) -> BitcoinSignerResult<Self> {
         let private_key = PrivateKey::from_wif(private_key)
             .map_err(|e| BitcoinError::InvalidPrivateKey(e.to_string()))?;
-        let secp = Secp256k1::new();
-        Ok(Self { private_key, secp })
+
+        Ok(Self {
+            private_key,
+            rpc_client,
+        })
     }
 
-    async fn sign_transaction(
-        &self,
-        unsigned_transaction: &str,
-    ) -> BitcoinSignerResult<String> {
-        let mut unsigned_tx: Transaction = deserialize(&hex::decode(unsigned_transaction)
+    async fn sign_transfer(&self, unsigned_transaction: &str) -> BitcoinSignerResult<String> {
+        let transaction: Transaction = deserialize(&hex::decode(unsigned_transaction)
             .map_err(|e| BitcoinError::InvalidTransaction(e.to_string()))?)
             .map_err(|e| BitcoinError::InvalidTransaction(e.to_string()))?;
+        let mut psbt = Psbt::from_unsigned_tx(transaction.clone())
+            .map_err(|e| BitcoinError::TransactionBuildingError(e.to_string()))?;
 
-        let keypair = self.private_key.inner.keypair(&self.secp);
-        let (internal_key, _parity) = keypair.x_only_public_key();
+        let mut sighash_cache = SighashCache::new(&transaction);
+        let secp = BitcoinSecp256k1::new();
 
-        let mut sighasher = SighashCache::new(&mut unsigned_tx);
+        let mut prevouts = Vec::new();
+        for input in &transaction.input {
+            let prev_tx = self.rpc_client.get_transaction(&input.previous_output.txid).await?;
+            let prev_output = prev_tx.output.get(input.previous_output.vout as usize)
+                .ok_or_else(|| BitcoinError::InvalidOutpoint(input.previous_output.to_string()))?;
+            prevouts.push(prev_output.clone());
+        }
 
-        // fee
+        for (input_index, _) in transaction.input.iter().enumerate() {
+            let prev_output = prevouts.get(input_index)
+                .ok_or_else(|| BitcoinError::InvalidOutpoint(format!("Invalid input index: {}", input_index)))?;
+            let script_pubkey = &prev_output.script_pubkey;
 
-        // TODO: it seems we need to get ScriptPubKey and Value from rpc?
-        let fee_input_index = 0;
-        let sighash_type = EcdsaSighashType::All;
-        let fee_input_sighash = sighasher
-            .p2wpkh_signature_hash(
-                fee_input_index,
-                Script::new(), // TODO
-                Amount::default(),
-                sighash_type,
-            )
-            .map_err(|e| BitcoinError::SigningError(e.to_string()))?;
+            let sighash = sighash_cache.p2wpkh_signature_hash(
+                input_index,
+                script_pubkey,
+                prev_output.value,
+                EcdsaSighashType::All,
+            ).map_err(|e| BitcoinError::SigningError(e.to_string()))?;
 
-        let msg = Message::from(fee_input_sighash);
-        let fee_input_signature = self.secp.sign_ecdsa(&msg, &self.private_key.inner);
+            let message = Message::from_digest_slice(sighash.as_ref())
+                .map_err(|e| BitcoinError::SigningError(e.to_string()))?;
 
-        let fee_input_signature = bitcoin::ecdsa::Signature {
-            signature: fee_input_signature,
-            sighash_type,
-        };
-        let pk: secp256k1::PublicKey = self.private_key.public_key(&self.secp);
+            let secret_key = SecretKey::from_slice(&self.private_key.inner[..])
+                .map_err(|e| BitcoinError::SigningError(e.to_string()))?;
+            let signature = secp.sign_ecdsa(&message, &secret_key);
 
+            let bitcoin_signature = bitcoin::ecdsa::Signature {
+                signature,
+                sighash_type: EcdsaSighashType::All,
+            };
 
-        *sighasher.witness_mut(fee_input_index).unwrap() = Witness::p2wpkh(&fee_input_signature, &pk);
+            psbt.inputs[input_index].partial_sigs.insert(
+                self.private_key.public_key(&secp),
+                bitcoin_signature,
+            );
+        }
 
-        // reveal
+        let signed_tx = psbt.extract_tx()
+            .map_err(|e| BitcoinError::TransactionBuildingError(e.to_string()))?;
 
-        let reveal_input_index = 1;
-        let sighash_type = TapSighashType::All;
-
-        // TODO: correct prevouts
-        let prevouts = Prevouts::All(&[]);
-        // TODO: taproot
-        let taproot_script = ScriptBuf::new();
-
-        let reveal_input_sighash = sighasher
-            .taproot_script_spend_signature_hash(
-                reveal_input_index,
-                &prevouts,
-                TapLeafHash::from_script(&taproot_script, LeafVersion::TapScript),
-                sighash_type,
-            )
-            .map_err(|e| BitcoinError::SigningError(e.to_string()))?;
-
-        let msg = Message::from_digest(reveal_input_sighash.to_byte_array());
-        let reveal_input_signature = self.secp.sign_schnorr_no_aux_rand(&msg, &keypair);
-
-        let reveal_input_signature = bitcoin::taproot::Signature {
-            signature: reveal_input_signature,
-            sighash_type,
-        };
-
-        let mut witness_data = Witness::new();
-        witness_data.push(&reveal_input_signature.to_vec());
-        witness_data.push(&taproot_script.to_bytes());
-
-        // TODO: change control block
-        let control_block = ControlBlock::decode(&[0u8]).map_err(|e| BitcoinError::SigningError(e.to_string()))?;
-        witness_data.push(&control_block.serialize());
-
-        *sighasher.witness_mut(reveal_input_index).unwrap() = witness_data;
-
-        let signed_tx = sighasher.into_transaction();
-
-        Ok(hex::encode(bitcoin::consensus::serialize(&signed_tx)))
+        Ok(hex::encode(serialize(&signed_tx)))
     }
 }
