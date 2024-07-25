@@ -24,12 +24,12 @@ jsonrpsee = { workspace = true, features = [
 tokio.workspace = true
 bitcoin = "0.32.2"
 bitcoincore-rpc = "0.19.0"
-clap = { workspace = true, features = ["derive"] }
 rand.workspace = true
 hex.workspace = true
 secp256k1 = "0.29.0"
 
 dialoguer = "0.9"
+inquire = "0.7.5"
 
 [dev-dependencies]
 anyhow.workspace = true
