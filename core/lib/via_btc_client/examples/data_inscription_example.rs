@@ -32,7 +32,50 @@ async fn main() {
     let (internal_key, _parity) = keypair.x_only_public_key();
 
     println!("calling api to fetch all utxos for the given address...");
-    let _utxos = get_utxos(&sender_address).await;
+    let utxos = get_utxos(&sender_address).await;
+
+    let (commit_tx_inputs, unlocked_value, inputs_count) = constructing_commit_tx_input(utxos);
+}
+
+fn get_insription_script(inscription_data: &str, internal_key: UntweakedPublicKey) -> ScriptBuf {
+    let serelized_pubkey = internal_key.serialize();
+    let mut encoded_pubkey = PushBytesBuf::with_capacity(serelized_pubkey.len());
+    encoded_pubkey.extend_from_slice(&serelized_pubkey).ok();
+
+    let data = inscription_data.as_bytes();
+    let mut encoded_data = PushBytesBuf::with_capacity(data.len());
+    encoded_data.extend_from_slice(data).ok();
+
+    let taproot_script = ScriptBuilder::new()
+        .push_slice(encoded_pubkey.as_push_bytes())
+        .push_opcode(all::OP_CHECKSIG)
+        .push_opcode(OP_FALSE)
+        .push_opcode(all::OP_IF)
+        .push_slice(encoded_data)
+        .push_opcode(all::OP_ENDIF)
+        .into_script();
+
+    return taproot_script;
+}
+
+fn constructing_commit_tx_input(utxos: Vec<(OutPoint, TxOut)>) -> (Vec<TxIn>, Amount, u32) {
+    let mut txins: Vec<TxIn> = vec![];
+    let mut total_value = Amount::ZERO;
+    let mut num_inputs = 0;
+
+    for (outpoint, txout) in utxos {
+        let txin = TxIn {
+            previous_output: outpoint,
+            script_sig: ScriptBuf::default(), // For a p2wpkh script_sig is empty.
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness: Witness::default(), // Get filled in after signing.
+        };
+
+        txins.push(txin);
+        total_value += txout.value;
+        num_inputs += 1;
+    }
+    (txins, total_value, num_inputs)
 }
 
 async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
@@ -66,13 +109,23 @@ async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
 
         for (vout_index, vout) in vouts.iter().enumerate() {
             let mut isValid = true;
+            let value = vout.get("value").unwrap().as_u64().unwrap();
 
             if vout.get("spent_by").is_some() {
                 isValid = false;
             }
 
             if vout.get("script_type").unwrap().as_str().unwrap() != "pay-to-witness-pubkey-hash" {
-                println!("skipping non-p2wpkh output ...");
+                println!(
+                    "skipping non-p2wpkh output ... {:?}",
+                    vout.get("script_type").unwrap().as_str().unwrap()
+                );
+
+                isValid = false;
+            }
+
+            if value == 0 {
+                println!("skipping zero value output ...");
                 isValid = false;
             }
 
@@ -85,7 +138,6 @@ async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
                 vout: vout_index as u32,
             };
 
-            let value = vout.get("value").unwrap().as_u64().unwrap();
             let tx_out = TxOut {
                 value: Amount::from_sat(value),
                 script_pubkey: ScriptBuf::from_hex(vout.get("script").unwrap().as_str().unwrap())
@@ -93,6 +145,7 @@ async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
             };
 
             utxos.push((out_point, tx_out));
+            println!("found utxo: {:?}", txid);
         }
     }
 
