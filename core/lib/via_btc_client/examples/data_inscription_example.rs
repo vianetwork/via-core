@@ -1,18 +1,18 @@
-use inquire::ui::{Attributes, Color, RenderConfig, StyleSheet, Styled};
+use inquire::ui::{Color, RenderConfig, StyleSheet, Styled};
 use inquire::Text;
 use std::str::FromStr;
+use std::vec;
 
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
-use bitcoin::key::{TapTweak, TweakedKeypair, UntweakedPublicKey};
+use bitcoin::key::UntweakedPublicKey;
 use bitcoin::locktime::absolute;
 use bitcoin::opcodes::{all, OP_FALSE};
 use bitcoin::script::{Builder as ScriptBuilder, PushBytesBuf};
-use bitcoin::secp256k1::{rand, Message, Secp256k1, SecretKey, Signing, Verification};
+use bitcoin::secp256k1::{Message, Secp256k1, SecretKey, Signing, Verification};
 use bitcoin::sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType};
 
-use bitcoin::blockdata::fee_rate::FeeRate;
-use bitcoin::taproot::{ControlBlock, LeafVersion, TaprootBuilder};
+use bitcoin::taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootSpendInfo};
 use bitcoin::{
     transaction, Address, Amount, CompressedPublicKey, Network, OutPoint, PrivateKey, ScriptBuf,
     Sequence, TapLeafHash, Transaction, TxIn, TxOut, Txid, WPubkeyHash, Witness,
@@ -36,16 +36,257 @@ async fn main() {
     println!("calling api to fetch all utxos for the given address...");
     let utxos = get_utxos(&sender_address).await;
 
-    let (commit_tx_inputs, unlocked_value, inputs_count) = constructing_commit_tx_input(utxos);
+    let (commit_tx_inputs, unlocked_value, inputs_count, script_pubkeys, utxo_amounts) =
+        constructing_commit_tx_input(utxos);
 
     let (inscription_script, inscription_script_size) =
         get_insription_script(&inscription_data, internal_key);
 
-    let inscription_commitment_output =
+    let (inscription_commitment_output, taproot_spend_info) =
         construct_inscription_commitment_output(&secp, inscription_script.clone(), internal_key);
+
+    let estimated_commitment_tx_size = estimate_transaction_size(inputs_count, 0, 1, 1, vec![]);
+
+    let fee_rate = get_fee_rate().await;
+
+    let estimated_fee = u64::from(fee_rate) * estimated_commitment_tx_size as u64;
+    let estimated_fee = Amount::from_sat(estimated_fee);
+
+    println!("fee rate: {:?}", fee_rate);
+    println!(
+        "Estimated commitment tx size: {:?}",
+        estimated_commitment_tx_size
+    );
+    println!("Estimated fee: {:?}", estimated_fee);
+
+    let commit_change_value = unlocked_value - estimated_fee;
+
+    let change_output = TxOut {
+        value: commit_change_value,
+        script_pubkey: ScriptBuf::new_p2wpkh(&wpkh),
+    };
+
+    let mut unsigned_commit_tx = Transaction {
+        version: transaction::Version::TWO,  // Post BIP-68.
+        lock_time: absolute::LockTime::ZERO, // Ignore the locktime.
+        input: commit_tx_inputs.clone(),     // Input goes into index 0.
+        output: vec![change_output, inscription_commitment_output], // Outputs, order does not matter.
+    };
+
+    let sighash_type = EcdsaSighashType::All;
+    let mut commit_tx_sighasher = SighashCache::new(&mut unsigned_commit_tx);
+
+    for (index, _input) in commit_tx_inputs.iter().enumerate() {
+        let sighash = commit_tx_sighasher
+            .p2wpkh_signature_hash(
+                index,
+                &script_pubkeys[index],
+                utxo_amounts[index],
+                sighash_type,
+            )
+            .expect("failed to create sighash");
+
+        // Sign the sighash using the secp256k1 library (exported by rust-bitcoin).
+        let msg = Message::from(sighash);
+        let signature = secp.sign_ecdsa(&msg, &sk);
+
+        // Update the witness stack.
+        let signature = bitcoin::ecdsa::Signature {
+            signature,
+            sighash_type,
+        };
+        let pk = sk.public_key(&secp);
+        *commit_tx_sighasher.witness_mut(index).unwrap() = Witness::p2wpkh(&signature, &pk);
+    }
+
+    // Get the signed transaction.
+    let commit_tx = commit_tx_sighasher.into_transaction();
+
+    // BOOM! Transaction signed and ready to broadcast.
+    println!("{:#?}", commit_tx);
+
+    println!("commit transaction: {:#?}", commit_tx.raw_hex().to_string());
+
+    let txid = commit_tx.compute_wtxid();
+    println!("commit txid: {:?}", txid);
+
+    let txid = commit_tx.compute_txid();
+    println!("commit txid: {:?}", txid);
+
+    // START CREATING REVEAL TRANSACTION
+
+    let fee_payer_utxo =
+        reveal_transaction_output_fee(&wpkh, &txid.to_string(), commit_change_value);
+
+    let reveal_input =
+        reveal_transaction_output_p2tr(&inscription_script, &txid.to_string(), taproot_spend_info);
+
+    let input = TxIn {
+        previous_output: fee_payer_utxo.0, // The dummy output we are spending.
+        script_sig: ScriptBuf::default(),  // For a p2wpkh script_sig is empty.
+        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+        witness: Witness::default(), // Filled in after signing.
+    };
+
+    let reveal = TxIn {
+        previous_output: reveal_input.0,  // The dummy output we are spending.
+        script_sig: ScriptBuf::default(), // For a p2tr script_sig is empty.
+        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+        witness: Witness::default(), // Filled in after signing.
+    };
+
+    let reveal_tx_estimate_size =
+        estimate_transaction_size(1, 1, 1, 0, vec![inscription_script_size]);
+
+    let reveal_fee = u64::from(fee_rate) * reveal_tx_estimate_size as u64;
+    let reveal_fee = Amount::from_sat(reveal_fee);
+
+    println!("Estimated reveal tx size: {:?}", reveal_tx_estimate_size);
+    println!("reveal fee: {:?}", reveal_fee);
+
+    let reveal_change_value = fee_payer_utxo.1.value - reveal_fee;
+
+    let reveal_change_output = TxOut {
+        value: reveal_change_value,
+        script_pubkey: ScriptBuf::new_p2wpkh(&wpkh),
+    };
+
+    // The transaction we want to sign and broadcast.
+    let mut unsigned_reveal_tx = Transaction {
+        version: transaction::Version::TWO,  // Post BIP-68.
+        lock_time: absolute::LockTime::ZERO, // Ignore the locktime.
+        input: vec![input, reveal],          // Input goes into index 0.
+        output: vec![reveal_change_output],  // Outputs, order does not matter.
+    };
+    let fee_input_index = 0;
+    let reveal_input_index = 1;
+
+    let mut sighasher = SighashCache::new(&mut unsigned_reveal_tx);
+
+    let sighash_type = EcdsaSighashType::All;
+
+    let fee_input_sighash = sighasher
+        .p2wpkh_signature_hash(
+            fee_input_index,
+            &fee_payer_utxo.1.script_pubkey,
+            fee_payer_utxo.1.value,
+            sighash_type,
+        )
+        .expect("failed to create sighash");
+
+    // Sign the sighash using the secp256k1 library (exported by rust-bitcoin).
+    let msg = Message::from(fee_input_sighash);
+    let fee_input_signature = secp.sign_ecdsa(&msg, &sk);
+
+    // Update the witness stack.
+    let fee_input_signature = bitcoin::ecdsa::Signature {
+        signature: fee_input_signature,
+        sighash_type,
+    };
+    let pk = sk.public_key(&secp);
+
+    *sighasher.witness_mut(fee_input_index).unwrap() = Witness::p2wpkh(&fee_input_signature, &pk);
+
+    // **Sign the reveal input**
+
+    let sighash_type = TapSighashType::All;
+    let prevouts = [fee_payer_utxo.1, reveal_input.1];
+    let prevouts = Prevouts::All(&prevouts);
+
+    let reveal_input_sighash = sighasher
+        .taproot_script_spend_signature_hash(
+            reveal_input_index,
+            &prevouts,
+            TapLeafHash::from_script(&inscription_script, LeafVersion::TapScript),
+            sighash_type,
+        )
+        .expect("failed to construct sighash");
+
+    // Sign the sighash using the secp256k1 library (exported by rust-bitcoin).
+    let msg = Message::from_digest(reveal_input_sighash.to_byte_array());
+    let reveal_input_signature = secp.sign_schnorr_no_aux_rand(&msg, &keypair);
+
+    // verify
+    secp.verify_schnorr(&reveal_input_signature, &msg, &internal_key)
+        .expect("signature is valid");
+
+    // Update the witness stack.
+    let reveal_input_signature = bitcoin::taproot::Signature {
+        signature: reveal_input_signature,
+        sighash_type,
+    };
+
+    let mut witness_data: Witness = Witness::new();
+
+    witness_data.push(&reveal_input_signature.to_vec());
+    witness_data.push(&inscription_script.to_bytes());
+
+    // add control block
+    witness_data.push(&reveal_input.2.serialize());
+
+    *sighasher
+        .witness_mut(reveal_input_index)
+        .ok_or("failed to get witness")
+        .unwrap() = witness_data;
+
+    let reveal_tx = sighasher.into_transaction();
+
+    // BOOM! Transaction signed and ready to broadcast.
+    println!("{:#?}", reveal_tx);
+
+    println!("reveal transaction: {:#?}", reveal_tx.raw_hex().to_string());
+
+    let txid = reveal_tx.compute_wtxid();
+    println!("reveal txid: {:?}", txid);
+
+    let txid = reveal_tx.compute_txid();
+    println!("reveal txid: {:?}", txid);
 }
 
-async fn estimate_transaction_size(
+fn reveal_transaction_output_p2tr(
+    inscription_script: &ScriptBuf,
+    txid: &str,
+    taproot_spend_info: TaprootSpendInfo,
+) -> (OutPoint, TxOut, ControlBlock) {
+    let control_block = taproot_spend_info
+        .control_block(&(inscription_script.clone(), LeafVersion::TapScript))
+        .unwrap();
+
+    let out_point = OutPoint {
+        txid: Txid::from_str(&txid).unwrap(),
+        vout: 1,
+    };
+
+    let taproot_address = Address::p2tr_tweaked(taproot_spend_info.output_key(), Network::Testnet);
+
+    let utxo = TxOut {
+        value: Amount::from_sat(0),
+        script_pubkey: taproot_address.script_pubkey(),
+    };
+
+    (out_point, utxo, control_block)
+}
+
+fn reveal_transaction_output_fee(
+    wpkh: &WPubkeyHash,
+    txid: &str,
+    change_amount: Amount,
+) -> (OutPoint, TxOut) {
+    let script_pubkey = ScriptBuf::new_p2wpkh(wpkh);
+
+    let out_point = OutPoint {
+        txid: Txid::from_str(&txid).unwrap(), // Obviously invalid.
+        vout: 0,
+    };
+
+    let utxo = TxOut {
+        value: change_amount,
+        script_pubkey,
+    };
+
+    (out_point, utxo)
+}
+fn estimate_transaction_size(
     p2wpkh_inputs_count: u32,
     p2tr_inputs_count: u32,
     p2wpkh_outputs_count: u32,
@@ -121,7 +362,7 @@ async fn estimate_transaction_size(
     return total_size;
 }
 
-async fn get_fee_rate() -> FeeRate {
+async fn get_fee_rate() -> u64 {
     // https://mempool.space/testnet/api/v1/fees/recommended
     let url = "https://mempool.space/testnet/api/v1/fees/recommended";
     let res = reqwest::get(url).await.unwrap();
@@ -131,16 +372,14 @@ async fn get_fee_rate() -> FeeRate {
 
     let fastest_fee_rate = res_json.get("fastestFee").unwrap().as_u64().unwrap();
 
-    let res = FeeRate::from_sat_per_vb(fastest_fee_rate).unwrap();
-
-    return res;
+    return fastest_fee_rate;
 }
 
 fn construct_inscription_commitment_output<C: Signing + Verification>(
     secp: &Secp256k1<C>,
     inscription_script: ScriptBuf,
     internal_key: UntweakedPublicKey,
-) -> TxOut {
+) -> (TxOut, TaprootSpendInfo) {
     // Create a Taproot builder
     let mut builder = TaprootBuilder::new();
     builder = builder
@@ -159,7 +398,7 @@ fn construct_inscription_commitment_output<C: Signing + Verification>(
         script_pubkey: taproot_address.script_pubkey(),
     };
 
-    return inscription;
+    return (inscription, taproot_spend_info);
 }
 
 fn get_insription_script(
@@ -188,10 +427,14 @@ fn get_insription_script(
     return (taproot_script, script_bytes_size);
 }
 
-fn constructing_commit_tx_input(utxos: Vec<(OutPoint, TxOut)>) -> (Vec<TxIn>, Amount, u32) {
+fn constructing_commit_tx_input(
+    utxos: Vec<(OutPoint, TxOut)>,
+) -> (Vec<TxIn>, Amount, u32, Vec<ScriptBuf>, Vec<Amount>) {
     let mut txins: Vec<TxIn> = vec![];
     let mut total_value = Amount::ZERO;
     let mut num_inputs = 0;
+    let mut script_pubkeys: Vec<ScriptBuf> = vec![];
+    let mut amounts: Vec<Amount> = vec![];
 
     for (outpoint, txout) in utxos {
         let txin = TxIn {
@@ -204,8 +447,10 @@ fn constructing_commit_tx_input(utxos: Vec<(OutPoint, TxOut)>) -> (Vec<TxIn>, Am
         txins.push(txin);
         total_value += txout.value;
         num_inputs += 1;
+        script_pubkeys.push(txout.script_pubkey);
+        amounts.push(txout.value);
     }
-    (txins, total_value, num_inputs)
+    (txins, total_value, num_inputs, script_pubkeys, amounts)
 }
 
 async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
@@ -238,11 +483,11 @@ async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
         let vouts = tx.get("outputs").unwrap().as_array().unwrap();
 
         for (vout_index, vout) in vouts.iter().enumerate() {
-            let mut isValid = true;
+            let mut is_valid = true;
             let value = vout.get("value").unwrap().as_u64().unwrap();
 
             if vout.get("spent_by").is_some() {
-                isValid = false;
+                is_valid = false;
             }
 
             if vout.get("script_type").unwrap().as_str().unwrap() != "pay-to-witness-pubkey-hash" {
@@ -251,15 +496,15 @@ async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
                     vout.get("script_type").unwrap().as_str().unwrap()
                 );
 
-                isValid = false;
+                is_valid = false;
             }
 
             if value == 0 {
                 println!("skipping zero value output ...");
-                isValid = false;
+                is_valid = false;
             }
 
-            if !isValid {
+            if !is_valid {
                 continue;
             }
 
