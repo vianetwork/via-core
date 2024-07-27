@@ -38,37 +38,87 @@ async fn main() {
 
     let (commit_tx_inputs, unlocked_value, inputs_count) = constructing_commit_tx_input(utxos);
 
-    let inscription_script: ScriptBuf = get_insription_script(&inscription_data, internal_key);
+    let (inscription_script, inscription_script_size) =
+        get_insription_script(&inscription_data, internal_key);
 
     let inscription_commitment_output =
         construct_inscription_commitment_output(&secp, inscription_script.clone(), internal_key);
-
 }
 
-async fn calculate_commit_transaction_fee(
-    commit_tx_inputs: Vec<TxIn>,
-    inscription_commitment_output: TxOut,
-    fee_rate: FeeRate,
-) -> Amount {
-    
-    let fake_change_output = TxOut {
-        value: Amount::from_sat(0),
-        script_pubkey: ScriptBuf::default(),
-    };
+async fn estimate_transaction_size(
+    p2wpkh_inputs_count: u32,
+    p2tr_inputs_count: u32,
+    p2wpkh_outputs_count: u32,
+    p2tr_outputs_count: u32,
+    p2tr_witness_sizes: Vec<usize>,
+) -> usize {
+    // https://bitcoinops.org/en/tools/calc-size/
+    // https://en.bitcoin.it/wiki/Protocol_documentation#Common_structures
+    // https://btcinformation.org/en/developer-reference#p2p-network
 
-    let unsigned_commit_tx = Transaction {
-        version: transaction::Version::TWO,  // Post BIP-68.
-        lock_time: absolute::LockTime::ZERO, // Ignore the locktime.
-        input: commit_tx_inputs,                  // Input goes into index 0.
-        output: vec![fake_change_output, inscription_commitment_output],   // Outputs, order does not matter.
-    };
+    assert!(p2tr_inputs_count == p2tr_witness_sizes.len() as u32);
 
-    
+    let version_size = 4;
+    let input_count_size = 1;
+    let output_count_size = 1;
+    let locktime_size = 4;
+    let maker_flags_size = 1; // 1/2
 
+    let base_size =
+        version_size + input_count_size + output_count_size + locktime_size + maker_flags_size;
 
+    // p2wpkh input base size
+    // out point (36) The txid and vout index number of the output (UTXO) being spent
+    // scriptSig length  (1)
+    // scriptSig (0) for p2wpkh and p2tr the scriptSig is empty
+    // sequence number (4)
+    // Witness item count (1/4)
+    // witness item (27)
+    //     ( (73) size signature + (34) size public_key ) / 4
+    // 36 + 1 + 0 + 4 + 1 + 27 = 69
+    let p2wpkh_input_base_size = 69;
 
+    // p2tr input base size
+    // out point (36) The txid and vout index number of the output (UTXO) being spent
+    // scriptSig length  (1)
+    // scriptSig (0) for p2wpkh and p2tr the scriptSig is empty
+    // sequence number (4)
+    // Witness item count (3)
+    // witness item (17)
+    //     ( 65) size schnorr_signature / 4
+    // * rest of the witness items size is calculated based on the witness size
+    // 36 + 1 + 0 + 4 + 3 + 17 = 61
+    let p2tr_input_base_size = 61;
 
-    return Amount::ZERO;
+    // p2wpkh output base size
+    // value (8)
+    // scriptPubKey length (1)
+    // scriptPubKey (p2wpkh: 25)
+    // 8 + 1 + 25 = 34
+    let p2wpkh_output_base_size = 34;
+
+    // p2tr output base size
+    // value (8)
+    // scriptPubKey length (1)
+    // scriptPubKey (p2tr: 34)
+    // 8 + 1 + 34 = 43
+    let p2tr_output_base_size = 43;
+
+    let p2wpkh_input_size = p2wpkh_input_base_size * p2wpkh_inputs_count as usize;
+
+    let mut p2tr_input_size = 0;
+
+    for p2tr_witness_size in p2tr_witness_sizes {
+        p2tr_input_size += p2tr_input_base_size + p2tr_witness_size;
+    }
+
+    let p2wpkh_output_size = p2wpkh_output_base_size * p2wpkh_outputs_count as usize;
+    let p2tr_output_size = p2tr_output_base_size * p2tr_outputs_count as usize;
+
+    let total_size =
+        base_size + p2wpkh_input_size + p2tr_input_size + p2wpkh_output_size + p2tr_output_size;
+
+    return total_size;
 }
 
 async fn get_fee_rate() -> FeeRate {
@@ -82,7 +132,6 @@ async fn get_fee_rate() -> FeeRate {
     let fastest_fee_rate = res_json.get("fastestFee").unwrap().as_u64().unwrap();
 
     let res = FeeRate::from_sat_per_vb(fastest_fee_rate).unwrap();
-
 
     return res;
 }
@@ -113,7 +162,10 @@ fn construct_inscription_commitment_output<C: Signing + Verification>(
     return inscription;
 }
 
-fn get_insription_script(inscription_data: &str, internal_key: UntweakedPublicKey) -> ScriptBuf {
+fn get_insription_script(
+    inscription_data: &str,
+    internal_key: UntweakedPublicKey,
+) -> (ScriptBuf, usize) {
     let serelized_pubkey = internal_key.serialize();
     let mut encoded_pubkey = PushBytesBuf::with_capacity(serelized_pubkey.len());
     encoded_pubkey.extend_from_slice(&serelized_pubkey).ok();
@@ -121,8 +173,6 @@ fn get_insription_script(inscription_data: &str, internal_key: UntweakedPublicKe
     let data = inscription_data.as_bytes();
     let mut encoded_data = PushBytesBuf::with_capacity(data.len());
     encoded_data.extend_from_slice(data).ok();
-
-    
 
     let taproot_script = ScriptBuilder::new()
         .push_slice(encoded_pubkey.as_push_bytes())
@@ -133,7 +183,9 @@ fn get_insription_script(inscription_data: &str, internal_key: UntweakedPublicKe
         .push_opcode(all::OP_ENDIF)
         .into_script();
 
-    return taproot_script;
+    let script_bytes_size = taproot_script.len();
+
+    return (taproot_script, script_bytes_size);
 }
 
 fn constructing_commit_tx_input(utxos: Vec<(OutPoint, TxOut)>) -> (Vec<TxIn>, Amount, u32) {
