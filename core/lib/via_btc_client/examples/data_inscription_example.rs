@@ -457,6 +457,7 @@ async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
     // call blockcypher api to get all utxos for the given address
     // https://api.blockcypher.com/v1/btc/test3/addrs/tb1qvxglm3jqsawtct65drunhe6uvat2k58dhfugqu/full?limit=200
 
+    println!("start fetching utxo");
     let url = format!(
         "https://api.blockcypher.com/v1/btc/test3/addrs/{}/full?limit=200",
         addr
@@ -497,6 +498,15 @@ async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
                 );
 
                 is_valid = false;
+            }
+
+            let vout_related_addresses = vout.get("addresses").unwrap().as_array().unwrap();
+            for vout_address in vout_related_addresses {
+                let vout_address = vout_address.as_str().unwrap();
+                if vout_address != addr.to_string() {
+                    println!("skipping unrelated address output ...");
+                    is_valid = false;
+                }
             }
 
             if value == 0 {
