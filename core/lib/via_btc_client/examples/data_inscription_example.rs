@@ -1,5 +1,6 @@
 use inquire::ui::{Color, RenderConfig, StyleSheet, Styled};
 use inquire::Text;
+use std::os::unix::process;
 use std::str::FromStr;
 use std::vec;
 
@@ -20,8 +21,8 @@ use bitcoin::{
 
 use bitcoincore_rpc::RawTx;
 
-use reqwest;
 use serde_json::Value;
+
 
 #[tokio::main]
 async fn main() {
@@ -30,7 +31,7 @@ async fn main() {
     greeting();
 
     // get user input (private key(wif), the data to inscribe)
-    let (sk, wpkh, sender_address, keypair, inscription_data) = get_user_input(&secp);
+    let (sk, wpkh, sender_address, keypair, inscription_data, is_proof) = get_user_input(&secp);
     let (internal_key, _parity) = keypair.x_only_public_key();
 
     println!("calling api to fetch all utxos for the given address...");
@@ -40,7 +41,7 @@ async fn main() {
         constructing_commit_tx_input(utxos);
 
     let (inscription_script, inscription_script_size) =
-        get_insription_script(&inscription_data, internal_key);
+        get_insription_script(&inscription_data,is_proof, internal_key);
 
     let (inscription_commitment_output, taproot_spend_info) =
         construct_inscription_commitment_output(&secp, inscription_script.clone(), internal_key);
@@ -49,7 +50,7 @@ async fn main() {
 
     let fee_rate = get_fee_rate().await;
 
-    let estimated_fee = u64::from(fee_rate) * estimated_commitment_tx_size as u64;
+    let estimated_fee = fee_rate * estimated_commitment_tx_size as u64;
     let estimated_fee = Amount::from_sat(estimated_fee);
 
     println!("fee rate: {:?}", fee_rate);
@@ -138,7 +139,7 @@ async fn main() {
     let reveal_tx_estimate_size =
         estimate_transaction_size(1, 1, 1, 0, vec![inscription_script_size]);
 
-    let reveal_fee = u64::from(fee_rate) * reveal_tx_estimate_size as u64;
+    let reveal_fee = fee_rate * reveal_tx_estimate_size as u64;
     let reveal_fee = Amount::from_sat(reveal_fee);
 
     println!("Estimated reveal tx size: {:?}", reveal_tx_estimate_size);
@@ -253,7 +254,7 @@ fn reveal_transaction_output_p2tr(
         .unwrap();
 
     let out_point = OutPoint {
-        txid: Txid::from_str(&txid).unwrap(),
+        txid: Txid::from_str(txid).unwrap(),
         vout: 1,
     };
 
@@ -275,7 +276,7 @@ fn reveal_transaction_output_fee(
     let script_pubkey = ScriptBuf::new_p2wpkh(wpkh);
 
     let out_point = OutPoint {
-        txid: Txid::from_str(&txid).unwrap(), // Obviously invalid.
+        txid: Txid::from_str(txid).unwrap(), // Obviously invalid.
         vout: 0,
     };
 
@@ -359,7 +360,7 @@ fn estimate_transaction_size(
     let total_size =
         base_size + p2wpkh_input_size + p2tr_input_size + p2wpkh_output_size + p2tr_output_size;
 
-    return total_size;
+    total_size
 }
 
 async fn get_fee_rate() -> u64 {
@@ -372,7 +373,7 @@ async fn get_fee_rate() -> u64 {
 
     let fastest_fee_rate = res_json.get("fastestFee").unwrap().as_u64().unwrap();
 
-    return fastest_fee_rate;
+    fastest_fee_rate
 }
 
 fn construct_inscription_commitment_output<C: Signing + Verification>(
@@ -387,7 +388,7 @@ fn construct_inscription_commitment_output<C: Signing + Verification>(
         .expect("adding leaf should work");
 
     let taproot_spend_info = builder
-        .finalize(&secp, internal_key)
+        .finalize(secp, internal_key)
         .expect("taproot finalize should work");
 
     // Create the Taproot output script
@@ -398,16 +399,66 @@ fn construct_inscription_commitment_output<C: Signing + Verification>(
         script_pubkey: taproot_address.script_pubkey(),
     };
 
-    return (inscription, taproot_spend_info);
+    (inscription, taproot_spend_info)
 }
 
 fn get_insription_script(
     inscription_data: &str,
+    is_proof: bool,
     internal_key: UntweakedPublicKey,
 ) -> (ScriptBuf, usize) {
+    
     let serelized_pubkey = internal_key.serialize();
     let mut encoded_pubkey = PushBytesBuf::with_capacity(serelized_pubkey.len());
     encoded_pubkey.extend_from_slice(&serelized_pubkey).ok();
+
+    if is_proof {
+        println!("creating proof script");
+
+        // println!("{:?}", inscription_data);
+        let data = inscription_data.as_bytes();
+
+        let max_push_size = 520; // Standard limit for Bitcoin scripts, adjust based on TapScript requirements
+
+        let mut chunks : Vec<PushBytesBuf> = vec![];
+
+        let chunks_len = data.len() / max_push_size;
+        
+        for i in 0..chunks_len {
+            let start = i * max_push_size;
+            let end = (i + 1) * max_push_size;
+            let mut encoded_data = PushBytesBuf::with_capacity(max_push_size);
+            encoded_data.extend_from_slice(&data[start..end]).ok();
+            chunks.push(encoded_data);
+        }
+
+        let last_chunk = data.len() % max_push_size;
+        let mut encoded_data = PushBytesBuf::with_capacity(last_chunk);
+        encoded_data.extend_from_slice(&data[chunks_len * max_push_size..]).ok();
+        chunks.push(encoded_data);
+
+
+        let mut script = ScriptBuilder::new()
+            .push_slice(encoded_pubkey.as_push_bytes())
+            .push_opcode(all::OP_CHECKSIG)
+            .push_opcode(OP_FALSE)
+            .push_opcode(all::OP_IF);
+
+        for chunk in chunks {
+            script = script.push_slice(chunk);
+        }
+
+        let tap_script = script
+                    .push_opcode(all::OP_ENDIF)
+                    .into_script();
+        
+        let script_bytes_size = tap_script.len();
+
+        return (tap_script, script_bytes_size);
+    }
+
+
+
 
     let data = inscription_data.as_bytes();
     let mut encoded_data = PushBytesBuf::with_capacity(data.len());
@@ -424,7 +475,7 @@ fn get_insription_script(
 
     let script_bytes_size = taproot_script.len();
 
-    return (taproot_script, script_bytes_size);
+    (taproot_script, script_bytes_size)
 }
 
 fn constructing_commit_tx_input(
@@ -483,6 +534,12 @@ async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
 
         let vouts = tx.get("outputs").unwrap().as_array().unwrap();
 
+        let confirmations = tx.get("confirmations").unwrap().as_u64().unwrap();
+        if confirmations == 0 {
+            println!("skipping unconfirmed transaction ...");
+            continue;
+        }
+
         for (vout_index, vout) in vouts.iter().enumerate() {
             let mut is_valid = true;
             let value = vout.get("value").unwrap().as_u64().unwrap();
@@ -534,12 +591,12 @@ async fn get_utxos(addr: &Address) -> Vec<(OutPoint, TxOut)> {
         }
     }
 
-    return utxos;
+    utxos
 }
 
 fn get_user_input<C: Signing>(
     secp: &Secp256k1<C>,
-) -> (SecretKey, WPubkeyHash, Address, Keypair, String) {
+) -> (SecretKey, WPubkeyHash, Address, Keypair, String, bool) {
     let mut render_config = RenderConfig::default();
     render_config.prompt_prefix = Styled::new(">").with_fg(Color::LightGreen);
     render_config.prompt = StyleSheet::new().with_fg(Color::LightMagenta);
@@ -577,7 +634,9 @@ fn get_user_input<C: Signing>(
 
     let trimmed_data = data.trim().to_string();
 
-    (sk, wpkh, address, keypair, trimmed_data)
+    let is_proof = trimmed_data.as_bytes().len() > 520;
+
+    (sk, wpkh, address, keypair, trimmed_data, is_proof)
 }
 
 fn greeting() {
