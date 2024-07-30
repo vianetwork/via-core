@@ -1,11 +1,8 @@
-# ZKsync Era: A ZK Rollup For Scaling Ethereum
-
+# Via Network: A L2 for Bitcoin 
 [![Banner](viaBanner.png)](https://onvia.org/)
 
-ZKsync Era is a layer 2 rollup that uses zero-knowledge proofs to scale Ethereum without compromising on security or
-decentralization. Since it's EVM compatible (Solidity/Vyper), 99% of Ethereum projects can redeploy without refactoring
-or re-auditing a single line of code. ZKsync Era also uses an LLVM-based compiler that will eventually let developers
-write smart contracts in C++, Rust and other popular languages.
+Via Network is a Layer 2 scaling solution for Bitcoin that uses ZKP and DA approaches to scale the network. It is a fork of the
+ZkSync project by Matter Labs. The project is currently in alpha state and is under active development.
 
 ## Knowledge Index
 
@@ -17,37 +14,24 @@ The following questions will be answered by the following resources:
 | How can I set up my dev environment?                    | [setup-dev.md](docs/guides/setup-dev.md)       |
 | How can I run the project?                              | [launch.md](docs/guides/launch.md)             |
 | What is the logical project structure and architecture? | [architecture.md](docs/guides/architecture.md) |
-| Where can I find protocol specs?                        | [specs.md](docs/specs/README.md)               |
-| Where can I find developer docs?                        | [docs](https://docs.zksync.io)                 |
+| Where can I find protocol specs?                        | Ping Via Team Members                          |    
+| Where can I find developer docs?                        | Ping Via Team Members                          |
 
-## Policies
+## High Level Overview
 
-- [Security policy](SECURITY.md)
-- [Contribution policy](CONTRIBUTING.md)
+![High Level Architecture](architecture.png)
 
-## License
+This repository will contain code for the following components:
+- Sequencer
+- Proposer
+  - Via bitcoin inscription manager
+- Prover
+- Verifier network node
+  - MPC manager
 
-ZKsync Era is distributed under the terms of either
+`/core/bin` will contain the binaries for the above components with prefix `via_` e.g. `via_server` for sequencer and  proposer software. 
 
-- Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/blog/license/mit/>)
-
-at your option.
-
-## Official Links
-
-- [Website](https://zksync.io/)
-- [GitHub](https://github.com/matter-labs)
-- [ZK Credo](https://github.com/zksync/credo)
-- [Twitter](https://twitter.com/zksync)
-- [Twitter for Developers](https://twitter.com/zkSyncDevs)
-- [Discord](https://join.zksync.dev/)
-- [Mirror](https://zksync.mirror.xyz/)
-- [Youtube](https://www.youtube.com/@zkSync-era)
-
+Prover related code is in the  directory `/prover`.
 ## Disclaimer
 
-ZKsync Era has been through lots of testing and audits. Although it is live, it is still in alpha state and will go
-through more audits and bug bounty programs. We would love to hear our community's thoughts and suggestions about it! It
-is important to state that forking it now can potentially lead to missing important security updates, critical features,
-and performance improvements.
+The Via Network is under development and has not been audited. Please use the project or code of the project at your own risk.
