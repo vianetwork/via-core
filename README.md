@@ -33,6 +33,18 @@ This repository will contain code for the following components:
 `/core/bin` will contain the binaries for the above components with prefix `via_` e.g. `via_server` for sequencer and  proposer software. 
 
 Prover related code is in the  directory `/prover`.
+
+## Branches
+
+- `via-main` is the main branch for the project. the code in this branch is the most stable and is used for production.
+- `main`: this branch is equivalent to the zksync-era repo `main` branch.
+- (feat/fix/chore)/`<branch-name>`: these branches are used for development and are merged into the `via-main` branch.
+- release/`<version>`: these branches are used for release based on the `via-main` branch.
+  
+> Since we like to be updated with the latest changes in the zksync repo, we will periodically sync the `main` branch with the zksync repo and then merge the changes into the `via-main` branch. (rebase)
+
+> We also adopt an approach to reduce the possibility of merge conflicts by adding a `via_` prefix to services and components that we add to the project and also creating our own new orchestration layer (binaries) for via project.
+
 ## Disclaimer
 
 The Via Network is under development and has not been audited. Please use the project or code of the project at your own risk.
