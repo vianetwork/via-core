@@ -23,7 +23,6 @@ use bitcoincore_rpc::RawTx;
 
 use serde_json::Value;
 
-
 #[tokio::main]
 async fn main() {
     let secp = Secp256k1::new();
@@ -41,7 +40,7 @@ async fn main() {
         constructing_commit_tx_input(utxos);
 
     let (inscription_script, inscription_script_size) =
-        get_insription_script(&inscription_data,is_proof, internal_key);
+        get_insription_script(&inscription_data, is_proof, internal_key);
 
     let (inscription_commitment_output, taproot_spend_info) =
         construct_inscription_commitment_output(&secp, inscription_script.clone(), internal_key);
@@ -357,10 +356,7 @@ fn estimate_transaction_size(
     let p2wpkh_output_size = p2wpkh_output_base_size * p2wpkh_outputs_count as usize;
     let p2tr_output_size = p2tr_output_base_size * p2tr_outputs_count as usize;
 
-    let total_size =
-        base_size + p2wpkh_input_size + p2tr_input_size + p2wpkh_output_size + p2tr_output_size;
-
-    total_size
+    base_size + p2wpkh_input_size + p2tr_input_size + p2wpkh_output_size + p2tr_output_size
 }
 
 async fn get_fee_rate() -> u64 {
@@ -407,7 +403,6 @@ fn get_insription_script(
     is_proof: bool,
     internal_key: UntweakedPublicKey,
 ) -> (ScriptBuf, usize) {
-    
     let serelized_pubkey = internal_key.serialize();
     let mut encoded_pubkey = PushBytesBuf::with_capacity(serelized_pubkey.len());
     encoded_pubkey.extend_from_slice(&serelized_pubkey).ok();
@@ -420,10 +415,10 @@ fn get_insription_script(
 
         let max_push_size = 520; // Standard limit for Bitcoin scripts, adjust based on TapScript requirements
 
-        let mut chunks : Vec<PushBytesBuf> = vec![];
+        let mut chunks: Vec<PushBytesBuf> = vec![];
 
         let chunks_len = data.len() / max_push_size;
-        
+
         for i in 0..chunks_len {
             let start = i * max_push_size;
             let end = (i + 1) * max_push_size;
@@ -434,9 +429,10 @@ fn get_insription_script(
 
         let last_chunk = data.len() % max_push_size;
         let mut encoded_data = PushBytesBuf::with_capacity(last_chunk);
-        encoded_data.extend_from_slice(&data[chunks_len * max_push_size..]).ok();
+        encoded_data
+            .extend_from_slice(&data[chunks_len * max_push_size..])
+            .ok();
         chunks.push(encoded_data);
-
 
         let mut script = ScriptBuilder::new()
             .push_slice(encoded_pubkey.as_push_bytes())
@@ -448,17 +444,12 @@ fn get_insription_script(
             script = script.push_slice(chunk);
         }
 
-        let tap_script = script
-                    .push_opcode(all::OP_ENDIF)
-                    .into_script();
-        
+        let tap_script = script.push_opcode(all::OP_ENDIF).into_script();
+
         let script_bytes_size = tap_script.len();
 
         return (tap_script, script_bytes_size);
     }
-
-
-
 
     let data = inscription_data.as_bytes();
     let mut encoded_data = PushBytesBuf::with_capacity(data.len());
