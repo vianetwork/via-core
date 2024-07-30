@@ -14,6 +14,7 @@ The following questions will be answered by the following resources:
 | How can I set up my dev environment?                    | [setup-dev.md](docs/guides/setup-dev.md)       |
 | How can I run the project?                              | [launch.md](docs/guides/launch.md)             |
 | What is the logical project structure and architecture? | [architecture.md](docs/guides/architecture.md) |
+| Via Network Guides                                      | [via.md](docs/guides/via.md)                   |
 | Where can I find protocol specs?                        | Ping Via Team Members                          |    
 | Where can I find developer docs?                        | Ping Via Team Members                          |
 
