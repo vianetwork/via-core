@@ -45,6 +45,14 @@ Prover related code is in the  directory `/prover`.
 
 > We also adopt an approach to reduce the possibility of merge conflicts by adding a `via_` prefix to services and components that we add to the project and also creating our own new orchestration layer (binaries) for via project.
 
+```
+git remote add upstream git@github.com:matter-labs/zksync-era.git
+git checkout main
+git pull upstream main
+git checkout via-main
+git rebase main
+```
+
 ## Disclaimer
 
 The Via Network is under development and has not been audited. Please use the project or code of the project at your own risk.
