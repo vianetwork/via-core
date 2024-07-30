@@ -1,6 +1,5 @@
 use std::{env, fs, path::PathBuf, process::Command, thread, time::Duration};
 
-use bitcoincore_rpc::{Auth, Client};
 use rand::Rng;
 use tempfile::TempDir;
 

@@ -1,4 +1,4 @@
-#![cfg(feature = "test_utils")]
+#![cfg(feature = "regtest")]
 
 use anyhow::Result;
 use via_btc_client::{client::BitcoinClient, regtest::TestContext, BitcoinOps};
@@ -9,6 +9,7 @@ async fn main() -> Result<()> {
 
     let client = BitcoinClient::new(&context.get_url(), "regtest").await?;
 
+    println!("context.get_url(): {:?}", context.get_url());
     let block_height = client.fetch_block_height().await?;
     println!("Current block height: {}", block_height);
 
