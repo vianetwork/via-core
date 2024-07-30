@@ -36,7 +36,7 @@ pub trait BitcoinRpc: Send + Sync {
     async fn get_raw_transaction_info(
         &self,
         txid: &Txid,
-        block_hash: Option<&bitcoin::BlockHash>,
+        // block_hash: Option<&bitcoin::BlockHash>,
     ) -> types::BitcoinRpcResult<bitcoincore_rpc::json::GetRawTransactionResult>;
     async fn estimate_smart_fee(
         &self,

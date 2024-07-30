@@ -67,11 +67,7 @@ impl BitcoinOps for BitcoinClient {
     }
 
     async fn check_tx_confirmation(&self, txid: &Txid) -> BitcoinClientResult<bool> {
-        let latest_block_hash = self.rpc.get_best_block_hash().await?;
-        let tx_info = self
-            .rpc
-            .get_raw_transaction_info(txid, Some(&latest_block_hash))
-            .await?;
+        let tx_info = self.rpc.get_raw_transaction_info(txid).await?;
 
         match tx_info.confirmations {
             Some(confirmations) => Ok(confirmations > 0),
