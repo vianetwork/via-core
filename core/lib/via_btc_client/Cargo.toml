@@ -10,10 +10,6 @@ license.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[[bin]]
-name = "via_btc_test"
-path = "tests/main.rs"
-
 [dependencies]
 zksync_types.workspace = true
 zksync_config.workspace = true
@@ -29,10 +25,13 @@ tokio.workspace = true
 bitcoin = "0.32.2"
 bitcoincore-rpc = "0.19.0"
 rand.workspace = true
+hex.workspace = true
+secp256k1 = "0.29.0"
 
 
 [dev-dependencies]
 anyhow.workspace = true
+mockall = "0.13.0"
 
 [features]
 test_utils = []

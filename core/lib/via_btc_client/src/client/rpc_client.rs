@@ -75,10 +75,9 @@ impl BitcoinRpc for BitcoinRpcClient {
     async fn get_raw_transaction_info(
         &self,
         txid: &Txid,
-        block_hash: Option<&bitcoin::BlockHash>,
     ) -> BitcoinRpcResult<bitcoincore_rpc::json::GetRawTransactionResult> {
         self.client
-            .get_raw_transaction_info(txid, block_hash)
+            .get_raw_transaction_info(txid, None)
             .map_err(|e| e.into())
     }
 
