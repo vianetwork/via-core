@@ -1,4 +1,4 @@
-.github/release-please/** @matter-labs/core-release-managers
-**/CHANGELOG.md @matter-labs/core-release-managers
-CODEOWNERS @RomanBrodetski @perekopskiy @Deniallugo @popzxc
-.github/workflows/** @matter-labs/devops
+.github/release-please/** @mpavlovic-txfusion @danijelTxFusion
+**/CHANGELOG.md @mpavlovic-txfusion @irnb
+CODEOWNERS @mpavlovic-txfusion @irnb @steph-mipt
+.github/workflows/** @danijelTxFusion @irnb
