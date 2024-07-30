@@ -66,11 +66,11 @@ impl BitcoinOps for BitcoinClient {
         Ok(txouts)
     }
 
-    async fn check_tx_confirmation(&self, txid: &Txid) -> BitcoinClientResult<bool> {
+    async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool> {
         let tx_info = self.rpc.get_raw_transaction_info(txid).await?;
 
         match tx_info.confirmations {
-            Some(confirmations) => Ok(confirmations > 0),
+            Some(confirmations) => Ok(confirmations > conf_num),
             None => Ok(false),
         }
     }
@@ -85,7 +85,7 @@ impl BitcoinOps for BitcoinClient {
         todo!()
     }
 
-    async fn estimate_fee(&self, conf_target: u16) -> BitcoinClientResult<u64> {
+    async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64> {
         let estimation = self
             .rpc
             .estimate_smart_fee(conf_target, Some(EstimateMode::Economical))
@@ -180,7 +180,7 @@ mod tests {
 
         // error: Insufficient data or no feerate found
         let fee = client
-            .estimate_fee(6)
+            .get_fee_rate(6)
             .await
             .expect("Failed to estimate fee");
 

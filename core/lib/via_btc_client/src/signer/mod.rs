@@ -33,9 +33,9 @@ impl<'a> BitcoinSigner<'a> for BasicSigner<'a> {
 
     async fn sign_ecdsa(
         &self,
-        unsigned_tx: &mut Transaction,
+        unsigned_tx: &Transaction,
         input_index: usize,
-    ) -> BitcoinSignerResult<()> {
+    ) -> BitcoinSignerResult<Witness> {
         let prevouts = self.get_prevouts(unsigned_tx).await?;
         let mut sighash_cache = SighashCache::new(unsigned_tx.clone());
         let secp = Secp256k1::new();
@@ -62,20 +62,20 @@ impl<'a> BitcoinSigner<'a> for BasicSigner<'a> {
             sighash_type: EcdsaSighashType::All,
         };
 
-        let witness = Witness::p2wpkh(&sig, &self.private_key.inner.public_key(&secp));
-        unsigned_tx.input[input_index].witness = witness;
-
-        Ok(())
+        Ok(Witness::p2wpkh(
+            &sig,
+            &self.private_key.inner.public_key(&secp),
+        ))
     }
 
     async fn sign_reveal(
         &self,
-        unsigned_tx: &mut Transaction,
+        unsigned_tx: &Transaction,
         input_index: usize,
         tapscript: &ScriptBuf,
         leaf_version: LeafVersion,
         control_block: &ControlBlock,
-    ) -> BitcoinSignerResult<()> {
+    ) -> BitcoinSignerResult<Witness> {
         let prevouts = self.get_prevouts(unsigned_tx).await?;
         let mut sighash_cache = SighashCache::new(unsigned_tx.clone());
         let secp = Secp256k1::new();
@@ -106,9 +106,7 @@ impl<'a> BitcoinSigner<'a> for BasicSigner<'a> {
         reveal_witness.push(tapscript.as_bytes());
         reveal_witness.push(control_block.serialize());
 
-        unsigned_tx.input[input_index].witness = reveal_witness;
-
-        Ok(())
+        Ok(reveal_witness)
     }
 }
 
@@ -203,7 +201,7 @@ mod tests {
 
         let signer = BasicSigner::new(&private_key.to_wif(), &mock_rpc).unwrap();
 
-        let mut unsigned_tx = Transaction {
+        let unsigned_tx = Transaction {
             version: Version(2),
             lock_time: LockTime::ZERO,
             input: vec![bitcoin::TxIn {
@@ -215,10 +213,10 @@ mod tests {
             output: vec![],
         };
 
-        let result = signer.sign_ecdsa(&mut unsigned_tx, 0).await;
+        let result = signer.sign_ecdsa(&unsigned_tx, 0).await;
 
         assert!(result.is_ok());
-        assert!(!unsigned_tx.input[0].witness.is_empty());
+        assert!(!result.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -259,7 +257,7 @@ mod tests {
 
         let signer = BasicSigner::new(&private_key.to_wif(), &mock_rpc).unwrap();
 
-        let mut unsigned_tx = Transaction {
+        let unsigned_tx = Transaction {
             version: Version(2),
             lock_time: LockTime::ZERO,
             input: vec![bitcoin::TxIn {
@@ -275,17 +273,11 @@ mod tests {
         let leaf_version = LeafVersion::TapScript;
 
         let result = signer
-            .sign_reveal(
-                &mut unsigned_tx,
-                0,
-                &tapscript,
-                leaf_version,
-                &control_block,
-            )
+            .sign_reveal(&unsigned_tx, 0, &tapscript, leaf_version, &control_block)
             .await;
 
         assert!(result.is_ok());
-        assert!(!unsigned_tx.input[0].witness.is_empty());
+        assert!(!result.unwrap().is_empty());
     }
     #[tokio::test]
     async fn test_get_prevouts() {

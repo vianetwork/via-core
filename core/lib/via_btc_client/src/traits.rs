@@ -16,11 +16,15 @@ pub trait BitcoinOps: Send + Sync {
         signed_transaction: &str,
     ) -> types::BitcoinClientResult<Txid>;
     async fn fetch_utxos(&self, address: &Address) -> types::BitcoinClientResult<Vec<TxOut>>;
-    async fn check_tx_confirmation(&self, txid: &Txid) -> types::BitcoinClientResult<bool>;
+    async fn check_tx_confirmation(
+        &self,
+        txid: &Txid,
+        conf_num: u32,
+    ) -> types::BitcoinClientResult<bool>;
     async fn fetch_block_height(&self) -> types::BitcoinClientResult<u128>;
     async fn fetch_and_parse_block(&self, block_height: u128)
         -> types::BitcoinClientResult<String>;
-    async fn estimate_fee(&self, conf_target: u16) -> types::BitcoinClientResult<u64>;
+    async fn get_fee_rate(&self, conf_target: u16) -> types::BitcoinClientResult<u64>;
 }
 
 #[allow(dead_code)]
@@ -54,18 +58,18 @@ pub trait BitcoinSigner<'a>: Send + Sync {
 
     async fn sign_ecdsa(
         &self,
-        unsigned_tx: &mut Transaction,
+        unsigned_tx: &Transaction,
         input_index: usize,
-    ) -> types::BitcoinSignerResult<()>;
+    ) -> types::BitcoinSignerResult<bitcoin::Witness>;
 
     async fn sign_reveal(
         &self,
-        unsigned_tx: &mut Transaction,
+        unsigned_tx: &Transaction,
         input_index: usize,
         tapscript: &bitcoin::ScriptBuf,
         leaf_version: bitcoin::taproot::LeafVersion,
         control_block: &bitcoin::taproot::ControlBlock,
-    ) -> types::BitcoinSignerResult<()>;
+    ) -> types::BitcoinSignerResult<bitcoin::Witness>;
 }
 #[allow(dead_code)]
 #[async_trait]
