@@ -902,7 +902,6 @@ impl<'a> CliManager<'a> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
     let mut inscription_manager = InscriptionManager::new(
         Network::Testnet,
         "https://api.blockcypher.com/v1/btc/test3/addrs".to_string(),
@@ -912,8 +911,7 @@ async fn main() -> Result<()> {
     let cli_manager = CliManager::new();
     let (wif_string, inscription_data) = cli_manager.get_user_input()?;
 
-    inscription_manager
-        .proccess_user_input(&wif_string, &inscription_data)?;
+    inscription_manager.proccess_user_input(&wif_string, &inscription_data)?;
 
     let result = inscription_manager.start().await?;
 
