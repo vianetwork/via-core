@@ -28,6 +28,10 @@ rand.workspace = true
 hex.workspace = true
 secp256k1 = "0.29.0"
 
+reqwest = "0.12.5"
+serde_json.workspace = true
+
+inquire = "0.7.5"
 
 [dev-dependencies]
 anyhow.workspace = true
@@ -40,3 +44,7 @@ test_utils = []
 name = "bitcoin_client_example"
 path = "examples/bitcoin_client_example.rs"
 required-features = ["test_utils"]
+
+[[example]]
+name = "data_inscription_example"
+path = "examples/data_inscription_example.rs"
