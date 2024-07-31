@@ -12,23 +12,24 @@ services:
       - -fallbackfee=0.0002
       - -txindex
     ports:
-      - "{RPC_PORT}:18443"
+      - "18443:18443"
     volumes:
-      - bitcoin_data_{RPC_PORT}:/home/bitcoin/.bitcoin
+      - bitcoin_data:/home/bitcoin/.bitcoin
 
   bitcoin-cli:
     image: "lightninglabs/bitcoin-core:25"
+    environment:
+      - ALICE_PRIVATE_KEY=cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc
     command:
       - /bin/sh
       - -c
       - |
         bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword createwallet Alice
-        bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword loadwallet Alice
-        bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword -rpcwallet=Alice importprivkey $${ALICE_PRIVATE_KEY} "Alice's Key" false
+        bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword -rpcwallet=Alice importprivkey $${ALICE_PRIVATE_KEY} "Alice's Key" true
         ALICE_ADDRESS=$$(bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword -rpcwallet=Alice getnewaddress)
-        # coins need 100 confirmations to be spendable
         bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword generatetoaddress 101 $${ALICE_ADDRESS}
-        # automatically mine 1 block every 10 seconds
+        echo "Alice's address: $${ALICE_ADDRESS}"
+        echo "Alice's private key: $${ALICE_PRIVATE_KEY}"
         trap 'exit 130' TERM INT EXIT
         while true; do
             bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword generatetoaddress 1 $${ALICE_ADDRESS}
@@ -37,5 +38,5 @@ services:
         done
 
 volumes:
-  bitcoin_data_{RPC_PORT}:
-    name: bitcoin_data_{RPC_PORT}
+  bitcoin_data:
+    name: bitcoin_data

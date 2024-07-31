@@ -1,24 +1,25 @@
+use std::{str::FromStr, vec};
+
 use anyhow::{Context, Result};
-use bitcoin::hashes::Hash;
-use bitcoin::key::Keypair;
-use bitcoin::key::UntweakedPublicKey;
-use bitcoin::locktime::absolute;
-use bitcoin::opcodes::{all, OP_FALSE};
-use bitcoin::script;
-use bitcoin::script::{Builder as ScriptBuilder, PushBytesBuf};
-use bitcoin::secp256k1::{All, Message, Secp256k1, SecretKey, Signing, Verification};
-use bitcoin::sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType};
-use bitcoin::taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootSpendInfo};
 use bitcoin::{
+    hashes::Hash,
+    key::{Keypair, UntweakedPublicKey},
+    locktime::absolute,
+    opcodes::{all, OP_FALSE},
+    script,
+    script::{Builder as ScriptBuilder, PushBytesBuf},
+    secp256k1::{All, Message, Secp256k1, SecretKey, Signing, Verification},
+    sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType},
+    taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootSpendInfo},
     transaction, Address, Amount, CompressedPublicKey, Network, OutPoint, PrivateKey, ScriptBuf,
     Sequence, TapLeafHash, Transaction, TxIn, TxOut, Txid, WPubkeyHash, Witness,
 };
 use bitcoincore_rpc::RawTx;
-use inquire::ui::{Color, RenderConfig, StyleSheet};
-use inquire::Text;
+use inquire::{
+    ui::{Color, RenderConfig, StyleSheet},
+    Text,
+};
 use serde_json::Value;
-use std::str::FromStr;
-use std::vec;
 
 const MAX_PUSH_SIZE: usize = 520;
 

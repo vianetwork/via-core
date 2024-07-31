@@ -1,23 +1,31 @@
 #![cfg(feature = "regtest")]
 
 use anyhow::Result;
-use via_btc_client::{client::BitcoinClient, regtest::TestContext, BitcoinOps};
+use via_btc_client::{client::BitcoinClient, regtest::BitcoinRegtest, BitcoinOps};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let context = TestContext::setup().await;
+    let context = BitcoinRegtest::new()?;
+
+    println!("Private key: {:?}", context.alice_private_key()?);
+    println!("Address: {:?}", context.alice_address()?);
 
     let client = BitcoinClient::new(&context.get_url(), "regtest").await?;
 
-    println!("context.get_url(): {:?}", context.get_url());
     let block_height = client.fetch_block_height().await?;
     println!("Current block height: {}", block_height);
 
-    let estimated_fee = client.get_fee_rate(6).await?;
-    println!(
-        "Estimated fee for 6 confirmations: {} satoshis/vbyte",
-        estimated_fee
-    );
+    let address = context.alice_address()?;
+    let b = client.get_balance(address).await;
+
+    println!("balance : {:?}", b);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let b = client.get_balance(address).await;
+    let block_height = client.fetch_block_height().await?;
+    println!("Current block height: {}", block_height);
+    println!("balance : {:?}", b);
 
     Ok(())
 }
