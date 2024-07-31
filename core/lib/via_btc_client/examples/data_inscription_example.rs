@@ -4,6 +4,7 @@ use bitcoin::key::Keypair;
 use bitcoin::key::UntweakedPublicKey;
 use bitcoin::locktime::absolute;
 use bitcoin::opcodes::{all, OP_FALSE};
+use bitcoin::script;
 use bitcoin::script::{Builder as ScriptBuilder, PushBytesBuf};
 use bitcoin::secp256k1::{All, Message, Secp256k1, SecretKey, Signing, Verification};
 use bitcoin::sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType};
@@ -86,7 +87,8 @@ impl UserKey {
         let pk = bitcoin::PublicKey::new(sk.public_key(secp));
         let wpkh = pk.wpubkey_hash().context("key is compressed")?;
 
-        let compressed_pk = CompressedPublicKey::from_private_key(secp, &private_key).unwrap();
+        let compressed_pk = CompressedPublicKey::from_private_key(secp, &private_key)
+            .context("Failed to get compressed public key from private key")?;
         let address = Address::p2wpkh(&compressed_pk, network);
 
         let keypair = Keypair::from_secret_key(secp, &sk);
@@ -313,28 +315,54 @@ impl InscriptionManager {
         // "https://api.blockcypher.com/v1/btc/test3/addrs/{}/full?limit=200"
         let url = format!("{}/{}/full?limit=200", self.utxo_api_url, address);
 
-        let res = reqwest::get(url).await.unwrap().text().await.unwrap();
+        let res = reqwest::get(url)
+            .await
+            .context("Failed to get utxos from api")?
+            .text()
+            .await
+            .context("Failed to get utxos from api")?;
 
         // Convert the response string to JSON
-        let res_json: Value = serde_json::from_str(&res).unwrap();
+        let res_json: Value = serde_json::from_str(&res).context("Failed to parse response")?;
 
-        let balance = res_json.get("final_balance").unwrap().as_u64().unwrap();
+        let balance = res_json
+            .get("final_balance")
+            .context("Failed to get balance from response")?
+            .as_u64()
+            .context("Failed to parse balance")?;
 
         println!("your address balance is {:?} sats", balance);
 
-        let txs = res_json.get("txs").unwrap().as_array().unwrap();
+        let txs = res_json
+            .get("txs")
+            .context("Failed to get transactions from response")?
+            .as_array()
+            .context("Failed to parse transactions")?;
 
         println!("found {} transactions", txs.len());
 
         let mut utxos: Vec<(OutPoint, TxOut)> = vec![];
 
         for tx in txs {
-            let txid = tx.get("hash").unwrap().as_str().unwrap();
-            let txid = Txid::from_str(txid).unwrap();
+            let txid = tx
+                .get("hash")
+                .context("Failed to get txid from transaction")?
+                .as_str()
+                .context("Failed to parse txid")?;
+            let txid = Txid::from_str(txid).context("Failed to parse txid")?;
 
-            let vouts = tx.get("outputs").unwrap().as_array().unwrap();
+            let vouts = tx
+                .get("outputs")
+                .context("Failed to get outputs from transaction")?
+                .as_array()
+                .context("Failed to parse outputs")?;
 
-            let confirmations = tx.get("confirmations").unwrap().as_u64().unwrap();
+            let confirmations = tx
+                .get("confirmations")
+                .context("Failed to get confirmations from transaction")?
+                .as_u64()
+                .context("Failed to parse confirmations")?;
+
             if confirmations == 0 {
                 println!("skipping unconfirmed transaction ...");
                 continue;
@@ -342,26 +370,41 @@ impl InscriptionManager {
 
             for (vout_index, vout) in vouts.iter().enumerate() {
                 let mut is_valid = true;
-                let value = vout.get("value").unwrap().as_u64().unwrap();
+                let value = vout
+                    .get("value")
+                    .context("Failed to get value from output")?
+                    .as_u64()
+                    .context("Failed to parse value")?;
 
                 if vout.get("spent_by").is_some() {
                     is_valid = false;
                 }
 
-                if vout.get("script_type").unwrap().as_str().unwrap()
-                    != "pay-to-witness-pubkey-hash"
+                if vout
+                    .get("script_type")
+                    .context("Failed to get script type")?
+                    .as_str()
+                    != Some("pay-to-witness-pubkey-hash")
                 {
-                    println!(
-                        "skipping non-p2wpkh output ... {:?}",
-                        vout.get("script_type").unwrap().as_str().unwrap()
-                    );
+                    let script_type = vout
+                        .get("script_type")
+                        .context("Failed to get script type")?
+                        .as_str()
+                        .context("Failed to parse script type")?;
+                    println!("skipping non-p2wpkh output ... {:?}", script_type);
 
                     is_valid = false;
                 }
 
-                let vout_related_addresses = vout.get("addresses").unwrap().as_array().unwrap();
+                let vout_related_addresses = vout
+                    .get("addresses")
+                    .context("Failed to get addresses from output")?
+                    .as_array()
+                    .context("Failed to parse addresses")?;
+
                 for vout_address in vout_related_addresses {
-                    let vout_address = vout_address.as_str().unwrap();
+                    let vout_address = vout_address.as_str().context("Failed to parse address")?;
+
                     if vout_address != address {
                         println!("skipping unrelated address output ...");
                         is_valid = false;
@@ -385,9 +428,12 @@ impl InscriptionManager {
                 let tx_out = TxOut {
                     value: Amount::from_sat(value),
                     script_pubkey: ScriptBuf::from_hex(
-                        vout.get("script").unwrap().as_str().unwrap(),
+                        vout.get("script")
+                            .context("Failed to get script from output")?
+                            .as_str()
+                            .context("Failed to parse script")?,
                     )
-                    .unwrap(),
+                    .context("Failed to parse script")?,
                 };
 
                 utxos.push((out_point, tx_out));
@@ -469,7 +515,9 @@ impl InscriptionManager {
     async fn get_fee_rate(&self) -> Result<u64> {
         // https://mempool.space/testnet/api/v1/fees/recommended
 
-        let res = reqwest::get(&self.fee_rate_api_url).await.unwrap();
+        let res = reqwest::get(&self.fee_rate_api_url)
+            .await
+            .context("Failed to get fee rate")?;
         let res = res
             .text()
             .await
@@ -596,7 +644,11 @@ impl InscriptionManager {
                 .context("User key is not set")?
                 .sk
                 .public_key(&self.secp);
-            *commit_tx_sighasher.witness_mut(index).unwrap() = Witness::p2wpkh(&signature, &pk);
+            *commit_tx_sighasher
+                .witness_mut(index)
+                .ok_or("failed to get witness")
+                .map_err(|_| anyhow::anyhow!("Failed to get witness"))? =
+                Witness::p2wpkh(&signature, &pk);
         }
         // Get the signed transaction.
         let commit_tx = commit_tx_sighasher.into_transaction();
@@ -708,7 +760,10 @@ impl InscriptionManager {
             .sk
             .public_key(&self.secp);
 
-        *sighasher.witness_mut(fee_input_index).unwrap() =
+        *sighasher
+            .witness_mut(fee_input_index)
+            .ok_or("failed to get witness")
+            .map_err(|_| anyhow::anyhow!("Failed to get witness"))? =
             Witness::p2wpkh(&fee_input_signature, &pk);
 
         // **Sign the reveal input**
