@@ -624,7 +624,7 @@ impl InscriptionManager {
                     commit_tx_input_info.utxo_amounts[index],
                     sighash_type,
                 )
-                .expect("failed to create sighash");
+                .context("Failed to create sighash")?;
 
             // Sign the sighash using the secp256k1 library (exported by rust-bitcoin).
             let msg = Message::from(sighash);
@@ -646,8 +646,7 @@ impl InscriptionManager {
                 .public_key(&self.secp);
             *commit_tx_sighasher
                 .witness_mut(index)
-                .ok_or("failed to get witness")
-                .map_err(|_| anyhow::anyhow!("Failed to get witness"))? =
+                .ok_or_else(|| anyhow::anyhow!("Failed to get witness"))? =
                 Witness::p2wpkh(&signature, &pk);
         }
         // Get the signed transaction.
@@ -762,8 +761,7 @@ impl InscriptionManager {
 
         *sighasher
             .witness_mut(fee_input_index)
-            .ok_or("failed to get witness")
-            .map_err(|_| anyhow::anyhow!("Failed to get witness"))? =
+            .ok_or_else(|| anyhow::anyhow!("Failed to get witness"))? =
             Witness::p2wpkh(&fee_input_signature, &pk);
 
         // **Sign the reveal input**
@@ -835,8 +833,7 @@ impl InscriptionManager {
 
         *sighasher
             .witness_mut(reveal_input_index)
-            .ok_or("failed to get witness")
-            .map_err(|_| anyhow::anyhow!("Failed to get witness"))? = witness_data;
+            .ok_or_else(|| anyhow::anyhow!("Failed to get witness"))? = witness_data;
 
         // Get the signed transaction.
         let reveal_tx = sighasher.into_transaction();
