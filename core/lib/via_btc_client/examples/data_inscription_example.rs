@@ -4,7 +4,6 @@ use bitcoin::key::Keypair;
 use bitcoin::key::UntweakedPublicKey;
 use bitcoin::locktime::absolute;
 use bitcoin::opcodes::{all, OP_FALSE};
-use bitcoin::script;
 use bitcoin::script::{Builder as ScriptBuilder, PushBytesBuf};
 use bitcoin::secp256k1::{All, Message, Secp256k1, SecretKey, Signing, Verification};
 use bitcoin::sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType};
