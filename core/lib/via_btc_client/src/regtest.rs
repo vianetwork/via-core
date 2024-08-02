@@ -101,7 +101,6 @@ impl Drop for BitcoinRegtest {
 #[cfg(test)]
 mod tests {
     use bitcoin::CompressedPublicKey;
-    use bitcoincore_rpc::{Auth, Client, RpcApi};
     use secp256k1::Secp256k1;
 
     use super::*;
