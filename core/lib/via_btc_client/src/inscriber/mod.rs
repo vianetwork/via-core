@@ -163,6 +163,7 @@ impl<'a> Inscriber<'a> {
 // |      OP_IF                                                  |
 // |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
 // |      OP_PUSHBYTES_32  b"Str('SystemBootstrappingMessage')"  |
+// |      OP_PUSHBYTES_32  b"start_block_height"                 |
 // |      OP_PUSHBYTES_32  b"verifier_1_p2wpkh_address"          |
 // |      OP_PUSHBYTES_32  b"verifier_2_p2wpkh_address"          |
 // |      OP_PUSHBYTES_32  b"verifier_3_p2wpkh_address"          |
