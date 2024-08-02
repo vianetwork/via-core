@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 use bitcoin::{
-    absolute::LockTime, address::NetworkUnchecked, transaction::Version, Address, Amount,
-    Network, OutPoint, Sequence, Transaction, TxIn, TxOut, Witness,
+    absolute::LockTime, address::NetworkUnchecked, transaction::Version, Address, Amount, Network,
+    OutPoint, Sequence, Transaction, TxIn, TxOut, Witness,
 };
 use via_btc_client::{
     client::BitcoinClient, regtest::BitcoinRegtest, signer::BasicSigner, traits::BitcoinSigner,
