@@ -207,5 +207,5 @@ impl<'a> Inscriber<'a> {
 //  !!! and the amount is equal to the amount of btc user sends to bridge address in the same reveal tx !!!
 //  !!! if the contract address and call_data was provided the amount get used as fee and remaining amount get sent to l2 receiver address !!!
 //  !!! in future we can implement kinda enforcement withdrawal with using l1->l2 message (reference in notion) !!!
-
+//  !!! also we should support op_return only for bridging in future of the inscription indexer !!!
 
