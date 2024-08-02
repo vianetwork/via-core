@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   bitcoind:
-    image: "lightninglabs/bitcoin-core:25"
+    image: "lightninglabs/bitcoin-core:27"
     command:
       - -regtest
       - -server
@@ -17,19 +17,20 @@ services:
       - bitcoin_data:/home/bitcoin/.bitcoin
 
   bitcoin-cli:
-    image: "lightninglabs/bitcoin-core:25"
+    image: "lightninglabs/bitcoin-core:27"
     environment:
-      - ALICE_PRIVATE_KEY=cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc
+      - TEST_ADDRESS=bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
     command:
       - /bin/sh
       - -c
       - |
-        bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword createwallet Alice
-        bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword -rpcwallet=Alice importprivkey $${ALICE_PRIVATE_KEY} "Alice's Key" true
-        ALICE_ADDRESS=$$(bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword -rpcwallet=Alice getnewaddress)
-        bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword generatetoaddress 101 $${ALICE_ADDRESS}
+        bitcoin-cli -chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword createwallet Alice
+        ALICE_ADDRESS=$(bitcoin-cli -chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword -rpcwallet=Alice getnewaddress)
+        bitcoin-cli -chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword generatetoaddress 201 $${ALICE_ADDRESS}
         echo "Alice's address: $${ALICE_ADDRESS}"
-        echo "Alice's private key: $${ALICE_PRIVATE_KEY}"
+        TXID=$(bitcoin-cli -chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword sendtoaddress $${TEST_ADDRESS} 300)
+        echo "Sent 300 BTC to address: $${TEST_ADDRESS}"
+        bitcoin-cli -chain=-regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword generatetoaddress 6 $${ALICE_ADDRESS}
         trap 'exit 130' TERM INT EXIT
         while true; do
             bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword generatetoaddress 1 $${ALICE_ADDRESS}

@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use bitcoin::{Address, Block, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::{
-    bitcoincore_rpc_json::EstimateMode, json::EstimateSmartFeeResult, Auth, Client, RpcApi,
+    bitcoincore_rpc_json::EstimateMode,
+    json::{EstimateSmartFeeResult, ScanTxOutRequest},
+    Auth, Client, RpcApi,
 };
 
 use crate::{traits::BitcoinRpc, types::BitcoinRpcResult};
@@ -27,11 +29,12 @@ impl BitcoinRpcClient {
 #[async_trait]
 impl BitcoinRpc for BitcoinRpcClient {
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64> {
-        let unspent = self
-            .client
-            .list_unspent(Some(1), None, Some(&[address]), None, None)?;
-        let balance = unspent.iter().map(|u| u.amount.to_sat()).sum();
-        Ok(balance)
+        let descriptor = format!("addr({})", address);
+        let request = vec![ScanTxOutRequest::Single(descriptor)];
+
+        let result = self.client.scan_tx_out_set_blocking(&request)?;
+
+        Ok(result.total_amount.to_sat())
     }
 
     async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinRpcResult<Txid> {
@@ -41,16 +44,21 @@ impl BitcoinRpc for BitcoinRpcClient {
     }
 
     async fn list_unspent(&self, address: &Address) -> BitcoinRpcResult<Vec<OutPoint>> {
-        let unspent = self
-            .client
-            .list_unspent(Some(1), None, Some(&[address]), None, None)?;
-        Ok(unspent
+        let descriptor = format!("addr({})", address);
+        let request = vec![ScanTxOutRequest::Single(descriptor)];
+
+        let result = self.client.scan_tx_out_set_blocking(&request)?;
+
+        let unspent: Vec<OutPoint> = result
+            .unspents
             .into_iter()
-            .map(|u| OutPoint {
-                vout: u.vout,
-                txid: u.txid,
+            .map(|unspent| OutPoint {
+                txid: unspent.txid,
+                vout: unspent.vout,
             })
-            .collect())
+            .collect();
+
+        Ok(unspent)
     }
 
     async fn get_transaction(&self, txid: &Txid) -> BitcoinRpcResult<Transaction> {

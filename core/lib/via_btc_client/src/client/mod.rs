@@ -15,7 +15,7 @@ use crate::types::BitcoinError;
 
 #[allow(unused)]
 pub struct BitcoinClient {
-    rpc: Box<dyn BitcoinRpc>,
+    pub rpc: Box<dyn BitcoinRpc>,
     network: Network,
 }
 
@@ -50,7 +50,7 @@ impl BitcoinOps for BitcoinClient {
         Ok(txid)
     }
 
-    async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<TxOut>> {
+    async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(TxOut, Txid, u32)>> {
         let outpoints = self.rpc.list_unspent(address).await?;
 
         let mut txouts = Vec::new();
@@ -60,7 +60,7 @@ impl BitcoinOps for BitcoinClient {
                 .output
                 .get(outpoint.vout as usize)
                 .ok_or(BitcoinError::InvalidOutpoint(outpoint.to_string()))?;
-            txouts.push(txout.clone());
+            txouts.push((txout.clone(), outpoint.txid, outpoint.vout));
         }
 
         Ok(txouts)
@@ -101,6 +101,10 @@ impl BitcoinOps for BitcoinClient {
                 Err(BitcoinError::FeeEstimationFailed(err))
             }
         }
+    }
+
+    fn get_rpc_client(&self) -> &dyn BitcoinRpc {
+        self.rpc.as_ref()
     }
 }
 
@@ -191,7 +195,7 @@ mod tests {
         let utxos = client.fetch_utxos(&address.assume_checked()).await.unwrap();
 
         assert_eq!(utxos.len(), 1);
-        assert_eq!(utxos[0].value, Amount::from_sat(50000));
+        assert_eq!(utxos[0].0.value, Amount::from_sat(50000));
     }
 
     #[tokio::test]

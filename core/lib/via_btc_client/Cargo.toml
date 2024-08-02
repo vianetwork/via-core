@@ -33,13 +33,14 @@ serde_json.workspace = true
 inquire = "0.7.5"
 tempfile = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow.workspace = true
 mockall = "0.13.0"
 
 [features]
-regtest = ["tempfile", "anyhow"]
+regtest = ["tempfile", "anyhow", "serde"]
 
 [[example]]
 name = "bitcoin_client_example"

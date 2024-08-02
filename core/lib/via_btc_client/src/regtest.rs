@@ -1,5 +1,4 @@
 use std::{
-    path::PathBuf,
     process::{Command, Stdio},
     thread,
     time::Duration,
@@ -10,107 +9,84 @@ use bitcoin::{address::NetworkUnchecked, Address, Network, PrivateKey};
 
 const COMPOSE_FILE_PATH: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/tests/docker-compose-btc.yml");
+const CLI_CONTAINER_NAME: &str = "tests-bitcoin-cli-1";
 
 pub struct BitcoinRegtest {
-    compose_file: PathBuf,
-    alice_private_key: Option<PrivateKey>,
-    alice_address: Option<Address>,
+    private_key: PrivateKey,
+    address: Address,
 }
 
 impl BitcoinRegtest {
     pub fn new() -> Result<Self> {
-        let compose_file = PathBuf::from(COMPOSE_FILE_PATH);
-        let mut regtest = Self {
-            compose_file,
-            alice_private_key: None,
-            alice_address: None,
+        let regtest = Self {
+            address: "bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56"
+                .parse::<Address<NetworkUnchecked>>()?
+                .require_network(Network::Regtest)?,
+            private_key: PrivateKey::from_wif(
+                "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R",
+            )?,
         };
         regtest.setup()?;
         Ok(regtest)
     }
 
-    fn setup(&mut self) -> Result<()> {
+    fn setup(&self) -> Result<()> {
         self.run()?;
         thread::sleep(Duration::from_secs(10));
-        let (address, private_key) = self.get_alice_info()?;
-        self.alice_address = Some(address);
-        self.alice_private_key = Some(private_key);
         Ok(())
     }
 
     fn run(&self) -> Result<()> {
         Command::new("docker")
-            .args([
-                "compose",
-                "-f",
-                self.compose_file.to_str().unwrap(),
-                "up",
-                "-d",
-            ])
+            .args(["compose", "-f", COMPOSE_FILE_PATH, "up", "-d"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
         Ok(())
+    }
+
+    pub fn get_miner_address(&self) -> Result<Address> {
+        let output = Command::new("docker")
+            .args(["logs", CLI_CONTAINER_NAME])
+            .output()?;
+        let stdout_utf8 = std::str::from_utf8(&output.stdout)?;
+        if let Some(line) = stdout_utf8
+            .lines()
+            .find(|line| line.starts_with("Alice's address:"))
+        {
+            match line
+                .split_once(": ")
+                .map(|(_, addr)| addr.trim().to_string())
+            {
+                Some(address) => Ok(address
+                    .parse::<Address<NetworkUnchecked>>()?
+                    .require_network(Network::Regtest)?),
+                None => Err(anyhow::anyhow!("Error while getting miner address")),
+            }
+        } else {
+            Err(anyhow::anyhow!("Error while getting miner address"))
+        }
     }
 
     fn stop(&self) -> Result<()> {
         Command::new("docker")
-            .args([
-                "compose",
-                "-f",
-                self.compose_file.to_str().unwrap(),
-                "down",
-                "--volumes",
-            ])
+            .args(["compose", "-f", COMPOSE_FILE_PATH, "down", "--volumes"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
         Ok(())
-    }
-
-    fn get_alice_info(&self) -> Result<(Address, PrivateKey)> {
-        let output = Command::new("docker")
-            .args(["logs", "tests-bitcoin-cli-1"])
-            .output()?;
-
-        let logs = String::from_utf8_lossy(&output.stdout);
-
-        let address_str = logs
-            .lines()
-            .find(|line| line.starts_with("Alice's address:"))
-            .and_then(|line| line.split(':').nth(1))
-            .map(str::trim)
-            .ok_or_else(|| anyhow::anyhow!("Alice's address not found in logs"))?;
-
-        let private_key_str = logs
-            .lines()
-            .find(|line| line.starts_with("Alice's private key:"))
-            .and_then(|line| line.split(':').nth(1))
-            .map(str::trim)
-            .ok_or_else(|| anyhow::anyhow!("Alice's private key not found in logs"))?;
-
-        let address = address_str
-            .parse::<Address<NetworkUnchecked>>()?
-            .require_network(Network::Regtest)?;
-        let private_key = PrivateKey::from_wif(private_key_str)?;
-
-        Ok((address, private_key))
     }
 
     pub fn get_url(&self) -> String {
         "http://127.0.0.1:18443".to_string()
     }
 
-    pub fn alice_address(&self) -> Result<&Address> {
-        self.alice_address
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Alice's address not set"))
+    pub fn get_address(&self) -> &Address {
+        &self.address
     }
 
-    pub fn alice_private_key(&self) -> Result<&PrivateKey> {
-        self.alice_private_key
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Alice's private key not set"))
+    pub fn get_private_key(&self) -> &PrivateKey {
+        &self.private_key
     }
 }
 
@@ -124,34 +100,37 @@ impl Drop for BitcoinRegtest {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::CompressedPublicKey;
     use bitcoincore_rpc::{Auth, Client, RpcApi};
+    use secp256k1::Secp256k1;
 
     use super::*;
+    use crate::{client::BitcoinRpcClient, traits::BitcoinRpc};
 
-    #[test]
-    fn test_bitcoin_regtest() {
+    #[tokio::test]
+    async fn test_bitcoin_regtest() {
         let regtest = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
+        let rpc = BitcoinRpcClient::new(&regtest.get_url(), "rpcuser", "rpcpassword")
+            .expect("Failed create rpc client");
 
-        let url = regtest.get_url();
-        let rpc = Client::new(
-            &url,
-            Auth::UserPass("rpcuser".to_string(), "rpcpassword".to_string()),
-        )
-        .expect("Failed to create RPC client");
-
-        let balance = rpc.get_balance(None, None).expect("Failed to get balance");
-        assert!(balance.to_btc() > 0.0);
-
-        let block_count = rpc.get_block_count().expect("Failed to get block count");
+        let block_count = rpc
+            .get_block_count()
+            .await
+            .expect("Failed to get block count");
         assert!(block_count > 100);
 
-        let wallet_info = rpc.get_wallet_info().expect("Failed to get wallet info");
-        assert_eq!(wallet_info.wallet_name, "Alice");
+        let address = regtest.get_address();
+        let private_key = regtest.get_private_key();
+        let balance = rpc
+            .get_balance(address)
+            .await
+            .expect("Failed to get balance of test address");
+        assert!(balance > 300000);
 
-        println!(
-            "Alice's private key: {}",
-            regtest.alice_private_key().unwrap()
-        );
-        println!("Alice's address: {}", regtest.alice_address().unwrap());
+        let secp = Secp256k1::new();
+        let compressed_public_key = CompressedPublicKey::from_private_key(&secp, private_key)
+            .expect("Failed to generate address from test private_key");
+        let derived_address = Address::p2wpkh(&compressed_public_key, Network::Regtest);
+        assert_eq!(*address, derived_address, "Address mismatch!");
     }
 }

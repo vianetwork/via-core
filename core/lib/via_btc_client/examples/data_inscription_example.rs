@@ -6,7 +6,6 @@ use bitcoin::{
     key::{Keypair, UntweakedPublicKey},
     locktime::absolute,
     opcodes::{all, OP_FALSE},
-    script,
     script::{Builder as ScriptBuilder, PushBytesBuf},
     secp256k1::{All, Message, Secp256k1, SecretKey, Signing, Verification},
     sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType},
