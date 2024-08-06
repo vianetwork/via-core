@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Block, OutPoint, Transaction, TxOut, Txid};
+use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, TxOut, Txid};
 
 use crate::types;
 
@@ -90,19 +90,23 @@ pub trait BitcoinInscriber: Send + Sync {
 
 #[allow(dead_code)]
 #[async_trait]
-pub trait BitcoinInscriptionIndexer: Send + Sync {
-    async fn new(config: &str) -> types::BitcoinInscriptionIndexerResult<Self>
+pub trait BitcoinIndexerOpt: Send + Sync {
+    async fn new() -> types::BitcoinInscriptionIndexerResult<Self>
     where
         Self: Sized;
-    async fn get_inscription_messages(
+    async fn process_blocks(
         &self,
         starting_block: u128,
         ending_block: u128,
     ) -> types::BitcoinInscriptionIndexerResult<Vec<&str>>;
-    async fn get_specific_block_inscription_messages(
+    async fn process_block(&self, block: u128)
+        -> types::BitcoinInscriptionIndexerResult<Vec<&str>>;
+
+    async fn are_blocks_connected(
         &self,
-        block_height: u128,
-    ) -> types::BitcoinInscriptionIndexerResult<Vec<&str>>;
+        parent_hash: &BlockHash,
+        child_hash: &BlockHash,
+    ) -> types::BitcoinInscriptionIndexerResult<bool>;
 }
 
 #[allow(dead_code)]
