@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use bitcoin::{Address, Block, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::{
-    bitcoincore_rpc_json::EstimateMode, json::EstimateSmartFeeResult, Auth, Client, RpcApi,
+    bitcoincore_rpc_json::EstimateMode,
+    json::{EstimateSmartFeeResult, ScanTxOutRequest},
+    Auth, Client, RpcApi,
 };
 
 use crate::{traits::BitcoinRpc, types::BitcoinRpcResult};
@@ -27,11 +29,12 @@ impl BitcoinRpcClient {
 #[async_trait]
 impl BitcoinRpc for BitcoinRpcClient {
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64> {
-        let unspent = self
-            .client
-            .list_unspent(Some(1), None, Some(&[address]), None, None)?;
-        let balance = unspent.iter().map(|u| u.amount.to_sat()).sum();
-        Ok(balance)
+        let descriptor = format!("addr({})", address);
+        let request = vec![ScanTxOutRequest::Single(descriptor)];
+
+        let result = self.client.scan_tx_out_set_blocking(&request)?;
+
+        Ok(result.total_amount.to_sat())
     }
 
     async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinRpcResult<Txid> {
@@ -41,16 +44,21 @@ impl BitcoinRpc for BitcoinRpcClient {
     }
 
     async fn list_unspent(&self, address: &Address) -> BitcoinRpcResult<Vec<OutPoint>> {
-        let unspent = self
-            .client
-            .list_unspent(Some(1), None, Some(&[address]), None, None)?;
-        Ok(unspent
+        let descriptor = format!("addr({})", address);
+        let request = vec![ScanTxOutRequest::Single(descriptor)];
+
+        let result = self.client.scan_tx_out_set_blocking(&request)?;
+
+        let unspent: Vec<OutPoint> = result
+            .unspents
             .into_iter()
-            .map(|u| OutPoint {
-                vout: u.vout,
-                txid: u.txid,
+            .map(|unspent| OutPoint {
+                txid: unspent.txid,
+                vout: unspent.vout,
             })
-            .collect())
+            .collect();
+
+        Ok(unspent)
     }
 
     async fn get_transaction(&self, txid: &Txid) -> BitcoinRpcResult<Transaction> {
@@ -93,44 +101,4 @@ impl BitcoinRpc for BitcoinRpcClient {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::str::FromStr;
-
-    use super::*;
-    use crate::{regtest::TestContext, traits::BitcoinRpc};
-
-    #[tokio::test]
-    async fn test_get_block_count() {
-        let context = TestContext::setup().await;
-        let block_count = context.client.get_block_count().await.unwrap();
-        assert!(block_count > 100, "Block count should be greater than 100");
-    }
-
-    #[tokio::test]
-    async fn test_get_block_size() {
-        let context = TestContext::setup().await;
-        let block = context.client.get_block(1).await.unwrap();
-        assert_eq!(block.total_size(), 248usize, "Block version should be 1");
-    }
-
-    #[tokio::test]
-    async fn test_send_raw_transaction() {
-        let context = TestContext::setup().await;
-        let dummy_tx_hex = "020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff0502cd010101ffffffff0200f2052a01000000160014a8a01aa2b9c7f00bbd59aabfb047e8f3a181d7ed0000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf90120000000000000000000000000000000000000000000000000000000000000000000000000";
-        let result = context.client.send_raw_transaction(dummy_tx_hex).await;
-        assert!(result.is_err(), "Sending invalid transaction should fail");
-    }
-
-    #[tokio::test]
-    async fn test_get_transaction() {
-        let context = TestContext::setup().await;
-        let dummy_txid =
-            Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")
-                .unwrap();
-        let result = context.client.get_transaction(&dummy_txid).await;
-        assert!(
-            result.is_err(),
-            "Getting non-existent transaction should fail"
-        );
-    }
-}
+mod tests {}

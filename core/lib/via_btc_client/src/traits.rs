@@ -15,7 +15,10 @@ pub trait BitcoinOps: Send + Sync {
         // TODO: change type here
         signed_transaction: &str,
     ) -> types::BitcoinClientResult<Txid>;
-    async fn fetch_utxos(&self, address: &Address) -> types::BitcoinClientResult<Vec<TxOut>>;
+    async fn fetch_utxos(
+        &self,
+        address: &Address,
+    ) -> types::BitcoinClientResult<Vec<(TxOut, Txid, u32)>>;
     async fn check_tx_confirmation(
         &self,
         txid: &Txid,
@@ -25,6 +28,7 @@ pub trait BitcoinOps: Send + Sync {
     async fn fetch_and_parse_block(&self, block_height: u128)
         -> types::BitcoinClientResult<String>;
     async fn get_fee_rate(&self, conf_target: u16) -> types::BitcoinClientResult<u64>;
+    fn get_rpc_client(&self) -> &dyn BitcoinRpc;
 }
 
 #[allow(dead_code)]
