@@ -26,6 +26,7 @@ bitcoincore-rpc = "0.19.0"
 rand.workspace = true
 hex.workspace = true
 secp256k1 = "0.29.0"
+serde.workspace = true
 
 reqwest = "0.12.5"
 serde_json.workspace = true
@@ -33,14 +34,13 @@ serde_json.workspace = true
 inquire = "0.7.5"
 tempfile = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow.workspace = true
 mockall = "0.13.0"
 
 [features]
-regtest = ["tempfile", "anyhow", "serde"]
+regtest = ["tempfile", "anyhow"]
 
 [[example]]
 name = "bitcoin_client_example"

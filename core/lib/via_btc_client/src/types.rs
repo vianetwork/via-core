@@ -1,21 +1,8 @@
-use bitcoin::Network;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub enum BitcoinNetwork {
-    Mainnet,
-    Testnet,
-    Regtest,
-}
-
-impl From<BitcoinNetwork> for Network {
-    fn from(network: BitcoinNetwork) -> Self {
-        match network {
-            BitcoinNetwork::Mainnet => Network::Bitcoin,
-            BitcoinNetwork::Testnet => Network::Testnet,
-            BitcoinNetwork::Regtest => Network::Regtest,
-        }
-    }
-}
+#[derive(Serialize, Deserialize)]
+pub enum BitcoinMessage {}
 
 #[allow(unused)]
 #[derive(Debug, Error)]
@@ -82,5 +69,5 @@ impl From<bitcoin::hex::HexToArrayError> for BitcoinError {
 
 pub type BitcoinSignerResult<T> = Result<T>;
 pub type BitcoinInscriberResult<T> = Result<T>;
-pub type BitcoinInscriptionIndexerResult<T> = Result<T>;
+pub type BitcoinIndexerResult<T> = Result<T>;
 pub type BitcoinTransactionBuilderResult<T> = Result<T>;

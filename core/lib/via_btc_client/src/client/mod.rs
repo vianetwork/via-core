@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Network, TxOut, Txid};
+use bitcoin::{Address, Block, TxOut, Txid};
 use bitcoincore_rpc::json::EstimateMode;
 
 use crate::{
@@ -8,8 +8,8 @@ use crate::{
 };
 
 mod rpc_client;
-#[allow(unused)]
-pub use rpc_client::BitcoinRpcClient;
+pub use bitcoin::Network;
+pub use rpc_client::{Auth, BitcoinRpcClient};
 
 use crate::types::BitcoinError;
 
@@ -21,18 +21,11 @@ pub struct BitcoinClient {
 
 #[async_trait]
 impl BitcoinOps for BitcoinClient {
-    async fn new(rpc_url: &str, network: &str) -> BitcoinClientResult<Self>
+    async fn new(rpc_url: &str, network: Network, auth: Auth) -> BitcoinClientResult<Self>
     where
         Self: Sized,
     {
-        // TODO: change rpc_user & rpc_password here, move it to args
-        let rpc = Box::new(BitcoinRpcClient::new(rpc_url, "rpcuser", "rpcpassword")?);
-        let network = match network.to_lowercase().as_str() {
-            "mainnet" => Network::Bitcoin,
-            "testnet" => Network::Testnet,
-            "regtest" => Network::Regtest,
-            _ => return Err(BitcoinError::InvalidNetwork(network.to_string())),
-        };
+        let rpc = Box::new(BitcoinRpcClient::new(rpc_url, auth)?);
 
         Ok(Self { rpc, network })
     }
@@ -80,9 +73,8 @@ impl BitcoinOps for BitcoinClient {
         Ok(height as u128)
     }
 
-    async fn fetch_and_parse_block(&self, block_height: u128) -> BitcoinClientResult<String> {
-        let _block = self.rpc.get_block(block_height).await?;
-        todo!()
+    async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block> {
+        self.rpc.get_block_by_height(block_height).await
     }
 
     async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64> {
