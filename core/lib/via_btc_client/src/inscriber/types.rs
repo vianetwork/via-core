@@ -1,4 +1,3 @@
-
 // Witness Structure for each message type
 // in our case da_identifier is b"celestia"
 
@@ -42,7 +41,7 @@
 // |      Schnorr Signature                                      |
 // |      Encoded Verifier Public Key                            |
 // |      OP_CHECKSIG                                            |
-// |      OP_FALSE                                               | 
+// |      OP_FALSE                                               |
 // |      OP_IF                                                  |
 // |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
 // |      OP_PUSHBYTES_32  b"Str('ValidatorAttestationMessage')" |
@@ -86,7 +85,6 @@
 // |      OP_ENDIF                                               |
 // |-------------------------------------------------------------|
 
-
 // L1ToL2Message
 // |-------------------------------------------------------------|
 // |      Schnorr Signature                                      |
@@ -107,16 +105,17 @@
 //  !!! in future we can implement kinda enforcement withdrawal with using l1->l2 message (reference in notion) !!!
 //  !!! also we should support op_return only for bridging in future of the inscription indexer !!!
 
-pub use bitcoin::taproot::Signature as TaprootSignature;
 pub use bitcoin::script::PushBytesBuf;
-pub use bitcoin::Txid;
+pub use bitcoin::taproot::Signature as TaprootSignature;
 pub use bitcoin::Address as BitcoinAddress;
+pub use bitcoin::Txid;
 
-use zksync_da_client::types::DispatchResponse;
 use zksync_basic_types::H256;
-use zksync_types::L1BatchNumber;
+use zksync_da_client::types::DispatchResponse;
 use zksync_types::Address as EVMAddress;
+use zksync_types::L1BatchNumber;
 
+use std::collections::VecDeque;
 
 // Enum for Message Type
 pub enum MessageType {
@@ -128,11 +127,10 @@ pub enum MessageType {
     L1ToL2Message,
 }
 
-pub enum Vote { 
-    Ok, // OP_1
+pub enum Vote {
+    Ok,    // OP_1
     NotOk, // OP_0
 }
-
 
 /*
     FINAL STRUCTURES
@@ -168,7 +166,7 @@ pub struct ProofDAReferenceMessage {
 pub struct ValidatorAttestationMessage {
     common: CommonFields,
     reference_txid: Txid,
-    attestation: Vote, 
+    attestation: Vote,
 }
 
 // SystemBootstrappingMessage message
@@ -194,7 +192,7 @@ pub struct L1ToL2Message {
 }
 
 /*
-    INPUT 
+    INPUT
 */
 
 pub enum InscriberInput {
@@ -224,4 +222,49 @@ pub enum InscriberInput {
         l2_contract_address: EVMAddress,
         call_data: Vec<u8>,
     },
+}
+
+pub struct FeePayerCtx {
+    fee_payer_utxo_txid: Txid,
+    fee_payer_utxo_vout: u32, // this is the type bitcoin rust also uses for vout
+    fee_payer_utxo_value: u64
+}
+
+pub struct InscriptionRequest {
+    message: InscriberInput,
+    inscriber_output: InscriberOutput,
+    fee_payer_ctx: FeePayerCtx,
+}
+
+
+// this context should get persisted in the database in the upper layer
+// and also the update method checks the transaction is confirmed or not
+// if the transaction that tx should remove from the context.
+// the inscribe method first calls update context method before inscribing the message
+// the upper layer after calling inscribe method should persist the context in the database
+
+pub struct InscriberContext {
+    context_fifo: VecDeque<InscriptionRequest>,
+}
+
+impl InscriberContext {
+    pub fn new() -> Self {
+        Self {
+            context_fifo: VecDeque::new(),
+        }
+    }
+}
+
+/*
+    OUTPUT
+*/
+
+pub struct InscriberOutput {
+    commit_txid: Txid,
+    commit_raw_tx: String, // this is the type bitcoin rust also uses for raw tx
+    commit_tx_fee_rate: u64,
+    reveal_txid: Txid,
+    reveal_raw_tx: String, // this is the type bitcoin rust also uses for raw tx
+    reveal_tx_fee_rate: u64,
+    is_broadcasted: bool,
 }
