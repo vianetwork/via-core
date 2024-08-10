@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Network, TxOut, Txid};
+use bitcoin::{Address, Network, OutPoint, TxOut, Txid};
 use bitcoincore_rpc::json::EstimateMode;
 
 use crate::{
@@ -21,18 +21,12 @@ pub struct BitcoinClient {
 
 #[async_trait]
 impl BitcoinOps for BitcoinClient {
-    async fn new(rpc_url: &str, network: &str) -> BitcoinClientResult<Self>
+    async fn new(rpc_url: &str, network: Network) -> BitcoinClientResult<Self>
     where
         Self: Sized,
     {
         // TODO: change rpc_user & rpc_password here, move it to args
         let rpc = Box::new(BitcoinRpcClient::new(rpc_url, "rpcuser", "rpcpassword")?);
-        let network = match network.to_lowercase().as_str() {
-            "mainnet" => Network::Bitcoin,
-            "testnet" => Network::Testnet,
-            "regtest" => Network::Regtest,
-            _ => return Err(BitcoinError::InvalidNetwork(network.to_string())),
-        };
 
         Ok(Self { rpc, network })
     }
@@ -50,20 +44,21 @@ impl BitcoinOps for BitcoinClient {
         Ok(txid)
     }
 
-    async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<TxOut>> {
+    async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>> {
         let outpoints = self.rpc.list_unspent(address).await?;
 
-        let mut txouts = Vec::new();
+        let mut utxos: Vec<(OutPoint, TxOut)> = vec![];
+
         for outpoint in outpoints {
             let tx = self.rpc.get_transaction(&outpoint.txid).await?;
             let txout = tx
                 .output
                 .get(outpoint.vout as usize)
                 .ok_or(BitcoinError::InvalidOutpoint(outpoint.to_string()))?;
-            txouts.push(txout.clone());
+            utxos.push((outpoint, txout.clone()));
         }
 
-        Ok(txouts)
+        Ok(utxos)
     }
 
     async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool> {
@@ -114,7 +109,7 @@ mod tests {
     #[tokio::test]
     async fn test_new() {
         let context = TestContext::setup().await;
-        let client = BitcoinClient::new(&context._regtest.get_url(), "regtest")
+        let client = BitcoinClient::new(&context._regtest.get_url(), Network::Regtest)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -125,7 +120,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_balance() {
         let context = TestContext::setup().await;
-        let _client = BitcoinClient::new(&context._regtest.get_url(), "regtest")
+        let _client = BitcoinClient::new(&context._regtest.get_url(), Network::Regtest)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -142,7 +137,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_utxos() {
         let context = TestContext::setup().await;
-        let _client = BitcoinClient::new(&context._regtest.get_url(), "regtest")
+        let _client = BitcoinClient::new(&context._regtest.get_url(), Network::Regtest)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -158,7 +153,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_block_height() {
         let context = TestContext::setup().await;
-        let client = BitcoinClient::new(&context._regtest.get_url(), "regtest")
+        let client = BitcoinClient::new(&context._regtest.get_url(), Network::Regtest)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -174,7 +169,7 @@ mod tests {
     #[tokio::test]
     async fn test_estimate_fee() {
         let context = TestContext::setup().await;
-        let client = BitcoinClient::new(&context._regtest.get_url(), "regtest")
+        let client = BitcoinClient::new(&context._regtest.get_url(), Network::Regtest)
             .await
             .expect("Failed to create BitcoinClient");
 

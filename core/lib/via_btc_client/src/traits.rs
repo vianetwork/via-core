@@ -1,12 +1,12 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Block, OutPoint, Transaction, TxOut, Txid};
+use bitcoin::{Address, Block, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
 
 use crate::types;
 
 #[allow(dead_code)]
 #[async_trait]
 pub trait BitcoinOps: Send + Sync {
-    async fn new(rpc_url: &str, network: &str) -> types::BitcoinClientResult<Self>
+    async fn new(rpc_url: &str, network: Network) -> types::BitcoinClientResult<Self>
     where
         Self: Sized;
     async fn get_balance(&self, address: &Address) -> types::BitcoinClientResult<u128>;
@@ -15,7 +15,10 @@ pub trait BitcoinOps: Send + Sync {
         // TODO: change type here
         signed_transaction: &str,
     ) -> types::BitcoinClientResult<Txid>;
-    async fn fetch_utxos(&self, address: &Address) -> types::BitcoinClientResult<Vec<TxOut>>;
+    async fn fetch_utxos(
+        &self,
+        address: &Address,
+    ) -> types::BitcoinClientResult<Vec<(OutPoint, TxOut)>>;
     async fn check_tx_confirmation(
         &self,
         txid: &Txid,
@@ -51,8 +54,8 @@ pub trait BitcoinRpc: Send + Sync {
 
 #[allow(dead_code)]
 #[async_trait]
-pub trait BitcoinSigner<'a>: Send + Sync {
-    fn new(private_key: &str, rpc_client: &'a dyn BitcoinRpc) -> types::BitcoinSignerResult<Self>
+pub trait BitcoinSigner: Send + Sync {
+    fn new(private_key: &str, network: Network) -> types::BitcoinSignerResult<Self>
     where
         Self: Sized;
 
@@ -62,7 +65,7 @@ pub trait BitcoinSigner<'a>: Send + Sync {
         input_index: usize,
     ) -> types::BitcoinSignerResult<bitcoin::Witness>;
 
-    async fn sign_reveal(
+    async fn sign_schnorr(
         &self,
         unsigned_tx: &Transaction,
         input_index: usize,
@@ -70,6 +73,10 @@ pub trait BitcoinSigner<'a>: Send + Sync {
         leaf_version: bitcoin::taproot::LeafVersion,
         control_block: &bitcoin::taproot::ControlBlock,
     ) -> types::BitcoinSignerResult<bitcoin::Witness>;
+
+    fn get_p2wpkh_address(&self) -> types::BitcoinSignerResult<Address>;
+
+    fn get_p2wpkh_script_pubkey(&self) -> &ScriptBuf;
 }
 #[allow(dead_code)]
 #[async_trait]

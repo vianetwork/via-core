@@ -53,6 +53,12 @@ pub enum BitcoinError {
     #[error("Invalid private key: {0}")]
     InvalidPrivateKey(String),
 
+    #[error("Invalid public key: {0}")]
+    UncompressedPublicKeyError(String),
+
+    #[error("Compressed public key error: {0}")]
+    CompressedPublicKeyError(String),
+
     #[error("Other error: {0}")]
     Other(String),
 }

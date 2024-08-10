@@ -108,6 +108,7 @@
 pub use bitcoin::script::PushBytesBuf;
 pub use bitcoin::taproot::Signature as TaprootSignature;
 pub use bitcoin::Address as BitcoinAddress;
+use bitcoin::Amount;
 pub use bitcoin::Txid;
 
 use zksync_basic_types::H256;
@@ -127,6 +128,7 @@ pub enum MessageType {
     L1ToL2Message,
 }
 
+#[derive(Clone)]
 pub enum Vote {
     Ok,    // OP_1
     NotOk, // OP_0
@@ -195,6 +197,7 @@ pub struct L1ToL2Message {
     INPUT
 */
 
+#[derive(Clone)]
 pub enum InscriberInput {
     L1BatchDAReference {
         l1_batch_hash: H256,
@@ -224,18 +227,26 @@ pub enum InscriberInput {
     },
 }
 
+#[derive(Clone)]
 pub struct FeePayerCtx {
-    fee_payer_utxo_txid: Txid,
-    fee_payer_utxo_vout: u32, // this is the type bitcoin rust also uses for vout
-    fee_payer_utxo_value: u64
+    pub fee_payer_utxo_txid: Txid,
+    pub fee_payer_utxo_vout: u32, // this is the type bitcoin rust also uses for vout
+    pub fee_payer_utxo_value: Amount,
 }
 
+#[derive(Clone)]
+pub struct CommitTxInput {
+    pub txids: Vec<Txid>,
+    pub vouts: Vec<u32>,
+}
+
+#[derive(Clone)]
 pub struct InscriptionRequest {
-    message: InscriberInput,
-    inscriber_output: InscriberOutput,
-    fee_payer_ctx: FeePayerCtx,
+    pub message: InscriberInput,
+    pub inscriber_output: InscriberOutput,
+    pub fee_payer_ctx: FeePayerCtx,
+    pub commit_tx_input: CommitTxInput,
 }
-
 
 // this context should get persisted in the database in the upper layer
 // and also the update method checks the transaction is confirmed or not
@@ -247,10 +258,12 @@ pub struct InscriberContext {
     pub fifo_queue: VecDeque<InscriptionRequest>,
 }
 
+const CTX_CAPACITY: usize = 10;
+
 impl InscriberContext {
     pub fn new() -> Self {
         Self {
-            fifo_queue: VecDeque::new(),
+            fifo_queue: VecDeque::with_capacity(CTX_CAPACITY),
         }
     }
 }
@@ -259,12 +272,13 @@ impl InscriberContext {
     OUTPUT
 */
 
+#[derive(Clone)]
 pub struct InscriberOutput {
-    commit_txid: Txid,
-    commit_raw_tx: String, // this is the type bitcoin rust also uses for raw tx
-    commit_tx_fee_rate: u64,
-    reveal_txid: Txid,
-    reveal_raw_tx: String, // this is the type bitcoin rust also uses for raw tx
-    reveal_tx_fee_rate: u64,
-    is_broadcasted: bool,
+    pub commit_txid: Txid,
+    pub commit_raw_tx: String, // this is the type bitcoin rust also uses for raw tx
+    pub commit_tx_fee_rate: u64,
+    pub reveal_txid: Txid,
+    pub reveal_raw_tx: String, // this is the type bitcoin rust also uses for raw tx
+    pub reveal_tx_fee_rate: u64,
+    pub is_broadcasted: bool,
 }
