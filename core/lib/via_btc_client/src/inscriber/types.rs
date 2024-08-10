@@ -244,13 +244,13 @@ pub struct InscriptionRequest {
 // the upper layer after calling inscribe method should persist the context in the database
 
 pub struct InscriberContext {
-    context_fifo: VecDeque<InscriptionRequest>,
+    pub fifo_queue: VecDeque<InscriptionRequest>,
 }
 
 impl InscriberContext {
     pub fn new() -> Self {
         Self {
-            context_fifo: VecDeque::new(),
+            fifo_queue: VecDeque::new(),
         }
     }
 }
