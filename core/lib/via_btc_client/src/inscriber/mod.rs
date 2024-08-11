@@ -80,14 +80,6 @@ struct Inscriber {
     context: types::InscriberContext,
 }
 
-// the upper layer call the inscriber in chainable way
-// let snapshot = inscriber_instance
-//    .inscribe(input)
-//    .await?
-//    .get_context_snapshot()
-//    .await?;
-//
-//  persist(snapshot)
 #[allow(dead_code)]
 impl Inscriber {
     pub async fn new(
