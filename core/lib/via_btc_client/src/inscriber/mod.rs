@@ -132,16 +132,13 @@ impl Inscriber {
             .prepare_commit_tx_output(
                 &commit_tx_input_info,
                 inscription_data.script_pubkey.clone(),
-            )
-            .await?;
+            ).await?;
 
         let final_commit_tx = self
-            .sign_commit_tx(&commit_tx_input_info, &commit_tx_output_info)
-            .await?;
+            .sign_commit_tx(&commit_tx_input_info, &commit_tx_output_info)?;
 
         let reveal_tx_input_info = self
-            .prepare_reveal_tx_input(&commit_tx_output_info, &final_commit_tx, &inscription_data)
-            .await?;
+            .prepare_reveal_tx_input(&commit_tx_output_info, &final_commit_tx, &inscription_data)?;
 
         let reveal_tx_output_info = self
             .prepare_reveal_tx_output(&reveal_tx_input_info, &inscription_data)
@@ -152,8 +149,7 @@ impl Inscriber {
                 &reveal_tx_input_info,
                 &reveal_tx_output_info,
                 &inscription_data,
-            )
-            .await?;
+            )?;
 
         let broadcast_status = self
             .broadcast_inscription(&final_commit_tx, &final_reveal_tx)
@@ -170,7 +166,7 @@ impl Inscriber {
             commit_tx_output_info,
             reveal_tx_output_info,
             commit_tx_input_info,
-        ).await?;
+        )?;
 
         Ok(())
     }
@@ -377,7 +373,7 @@ impl Inscriber {
         Ok(res)
     }
 
-    async fn sign_commit_tx(
+    fn sign_commit_tx(
         &self,
         input: &CommitTxInputRes,
         output: &CommitTxOutputRes,
@@ -446,7 +442,7 @@ impl Inscriber {
         Ok(res)
     }
 
-    async fn prepare_reveal_tx_input(
+    fn prepare_reveal_tx_input(
         &self,
         commit_output: &CommitTxOutputRes,
         commit_tx: &FinalTx,
@@ -582,7 +578,7 @@ impl Inscriber {
         Ok(res)
     }
 
-    async fn sign_reveal_tx(
+    fn sign_reveal_tx(
         &self,
         input: &RevealTxInputRes,
         output: &RevealTxOutputRes,
@@ -722,7 +718,7 @@ impl Inscriber {
         Ok(commit_broadcasted && reveal_broadcasted)
     }
 
-    async fn insert_inscription_to_context(
+    fn insert_inscription_to_context(
         &mut self,
         req: types::InscriberInput,
         commit: FinalTx,
@@ -757,11 +753,14 @@ impl Inscriber {
         Ok(())
     }
 
-    pub async fn get_context_snapshot(&self) {
-        todo!();
+    pub fn get_context_snapshot(&self) -> Result<types::InscriberContext> {
+        Ok(self.context.clone())
     }
 
-    pub async fn recreate_context_from_snapshot() {
-        todo!();
+    pub fn recreate_context_from_snapshot(&mut self, snapshot: types::InscriberContext) -> Result<()> {
+
+        self.context = snapshot;
+
+        Ok(())
     }
 }

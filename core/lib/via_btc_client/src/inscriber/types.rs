@@ -147,6 +147,7 @@ pub struct InscriptionRequest {
 // the inscribe method first calls update context method before inscribing the message
 // the upper layer after calling inscribe method should persist the context in the database
 
+#[derive(Clone)]
 pub struct InscriberContext {
     pub fifo_queue: VecDeque<InscriptionRequest>,
 }
