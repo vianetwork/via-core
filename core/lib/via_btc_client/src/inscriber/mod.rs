@@ -53,7 +53,7 @@ struct CommitTxOutputRes {
     commit_tx_change_output: TxOut,
     commit_tx_tapscript_output: TxOut,
     commit_tx_fee_rate: u64,
-    commit_tx_fee: Amount,
+    _commit_tx_fee: Amount,
 }
 
 struct RevealTxInputRes {
@@ -66,7 +66,7 @@ struct RevealTxInputRes {
 struct RevealTxOutputRes {
     reveal_change_output: TxOut,
     reveal_fee_rate: u64,
-    reveal_fee: Amount,
+    _reveal_fee: Amount,
 }
 
 struct FinalTx {
@@ -170,7 +170,7 @@ impl Inscriber {
             commit_tx_output_info,
             reveal_tx_output_info,
             commit_tx_input_info,
-        );
+        ).await?;
 
         Ok(())
     }
@@ -365,7 +365,7 @@ impl Inscriber {
             commit_tx_change_output,
             commit_tx_tapscript_output: inscription_commitment_output,
             commit_tx_fee_rate: fee_rate,
-            commit_tx_fee: fee_amount,
+            _commit_tx_fee: fee_amount,
         };
 
         Ok(res)
@@ -554,7 +554,7 @@ impl Inscriber {
         &self,
         tx_input_data: &RevealTxInputRes,
         inscription_data: &InscriptionData,
-    ) -> Result<(RevealTxOutputRes)> {
+    ) -> Result<RevealTxOutputRes> {
         let fee_rate = self.get_fee_rate().await?;
 
         let fee_amount = InscriberFeeCalculator::estimate_fee(
@@ -576,7 +576,7 @@ impl Inscriber {
         let res = RevealTxOutputRes {
             reveal_change_output,
             reveal_fee_rate: fee_rate,
-            reveal_fee: fee_amount,
+            _reveal_fee: fee_amount,
         };
 
         Ok(res)
