@@ -135,7 +135,7 @@ pub struct CommitTxInput {
 
 #[derive(Clone)]
 pub struct InscriptionRequest {
-    pub message: InscriberInput,
+    pub _message: InscriberInput,
     pub inscriber_output: InscriberOutput,
     pub fee_payer_ctx: FeePayerCtx,
     pub commit_tx_input: CommitTxInput,

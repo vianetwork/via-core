@@ -109,7 +109,7 @@ use crate::inscriber::types;
 use anyhow::{Context, Result};
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::{all, OP_0, OP_FALSE};
-use bitcoin::script::{self, Builder as ScriptBuilder, PushBytesBuf};
+use bitcoin::script::{Builder as ScriptBuilder, PushBytesBuf};
 use bitcoin::secp256k1::{Secp256k1, Signing, Verification};
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{key::UntweakedPublicKey, taproot::TaprootSpendInfo, ScriptBuf};
@@ -192,7 +192,7 @@ impl InscriptionData {
             .push_opcode(all::OP_IF)
             .push_slice(via_prefix_encoded);
 
-        return Ok(script);
+        Ok(script)
     }
 
     fn complete_inscription(
@@ -225,7 +225,7 @@ impl InscriptionData {
                 let mut da_reference_encoded =
                     PushBytesBuf::with_capacity(da_reference_bytes.len());
                 da_reference_encoded
-                    .extend_from_slice(&da_reference_bytes)
+                    .extend_from_slice(da_reference_bytes)
                     .ok();
 
                 final_script_result = basic_script
@@ -249,7 +249,7 @@ impl InscriptionData {
                 let mut da_reference_encoded =
                     PushBytesBuf::with_capacity(da_reference_bytes.len());
                 da_reference_encoded
-                    .extend_from_slice(&da_reference_bytes)
+                    .extend_from_slice(da_reference_bytes)
                     .ok();
 
                 final_script_result = basic_script

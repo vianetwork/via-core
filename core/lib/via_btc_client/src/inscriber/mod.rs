@@ -732,7 +732,7 @@ impl Inscriber {
         commit_input_info: CommitTxInputRes,
     ) -> Result<()> {
         let inscription_request = types::InscriptionRequest {
-            message: req,
+            _message: req,
             inscriber_output: types::InscriberOutput {
                 commit_txid: commit.txid,
                 commit_raw_tx: commit.tx.raw_hex().to_string(),

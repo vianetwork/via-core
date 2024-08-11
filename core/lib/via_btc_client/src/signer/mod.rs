@@ -1,15 +1,8 @@
-use anyhow::Context;
 use async_trait::async_trait;
 use bitcoin::{
-    ecdsa::Signature,
-    hashes::Hash,
     key::UntweakedPublicKey,
-    network,
     secp256k1::{All, Keypair, Message, Secp256k1, SecretKey},
-    sighash::{Prevouts, SighashCache},
-    taproot::{ControlBlock, LeafVersion},
-    Address, CompressedPublicKey, EcdsaSighashType, Network, PrivateKey, ScriptBuf, TapLeafHash,
-    TapSighashType, Transaction, TxOut, WPubkeyHash, Witness,
+    Address, CompressedPublicKey, Network, PrivateKey, ScriptBuf
 };
 
 use secp256k1::schnorr::Signature as SchnorrSignature;
@@ -21,10 +14,8 @@ use crate::{
 };
 
 pub struct KeyManager {
-    private_key: PrivateKey,
     pub secp: Secp256k1<All>,
     sk: SecretKey,
-    wpkh: WPubkeyHash,
     address: Address,
     keypair: Keypair,
     internal_key: UntweakedPublicKey,
@@ -42,7 +33,7 @@ impl BitcoinSigner for KeyManager {
         let sk = private_key.inner;
 
         let pk = bitcoin::PublicKey::new(sk.public_key(&secp));
-        let wpkh = pk.wpubkey_hash().map_err(|e| {
+        let wpkh = pk.wpubkey_hash().map_err(|_e| {
             BitcoinError::UncompressedPublicKeyError("key is compressed".to_string())
         })?;
 
@@ -58,10 +49,8 @@ impl BitcoinSigner for KeyManager {
         let script_pubkey = ScriptBuf::new_p2wpkh(&wpkh);
 
         let res = KeyManager {
-            private_key,
             secp,
             sk,
-            wpkh,
             address,
             keypair,
             internal_key,
