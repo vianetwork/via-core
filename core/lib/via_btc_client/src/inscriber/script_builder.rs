@@ -60,7 +60,7 @@
 // |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
 // |      OP_PUSHBYTES_32  b"Str('SystemBootstrappingMessage')"  |
 // |      OP_PUSHBYTES_32  b"start_block_height"                 |
-// |      OP_PUSHBYTES_32  b"verifier_1_p2wpkh_address"          | 
+// |      OP_PUSHBYTES_32  b"verifier_1_p2wpkh_address"          |
 // |      OP_PUSHBYTES_32  b"verifier_2_p2wpkh_address"          |
 // |      OP_PUSHBYTES_32  b"verifier_3_p2wpkh_address"          |
 // |      OP_PUSHBYTES_32  b"verifier_4_p2wpkh_address"          |
@@ -112,16 +112,16 @@ use bitcoin::opcodes::{all, OP_0, OP_FALSE};
 use bitcoin::script::{self, Builder as ScriptBuilder, PushBytesBuf};
 use bitcoin::secp256k1::{Secp256k1, Signing, Verification};
 use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{Address, Network};
 use bitcoin::{key::UntweakedPublicKey, taproot::TaprootSpendInfo, ScriptBuf};
+use bitcoin::{Address, Network};
 
 const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 
-struct InscriptionData {
-    inscription_script: ScriptBuf,
-    script_size: usize,
-    script_pubkey: ScriptBuf,
-    taproot_spend_info: TaprootSpendInfo,
+pub struct InscriptionData {
+    pub inscription_script: ScriptBuf,
+    pub script_size: usize,
+    pub script_pubkey: ScriptBuf,
+    pub taproot_spend_info: TaprootSpendInfo,
 }
 
 impl InscriptionData {
@@ -137,7 +137,8 @@ impl InscriptionData {
 
         let basic_script = Self::build_basic_inscription_script(&encoded_pubkey)?;
 
-        let (inscription_script, script_size) = Self::complete_inscription(basic_script, inscription_message)?;
+        let (inscription_script, script_size) =
+            Self::complete_inscription(basic_script, inscription_message)?;
 
         let (script_pubkey, taproot_spend_info) = Self::construct_inscription_commitment_data(
             secp,
@@ -201,73 +202,85 @@ impl InscriptionData {
         let final_script_result: ScriptBuilder;
 
         match message {
-
             types::InscriberInput::L1BatchDAReference {
                 l1_batch_hash,
                 l1_batch_index,
                 da_reference,
             } => {
                 let l1_batch_hash_bytes = l1_batch_hash.as_bytes();
-                let mut l1_batch_hash_encoded = PushBytesBuf::with_capacity(l1_batch_hash_bytes.len());
-                l1_batch_hash_encoded.extend_from_slice(l1_batch_hash_bytes).ok();
+                let mut l1_batch_hash_encoded =
+                    PushBytesBuf::with_capacity(l1_batch_hash_bytes.len());
+                l1_batch_hash_encoded
+                    .extend_from_slice(l1_batch_hash_bytes)
+                    .ok();
 
                 let l1_batch_index_bytes = l1_batch_index.to_be_bytes();
-                let mut l1_batch_index_encoded = PushBytesBuf::with_capacity(l1_batch_index_bytes.len());
-                l1_batch_index_encoded.extend_from_slice(&l1_batch_index_bytes).ok();
+                let mut l1_batch_index_encoded =
+                    PushBytesBuf::with_capacity(l1_batch_index_bytes.len());
+                l1_batch_index_encoded
+                    .extend_from_slice(&l1_batch_index_bytes)
+                    .ok();
 
                 let da_reference_bytes = da_reference.blob_id.as_bytes();
-                let mut da_reference_encoded = PushBytesBuf::with_capacity(da_reference_bytes.len());
-                da_reference_encoded.extend_from_slice(&da_reference_bytes).ok();
+                let mut da_reference_encoded =
+                    PushBytesBuf::with_capacity(da_reference_bytes.len());
+                da_reference_encoded
+                    .extend_from_slice(&da_reference_bytes)
+                    .ok();
 
                 final_script_result = basic_script
                     .push_slice(l1_batch_hash_encoded)
                     .push_slice(l1_batch_index_encoded)
                     .push_slice(da_reference_encoded);
-            },
-
+            }
 
             types::InscriberInput::ProofDAReference {
                 l1_batch_reveal_txid,
                 da_reference,
             } => {
                 let l1_batch_reveal_txid_bytes = l1_batch_reveal_txid.as_raw_hash().as_byte_array();
-                let mut l1_batch_reveal_txid_encoded = PushBytesBuf::with_capacity(l1_batch_reveal_txid_bytes.len());
-                l1_batch_reveal_txid_encoded.extend_from_slice(l1_batch_reveal_txid_bytes).ok();
+                let mut l1_batch_reveal_txid_encoded =
+                    PushBytesBuf::with_capacity(l1_batch_reveal_txid_bytes.len());
+                l1_batch_reveal_txid_encoded
+                    .extend_from_slice(l1_batch_reveal_txid_bytes)
+                    .ok();
 
                 let da_reference_bytes = da_reference.blob_id.as_bytes();
-                let mut da_reference_encoded = PushBytesBuf::with_capacity(da_reference_bytes.len());
-                da_reference_encoded.extend_from_slice(&da_reference_bytes).ok();
+                let mut da_reference_encoded =
+                    PushBytesBuf::with_capacity(da_reference_bytes.len());
+                da_reference_encoded
+                    .extend_from_slice(&da_reference_bytes)
+                    .ok();
 
                 final_script_result = basic_script
                     .push_slice(l1_batch_reveal_txid_encoded)
                     .push_slice(da_reference_encoded);
-
-            },
-
+            }
 
             types::InscriberInput::ValidatorAttestation {
                 reference_txid,
                 vote,
             } => {
                 let reference_txid_bytes = reference_txid.as_raw_hash().as_byte_array();
-                let mut reference_txid_encoded = PushBytesBuf::with_capacity(reference_txid_bytes.len());
-                reference_txid_encoded.extend_from_slice(reference_txid_bytes).ok();
+                let mut reference_txid_encoded =
+                    PushBytesBuf::with_capacity(reference_txid_bytes.len());
+                reference_txid_encoded
+                    .extend_from_slice(reference_txid_bytes)
+                    .ok();
 
                 match vote {
-                        types::Vote::Ok => {
-                            final_script_result = basic_script
-                                .push_slice(reference_txid_encoded)
-                                .push_opcode(all::OP_PUSHNUM_1);
-                        },
-                        types::Vote::NotOk => {
-                            final_script_result = basic_script
-                                .push_slice(reference_txid_encoded)
-                                .push_opcode(OP_0);
+                    types::Vote::Ok => {
+                        final_script_result = basic_script
+                            .push_slice(reference_txid_encoded)
+                            .push_opcode(all::OP_PUSHNUM_1);
                     }
-                    
+                    types::Vote::NotOk => {
+                        final_script_result = basic_script
+                            .push_slice(reference_txid_encoded)
+                            .push_opcode(OP_0);
+                    }
                 }
-            },
-
+            }
 
             types::InscriberInput::SystemBootstrapping {
                 start_block_height,
@@ -275,47 +288,51 @@ impl InscriptionData {
                 bridge_p2wpkh_mpc_address,
             } => {
                 let start_block_height_bytes = start_block_height.to_be_bytes();
-                let mut start_block_height_encoded = PushBytesBuf::with_capacity(start_block_height_bytes.len());
-                start_block_height_encoded.extend_from_slice(&start_block_height_bytes).ok();
+                let mut start_block_height_encoded =
+                    PushBytesBuf::with_capacity(start_block_height_bytes.len());
+                start_block_height_encoded
+                    .extend_from_slice(&start_block_height_bytes)
+                    .ok();
 
-                let mut tapscript = basic_script
-                    .push_slice(start_block_height_encoded);
+                let mut tapscript = basic_script.push_slice(start_block_height_encoded);
 
-                
                 for verifier_p2wpkh_address in verifier_p2wpkh_addresses {
                     let address_string = verifier_p2wpkh_address.to_string();
                     let verifier_p2wpkh_address_bytes = address_string.as_bytes();
 
-                    let mut verifier_p2wpkh_addresses_encoded = PushBytesBuf::with_capacity(verifier_p2wpkh_address_bytes.len());
-                    verifier_p2wpkh_addresses_encoded.extend_from_slice(verifier_p2wpkh_address_bytes).ok();
-                    
-                    tapscript = tapscript
-                        .push_slice(verifier_p2wpkh_addresses_encoded);
+                    let mut verifier_p2wpkh_addresses_encoded =
+                        PushBytesBuf::with_capacity(verifier_p2wpkh_address_bytes.len());
+                    verifier_p2wpkh_addresses_encoded
+                        .extend_from_slice(verifier_p2wpkh_address_bytes)
+                        .ok();
+
+                    tapscript = tapscript.push_slice(verifier_p2wpkh_addresses_encoded);
                 }
 
                 let bridge_addr_string = bridge_p2wpkh_mpc_address.to_string();
                 let bridge_p2wpkh_mpc_address_bytes = bridge_addr_string.as_bytes();
-                let mut bridge_p2wpkh_mpc_address_encoded = PushBytesBuf::with_capacity(bridge_p2wpkh_mpc_address_bytes.len());
-                bridge_p2wpkh_mpc_address_encoded.extend_from_slice(bridge_p2wpkh_mpc_address_bytes).ok();
+                let mut bridge_p2wpkh_mpc_address_encoded =
+                    PushBytesBuf::with_capacity(bridge_p2wpkh_mpc_address_bytes.len());
+                bridge_p2wpkh_mpc_address_encoded
+                    .extend_from_slice(bridge_p2wpkh_mpc_address_bytes)
+                    .ok();
 
-                
-                final_script_result = tapscript
-                    .push_slice(bridge_p2wpkh_mpc_address_encoded);
-            },
-
+                final_script_result = tapscript.push_slice(bridge_p2wpkh_mpc_address_encoded);
+            }
 
             types::InscriberInput::ProposeSequencer {
                 sequencer_new_p2wpkh_address,
             } => {
                 let addr_string = sequencer_new_p2wpkh_address.to_string();
                 let sequencer_new_p2wpkh_address_bytes = addr_string.as_bytes();
-                let mut sequencer_new_p2wpkh_address_encoded = PushBytesBuf::with_capacity(sequencer_new_p2wpkh_address_bytes.len());
-                sequencer_new_p2wpkh_address_encoded.extend_from_slice(sequencer_new_p2wpkh_address_bytes).ok();
+                let mut sequencer_new_p2wpkh_address_encoded =
+                    PushBytesBuf::with_capacity(sequencer_new_p2wpkh_address_bytes.len());
+                sequencer_new_p2wpkh_address_encoded
+                    .extend_from_slice(sequencer_new_p2wpkh_address_bytes)
+                    .ok();
 
-                final_script_result = basic_script
-                    .push_slice(sequencer_new_p2wpkh_address_encoded);
-            },
-
+                final_script_result = basic_script.push_slice(sequencer_new_p2wpkh_address_encoded);
+            }
 
             types::InscriberInput::L1ToL2Message {
                 receiver_l2_address,
@@ -323,14 +340,19 @@ impl InscriptionData {
                 call_data,
             } => {
                 let receiver_l2_address_bytes = receiver_l2_address.as_bytes();
-                let mut receiver_l2_address_encoded = PushBytesBuf::with_capacity(receiver_l2_address_bytes.len());
-                receiver_l2_address_encoded.extend_from_slice(receiver_l2_address_bytes).ok();
+                let mut receiver_l2_address_encoded =
+                    PushBytesBuf::with_capacity(receiver_l2_address_bytes.len());
+                receiver_l2_address_encoded
+                    .extend_from_slice(receiver_l2_address_bytes)
+                    .ok();
 
                 let l2_contract_address_bytes = l2_contract_address.as_bytes();
-                let mut l2_contract_address_encoded = PushBytesBuf::with_capacity(l2_contract_address_bytes.len());
-                l2_contract_address_encoded.extend_from_slice(l2_contract_address_bytes).ok();
+                let mut l2_contract_address_encoded =
+                    PushBytesBuf::with_capacity(l2_contract_address_bytes.len());
+                l2_contract_address_encoded
+                    .extend_from_slice(l2_contract_address_bytes)
+                    .ok();
 
-                
                 let mut call_data_encoded = PushBytesBuf::with_capacity(call_data.len());
                 call_data_encoded.extend_from_slice(&call_data).ok();
 
@@ -338,16 +360,13 @@ impl InscriptionData {
                     .push_slice(receiver_l2_address_encoded)
                     .push_slice(l2_contract_address_encoded)
                     .push_slice(call_data_encoded);
-            },
+            }
         }
 
-        let final_script_result = final_script_result
-            .push_opcode(all::OP_ENDIF)
-            .into_script();
+        let final_script_result = final_script_result.push_opcode(all::OP_ENDIF).into_script();
 
         let script_size = final_script_result.len();
 
-        return Ok((final_script_result, script_size));
-        
+        Ok((final_script_result, script_size))
     }
 }

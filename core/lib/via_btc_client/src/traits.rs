@@ -1,7 +1,11 @@
-use async_trait::async_trait;
-use bitcoin::{Address, Block, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
-
 use crate::types;
+use async_trait::async_trait;
+use bitcoin::key::UntweakedPublicKey;
+use bitcoin::secp256k1::{All, Secp256k1};
+use bitcoin::{Address, Block, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
+use secp256k1::ecdsa::Signature as ECDSASignature;
+use secp256k1::schnorr::Signature as SchnorrSignature;
+use secp256k1::{Message, PublicKey};
 
 #[allow(dead_code)]
 #[async_trait]
@@ -28,6 +32,7 @@ pub trait BitcoinOps: Send + Sync {
     async fn fetch_and_parse_block(&self, block_height: u128)
         -> types::BitcoinClientResult<String>;
     async fn get_fee_rate(&self, conf_target: u16) -> types::BitcoinClientResult<u64>;
+    fn get_network(&self) -> Network;
 }
 
 #[allow(dead_code)]
@@ -59,24 +64,19 @@ pub trait BitcoinSigner: Send + Sync {
     where
         Self: Sized;
 
-    async fn sign_ecdsa(
-        &self,
-        unsigned_tx: &Transaction,
-        input_index: usize,
-    ) -> types::BitcoinSignerResult<bitcoin::Witness>;
+    fn sign_ecdsa(&self, msg: Message) -> types::BitcoinSignerResult<ECDSASignature>;
 
-    async fn sign_schnorr(
-        &self,
-        unsigned_tx: &Transaction,
-        input_index: usize,
-        tapscript: &bitcoin::ScriptBuf,
-        leaf_version: bitcoin::taproot::LeafVersion,
-        control_block: &bitcoin::taproot::ControlBlock,
-    ) -> types::BitcoinSignerResult<bitcoin::Witness>;
+    fn sign_schnorr(&self, msg: Message) -> types::BitcoinSignerResult<SchnorrSignature>;
 
     fn get_p2wpkh_address(&self) -> types::BitcoinSignerResult<Address>;
 
     fn get_p2wpkh_script_pubkey(&self) -> &ScriptBuf;
+
+    fn get_secp_ref(&self) -> &Secp256k1<All>;
+
+    fn get_internal_key(&self) -> types::BitcoinSignerResult<UntweakedPublicKey>;
+
+    fn get_public_key(&self) -> PublicKey;
 }
 #[allow(dead_code)]
 #[async_trait]

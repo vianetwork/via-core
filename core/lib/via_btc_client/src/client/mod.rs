@@ -97,6 +97,10 @@ impl BitcoinOps for BitcoinClient {
             }
         }
     }
+
+    fn get_network(&self) -> Network {
+        self.network
+    }
 }
 
 #[cfg(test)]
