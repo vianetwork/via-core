@@ -13,6 +13,8 @@ categories.workspace = true
 [dependencies]
 zksync_types.workspace = true
 zksync_config.workspace = true
+zksync_da_client.workspace = true
+zksync_basic_types.workspace = true
 
 thiserror.workspace = true
 async-trait.workspace = true

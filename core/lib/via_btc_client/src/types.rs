@@ -1,10 +1,160 @@
+use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use bitcoin::script::PushBytesBuf;
+use bitcoin::taproot::Signature as TaprootSignature;
+use bitcoin::{Address as BitcoinAddress, Amount, TxIn, Txid};
+use zksync_basic_types::H256;
+use zksync_types::{Address as EVMAddress, L1BatchNumber};
 
 #[derive(Serialize, Deserialize)]
-pub enum BitcoinMessage {}
+pub enum BitcoinMessage {
+}
 
-#[allow(unused)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Vote {
+    Ok,
+    NotOk,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommonFields {
+    pub schnorr_signature: TaprootSignature,
+    pub encoded_public_key: PushBytesBuf,
+    pub via_inscription_protocol_identifier: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct L1BatchDAReferenceInput {
+    pub l1_batch_hash: H256,
+    pub l1_batch_index: L1BatchNumber,
+    pub da_identifier: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct L1BatchDAReference {
+    pub common: CommonFields,
+    pub input: L1BatchDAReferenceInput,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProofDAReferenceInput {
+    pub l1_batch_reveal_txid: Txid,
+    pub da_identifier: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProofDAReference {
+    pub common: CommonFields,
+    pub input: ProofDAReferenceInput,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValidatorAttestationInput {
+    pub reference_txid: Txid,
+    pub attestation: Vote,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValidatorAttestation {
+    pub common: CommonFields,
+    pub input: ValidatorAttestationInput,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SystemBootstrappingInput {
+    pub start_block_height: u32,
+    pub verifier_addresses: Vec<BitcoinAddress>,
+    pub bridge_p2wpkh_mpc_address: BitcoinAddress,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SystemBootstrapping {
+    pub common: CommonFields,
+    pub input: SystemBootstrappingInput,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProposeSequencerInput {
+    pub sequencer_p2wpkh_address: BitcoinAddress,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProposeSequencer {
+    pub common: CommonFields,
+    pub input: ProposeSequencerInput,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct L1ToL2MessageInput {
+    pub receiver_l2_address: EVMAddress,
+    pub l2_contract_address: EVMAddress,
+    pub call_data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct L1ToL2Message {
+    pub common: CommonFields,
+    pub amount: Amount,
+    pub input: L1ToL2MessageInput,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Message {
+    L1BatchDAReference(L1BatchDAReference),
+    ProofDAReference(ProofDAReference),
+    ValidatorAttestation(ValidatorAttestation),
+    SystemBootstrapping(SystemBootstrapping),
+    ProposeSequencer(ProposeSequencer),
+    L1ToL2Message(L1ToL2Message),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FeePayerCtx {
+    pub fee_payer_utxo_txid: Txid,
+    pub fee_payer_utxo_vout: u32,
+    pub fee_payer_utxo_value: Amount,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommitTxInput {
+    pub spent_utxo: Vec<TxIn>,
+}
+
+#[derive(Clone, Debug)]
+pub struct InscriptionRequest {
+    pub message: Message,
+    pub inscriber_output: InscriberOutput,
+    pub fee_payer_ctx: FeePayerCtx,
+    pub commit_tx_input: CommitTxInput,
+}
+
+#[derive(Clone, Debug)]
+pub struct InscriberContext {
+    pub fifo_queue: VecDeque<InscriptionRequest>,
+}
+
+const CTX_CAPACITY: usize = 10;
+
+impl InscriberContext {
+    pub fn new() -> Self {
+        Self {
+            fifo_queue: VecDeque::with_capacity(CTX_CAPACITY),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct InscriberOutput {
+    pub commit_txid: Txid,
+    pub commit_raw_tx: String,
+    pub commit_tx_fee_rate: u64,
+    pub reveal_txid: Txid,
+    pub reveal_raw_tx: String,
+    pub reveal_tx_fee_rate: u64,
+    pub is_broadcasted: bool,
+}
+
 #[derive(Debug, Error)]
 pub enum BitcoinError {
     #[error("RPC error: {0}")]
