@@ -1,56 +1,10 @@
 // Witness Structure for each message type
 // in our case da_identifier is b"celestia"
 
-// L1BatchDAReference
-// |----------------------------------------------------------|
-// |      Schnorr Signature                                   |
-// |      Encoded Sequencer Public Key                        |
-// |      OP_CHECKSIG                                         |
-// |      OP_FALSE                                            |
-// |      OP_IF                                               |
-// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')" |
-// |      OP_PUSHBYTES_32  b"Str('L1BatchDAReference')"       |
-// |      OP_PUSHBYTES_32  b"l1_batch_hash"                   |
-// |      OP_PUSHBYTES_32  b"l1_batch_index"                  |
-// |      OP_PUSHBYTES_32  b"celestia"                        |
-// |      OP_PUSHBYTES_2   b"da_reference"                    |
-// |      OP_ENDIF                                            |
-// |----------------------------------------------------------|
-
-// ProofDAReferenceMessage
-// |----------------------------------------------------------|
-// |      Schnorr Signature                                   |
-// |      Encoded Sequencer Public Key                        |
-// |      OP_CHECKSIG                                         |
-// |      OP_FALSE                                            |
-// |      OP_IF                                               |
-// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')" |
-// |      OP_PUSHBYTES_32  b"Str('ProofDAReferenceMessage')"  |
-// |      OP_PUSHBYTES_32  b"l1_batch_reveal_txid"            |
-// |      OP_PUSHBYTES_32  b"celestia"                        |
-// |      OP_PUSHBYTES_2   b"da_reference"                    |
-// |      OP_ENDIF                                            |
-// |----------------------------------------------------------|
-
-// OP_1 means ok or valid
-// OP_0 means not ok ok or invalid
-// reference_txid could be the proof_reveal_txid or other administrative inscription txid
-
-// ValidatorAttestationMessage
-// |-------------------------------------------------------------|
-// |      Schnorr Signature                                      |
-// |      Encoded Verifier Public Key                            |
-// |      OP_CHECKSIG                                            |
-// |      OP_FALSE                                               |
-// |      OP_IF                                                  |
-// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
-// |      OP_PUSHBYTES_32  b"Str('ValidatorAttestationMessage')" |
-// |      OP_PUSHBYTES_32  b"reference_txid"                     |
-// |      OP_PUSHBYTES_1   b"OP_1" /  b"OP_0"                    |
-// |      OP_ENDIF                                               |
-// |-------------------------------------------------------------|
-
+// (1)
 // System Bootstrapping Message (txid should be part of genesis state in verifier network)
+// Sender : Could be anyone
+// Votable : No
 // |-------------------------------------------------------------|
 // |      Schnorr Signature                                      |
 // |      Encoded Verifier Public Key                            |
@@ -71,8 +25,12 @@
 // |      OP_ENDIF                                               |
 // |-------------------------------------------------------------|
 
-// Propose Sequencer Message
+
+// (2)
+// Propose Sequencer 
 // verifier should sent attestation to network to validate this message
+// Sender Validation: one of the verifiers
+// Votable: Yes
 // |-------------------------------------------------------------|
 // |      Schnorr Signature                                      |
 // |      Encoded Verifier Public Key                            |
@@ -85,7 +43,70 @@
 // |      OP_ENDIF                                               |
 // |-------------------------------------------------------------|
 
+
+// (3)
+// OP_1 means ok or valid
+// OP_0 means not ok ok or invalid
+// reference_txid could be the proof_reveal_txid or other administrative inscription txid
+
+// ValidatorAttestationMessage
+// Votable: No
+// |-------------------------------------------------------------|
+// |      Schnorr Signature                                      |
+// |      Encoded Verifier Public Key                            |
+// |      OP_CHECKSIG                                            |
+// |      OP_FALSE                                               |
+// |      OP_IF                                                  |
+// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
+// |      OP_PUSHBYTES_32  b"Str('ValidatorAttestationMessage')" |
+// |      OP_PUSHBYTES_32  b"reference_txid"                     |
+// |      OP_PUSHBYTES_1   b"OP_1" /  b"OP_0"                    |
+// |      OP_ENDIF                                               |
+// |-------------------------------------------------------------|
+
+
+// (4)
+// L1BatchDAReference
+// Votable: Yes
+// Sender Validation: only valid sequencer
+// |----------------------------------------------------------|
+// |      Schnorr Signature                                   |
+// |      Encoded Sequencer Public Key                        |
+// |      OP_CHECKSIG                                         |
+// |      OP_FALSE                                            |
+// |      OP_IF                                               |
+// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')" |
+// |      OP_PUSHBYTES_32  b"Str('L1BatchDAReference')"       |
+// |      OP_PUSHBYTES_32  b"l1_batch_hash"                   |
+// |      OP_PUSHBYTES_32  b"l1_batch_index"                  |
+// |      OP_PUSHBYTES_32  b"celestia"                        |
+// |      OP_PUSHBYTES_2   b"da_reference"                    |
+// |      OP_ENDIF                                            |
+// |----------------------------------------------------------|
+
+// (5)
+// ProofDAReferenceMessage
+// Votable: Yes
+// Sender Validation: only valid sequencer
+// |----------------------------------------------------------|
+// |      Schnorr Signature                                   |
+// |      Encoded Sequencer Public Key                        |
+// |      OP_CHECKSIG                                         |
+// |      OP_FALSE                                            |
+// |      OP_IF                                               |
+// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')" |
+// |      OP_PUSHBYTES_32  b"Str('ProofDAReferenceMessage')"  |
+// |      OP_PUSHBYTES_32  b"l1_batch_reveal_txid"            |
+// |      OP_PUSHBYTES_32  b"celestia"                        |
+// |      OP_PUSHBYTES_2   b"da_reference"                    |
+// |      OP_ENDIF                                            |
+// |----------------------------------------------------------|
+
+
+// (6)
 // L1ToL2Message
+// Votable: No
+// Sender Validation: anyone
 // |-------------------------------------------------------------|
 // |      Schnorr Signature                                      |
 // |      Encoded USER/Admin Public Key                          |
