@@ -2,9 +2,12 @@ use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::Auth;
 
-use crate::types::{
-    BitcoinClientResult, BitcoinIndexerResult, BitcoinInscriberResult, BitcoinMessage,
-    BitcoinRpcResult, BitcoinSignerResult,
+use crate::{
+    indexer::BitcoinNetwork,
+    types::{
+        BitcoinClientResult, BitcoinIndexerResult, BitcoinInscriberResult, BitcoinRpcResult,
+        BitcoinSignerResult, Message,
+    },
 };
 
 #[allow(dead_code)]
@@ -25,6 +28,7 @@ pub trait BitcoinOps: Send + Sync {
     async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
     async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
     fn get_rpc_client(&self) -> &dyn BitcoinRpc;
+    fn get_network(&self) -> Network;
 }
 
 #[allow(dead_code)]
@@ -84,15 +88,15 @@ pub trait BitcoinInscriber: Send + Sync {
 #[allow(dead_code)]
 #[async_trait]
 pub trait BitcoinIndexerOpt: Send + Sync {
-    async fn new() -> Self
+    async fn new(rpc_url: &str, network: BitcoinNetwork, txid: &Txid) -> BitcoinIndexerResult<Self>
     where
         Self: Sized;
     async fn process_blocks(
         &self,
-        starting_block: u128,
-        ending_block: u128,
-    ) -> BitcoinIndexerResult<Vec<BitcoinMessage>>;
-    async fn process_block(&self, block: u128) -> BitcoinIndexerResult<Vec<BitcoinMessage>>;
+        starting_block: u32,
+        ending_block: u32,
+    ) -> BitcoinIndexerResult<Vec<Message>>;
+    async fn process_block(&self, block: u32) -> BitcoinIndexerResult<Vec<Message>>;
 
     async fn are_blocks_connected(
         &self,

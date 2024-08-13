@@ -98,6 +98,10 @@ impl BitcoinOps for BitcoinClient {
     fn get_rpc_client(&self) -> &dyn BitcoinRpc {
         self.rpc.as_ref()
     }
+
+    fn get_network(&self) -> Network {
+        self.network
+    }
 }
 
 #[cfg(test)]
