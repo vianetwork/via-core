@@ -1,4 +1,4 @@
-use crate::traits::{BitcoinInscriber, BitcoinOps, BitcoinSigner};
+use crate::traits::{BitcoinOps, BitcoinSigner};
 use anyhow::{Context, Result};
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::{Prevouts, SighashCache};
@@ -6,7 +6,7 @@ use bitcoin::taproot::{ControlBlock, LeafVersion};
 pub use bitcoin::Network as BitcoinNetwork;
 use bitcoin::{
     absolute, transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence,
-    TapLeafHash, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
+    TapLeafHash, TapSighashType, Transaction, TxIn, TxOut, Witness,
 };
 use bitcoincore_rpc::RawTx;
 use secp256k1::Message;
@@ -15,7 +15,11 @@ use std::collections::{HashMap, VecDeque};
 use crate::client::BitcoinClient;
 use crate::inscriber::fee::InscriberFeeCalculator;
 use crate::inscriber::script_builder::InscriptionData;
+use crate::inscriber::types::{
+    CommitTxInputRes, CommitTxOutputRes, FinalTx, RevealTxInputRes, RevealTxOutputRes,
+};
 use crate::signer::KeyManager;
+use crate::types as lib_types;
 
 mod fee;
 mod script_builder;
@@ -42,42 +46,10 @@ const REVEAL_TX_P2WPKH_INPUT_COUNT: u32 = 1;
 
 const BROADCAST_RETRY_COUNT: u32 = 3;
 
-struct CommitTxInputRes {
-    commit_tx_inputs: Vec<TxIn>,
-    unlocked_value: Amount,
-    inputs_count: u32,
-    utxo_amounts: Vec<Amount>,
-}
-
-struct CommitTxOutputRes {
-    commit_tx_change_output: TxOut,
-    commit_tx_tapscript_output: TxOut,
-    commit_tx_fee_rate: u64,
-    _commit_tx_fee: Amount,
-}
-
-struct RevealTxInputRes {
-    reveal_tx_input: Vec<TxIn>,
-    prev_outs: Vec<TxOut>,
-    unlock_value: Amount,
-    control_block: ControlBlock,
-}
-
-struct RevealTxOutputRes {
-    reveal_change_output: TxOut,
-    reveal_fee_rate: u64,
-    _reveal_fee: Amount,
-}
-
-struct FinalTx {
-    tx: Transaction,
-    txid: Txid,
-}
-
 struct Inscriber {
     client: Box<dyn BitcoinOps>,
     signer: Box<dyn BitcoinSigner>,
-    context: types::InscriberContext,
+    context: lib_types::InscriberContext,
 }
 
 #[allow(dead_code)]
@@ -86,13 +58,13 @@ impl Inscriber {
         rpc_url: &str,
         network: BitcoinNetwork,
         signer_private_key: &str,
-        persisted_ctx: Option<types::InscriberContext>,
+        persisted_ctx: Option<lib_types::InscriberContext>,
     ) -> Result<Self> {
         let client = Box::new(BitcoinClient::new(rpc_url, network).await?);
         let signer = Box::new(KeyManager::new(signer_private_key, network)?);
         let context = match persisted_ctx {
             Some(ctx) => ctx,
-            None => types::InscriberContext::new(),
+            None => lib_types::InscriberContext::new(),
         };
 
         Ok(Self {
@@ -109,14 +81,15 @@ impl Inscriber {
     //    "reveal_tx": {},
     //    "tx_incldued_in_block": []
     // }
-    pub async fn inscribe(&mut self, input: types::InscriberInput) -> Result<()> {
+    pub async fn inscribe(&mut self, input: lib_types::InscriptionMessage) -> Result<()> {
         self.sync_context_with_blockchain().await?;
 
         let secp_ref = &self.signer.get_secp_ref();
         let internal_key = self.signer.get_internal_key()?;
         let network = self.client.get_network();
 
-        let inscription_data = InscriptionData::new(input.clone(), secp_ref, internal_key, network)?;
+        let inscription_data =
+            InscriptionData::new(input.clone(), secp_ref, internal_key, network)?;
 
         let commit_tx_input_info = self.prepare_commit_tx_input().await?;
 
@@ -124,24 +97,26 @@ impl Inscriber {
             .prepare_commit_tx_output(
                 &commit_tx_input_info,
                 inscription_data.script_pubkey.clone(),
-            ).await?;
+            )
+            .await?;
 
-        let final_commit_tx = self
-            .sign_commit_tx(&commit_tx_input_info, &commit_tx_output_info)?;
+        let final_commit_tx = self.sign_commit_tx(&commit_tx_input_info, &commit_tx_output_info)?;
 
-        let reveal_tx_input_info = self
-            .prepare_reveal_tx_input(&commit_tx_output_info, &final_commit_tx, &inscription_data)?;
+        let reveal_tx_input_info = self.prepare_reveal_tx_input(
+            &commit_tx_output_info,
+            &final_commit_tx,
+            &inscription_data,
+        )?;
 
         let reveal_tx_output_info = self
             .prepare_reveal_tx_output(&reveal_tx_input_info, &inscription_data)
             .await?;
 
-        let final_reveal_tx = self
-            .sign_reveal_tx(
-                &reveal_tx_input_info,
-                &reveal_tx_output_info,
-                &inscription_data,
-            )?;
+        let final_reveal_tx = self.sign_reveal_tx(
+            &reveal_tx_input_info,
+            &reveal_tx_output_info,
+            &inscription_data,
+        )?;
 
         let broadcast_status = self
             .broadcast_inscription(&final_commit_tx, &final_reveal_tx)
@@ -168,7 +143,7 @@ impl Inscriber {
             return Ok(());
         }
 
-        let mut new_queue: VecDeque<types::InscriptionRequest> = VecDeque::new();
+        let mut new_queue: VecDeque<lib_types::InscriptionRequest> = VecDeque::new();
 
         let original_queue = self.context.fifo_queue.clone();
 
@@ -229,7 +204,6 @@ impl Inscriber {
 
             for j in 0..commit_input_count {
                 let tx_in = commit_input.spent_utxo.get(j);
-                
 
                 if let Some(tx_in) = tx_in {
                     let outpoint = tx_in.previous_output;
@@ -712,16 +686,16 @@ impl Inscriber {
 
     fn insert_inscription_to_context(
         &mut self,
-        req: types::InscriberInput,
+        req: lib_types::InscriptionMessage,
         commit: FinalTx,
         reveal: FinalTx,
         commit_output_info: CommitTxOutputRes,
         reveal_output_info: RevealTxOutputRes,
         commit_input_info: CommitTxInputRes,
     ) -> Result<()> {
-        let inscription_request = types::InscriptionRequest {
-            _message: req,
-            inscriber_output: types::InscriberOutput {
+        let inscription_request = lib_types::InscriptionRequest {
+            message: req,
+            inscriber_output: lib_types::InscriberOutput {
                 commit_txid: commit.txid,
                 commit_raw_tx: commit.tx.raw_hex().to_string(),
                 commit_tx_fee_rate: commit_output_info.commit_tx_fee_rate,
@@ -730,12 +704,12 @@ impl Inscriber {
                 reveal_tx_fee_rate: reveal_output_info.reveal_fee_rate,
                 is_broadcasted: true,
             },
-            fee_payer_ctx: types::FeePayerCtx {
+            fee_payer_ctx: lib_types::FeePayerCtx {
                 fee_payer_utxo_txid: reveal.txid,
                 fee_payer_utxo_vout: REVEAL_TX_CHANGE_OUTPUT_INDEX,
                 fee_payer_utxo_value: reveal_output_info.reveal_change_output.value,
             },
-            commit_tx_input: types::CommitTxInput {
+            commit_tx_input: lib_types::CommitTxInput {
                 spent_utxo: commit_input_info.commit_tx_inputs.clone(),
             },
         };
@@ -745,12 +719,14 @@ impl Inscriber {
         Ok(())
     }
 
-    pub fn get_context_snapshot(&self) -> Result<types::InscriberContext> {
+    pub fn get_context_snapshot(&self) -> Result<lib_types::InscriberContext> {
         Ok(self.context.clone())
     }
 
-    pub fn recreate_context_from_snapshot(&mut self, snapshot: types::InscriberContext) -> Result<()> {
-
+    pub fn recreate_context_from_snapshot(
+        &mut self,
+        snapshot: lib_types::InscriberContext,
+    ) -> Result<()> {
         self.context = snapshot;
 
         Ok(())

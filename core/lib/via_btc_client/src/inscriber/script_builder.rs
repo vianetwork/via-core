@@ -1,132 +1,7 @@
-// Witness Structure for each message type
-// in our case da_identifier is b"celestia"
+// Please checkout ../../Dev.md file Taproot Script section for more details on the via_inscription_protocol structure and message types
 
-// (1)
-// System Bootstrapping Message (txid should be part of genesis state in verifier network)
-// Sender : Could be anyone
-// Votable : No
-// |-------------------------------------------------------------|
-// |      Schnorr Signature                                      |
-// |      Encoded Verifier Public Key                            |
-// |      OP_CHECKSIG                                            |
-// |      OP_FALSE                                               |
-// |      OP_IF                                                  |
-// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
-// |      OP_PUSHBYTES_32  b"Str('SystemBootstrappingMessage')"  |
-// |      OP_PUSHBYTES_32  b"start_block_height"                 |
-// |      OP_PUSHBYTES_32  b"verifier_1_p2wpkh_address"          |
-// |      OP_PUSHBYTES_32  b"verifier_2_p2wpkh_address"          |
-// |      OP_PUSHBYTES_32  b"verifier_3_p2wpkh_address"          |
-// |      OP_PUSHBYTES_32  b"verifier_4_p2wpkh_address"          |
-// |      OP_PUSHBYTES_32  b"verifier_5_p2wpkh_address"          |
-// |      OP_PUSHBYTES_32  b"verifier_6_p2wpkh_address"          |
-// |      OP_PUSHBYTES_32  b"verifier_7_p2wpkh_address"          |
-// |      OP_PUSHBYTES_32  b"bridge_p2wpkh_mpc_address"          |
-// |      OP_ENDIF                                               |
-// |-------------------------------------------------------------|
-
-
-// (2)
-// Propose Sequencer 
-// verifier should sent attestation to network to validate this message
-// Sender Validation: one of the verifiers
-// Votable: Yes
-// |-------------------------------------------------------------|
-// |      Schnorr Signature                                      |
-// |      Encoded Verifier Public Key                            |
-// |      OP_CHECKSIG                                            |
-// |      OP_FALSE                                               |
-// |      OP_IF                                                  |
-// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
-// |      OP_PUSHBYTES_32  b"Str('ProposeSequencerMessage')"     |
-// |      OP_PUSHBYTES_32  b"proposer_p2wpkh_address"            |
-// |      OP_ENDIF                                               |
-// |-------------------------------------------------------------|
-
-
-// (3)
-// OP_1 means ok or valid
-// OP_0 means not ok ok or invalid
-// reference_txid could be the proof_reveal_txid or other administrative inscription txid
-
-// ValidatorAttestationMessage
-// Votable: No
-// |-------------------------------------------------------------|
-// |      Schnorr Signature                                      |
-// |      Encoded Verifier Public Key                            |
-// |      OP_CHECKSIG                                            |
-// |      OP_FALSE                                               |
-// |      OP_IF                                                  |
-// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
-// |      OP_PUSHBYTES_32  b"Str('ValidatorAttestationMessage')" |
-// |      OP_PUSHBYTES_32  b"reference_txid"                     |
-// |      OP_PUSHBYTES_1   b"OP_1" /  b"OP_0"                    |
-// |      OP_ENDIF                                               |
-// |-------------------------------------------------------------|
-
-
-// (4)
-// L1BatchDAReference
-// Votable: Yes
-// Sender Validation: only valid sequencer
-// |----------------------------------------------------------|
-// |      Schnorr Signature                                   |
-// |      Encoded Sequencer Public Key                        |
-// |      OP_CHECKSIG                                         |
-// |      OP_FALSE                                            |
-// |      OP_IF                                               |
-// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')" |
-// |      OP_PUSHBYTES_32  b"Str('L1BatchDAReference')"       |
-// |      OP_PUSHBYTES_32  b"l1_batch_hash"                   |
-// |      OP_PUSHBYTES_32  b"l1_batch_index"                  |
-// |      OP_PUSHBYTES_32  b"celestia"                        |
-// |      OP_PUSHBYTES_2   b"da_reference"                    |
-// |      OP_ENDIF                                            |
-// |----------------------------------------------------------|
-
-// (5)
-// ProofDAReferenceMessage
-// Votable: Yes
-// Sender Validation: only valid sequencer
-// |----------------------------------------------------------|
-// |      Schnorr Signature                                   |
-// |      Encoded Sequencer Public Key                        |
-// |      OP_CHECKSIG                                         |
-// |      OP_FALSE                                            |
-// |      OP_IF                                               |
-// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')" |
-// |      OP_PUSHBYTES_32  b"Str('ProofDAReferenceMessage')"  |
-// |      OP_PUSHBYTES_32  b"l1_batch_reveal_txid"            |
-// |      OP_PUSHBYTES_32  b"celestia"                        |
-// |      OP_PUSHBYTES_2   b"da_reference"                    |
-// |      OP_ENDIF                                            |
-// |----------------------------------------------------------|
-
-
-// (6)
-// L1ToL2Message
-// Votable: No
-// Sender Validation: anyone
-// |-------------------------------------------------------------|
-// |      Schnorr Signature                                      |
-// |      Encoded USER/Admin Public Key                          |
-// |      OP_CHECKSIG                                            |
-// |      OP_FALSE                                               |
-// |      OP_IF                                                  |
-// |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
-// |      OP_PUSHBYTES_32  b"Str('L1ToL2Message')"               |
-// |      OP_PUSHBYTES_32  b"receiver_l2_address"                |
-// |      OP_PUSHBYTES_32  b"l2_contract_address"                |
-// |      OP_PUSHBYTES_32  b"call_data"                          |
-// |      OP_ENDIF                                               |
-// |-------------------------------------------------------------|
-//  !!! for bridging the l2_contract_address and call_data is empty (0x00) !!!
-//  !!! and the amount is equal to the amount of btc user sends to bridge address in the same reveal tx !!!
-//  !!! if the contract address and call_data was provided the amount get used as fee and remaining amount get sent to l2 receiver address !!!
-//  !!! in future we can implement kinda enforcement withdrawal with using l1->l2 message (reference in notion) !!!
-//  !!! also we should support op_return only for bridging in future of the inscription indexer !!!
-
-use crate::inscriber::types;
+// use crate::inscriber::types;
+use crate::types;
 use anyhow::{Context, Result};
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::{all, OP_0, OP_FALSE};
@@ -147,14 +22,14 @@ pub struct InscriptionData {
 
 impl InscriptionData {
     pub fn new<C: Signing + Verification>(
-        inscription_message: types::InscriberInput,
+        inscription_message: types::InscriptionMessage,
         secp: &Secp256k1<C>,
         internal_key: UntweakedPublicKey,
         network: Network,
     ) -> Result<Self> {
-        let serelized_pubkey = internal_key.serialize();
-        let mut encoded_pubkey = PushBytesBuf::with_capacity(serelized_pubkey.len());
-        encoded_pubkey.extend_from_slice(&serelized_pubkey).ok();
+        let serialized_pubkey = internal_key.serialize();
+        let mut encoded_pubkey = PushBytesBuf::with_capacity(serialized_pubkey.len());
+        encoded_pubkey.extend_from_slice(&serialized_pubkey).ok();
 
         let basic_script = Self::build_basic_inscription_script(&encoded_pubkey)?;
 
@@ -218,31 +93,34 @@ impl InscriptionData {
 
     fn complete_inscription(
         basic_script: ScriptBuilder,
-        message: types::InscriberInput,
+        message: types::InscriptionMessage,
     ) -> Result<(ScriptBuf, usize)> {
         let final_script_result: ScriptBuilder;
 
         match message {
-            types::InscriberInput::L1BatchDAReference {
-                l1_batch_hash,
-                l1_batch_index,
-                da_reference,
-            } => {
-                let l1_batch_hash_bytes = l1_batch_hash.as_bytes();
+            types::InscriptionMessage::L1BatchDAReference(input) => {
+                let l1_batch_hash_bytes = input.l1_batch_hash.as_bytes();
                 let mut l1_batch_hash_encoded =
                     PushBytesBuf::with_capacity(l1_batch_hash_bytes.len());
                 l1_batch_hash_encoded
                     .extend_from_slice(l1_batch_hash_bytes)
                     .ok();
 
-                let l1_batch_index_bytes = l1_batch_index.to_be_bytes();
+                let l1_batch_index_bytes = input.l1_batch_index.to_be_bytes();
                 let mut l1_batch_index_encoded =
                     PushBytesBuf::with_capacity(l1_batch_index_bytes.len());
                 l1_batch_index_encoded
                     .extend_from_slice(&l1_batch_index_bytes)
                     .ok();
 
-                let da_reference_bytes = da_reference.blob_id.as_bytes();
+                let da_identifier_bytes = input.da_identifier.as_bytes();
+                let mut da_identifier_encoded =
+                    PushBytesBuf::with_capacity(da_identifier_bytes.len());
+                da_identifier_encoded
+                    .extend_from_slice(da_identifier_bytes)
+                    .ok();
+
+                let da_reference_bytes = input.blob_id.as_bytes();
                 let mut da_reference_encoded =
                     PushBytesBuf::with_capacity(da_reference_bytes.len());
                 da_reference_encoded
@@ -252,21 +130,27 @@ impl InscriptionData {
                 final_script_result = basic_script
                     .push_slice(l1_batch_hash_encoded)
                     .push_slice(l1_batch_index_encoded)
+                    .push_slice(da_identifier_encoded)
                     .push_slice(da_reference_encoded);
             }
 
-            types::InscriberInput::ProofDAReference {
-                l1_batch_reveal_txid,
-                da_reference,
-            } => {
-                let l1_batch_reveal_txid_bytes = l1_batch_reveal_txid.as_raw_hash().as_byte_array();
+            types::InscriptionMessage::ProofDAReference(input) => {
+                let l1_batch_reveal_txid_bytes =
+                    input.l1_batch_reveal_txid.as_raw_hash().as_byte_array();
                 let mut l1_batch_reveal_txid_encoded =
                     PushBytesBuf::with_capacity(l1_batch_reveal_txid_bytes.len());
                 l1_batch_reveal_txid_encoded
                     .extend_from_slice(l1_batch_reveal_txid_bytes)
                     .ok();
 
-                let da_reference_bytes = da_reference.blob_id.as_bytes();
+                let da_identifier_bytes = input.da_identifier.as_bytes();
+                let mut da_identifier_encoded =
+                    PushBytesBuf::with_capacity(da_identifier_bytes.len());
+                da_identifier_encoded
+                    .extend_from_slice(da_identifier_bytes)
+                    .ok();
+
+                let da_reference_bytes = input.blob_id.as_bytes();
                 let mut da_reference_encoded =
                     PushBytesBuf::with_capacity(da_reference_bytes.len());
                 da_reference_encoded
@@ -275,21 +159,19 @@ impl InscriptionData {
 
                 final_script_result = basic_script
                     .push_slice(l1_batch_reveal_txid_encoded)
+                    .push_slice(da_identifier_encoded)
                     .push_slice(da_reference_encoded);
             }
 
-            types::InscriberInput::ValidatorAttestation {
-                reference_txid,
-                vote,
-            } => {
-                let reference_txid_bytes = reference_txid.as_raw_hash().as_byte_array();
+            types::InscriptionMessage::ValidatorAttestation(input) => {
+                let reference_txid_bytes = input.reference_txid.as_raw_hash().as_byte_array();
                 let mut reference_txid_encoded =
                     PushBytesBuf::with_capacity(reference_txid_bytes.len());
                 reference_txid_encoded
                     .extend_from_slice(reference_txid_bytes)
                     .ok();
 
-                match vote {
+                match input.attestation {
                     types::Vote::Ok => {
                         final_script_result = basic_script
                             .push_slice(reference_txid_encoded)
@@ -303,12 +185,8 @@ impl InscriptionData {
                 }
             }
 
-            types::InscriberInput::SystemBootstrapping {
-                start_block_height,
-                verifier_p2wpkh_addresses,
-                bridge_p2wpkh_mpc_address,
-            } => {
-                let start_block_height_bytes = start_block_height.to_be_bytes();
+            types::InscriptionMessage::SystemBootstrapping(input) => {
+                let start_block_height_bytes = input.start_block_height.to_be_bytes();
                 let mut start_block_height_encoded =
                     PushBytesBuf::with_capacity(start_block_height_bytes.len());
                 start_block_height_encoded
@@ -317,7 +195,7 @@ impl InscriptionData {
 
                 let mut tapscript = basic_script.push_slice(start_block_height_encoded);
 
-                for verifier_p2wpkh_address in verifier_p2wpkh_addresses {
+                for verifier_p2wpkh_address in input.verifier_p2wpkh_addresses {
                     let address_string = verifier_p2wpkh_address.to_string();
                     let verifier_p2wpkh_address_bytes = address_string.as_bytes();
 
@@ -330,7 +208,7 @@ impl InscriptionData {
                     tapscript = tapscript.push_slice(verifier_p2wpkh_addresses_encoded);
                 }
 
-                let bridge_addr_string = bridge_p2wpkh_mpc_address.to_string();
+                let bridge_addr_string = input.bridge_p2wpkh_mpc_address.to_string();
                 let bridge_p2wpkh_mpc_address_bytes = bridge_addr_string.as_bytes();
                 let mut bridge_p2wpkh_mpc_address_encoded =
                     PushBytesBuf::with_capacity(bridge_p2wpkh_mpc_address_bytes.len());
@@ -341,10 +219,8 @@ impl InscriptionData {
                 final_script_result = tapscript.push_slice(bridge_p2wpkh_mpc_address_encoded);
             }
 
-            types::InscriberInput::ProposeSequencer {
-                sequencer_new_p2wpkh_address,
-            } => {
-                let addr_string = sequencer_new_p2wpkh_address.to_string();
+            types::InscriptionMessage::ProposeSequencer(input) => {
+                let addr_string = input.sequencer_new_p2wpkh_address.to_string();
                 let sequencer_new_p2wpkh_address_bytes = addr_string.as_bytes();
                 let mut sequencer_new_p2wpkh_address_encoded =
                     PushBytesBuf::with_capacity(sequencer_new_p2wpkh_address_bytes.len());
@@ -355,27 +231,23 @@ impl InscriptionData {
                 final_script_result = basic_script.push_slice(sequencer_new_p2wpkh_address_encoded);
             }
 
-            types::InscriberInput::L1ToL2Message {
-                receiver_l2_address,
-                l2_contract_address,
-                call_data,
-            } => {
-                let receiver_l2_address_bytes = receiver_l2_address.as_bytes();
+            types::InscriptionMessage::L1ToL2Message(input) => {
+                let receiver_l2_address_bytes = input.receiver_l2_address.as_bytes();
                 let mut receiver_l2_address_encoded =
                     PushBytesBuf::with_capacity(receiver_l2_address_bytes.len());
                 receiver_l2_address_encoded
                     .extend_from_slice(receiver_l2_address_bytes)
                     .ok();
 
-                let l2_contract_address_bytes = l2_contract_address.as_bytes();
+                let l2_contract_address_bytes = input.l2_contract_address.as_bytes();
                 let mut l2_contract_address_encoded =
                     PushBytesBuf::with_capacity(l2_contract_address_bytes.len());
                 l2_contract_address_encoded
                     .extend_from_slice(l2_contract_address_bytes)
                     .ok();
 
-                let mut call_data_encoded = PushBytesBuf::with_capacity(call_data.len());
-                call_data_encoded.extend_from_slice(&call_data).ok();
+                let mut call_data_encoded = PushBytesBuf::with_capacity(input.call_data.len());
+                call_data_encoded.extend_from_slice(&input.call_data).ok();
 
                 final_script_result = basic_script
                     .push_slice(receiver_l2_address_encoded)

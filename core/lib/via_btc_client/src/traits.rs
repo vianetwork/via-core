@@ -94,18 +94,18 @@ pub trait BitcoinInscriber: Send + Sync {
 #[allow(dead_code)]
 #[async_trait]
 pub trait BitcoinInscriptionIndexer: Send + Sync {
-    async fn new(config: &str) -> types::BitcoinInscriptionIndexerResult<Self>
+    async fn new(config: &str) -> types::BitcoinIndexerResult<Self>
     where
         Self: Sized;
     async fn get_inscription_messages(
         &self,
         starting_block: u128,
         ending_block: u128,
-    ) -> types::BitcoinInscriptionIndexerResult<Vec<&str>>;
+    ) -> types::BitcoinIndexerResult<Vec<&str>>;
     async fn get_specific_block_inscription_messages(
         &self,
         block_height: u128,
-    ) -> types::BitcoinInscriptionIndexerResult<Vec<&str>>;
+    ) -> types::BitcoinIndexerResult<Vec<&str>>;
 }
 
 #[allow(dead_code)]

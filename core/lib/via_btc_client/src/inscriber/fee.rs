@@ -2,11 +2,13 @@ use anyhow::Result;
 use bitcoin::Amount;
 
 // Fee Estimation Constants
-const VERSION_SIZE: usize = 4;
-const INPUT_COUNT_SIZE: usize = 1;
-const OUTPUT_COUNT_SIZE: usize = 1;
-const LOCKTIME_SIZE: usize = 4;
-const MAKER_FLAGS_SIZE: usize = 1; // 1/2
+// const VERSION_SIZE: usize = 4;
+// const INPUT_COUNT_SIZE: usize = 1;
+// const OUTPUT_COUNT_SIZE: usize = 1;
+// const LOCKTIME_SIZE: usize = 4;
+// const MAKER_FLAGS_SIZE: usize = 1; // 1/2
+// base size is equal to the sum of the above constants
+const GENERAL_BASE_SIZE: usize = 11;
 
 // p2wpkh input base size
 // out point (36) The txid and vout index number of the output (UTXO) being spent
@@ -61,9 +63,6 @@ impl InscriberFeeCalculator {
 
         assert!(p2tr_inputs_count == p2tr_witness_sizes.len() as u32);
 
-        let base_size =
-            VERSION_SIZE + INPUT_COUNT_SIZE + OUTPUT_COUNT_SIZE + LOCKTIME_SIZE + MAKER_FLAGS_SIZE;
-
         let p2wpkh_input_size = P2WPKH_INPUT_BASE_SIZE * p2wpkh_inputs_count as usize;
 
         let mut p2tr_input_size = 0;
@@ -76,7 +75,11 @@ impl InscriberFeeCalculator {
 
         let p2tr_output_size = P2TR_OUTPUT_BASE_SIZE * p2tr_outputs_count as usize;
 
-        base_size + p2wpkh_input_size + p2tr_input_size + p2wpkh_output_size + p2tr_output_size
+        GENERAL_BASE_SIZE
+            + p2wpkh_input_size
+            + p2tr_input_size
+            + p2wpkh_output_size
+            + p2tr_output_size
     }
 
     pub fn estimate_fee(
