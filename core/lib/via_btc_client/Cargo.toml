@@ -17,7 +17,6 @@ zksync_da_client.workspace = true
 zksync_basic_types.workspace = true
 
 thiserror.workspace = true
-tempfile.workspace = true
 async-trait.workspace = true
 jsonrpsee = { workspace = true, features = [
     "client",
@@ -35,16 +34,17 @@ inquire = "0.7.5"
 anyhow.workspace = true
 serde.workspace = true
 
+
 [dev-dependencies]
 mockall = "0.13.0"
 
 [features]
-test_utils = []
+regtest = ["tempfile", "anyhow", "serde"]
 
 [[example]]
 name = "bitcoin_client_example"
 path = "examples/bitcoin_client_example.rs"
-required-features = ["test_utils"]
+required-features = ["regtest"]
 
 [[example]]
 name = "data_inscription_example"

@@ -1,81 +1,92 @@
-use std::{env, fs, path::PathBuf, process::Command, thread, time::Duration};
+use std::{
+    process::{Command, Stdio},
+    thread,
+    time::Duration,
+};
 
-use bitcoincore_rpc::{Auth, Client};
-use rand::Rng;
-use tempfile::TempDir;
+use anyhow::Result;
+use bitcoin::{address::NetworkUnchecked, Address, Network, PrivateKey};
 
-use crate::client::BitcoinRpcClient;
+const COMPOSE_FILE_PATH: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/docker-compose-btc.yml");
+const CLI_CONTAINER_NAME: &str = "tests-bitcoin-cli-1";
 
-const COMPOSE_TEMPLATE_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/docker-compose-btc-template.yml"
-);
-
-#[allow(unused)]
-pub(crate) struct BitcoinRegtest {
-    temp_dir: TempDir,
-    compose_file: PathBuf,
-    rpc_port: u16,
+pub struct BitcoinRegtest {
+    private_key: PrivateKey,
+    address: Address,
 }
 
 impl BitcoinRegtest {
-    pub fn new() -> std::io::Result<Self> {
-        let temp_dir = TempDir::new()?;
-        let rpc_port = rand::thread_rng().gen_range(49152..65535);
-        let compose_file = temp_dir
-            .path()
-            .join(format!("docker-compose-{}.yml", rpc_port));
-        Ok(Self {
-            temp_dir,
-            compose_file,
-            rpc_port,
-        })
+    pub fn new() -> Result<Self> {
+        let regtest = Self {
+            address: "bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56"
+                .parse::<Address<NetworkUnchecked>>()?
+                .require_network(Network::Regtest)?,
+            private_key: PrivateKey::from_wif(
+                "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R",
+            )?,
+        };
+        regtest.setup()?;
+        Ok(regtest)
     }
 
-    fn generate_compose_file(&self) -> std::io::Result<()> {
-        let template = fs::read_to_string(COMPOSE_TEMPLATE_PATH)?;
-        let compose_content = template.replace("{RPC_PORT}", &self.rpc_port.to_string());
-        fs::write(&self.compose_file, compose_content)
-    }
-
-    fn run(&self) -> std::io::Result<()> {
-        self.generate_compose_file()?;
-
-        Command::new("docker")
-            .args([
-                "compose",
-                "-f",
-                self.compose_file.to_str().unwrap(),
-                "up",
-                "-d",
-            ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()?;
-
+    fn setup(&self) -> Result<()> {
+        self.run()?;
         thread::sleep(Duration::from_secs(10));
-
         Ok(())
     }
 
-    fn stop(&self) -> std::io::Result<()> {
+    fn run(&self) -> Result<()> {
         Command::new("docker")
-            .args([
-                "compose",
-                "-f",
-                self.compose_file.to_str().unwrap(),
-                "down",
-                "--volumes",
-            ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .args(["compose", "-f", COMPOSE_FILE_PATH, "up", "-d"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()?;
-
         Ok(())
     }
 
-    pub(crate) fn get_url(&self) -> String {
-        format!("http://127.0.0.1:{}", self.rpc_port)
+    pub fn get_miner_address(&self) -> Result<Address> {
+        let output = Command::new("docker")
+            .args(["logs", CLI_CONTAINER_NAME])
+            .output()?;
+        let stdout_utf8 = std::str::from_utf8(&output.stdout)?;
+        if let Some(line) = stdout_utf8
+            .lines()
+            .find(|line| line.starts_with("Alice's address:"))
+        {
+            match line
+                .split_once(": ")
+                .map(|(_, addr)| addr.trim().to_string())
+            {
+                Some(address) => Ok(address
+                    .parse::<Address<NetworkUnchecked>>()?
+                    .require_network(Network::Regtest)?),
+                None => Err(anyhow::anyhow!("Error while getting miner address")),
+            }
+        } else {
+            Err(anyhow::anyhow!("Error while getting miner address"))
+        }
+    }
+
+    fn stop(&self) -> Result<()> {
+        Command::new("docker")
+            .args(["compose", "-f", COMPOSE_FILE_PATH, "down", "--volumes"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        Ok(())
+    }
+
+    pub fn get_url(&self) -> String {
+        "http://127.0.0.1:18443".to_string()
+    }
+
+    pub fn get_address(&self) -> &Address {
+        &self.address
+    }
+
+    pub fn get_private_key(&self) -> &PrivateKey {
+        &self.private_key
     }
 }
 
@@ -87,57 +98,38 @@ impl Drop for BitcoinRegtest {
     }
 }
 
-pub struct TestContext {
-    pub(crate) _regtest: BitcoinRegtest,
-    pub(crate) client: BitcoinRpcClient,
-}
-
-impl TestContext {
-    pub async fn setup() -> Self {
-        let regtest = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        regtest.run().expect("Failed to run Bitcoin regtest");
-
-        let url = regtest.get_url();
-        let client = BitcoinRpcClient::new(&url, "rpcuser", "rpcpassword")
-            .expect("Failed to create BitcoinRpcClient");
-
-        Self {
-            _regtest: regtest,
-            client,
-        }
-    }
-
-    pub fn get_url(&self) -> String {
-        self._regtest.get_url()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use bitcoincore_rpc::RpcApi;
+    use bitcoin::CompressedPublicKey;
+    use secp256k1::Secp256k1;
 
     use super::*;
+    use crate::{client::BitcoinRpcClient, traits::BitcoinRpc};
 
-    #[test]
-    fn test_bitcoin_regtest() {
+    #[tokio::test]
+    async fn test_bitcoin_regtest() {
         let regtest = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        regtest.run().expect("Failed to run Bitcoin regtest");
+        let rpc = BitcoinRpcClient::new(&regtest.get_url(), "rpcuser", "rpcpassword")
+            .expect("Failed create rpc client");
 
-        let url = regtest.get_url();
-        let rpc = Client::new(
-            &url,
-            Auth::UserPass("rpcuser".to_string(), "rpcpassword".to_string()),
-        )
-        .expect("Failed to create RPC client");
-
-        let balance = rpc.get_balance(None, None).expect("Failed to get balance");
-        assert!(balance.to_btc() > 0.0);
-
-        let block_count = rpc.get_block_count().expect("Failed to get block count");
+        let block_count = rpc
+            .get_block_count()
+            .await
+            .expect("Failed to get block count");
         assert!(block_count > 100);
 
-        let wallet_info = rpc.get_wallet_info().expect("Failed to get wallet info");
-        assert_eq!(wallet_info.wallet_name, "Alice");
-        assert_eq!(wallet_info.wallet_version, 169900);
+        let address = regtest.get_address();
+        let private_key = regtest.get_private_key();
+        let balance = rpc
+            .get_balance(address)
+            .await
+            .expect("Failed to get balance of test address");
+        assert!(balance > 300000);
+
+        let secp = Secp256k1::new();
+        let compressed_public_key = CompressedPublicKey::from_private_key(&secp, private_key)
+            .expect("Failed to generate address from test private_key");
+        let derived_address = Address::p2wpkh(&compressed_public_key, Network::Regtest);
+        assert_eq!(*address, derived_address, "Address mismatch!");
     }
 }
