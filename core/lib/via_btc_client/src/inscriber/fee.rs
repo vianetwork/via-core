@@ -56,12 +56,14 @@ impl InscriberFeeCalculator {
         p2wpkh_outputs_count: u32,
         p2tr_outputs_count: u32,
         p2tr_witness_sizes: Vec<usize>,
-    ) -> usize {
+    ) -> Result<usize> {
         // https://bitcoinops.org/en/tools/calc-size/
         // https://en.bitcoin.it/wiki/Protocol_documentation#Common_structures
         // https://btcinformation.org/en/developer-reference#p2p-network
 
-        assert!(p2tr_inputs_count == p2tr_witness_sizes.len() as u32);
+        if p2tr_inputs_count == p2tr_witness_sizes.len() as u32 {
+            return Err(anyhow::anyhow!("Invalid witness sizes count"));
+        }
 
         let p2wpkh_input_size = P2WPKH_INPUT_BASE_SIZE * p2wpkh_inputs_count as usize;
 
@@ -75,11 +77,13 @@ impl InscriberFeeCalculator {
 
         let p2tr_output_size = P2TR_OUTPUT_BASE_SIZE * p2tr_outputs_count as usize;
 
-        GENERAL_BASE_SIZE
+        let res = GENERAL_BASE_SIZE
             + p2wpkh_input_size
             + p2tr_input_size
             + p2wpkh_output_size
-            + p2tr_output_size
+            + p2tr_output_size;
+
+        Ok(res)
     }
 
     pub fn estimate_fee(
@@ -96,7 +100,7 @@ impl InscriberFeeCalculator {
             p2wpkh_outputs_count,
             p2tr_outputs_count,
             p2tr_witness_sizes,
-        );
+        )?;
 
         let fee = transaction_size as u64 * fee_rate;
 

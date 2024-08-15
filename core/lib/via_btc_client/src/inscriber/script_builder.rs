@@ -22,7 +22,7 @@ pub struct InscriptionData {
 
 impl InscriptionData {
     pub fn new<C: Signing + Verification>(
-        inscription_message: types::InscriptionMessage,
+        inscription_message: &types::InscriptionMessage,
         secp: &Secp256k1<C>,
         internal_key: UntweakedPublicKey,
         network: Network,
@@ -93,7 +93,7 @@ impl InscriptionData {
 
     fn complete_inscription(
         basic_script: ScriptBuilder,
-        message: types::InscriptionMessage,
+        message: &types::InscriptionMessage,
     ) -> Result<(ScriptBuf, usize)> {
         let final_script_result: ScriptBuilder;
 
@@ -195,7 +195,7 @@ impl InscriptionData {
 
                 let mut tapscript = basic_script.push_slice(start_block_height_encoded);
 
-                for verifier_p2wpkh_address in input.verifier_p2wpkh_addresses {
+                for verifier_p2wpkh_address in input.verifier_p2wpkh_addresses.clone() {
                     let address_string = verifier_p2wpkh_address.to_string();
                     let verifier_p2wpkh_address_bytes = address_string.as_bytes();
 
