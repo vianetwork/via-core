@@ -85,7 +85,11 @@ pub trait BitcoinInscriber: Send + Sync {
 #[allow(dead_code)]
 #[async_trait]
 pub trait BitcoinIndexerOpt: Send + Sync {
-    async fn new(rpc_url: &str, network: Network, txid: &Txid) -> BitcoinIndexerResult<Self>
+    async fn new(
+        rpc_url: &str,
+        network: Network,
+        bootstrap_txids: Vec<Txid>,
+    ) -> BitcoinIndexerResult<Self>
     where
         Self: Sized;
     async fn process_blocks(
