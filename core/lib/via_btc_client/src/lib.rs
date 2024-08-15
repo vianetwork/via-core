@@ -4,7 +4,6 @@ mod types;
 pub mod client;
 mod indexer;
 mod inscriber;
-#[cfg(feature = "regtest")]
 pub mod regtest;
 pub mod signer;
 mod transaction_builder;
