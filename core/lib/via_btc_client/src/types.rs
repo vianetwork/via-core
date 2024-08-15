@@ -22,7 +22,6 @@ pub enum Vote {
 pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
-    pub via_inscription_protocol_identifier: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]

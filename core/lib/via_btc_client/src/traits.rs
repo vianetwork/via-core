@@ -2,12 +2,9 @@ use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::Auth;
 
-use crate::{
-    indexer::BitcoinNetwork,
-    types::{
-        BitcoinClientResult, BitcoinIndexerResult, BitcoinInscriberResult, BitcoinRpcResult,
-        BitcoinSignerResult, Message,
-    },
+use crate::types::{
+    BitcoinClientResult, BitcoinIndexerResult, BitcoinInscriberResult, BitcoinRpcResult,
+    BitcoinSignerResult, Message,
 };
 
 #[allow(dead_code)]
@@ -88,7 +85,7 @@ pub trait BitcoinInscriber: Send + Sync {
 #[allow(dead_code)]
 #[async_trait]
 pub trait BitcoinIndexerOpt: Send + Sync {
-    async fn new(rpc_url: &str, network: BitcoinNetwork, txid: &Txid) -> BitcoinIndexerResult<Self>
+    async fn new(rpc_url: &str, network: Network, txid: &Txid) -> BitcoinIndexerResult<Self>
     where
         Self: Sized;
     async fn process_blocks(
