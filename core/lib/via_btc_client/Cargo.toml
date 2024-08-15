@@ -31,15 +31,14 @@ secp256k1 = "0.29.0"
 reqwest = "0.12.5"
 serde_json.workspace = true
 inquire = "0.7.5"
-tempfile = { workspace = true, optional = true }
-anyhow = { workspace = true}
-serde = { workspace = true}
+anyhow.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 mockall = "0.13.0"
 
 [features]
-regtest = ["tempfile",]
+regtest = []
 
 [[example]]
 name = "bitcoin_client_example"

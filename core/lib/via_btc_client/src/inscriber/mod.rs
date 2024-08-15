@@ -193,7 +193,6 @@ impl Inscriber {
         let mut spent_utxos: HashMap<OutPoint, bool> = HashMap::new();
 
         for i in 0..context_queue_len {
-            let is_last = i == context_queue_len - 1;
 
             let inscription_req =
                 self.context.fifo_queue.get(i).ok_or_else(|| {
@@ -222,7 +221,7 @@ impl Inscriber {
 
             spent_utxos.insert(reveal_fee_payer_input, true);
 
-            if !is_last {
+            if i != context_queue_len - 1 {
                 let reveal_tx_change_output = inscription_req.inscriber_output.reveal_txid;
 
                 let reveal_tx_change_output = OutPoint {
