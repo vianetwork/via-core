@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use bitcoin::{Address, BlockHash, KnownHrp, Network, Transaction, Txid};
+use bitcoin::{Address, BlockHash, KnownHrp, Network, Txid};
 use bitcoincore_rpc::Auth;
 
 mod parser;
@@ -10,13 +10,15 @@ use parser::MessageParser;
 use crate::{
     client::BitcoinClient,
     traits::BitcoinInscriptionIndexerOpt,
-    types::{BitcoinError, BitcoinIndexerResult, CommonFields, FullInscriptionMessage, Vote},
+    types::{BitcoinError, BitcoinIndexerResult, FullInscriptionMessage, Vote},
     BitcoinOps,
 };
+use crate::types::{CommonFields, L1ToL2Message};
 
 struct BootstrapState {
     verifier_addresses: Vec<Address>,
     proposed_sequencer: Option<Address>,
+    proposed_sequencer_txid: Option<Txid>,
     sequencer_votes: HashMap<Address, Vote>,
     bridge_address: Option<Address>,
     starting_block_number: u32,
@@ -27,6 +29,7 @@ impl BootstrapState {
         Self {
             verifier_addresses: Vec::new(),
             proposed_sequencer: None,
+            proposed_sequencer_txid: None,
             sequencer_votes: HashMap::new(),
             bridge_address: None,
             starting_block_number: 0,
@@ -68,8 +71,8 @@ impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
         network: Network,
         bootstrap_txids: Vec<Txid>,
     ) -> BitcoinIndexerResult<Self>
-    where
-        Self: Sized,
+        where
+            Self: Sized,
     {
         let client = Box::new(BitcoinClient::new(rpc_url, network, Auth::None).await?);
         let parser = MessageParser::new(network);
@@ -80,7 +83,7 @@ impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
             let messages = parser.parse_transaction(&tx);
 
             for message in messages {
-                Self::process_bootstrap_message(&mut bootstrap_state, message)?;
+                Self::process_bootstrap_message(&mut bootstrap_state, message, txid);
             }
 
             if bootstrap_state.is_complete() {
@@ -141,7 +144,7 @@ impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
         let messages: Vec<FullInscriptionMessage> = block
             .txdata
             .iter()
-            .flat_map(|tx| self.process_tx(tx))
+            .flat_map(|tx| self.parser.parse_transaction(tx))
             .filter(|message| self.is_valid_message(message))
             .collect();
 
@@ -162,41 +165,27 @@ impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
 }
 
 impl BitcoinInscriptionIndexer {
-    fn process_tx(&self, tx: &Transaction) -> Vec<FullInscriptionMessage> {
-        self.parser.parse_transaction(tx)
-    }
-
     fn is_valid_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
             FullInscriptionMessage::ProposeSequencer(m) => {
-                if let Ok(sender) = Self::get_sender_address(&m.common) {
-                    self.verifier_addresses.contains(&sender)
-                } else {
-                    false
-                }
+                Self::get_sender_address(&m.common)
+                    .map_or(false, |addr| self.verifier_addresses.contains(&addr))
             }
             FullInscriptionMessage::ValidatorAttestation(m) => {
-                if let Ok(sender) = Self::get_sender_address(&m.common) {
-                    self.verifier_addresses.contains(&sender)
-                } else {
-                    false
-                }
+                Self::get_sender_address(&m.common)
+                    .map_or(false, |addr| self.verifier_addresses.contains(&addr))
             }
             FullInscriptionMessage::L1BatchDAReference(m) => {
-                if let Ok(sender) = Self::get_sender_address(&m.common) {
-                    sender == self.sequencer_address
-                } else {
-                    false
-                }
+                Self::get_sender_address(&m.common)
+                    .map_or(false, |addr| addr == self.sequencer_address)
             }
             FullInscriptionMessage::ProofDAReference(m) => {
-                if let Ok(sender) = Self::get_sender_address(&m.common) {
-                    sender == self.sequencer_address
-                } else {
-                    false
-                }
+                Self::get_sender_address(&m.common)
+                    .map_or(false, |addr| addr == self.sequencer_address)
             }
-            FullInscriptionMessage::L1ToL2Message(m) => m.amount > bitcoin::Amount::ZERO,
+            FullInscriptionMessage::L1ToL2Message(m) => {
+                m.amount > bitcoin::Amount::ZERO && self.is_valid_l1_to_l2_transfer(m) // check the bridge address in the output
+            }
             FullInscriptionMessage::SystemBootstrapping(_) => true,
         }
     }
@@ -204,7 +193,8 @@ impl BitcoinInscriptionIndexer {
     fn process_bootstrap_message(
         state: &mut BootstrapState,
         message: FullInscriptionMessage,
-    ) -> BitcoinIndexerResult<()> {
+        txid: Txid,
+    ) {
         match message {
             FullInscriptionMessage::SystemBootstrapping(sb) => {
                 state.verifier_addresses = sb.input.verifier_p2wpkh_addresses;
@@ -212,39 +202,47 @@ impl BitcoinInscriptionIndexer {
                 state.starting_block_number = sb.input.start_block_height;
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
-                if let Ok(sender) = Self::get_sender_address(&ps.common) {
-                    if state.verifier_addresses.contains(&sender) {
+                if let Some(sender_address) = Self::get_sender_address(&ps.common) {
+                    if state.verifier_addresses.contains(&sender_address) {
                         state.proposed_sequencer = Some(ps.input.sequencer_new_p2wpkh_address);
+                        state.proposed_sequencer_txid = Some(txid);
                     }
                 }
             }
             FullInscriptionMessage::ValidatorAttestation(va) => {
                 if state.proposed_sequencer.is_some() {
-                    if let Ok(sender) = Self::get_sender_address(&va.common) {
-                        if state.verifier_addresses.contains(&sender) {
-                            state.sequencer_votes.insert(sender, va.input.attestation);
+                    if let Some(sender_address) = Self::get_sender_address(&va.common) {
+                        if state.verifier_addresses.contains(&sender_address) {
+                            // check if this is an attestation for the proposed sequencer
+                            if let Some(proposed_txid) = state.proposed_sequencer_txid {
+                                if va.input.reference_txid == proposed_txid {
+                                    state.sequencer_votes.insert(sender_address, va.input.attestation);
+                                }
+                            }
                         }
                     }
                 }
             }
-            _ => {
-                return Err(BitcoinError::Other(
-                    "Unexpected message during bootstrap".to_string(),
-                ))
-            }
+            _ => {} // ignore other messages
         }
-        Ok(())
     }
 
-    fn get_sender_address(common_fields: &CommonFields) -> BitcoinIndexerResult<Address> {
-        let public_key =
-            secp256k1::XOnlyPublicKey::from_slice(&common_fields.encoded_public_key.as_bytes())
-                .map_err(|_| BitcoinError::Other("Invalid public key".to_string()))?;
-        Ok(Address::p2tr(
-            &bitcoin::secp256k1::Secp256k1::new(),
-            public_key,
-            None,
-            KnownHrp::from(Network::Testnet), // TODO: make it configurable
-        ))
+    fn get_sender_address(common_fields: &CommonFields) -> Option<Address> {
+        secp256k1::XOnlyPublicKey::from_slice(&common_fields.encoded_public_key.as_bytes())
+            .ok()
+            .map(|public_key| {
+                Address::p2tr(
+                    &bitcoin::secp256k1::Secp256k1::new(),
+                    public_key,
+                    None,
+                    KnownHrp::from(Network::Testnet), // TODO: make it configurable
+                )
+            })
+    }
+
+    fn is_valid_l1_to_l2_transfer(&self, message: &L1ToL2Message) -> bool {
+        message.tx_outputs.iter().any(|output| {
+            output.script_pubkey == self.bridge_address.script_pubkey()
+        })
     }
 }

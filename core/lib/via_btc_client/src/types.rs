@@ -1,9 +1,6 @@
 use std::collections::VecDeque;
 
-use bitcoin::{
-    script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress,
-    Amount, TxIn, Txid,
-};
+use bitcoin::{script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress, Amount, TxIn, Txid, TxOut};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zksync_basic_types::H256;
@@ -96,6 +93,7 @@ pub struct L1ToL2Message {
     pub common: CommonFields,
     pub amount: Amount,
     pub input: L1ToL2MessageInput,
+    pub tx_outputs: Vec<TxOut>,
 }
 
 #[allow(unused)]
@@ -239,7 +237,7 @@ impl From<bitcoin::hex::HexToArrayError> for BitcoinError {
 }
 
 pub type BitcoinSignerResult<T> = Result<T>;
-pub type BitcoinInscriberResult<T> = Result<T>;
+// pub type BitcoinInscriberResult<T> = Result<T>;
 pub type BitcoinIndexerResult<T> = Result<T>;
 #[allow(unused)]
 pub type BitcoinTransactionBuilderResult<T> = Result<T>;

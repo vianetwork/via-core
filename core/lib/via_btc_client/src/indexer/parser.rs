@@ -2,8 +2,7 @@ use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
     script::{Instruction, PushBytesBuf},
-    secp256k1::XOnlyPublicKey,
-    taproot::Signature as TaprootSignature,
+    taproot::{ControlBlock, Signature as TaprootSignature},
     Address, Amount, Network, ScriptBuf, Transaction, Txid,
 };
 use zksync_basic_types::H256;
@@ -16,7 +15,9 @@ use crate::types::{
     Vote,
 };
 
-// TODO: make this a trait (ViaProtocolParser_V1, ViaProtocolParser_V2, etc)
+const MIN_WITNESS_LENGTH: usize = 3;
+const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
+
 pub struct MessageParser {
     network: Network,
 }
@@ -35,18 +36,22 @@ impl MessageParser {
 
     fn parse_input(&self, input: &bitcoin::TxIn, tx: &Transaction) -> Option<Message> {
         let witness = &input.witness;
-        if witness.len() < 3 {
+        // A valid P2TR input for our inscriptions should have at least 3 witness elements:
+        // 1. Signature
+        // 2. Inscription script
+        // 3. Control block
+        if witness.len() < MIN_WITNESS_LENGTH {
             return None;
         }
 
         let signature = TaprootSignature::from_slice(&witness[0]).ok()?;
-        let public_key = XOnlyPublicKey::from_slice(&witness[1]).ok()?;
-        let script = ScriptBuf::from_bytes(witness.last()?.to_vec());
+        let script = ScriptBuf::from_bytes(witness[1].to_vec());
+        let control_block = ControlBlock::decode(&witness[2]).ok()?;
 
         let instructions: Vec<_> = script.instructions().filter_map(Result::ok).collect();
-        let via_index = is_via_inscription_protocol(&instructions)?;
+        let via_index = find_via_inscription_protocol(&instructions)?;
 
-        // TODO: not to pass common fields around
+        let public_key = control_block.internal_key;
         let common_fields = CommonFields {
             schnorr_signature: signature,
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
@@ -64,30 +69,22 @@ impl MessageParser {
         let message_type = instructions.get(1)?;
 
         match message_type {
-            Instruction::PushBytes(bytes)
-                if bytes.as_bytes() == b"Str('SystemBootstrappingMessage')" =>
-            {
+            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"SystemBootstrappingMessage" => {
                 self.parse_system_bootstrapping(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes)
-                if bytes.as_bytes() == b"Str('ProposeSequencerMessage')" =>
-            {
+            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"ProposeSequencerMessage" => {
                 self.parse_propose_sequencer(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes)
-                if bytes.as_bytes() == b"Str('ValidatorAttestationMessage')" =>
-            {
+            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"ValidatorAttestationMessage" => {
                 self.parse_validator_attestation(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"Str('L1BatchDAReference')" => {
+            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"L1BatchDAReference" => {
                 self.parse_l1_batch_da_reference(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes)
-                if bytes.as_bytes() == b"Str('ProofDAReferenceMessage')" =>
-            {
+            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"ProofDAReferenceMessage" => {
                 self.parse_proof_da_reference(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"Str('L1ToL2Message')" => {
+            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"L1ToL2Message" => {
                 self.parse_l1_to_l2_message(tx, instructions, common_fields)
             }
             _ => None,
@@ -309,13 +306,14 @@ impl MessageParser {
                 l2_contract_address,
                 call_data,
             },
+            tx_outputs: tx.output.clone(),  // include all transaction outputs
         }))
     }
 }
 
-fn is_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> {
+fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> {
     // TODO: also check first part of the script (OP_CHECKSIG and other stuff)
     instructions.iter().position(|instr| {
-        matches!(instr, Instruction::PushBytes(bytes) if bytes.as_bytes() == b"Str('via_inscription_protocol')")
+        matches!(instr, Instruction::PushBytes(bytes) if bytes.as_bytes() == VIA_INSCRIPTION_PROTOCOL.as_bytes())
     })
 }
