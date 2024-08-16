@@ -144,11 +144,6 @@ impl Inscriber {
             return Ok(());
         }
 
-        let mut new_queue: VecDeque<types::InscriptionRequest> = VecDeque::new();
-
-        let original_queue = self.context.fifo_queue.clone();
-
-        let mut index = 0;
         while let Some(inscription) = self.context.fifo_queue.pop_front() {
             let txid_ref = &inscription.fee_payer_ctx.fee_payer_utxo_txid;
             let res = self
@@ -156,19 +151,15 @@ impl Inscriber {
                 .check_tx_confirmation(txid_ref, CTX_REQUIRED_CONFIRMATIONS)
                 .await?;
 
-            if index == 0 && !res {
-                // add poped inscription back to the first of queue
-                self.context.fifo_queue = original_queue;
+            if !res {
+                // add popped inscription back to the first of queue and break the loop
+                // if the tx is not confirmed yet
+                // if the head tx is not confirmed, it means that the rest of the txs are not confirmed
+                // so we can break the loop
+                self.context.fifo_queue.push_front(inscription);
                 break;
             }
-            if !res {
-                new_queue.push_back(inscription);
-            }
-
-            index += 1;
         }
-
-        self.context.fifo_queue = new_queue;
 
         Ok(())
     }
@@ -344,16 +335,8 @@ impl Inscriber {
         input: &CommitTxInputRes,
         output: &CommitTxOutputRes,
     ) -> Result<FinalTx> {
-        let temp_tx_out1 = TxOut {
-            value: Amount::ZERO,
-            script_pubkey: ScriptBuf::default(),
-        };
-        let temp_tx_out2 = TxOut {
-            value: Amount::ZERO,
-            script_pubkey: ScriptBuf::default(),
-        };
 
-        let mut commit_outputs: [TxOut; 2] = [temp_tx_out1, temp_tx_out2];
+        let mut commit_outputs: [TxOut; 2] = [TxOut::NULL, TxOut::NULL];
 
         commit_outputs[COMMIT_TX_CHANGE_OUTPUT_INDEX as usize] =
             output.commit_tx_change_output.clone();
@@ -471,36 +454,13 @@ impl Inscriber {
 
         let unlock_value = fee_payer_utxo_input.1.value + reveal_p2tr_utxo_input.1.value;
 
-        let temp_tx_in1 = TxIn {
-            previous_output: OutPoint::default(),
-            script_sig: ScriptBuf::default(),
-            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-            witness: Witness::default(),
-        };
 
-        let temp_tx_in2 = TxIn {
-            previous_output: OutPoint::default(),
-            script_sig: ScriptBuf::default(),
-            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-            witness: Witness::default(),
-        };
-
-        let temp_tx_out1 = TxOut {
-            value: Amount::ZERO,
-            script_pubkey: ScriptBuf::default(),
-        };
-
-        let temp_tx_out2 = TxOut {
-            value: Amount::ZERO,
-            script_pubkey: ScriptBuf::default(),
-        };
-
-        let mut reveal_tx_inputs: [TxIn; 2] = [temp_tx_in1, temp_tx_in2];
+        let mut reveal_tx_inputs: [TxIn; 2] = [TxIn::default(), TxIn::default()];
 
         reveal_tx_inputs[REVEAL_TX_FEE_INPUT_INDEX as usize] = fee_payer_input;
         reveal_tx_inputs[REVEAL_TX_TAPSCRIPT_REVEAL_INDEX as usize] = reveal_p2tr_input;
 
-        let mut prev_outs: [TxOut; 2] = [temp_tx_out1, temp_tx_out2];
+        let mut prev_outs: [TxOut; 2] = [TxOut::NULL, TxOut::NULL];
 
         prev_outs[REVEAL_TX_FEE_INPUT_INDEX as usize] = fee_payer_utxo_input.1;
         prev_outs[REVEAL_TX_TAPSCRIPT_REVEAL_INDEX as usize] = reveal_p2tr_utxo_input.1;
@@ -533,13 +493,13 @@ impl Inscriber {
 
         let reveal_change_amount = tx_input_data.unlock_value - fee_amount;
 
-        let reveal_change_output = TxOut {
+        let reveal_tx_change_output = TxOut {
             value: reveal_change_amount,
             script_pubkey: self.signer.get_p2wpkh_script_pubkey().clone(),
         };
 
         let res = RevealTxOutputRes {
-            reveal_change_output,
+            reveal_tx_change_output,
             reveal_fee_rate: fee_rate,
             _reveal_fee: fee_amount,
         };
@@ -557,7 +517,7 @@ impl Inscriber {
             version: transaction::Version::TWO,  // Post BIP-68.
             lock_time: absolute::LockTime::ZERO, // Ignore the locktime.
             input: input.reveal_tx_input.clone(),
-            output: vec![output.reveal_change_output.clone()],
+            output: vec![output.reveal_tx_change_output.clone()],
         };
 
         let mut sighasher = SighashCache::new(&mut unsigned_reveal_tx);
@@ -710,7 +670,7 @@ impl Inscriber {
             fee_payer_ctx: types::FeePayerCtx {
                 fee_payer_utxo_txid: reveal.txid,
                 fee_payer_utxo_vout: REVEAL_TX_CHANGE_OUTPUT_INDEX,
-                fee_payer_utxo_value: reveal_output_info.reveal_change_output.value,
+                fee_payer_utxo_value: reveal_output_info.reveal_tx_change_output.value,
             },
             commit_tx_input: types::CommitTxInput {
                 spent_utxo: commit_input_info.commit_tx_inputs.clone(),

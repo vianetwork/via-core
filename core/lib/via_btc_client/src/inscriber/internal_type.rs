@@ -1,9 +1,4 @@
-use bitcoin::taproot::ControlBlock;
-use bitcoin::Amount;
-use bitcoin::Transaction;
-use bitcoin::TxIn;
-use bitcoin::TxOut;
-pub use bitcoin::Txid;
+use bitcoin::{taproot::ControlBlock, Amount, Transaction, TxIn, TxOut, Txid};
 
 pub struct CommitTxInputRes {
     pub commit_tx_inputs: Vec<TxIn>,
@@ -27,7 +22,7 @@ pub struct RevealTxInputRes {
 }
 
 pub struct RevealTxOutputRes {
-    pub reveal_change_output: TxOut,
+    pub reveal_tx_change_output: TxOut,
     pub reveal_fee_rate: u64,
     pub _reveal_fee: Amount,
 }
