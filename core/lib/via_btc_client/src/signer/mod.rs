@@ -4,9 +4,9 @@ use bitcoin::{
     secp256k1::{All, Keypair, Message, Secp256k1, SecretKey},
     Address, CompressedPublicKey, Network, PrivateKey, ScriptBuf,
 };
-
-use secp256k1::schnorr::Signature as SchnorrSignature;
-use secp256k1::{ecdsa::Signature as ECDSASignature, PublicKey};
+use secp256k1::{
+    ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, PublicKey,
+};
 
 use crate::{
     traits::BitcoinSigner,

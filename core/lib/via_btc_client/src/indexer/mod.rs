@@ -10,10 +10,12 @@ use parser::MessageParser;
 use crate::{
     client::BitcoinClient,
     traits::BitcoinInscriptionIndexerOpt,
-    types::{BitcoinError, BitcoinIndexerResult, FullInscriptionMessage, Vote},
+    types::{
+        BitcoinError, BitcoinIndexerResult, CommonFields, FullInscriptionMessage, L1ToL2Message,
+        Vote,
+    },
     BitcoinOps,
 };
-use crate::types::{CommonFields, L1ToL2Message};
 
 struct BootstrapState {
     verifier_addresses: Vec<Address>,
@@ -71,8 +73,8 @@ impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
         network: Network,
         bootstrap_txids: Vec<Txid>,
     ) -> BitcoinIndexerResult<Self>
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         let client = Box::new(BitcoinClient::new(rpc_url, network, Auth::None).await?);
         let parser = MessageParser::new(network);
@@ -129,17 +131,17 @@ impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
         Ok(res)
     }
 
-    async fn process_block(&self, block_height: u32) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
+    async fn process_block(
+        &self,
+        block_height: u32,
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
         if block_height < self.starting_block_number {
             return Err(BitcoinError::Other(
                 "Indexer error: can't get block before starting block".to_string(),
             ));
         }
 
-        let block = self
-            .client
-            .fetch_block(block_height as u128)
-            .await?;
+        let block = self.client.fetch_block(block_height as u128).await?;
 
         let messages: Vec<FullInscriptionMessage> = block
             .txdata
@@ -156,10 +158,7 @@ impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
         parent_hash: &BlockHash,
         child_hash: &BlockHash,
     ) -> BitcoinIndexerResult<bool> {
-        let child_block = self
-            .client
-            .fetch_block_by_hash(child_hash)
-            .await?;
+        let child_block = self.client.fetch_block_by_hash(child_hash).await?;
         Ok(child_block.header.prev_blockhash == *parent_hash)
     }
 }
@@ -167,24 +166,17 @@ impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
 impl BitcoinInscriptionIndexer {
     fn is_valid_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
-            FullInscriptionMessage::ProposeSequencer(m) => {
-                Self::get_sender_address(&m.common)
-                    .map_or(false, |addr| self.verifier_addresses.contains(&addr))
-            }
-            FullInscriptionMessage::ValidatorAttestation(m) => {
-                Self::get_sender_address(&m.common)
-                    .map_or(false, |addr| self.verifier_addresses.contains(&addr))
-            }
-            FullInscriptionMessage::L1BatchDAReference(m) => {
-                Self::get_sender_address(&m.common)
-                    .map_or(false, |addr| addr == self.sequencer_address)
-            }
-            FullInscriptionMessage::ProofDAReference(m) => {
-                Self::get_sender_address(&m.common)
-                    .map_or(false, |addr| addr == self.sequencer_address)
-            }
+            FullInscriptionMessage::ProposeSequencer(m) => Self::get_sender_address(&m.common)
+                .map_or(false, |addr| self.verifier_addresses.contains(&addr)),
+            FullInscriptionMessage::ValidatorAttestation(m) => Self::get_sender_address(&m.common)
+                .map_or(false, |addr| self.verifier_addresses.contains(&addr)),
+            FullInscriptionMessage::L1BatchDAReference(m) => Self::get_sender_address(&m.common)
+                .map_or(false, |addr| addr == self.sequencer_address),
+            FullInscriptionMessage::ProofDAReference(m) => Self::get_sender_address(&m.common)
+                .map_or(false, |addr| addr == self.sequencer_address),
             FullInscriptionMessage::L1ToL2Message(m) => {
-                m.amount > bitcoin::Amount::ZERO && self.is_valid_l1_to_l2_transfer(m) // check the bridge address in the output
+                m.amount > bitcoin::Amount::ZERO && self.is_valid_l1_to_l2_transfer(m)
+                // check the bridge address in the output
             }
             FullInscriptionMessage::SystemBootstrapping(_) => true,
         }
@@ -216,7 +208,9 @@ impl BitcoinInscriptionIndexer {
                             // check if this is an attestation for the proposed sequencer
                             if let Some(proposed_txid) = state.proposed_sequencer_txid {
                                 if va.input.reference_txid == proposed_txid {
-                                    state.sequencer_votes.insert(sender_address, va.input.attestation);
+                                    state
+                                        .sequencer_votes
+                                        .insert(sender_address, va.input.attestation);
                                 }
                             }
                         }
@@ -228,7 +222,7 @@ impl BitcoinInscriptionIndexer {
     }
 
     fn get_sender_address(common_fields: &CommonFields) -> Option<Address> {
-        secp256k1::XOnlyPublicKey::from_slice(&common_fields.encoded_public_key.as_bytes())
+        secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
             .ok()
             .map(|public_key| {
                 Address::p2tr(
@@ -241,8 +235,9 @@ impl BitcoinInscriptionIndexer {
     }
 
     fn is_valid_l1_to_l2_transfer(&self, message: &L1ToL2Message) -> bool {
-        message.tx_outputs.iter().any(|output| {
-            output.script_pubkey == self.bridge_address.script_pubkey()
-        })
+        message
+            .tx_outputs
+            .iter()
+            .any(|output| output.script_pubkey == self.bridge_address.script_pubkey())
     }
 }

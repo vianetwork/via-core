@@ -1,15 +1,19 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid, ScriptBuf};
+use bitcoin::{
+    key::UntweakedPublicKey,
+    secp256k1::{All, Secp256k1},
+    Address, Block, BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid,
+};
 use bitcoincore_rpc::Auth;
+use secp256k1::{
+    ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, Message, PublicKey,
+};
+use types::BitcoinRpcResult;
 
-use crate::types;
-use types::{BitcoinRpcResult};
-use bitcoin::key::UntweakedPublicKey;
-use bitcoin::secp256k1::{All, Secp256k1};
-use secp256k1::ecdsa::Signature as ECDSASignature;
-use secp256k1::schnorr::Signature as SchnorrSignature;
-use secp256k1::{Message, PublicKey};
-use crate::types::{BitcoinClientResult, BitcoinIndexerResult, FullInscriptionMessage};
+use crate::{
+    types,
+    types::{BitcoinClientResult, BitcoinIndexerResult, FullInscriptionMessage},
+};
 
 #[allow(dead_code)]
 #[async_trait]
@@ -103,7 +107,7 @@ pub trait BitcoinInscriptionIndexerOpt: Send + Sync {
         network: Network,
         bootstrap_txids: Vec<Txid>,
     ) -> BitcoinIndexerResult<Self>
-        where
+    where
         Self: Sized;
     async fn process_blocks(
         &self,

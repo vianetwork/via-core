@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bitcoin::{Address, OutPoint, TxOut, Txid, Block, Transaction, BlockHash};
+use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::EstimateMode;
 
 use crate::{

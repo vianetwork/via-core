@@ -1,30 +1,36 @@
-use crate::traits::{BitcoinOps, BitcoinSigner};
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
-use bitcoin::hashes::Hash;
-use bitcoin::sighash::{Prevouts, SighashCache};
-use bitcoin::taproot::{ControlBlock, LeafVersion};
 pub use bitcoin::Network as BitcoinNetwork;
 use bitcoin::{
-    absolute, transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence,
-    TapLeafHash, TapSighashType, Transaction, TxIn, TxOut, Witness,
+    absolute,
+    hashes::Hash,
+    sighash::{Prevouts, SighashCache},
+    taproot::{ControlBlock, LeafVersion},
+    transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence, TapLeafHash,
+    TapSighashType, Transaction, TxIn, TxOut, Witness,
 };
 use bitcoincore_rpc::{Auth, RawTx};
 use secp256k1::Message;
-use std::collections::HashMap;
 
-use crate::client::BitcoinClient;
-use crate::inscriber::fee::InscriberFeeCalculator;
-use crate::inscriber::script_builder::InscriptionData;
-use crate::inscriber::internal_type::{
-    CommitTxInputRes, CommitTxOutputRes, FinalTx, RevealTxInputRes, RevealTxOutputRes,
+use crate::{
+    client::BitcoinClient,
+    inscriber::{
+        fee::InscriberFeeCalculator,
+        internal_type::{
+            CommitTxInputRes, CommitTxOutputRes, FinalTx, RevealTxInputRes, RevealTxOutputRes,
+        },
+        script_builder::InscriptionData,
+    },
+    signer::KeyManager,
+    traits::{BitcoinOps, BitcoinSigner},
+    types,
+    types::InscriberContext,
 };
-use crate::signer::KeyManager;
-use crate::types::InscriberContext;
-use crate::types;
 
 mod fee;
-mod script_builder;
 mod internal_type;
+mod script_builder;
 
 const CTX_REQUIRED_CONFIRMATIONS: u32 = 1;
 const FEE_RATE_CONF_TARGET: u16 = 1;
@@ -64,7 +70,7 @@ impl Inscriber {
     ) -> Result<Self> {
         let client = Box::new(BitcoinClient::new(rpc_url, network, auth).await?);
         let signer = Box::new(KeyManager::new(signer_private_key, network)?);
-        let context = persisted_ctx.unwrap_or_else(|| types::InscriberContext::new());
+        let context = persisted_ctx.unwrap_or_else(types::InscriberContext::new);
 
         Ok(Self {
             client,
@@ -87,8 +93,7 @@ impl Inscriber {
         let internal_key = self.signer.get_internal_key()?;
         let network = self.client.get_network();
 
-        let inscription_data =
-            InscriptionData::new(&input, secp_ref, internal_key, network)?;
+        let inscription_data = InscriptionData::new(&input, secp_ref, internal_key, network)?;
 
         let commit_tx_input_info = self.prepare_commit_tx_input().await?;
 
@@ -182,7 +187,6 @@ impl Inscriber {
         let mut spent_utxos: HashMap<OutPoint, bool> = HashMap::new();
 
         for i in 0..context_queue_len {
-
             let inscription_req =
                 self.context.fifo_queue.get(i).ok_or_else(|| {
                     anyhow::anyhow!("Failed to get inscription request from context")
@@ -333,7 +337,6 @@ impl Inscriber {
         input: &CommitTxInputRes,
         output: &CommitTxOutputRes,
     ) -> Result<FinalTx> {
-
         let mut commit_outputs: [TxOut; 2] = [TxOut::NULL, TxOut::NULL];
 
         commit_outputs[COMMIT_TX_CHANGE_OUTPUT_INDEX as usize] =
@@ -451,7 +454,6 @@ impl Inscriber {
         };
 
         let unlock_value = fee_payer_utxo_input.1.value + reveal_p2tr_utxo_input.1.value;
-
 
         let mut reveal_tx_inputs: [TxIn; 2] = [TxIn::default(), TxIn::default()];
 

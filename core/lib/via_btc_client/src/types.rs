@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 
-use bitcoin::{script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress, Amount, TxIn, Txid, TxOut};
+use bitcoin::{
+    script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress,
+    Amount, TxIn, TxOut, Txid,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zksync_basic_types::H256;

@@ -9,10 +9,10 @@ use zksync_basic_types::H256;
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
 
 use crate::types::{
-    CommonFields, L1BatchDAReference, L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput,
-    FullInscriptionMessage as Message, ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
-    SystemBootstrapping, SystemBootstrappingInput, ValidatorAttestation, ValidatorAttestationInput,
-    Vote,
+    CommonFields, FullInscriptionMessage as Message, L1BatchDAReference, L1BatchDAReferenceInput,
+    L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput, ProposeSequencer,
+    ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput, ValidatorAttestation,
+    ValidatorAttestationInput, Vote,
 };
 
 const MIN_WITNESS_LENGTH: usize = 3;
@@ -115,12 +115,10 @@ impl MessageParser {
             .filter_map(|instr| {
                 if let Instruction::PushBytes(bytes) = instr {
                     std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
-                        Some(
-                            s.parse::<Address<NetworkUnchecked>>()
-                                .ok()?
-                                .require_network(self.network)
-                                .ok()?,
-                        )
+                        s.parse::<Address<NetworkUnchecked>>()
+                            .ok()?
+                            .require_network(self.network)
+                            .ok()
                     })
                 } else {
                     None
@@ -131,12 +129,10 @@ impl MessageParser {
         let bridge_address = instructions.last().and_then(|instr| {
             if let Instruction::PushBytes(bytes) = instr {
                 std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
-                    Some(
-                        s.parse::<Address<NetworkUnchecked>>()
-                            .ok()?
-                            .require_network(self.network)
-                            .ok()?,
-                    )
+                    s.parse::<Address<NetworkUnchecked>>()
+                        .ok()?
+                        .require_network(self.network)
+                        .ok()
                 })
             } else {
                 None
@@ -165,12 +161,10 @@ impl MessageParser {
         let sequencer_address = instructions.get(2).and_then(|instr| {
             if let Instruction::PushBytes(bytes) = instr {
                 std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
-                    Some(
-                        s.parse::<Address<NetworkUnchecked>>()
-                            .ok()?
-                            .require_network(self.network)
-                            .ok()?,
-                    )
+                    s.parse::<Address<NetworkUnchecked>>()
+                        .ok()?
+                        .require_network(self.network)
+                        .ok()
                 })
             } else {
                 None
@@ -306,7 +300,7 @@ impl MessageParser {
                 l2_contract_address,
                 call_data,
             },
-            tx_outputs: tx.output.clone(),  // include all transaction outputs
+            tx_outputs: tx.output.clone(), // include all transaction outputs
         }))
     }
 }

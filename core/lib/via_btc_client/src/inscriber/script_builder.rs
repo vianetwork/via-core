@@ -1,15 +1,18 @@
 // Please checkout ../../Dev.md file Taproot Script section for more details on the via_inscription_protocol structure and message types
 
 // use crate::inscriber::types;
-use crate::types;
 use anyhow::{Context, Result};
-use bitcoin::hashes::Hash;
-use bitcoin::opcodes::{all, OP_0, OP_FALSE};
-use bitcoin::script::{Builder as ScriptBuilder, PushBytesBuf};
-use bitcoin::secp256k1::{Secp256k1, Signing, Verification};
-use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{key::UntweakedPublicKey, taproot::TaprootSpendInfo, ScriptBuf};
-use bitcoin::{Address, Network};
+use bitcoin::{
+    hashes::Hash,
+    key::UntweakedPublicKey,
+    opcodes::{all, OP_0, OP_FALSE},
+    script::{Builder as ScriptBuilder, PushBytesBuf},
+    secp256k1::{Secp256k1, Signing, Verification},
+    taproot::{TaprootBuilder, TaprootSpendInfo},
+    Address, Network, ScriptBuf,
+};
+
+use crate::types;
 
 const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 
