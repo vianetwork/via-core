@@ -11,7 +11,7 @@ use zksync_types::{Address as EVMAddress, L1BatchNumber};
 
 use crate::types::{
     CommonFields, L1BatchDAReference, L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput,
-    Message, ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
+    FullInscriptionMessage as Message, ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
     SystemBootstrapping, SystemBootstrappingInput, ValidatorAttestation, ValidatorAttestationInput,
     Vote,
 };
@@ -150,8 +150,8 @@ impl MessageParser {
             common: common_fields.clone(),
             input: SystemBootstrappingInput {
                 start_block_height,
-                verifier_addresses,
                 bridge_p2wpkh_mpc_address: bridge_address,
+                verifier_p2wpkh_addresses: verifier_addresses,
             },
         }))
     }
@@ -183,7 +183,7 @@ impl MessageParser {
         Some(Message::ProposeSequencer(ProposeSequencer {
             common: common_fields.clone(),
             input: ProposeSequencerInput {
-                sequencer_p2wpkh_address: sequencer_address,
+                sequencer_new_p2wpkh_address: sequencer_address,
             },
         }))
     }

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Network, OutPoint, TxOut, Txid};
+use bitcoin::{Address, OutPoint, TxOut, Txid, Block, Transaction, BlockHash};
 use bitcoincore_rpc::json::EstimateMode;
 
 use crate::{
@@ -78,6 +78,10 @@ impl BitcoinOps for BitcoinClient {
         self.rpc.get_block_by_height(block_height).await
     }
 
+    async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block> {
+        self.rpc.get_block_by_hash(block_hash).await
+    }
+
     async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64> {
         let estimation = self
             .rpc
@@ -94,6 +98,10 @@ impl BitcoinOps for BitcoinClient {
                 Err(BitcoinError::FeeEstimationFailed(err))
             }
         }
+    }
+
+    async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction> {
+        self.rpc.get_transaction(txid).await
     }
 
     fn get_network(&self) -> Network {
@@ -122,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_balance() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let _client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let _client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -139,7 +147,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_utxos() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let _client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let _client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -155,7 +163,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_block_height() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -171,7 +179,7 @@ mod tests {
     #[tokio::test]
     async fn test_estimate_fee() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
             .await
             .expect("Failed to create BitcoinClient");
 

@@ -9,20 +9,10 @@ use thiserror::Error;
 use zksync_basic_types::H256;
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
 
-#[derive(Serialize, Deserialize)]
-pub enum BitcoinMessage {}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {
     Ok,
     NotOk,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct CommonFields {
-    pub schnorr_signature: TaprootSignature,
-    pub encoded_public_key: PushBytesBuf,
-    pub via_inscription_protocol_identifier: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,55 +53,11 @@ pub struct ValidatorAttestation {
     pub common: CommonFields,
     pub input: ValidatorAttestationInput,
 }
-use zksync_basic_types::H256;
-use zksync_types::{Address as EVMAddress, L1BatchNumber};
-
-#[derive(Serialize, Deserialize)]
-pub enum BitcoinMessage {}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Vote {
-    Ok,
-    NotOk,
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct L1BatchDAReferenceInput {
-    pub l1_batch_hash: H256,
-    pub l1_batch_index: L1BatchNumber,
-    pub da_identifier: String,
-    pub blob_id: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct L1BatchDAReference {
-    pub common: CommonFields,
-    pub input: L1BatchDAReferenceInput,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProofDAReferenceInput {
-    pub l1_batch_reveal_txid: Txid,
-    pub da_identifier: String,
-    pub blob_id: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProofDAReference {
-    pub common: CommonFields,
-    pub input: ProofDAReferenceInput,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ValidatorAttestationInput {
-    pub reference_txid: Txid,
-    pub attestation: Vote,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -161,6 +107,16 @@ pub enum InscriptionMessage {
     SystemBootstrapping(SystemBootstrappingInput),
     ProposeSequencer(ProposeSequencerInput),
     L1ToL2Message(L1ToL2MessageInput),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum FullInscriptionMessage {
+    L1BatchDAReference(L1BatchDAReference),
+    ProofDAReference(ProofDAReference),
+    ValidatorAttestation(ValidatorAttestation),
+    SystemBootstrapping(SystemBootstrapping),
+    ProposeSequencer(ProposeSequencer),
+    L1ToL2Message(L1ToL2Message),
 }
 
 #[derive(Clone, Debug, PartialEq)]

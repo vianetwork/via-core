@@ -9,8 +9,8 @@ use parser::MessageParser;
 
 use crate::{
     client::BitcoinClient,
-    traits::BitcoinIndexerOpt,
-    types::{BitcoinError, BitcoinIndexerResult, CommonFields, Message, Vote},
+    traits::BitcoinInscriptionIndexerOpt,
+    types::{BitcoinError, BitcoinIndexerResult, CommonFields, FullInscriptionMessage, Vote},
     BitcoinOps,
 };
 
@@ -62,7 +62,7 @@ pub struct BitcoinInscriptionIndexer {
 }
 
 #[async_trait]
-impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
+impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
     async fn new(
         rpc_url: &str,
         network: Network,
@@ -76,7 +76,7 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
         let mut bootstrap_state = BootstrapState::new();
 
         for txid in bootstrap_txids {
-            let tx = client.get_rpc_client().get_transaction(&txid).await?;
+            let tx = client.get_transaction(&txid).await?;
             let messages = parser.parse_transaction(&tx);
 
             for message in messages {
@@ -118,7 +118,7 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
         &self,
         starting_block: u32,
         ending_block: u32,
-    ) -> BitcoinIndexerResult<Vec<Message>> {
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
         let mut res = Vec::with_capacity((ending_block - starting_block + 1) as usize);
         for block in starting_block..=ending_block {
             res.extend(self.process_block(block).await?);
@@ -126,8 +126,8 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
         Ok(res)
     }
 
-    async fn process_block(&self, block: u32) -> BitcoinIndexerResult<Vec<Message>> {
-        if block < self.starting_block_number {
+    async fn process_block(&self, block_height: u32) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
+        if block_height < self.starting_block_number {
             return Err(BitcoinError::Other(
                 "Indexer error: can't get block before starting block".to_string(),
             ));
@@ -135,11 +135,10 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
 
         let block = self
             .client
-            .get_rpc_client()
-            .get_block_by_height(block as u128)
+            .fetch_block(block_height as u128)
             .await?;
 
-        let messages: Vec<Message> = block
+        let messages: Vec<FullInscriptionMessage> = block
             .txdata
             .iter()
             .flat_map(|tx| self.process_tx(tx))
@@ -156,71 +155,70 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
     ) -> BitcoinIndexerResult<bool> {
         let child_block = self
             .client
-            .get_rpc_client()
-            .get_block_by_hash(child_hash)
+            .fetch_block_by_hash(child_hash)
             .await?;
         Ok(child_block.header.prev_blockhash == *parent_hash)
     }
 }
 
 impl BitcoinInscriptionIndexer {
-    fn process_tx(&self, tx: &Transaction) -> Vec<Message> {
+    fn process_tx(&self, tx: &Transaction) -> Vec<FullInscriptionMessage> {
         self.parser.parse_transaction(tx)
     }
 
-    fn is_valid_message(&self, message: &Message) -> bool {
+    fn is_valid_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
-            Message::ProposeSequencer(m) => {
+            FullInscriptionMessage::ProposeSequencer(m) => {
                 if let Ok(sender) = Self::get_sender_address(&m.common) {
                     self.verifier_addresses.contains(&sender)
                 } else {
                     false
                 }
             }
-            Message::ValidatorAttestation(m) => {
+            FullInscriptionMessage::ValidatorAttestation(m) => {
                 if let Ok(sender) = Self::get_sender_address(&m.common) {
                     self.verifier_addresses.contains(&sender)
                 } else {
                     false
                 }
             }
-            Message::L1BatchDAReference(m) => {
+            FullInscriptionMessage::L1BatchDAReference(m) => {
                 if let Ok(sender) = Self::get_sender_address(&m.common) {
                     sender == self.sequencer_address
                 } else {
                     false
                 }
             }
-            Message::ProofDAReference(m) => {
+            FullInscriptionMessage::ProofDAReference(m) => {
                 if let Ok(sender) = Self::get_sender_address(&m.common) {
                     sender == self.sequencer_address
                 } else {
                     false
                 }
             }
-            Message::L1ToL2Message(m) => m.amount > bitcoin::Amount::ZERO,
-            Message::SystemBootstrapping(_) => true,
+            FullInscriptionMessage::L1ToL2Message(m) => m.amount > bitcoin::Amount::ZERO,
+            FullInscriptionMessage::SystemBootstrapping(_) => true,
         }
     }
 
     fn process_bootstrap_message(
         state: &mut BootstrapState,
-        message: Message,
+        message: FullInscriptionMessage,
     ) -> BitcoinIndexerResult<()> {
         match message {
-            Message::SystemBootstrapping(sb) => {
-                state.verifier_addresses = sb.input.verifier_addresses;
+            FullInscriptionMessage::SystemBootstrapping(sb) => {
+                state.verifier_addresses = sb.input.verifier_p2wpkh_addresses;
                 state.bridge_address = Some(sb.input.bridge_p2wpkh_mpc_address);
                 state.starting_block_number = sb.input.start_block_height;
             }
-            Message::ProposeSequencer(ps) => {
+            FullInscriptionMessage::ProposeSequencer(ps) => {
                 if let Ok(sender) = Self::get_sender_address(&ps.common) {
                     if state.verifier_addresses.contains(&sender) {
-                        state.proposed_sequencer = Some(ps.input.sequencer_p2wpkh_address);
+                        state.proposed_sequencer = Some(ps.input.sequencer_new_p2wpkh_address);
                     }
                 }
             }
-            Message::ValidatorAttestation(va) => {
+            FullInscriptionMessage::ValidatorAttestation(va) => {
                 if state.proposed_sequencer.is_some() {
                     if let Ok(sender) = Self::get_sender_address(&va.common) {
                         if state.verifier_addresses.contains(&sender) {

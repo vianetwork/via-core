@@ -8,9 +8,9 @@ use bitcoin::{
     absolute, transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence,
     TapLeafHash, TapSighashType, Transaction, TxIn, TxOut, Witness,
 };
-use bitcoincore_rpc::RawTx;
+use bitcoincore_rpc::{Auth, RawTx};
 use secp256k1::Message;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use crate::client::BitcoinClient;
 use crate::inscriber::fee::InscriberFeeCalculator;
@@ -58,15 +58,13 @@ impl Inscriber {
     pub async fn new(
         rpc_url: &str,
         network: BitcoinNetwork,
+        auth: Auth,
         signer_private_key: &str,
         persisted_ctx: Option<types::InscriberContext>,
     ) -> Result<Self> {
-        let client = Box::new(BitcoinClient::new(rpc_url, network).await?);
+        let client = Box::new(BitcoinClient::new(rpc_url, network, auth).await?);
         let signer = Box::new(KeyManager::new(signer_private_key, network)?);
-        let context = match persisted_ctx {
-            Some(ctx) => ctx,
-            None => types::InscriberContext::new(),
-        };
+        let context = persisted_ctx.unwrap_or_else(|| types::InscriberContext::new());
 
         Ok(Self {
             client,

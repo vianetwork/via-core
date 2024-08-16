@@ -1,14 +1,15 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
+use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid, ScriptBuf};
 use bitcoincore_rpc::Auth;
 
 use crate::types;
-use async_trait::async_trait;
+use types::{BitcoinRpcResult};
 use bitcoin::key::UntweakedPublicKey;
 use bitcoin::secp256k1::{All, Secp256k1};
 use secp256k1::ecdsa::Signature as ECDSASignature;
 use secp256k1::schnorr::Signature as SchnorrSignature;
 use secp256k1::{Message, PublicKey};
+use crate::types::{BitcoinClientResult, BitcoinIndexerResult, FullInscriptionMessage};
 
 #[allow(dead_code)]
 #[async_trait]
@@ -32,10 +33,12 @@ pub trait BitcoinOps: Send + Sync {
         conf_num: u32,
     ) -> types::BitcoinClientResult<bool>;
     async fn fetch_block_height(&self) -> types::BitcoinClientResult<u128>;
-    async fn fetch_and_parse_block(&self, block_height: u128)
-        -> types::BitcoinClientResult<String>;
     async fn get_fee_rate(&self, conf_target: u16) -> types::BitcoinClientResult<u64>;
     fn get_network(&self) -> Network;
+    async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
+
+    async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
+    async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
 }
 
 #[allow(dead_code)]
@@ -82,30 +85,40 @@ pub trait BitcoinSigner: Send + Sync {
 
     fn get_public_key(&self) -> PublicKey;
 }
-#[allow(dead_code)]
-#[async_trait]
-pub trait BitcoinInscriber: Send + Sync {
-    async fn new(config: &str) -> BitcoinInscriberResult<Self>
-    where
-        Self: Sized;
-    async fn inscribe(&self, message_type: &str, data: &str) -> BitcoinInscriberResult<String>;
-}
+
+// #[allow(dead_code)]
+// #[async_trait]
+// pub trait BitcoinInscriber: Send + Sync {
+//     async fn new(config: &str) -> BitcoinInscriberResult<Self>
+//     where
+//         Self: Sized;
+//     async fn inscribe(&self, message_type: &str, data: &str) -> BitcoinInscriberResult<String>;
+// }
 
 #[allow(dead_code)]
 #[async_trait]
-pub trait BitcoinInscriptionIndexer: Send + Sync {
-    async fn new(config: &str) -> types::BitcoinIndexerResult<Self>
-    where
+pub trait BitcoinInscriptionIndexerOpt: Send + Sync {
+    async fn new(
+        rpc_url: &str,
+        network: Network,
+        bootstrap_txids: Vec<Txid>,
+    ) -> BitcoinIndexerResult<Self>
+        where
         Self: Sized;
     async fn process_blocks(
         &self,
-        starting_block: u128,
-        ending_block: u128,
-    ) -> types::BitcoinIndexerResult<Vec<&str>>;
-    async fn get_specific_block_inscription_messages(
+        starting_block: u32,
+        ending_block: u32,
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>>;
+    async fn process_block(
         &self,
-        block_height: u128,
-    ) -> types::BitcoinIndexerResult<Vec<&str>>;
+        block_height: u32,
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>>;
+    async fn are_blocks_connected(
+        &self,
+        parent_hash: &BlockHash,
+        child_hash: &BlockHash,
+    ) -> BitcoinIndexerResult<bool>;
 }
 
 #[allow(dead_code)]
