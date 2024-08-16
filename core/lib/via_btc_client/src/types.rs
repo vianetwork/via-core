@@ -22,6 +22,7 @@ pub enum Vote {
 pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
+    pub via_inscription_protocol_identifier: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -62,11 +63,61 @@ pub struct ValidatorAttestation {
     pub common: CommonFields,
     pub input: ValidatorAttestationInput,
 }
+use zksync_basic_types::H256;
+use zksync_types::{Address as EVMAddress, L1BatchNumber};
+
+#[derive(Serialize, Deserialize)]
+pub enum BitcoinMessage {}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Vote {
+    Ok,
+    NotOk,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommonFields {
+    pub schnorr_signature: TaprootSignature,
+    pub encoded_public_key: PushBytesBuf,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct L1BatchDAReferenceInput {
+    pub l1_batch_hash: H256,
+    pub l1_batch_index: L1BatchNumber,
+    pub da_identifier: String,
+    pub blob_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct L1BatchDAReference {
+    pub common: CommonFields,
+    pub input: L1BatchDAReferenceInput,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProofDAReferenceInput {
+    pub l1_batch_reveal_txid: Txid,
+    pub da_identifier: String,
+    pub blob_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProofDAReference {
+    pub common: CommonFields,
+    pub input: ProofDAReferenceInput,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValidatorAttestationInput {
+    pub reference_txid: Txid,
+    pub attestation: Vote,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SystemBootstrappingInput {
     pub start_block_height: u32,
-    pub verifier_addresses: Vec<BitcoinAddress>,
+    pub verifier_p2wpkh_addresses: Vec<BitcoinAddress>,
     pub bridge_p2wpkh_mpc_address: BitcoinAddress,
 }
 
@@ -78,7 +129,7 @@ pub struct SystemBootstrapping {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProposeSequencerInput {
-    pub sequencer_p2wpkh_address: BitcoinAddress,
+    pub sequencer_new_p2wpkh_address: BitcoinAddress,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -101,14 +152,15 @@ pub struct L1ToL2Message {
     pub input: L1ToL2MessageInput,
 }
 
+#[allow(unused)]
 #[derive(Clone, Debug, PartialEq)]
-pub enum Message {
-    L1BatchDAReference(L1BatchDAReference),
-    ProofDAReference(ProofDAReference),
-    ValidatorAttestation(ValidatorAttestation),
-    SystemBootstrapping(SystemBootstrapping),
-    ProposeSequencer(ProposeSequencer),
-    L1ToL2Message(L1ToL2Message),
+pub enum InscriptionMessage {
+    L1BatchDAReference(L1BatchDAReferenceInput),
+    ProofDAReference(ProofDAReferenceInput),
+    ValidatorAttestation(ValidatorAttestationInput),
+    SystemBootstrapping(SystemBootstrappingInput),
+    ProposeSequencer(ProposeSequencerInput),
+    L1ToL2Message(L1ToL2MessageInput),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -126,7 +178,7 @@ pub struct CommitTxInput {
 #[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct InscriptionRequest {
-    pub message: Message,
+    pub message: InscriptionMessage,
     pub inscriber_output: InscriberOutput,
     pub fee_payer_ctx: FeePayerCtx,
     pub commit_tx_input: CommitTxInput,
@@ -196,6 +248,12 @@ pub enum BitcoinError {
 
     #[error("Invalid private key: {0}")]
     InvalidPrivateKey(String),
+
+    #[error("Compressed public key error: {0}")]
+    CompressedPublicKeyError(String),
+
+    #[error("Uncompressed public key error: {0}")]
+    UncompressedPublicKeyError(String),
 
     #[error("Other error: {0}")]
     Other(String),

@@ -7676,7 +7676,6 @@ dependencies = [
  "secp256k1 0.29.0",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror",
  "tokio",
  "zksync_basic_types",
