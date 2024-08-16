@@ -13,6 +13,8 @@ categories.workspace = true
 [dependencies]
 zksync_types.workspace = true
 zksync_config.workspace = true
+zksync_da_client.workspace = true
+zksync_basic_types.workspace = true
 
 thiserror.workspace = true
 async-trait.workspace = true
@@ -26,21 +28,17 @@ bitcoincore-rpc = "0.19.0"
 rand.workspace = true
 hex.workspace = true
 secp256k1 = "0.29.0"
-
 reqwest = "0.12.5"
 serde_json.workspace = true
-
 inquire = "0.7.5"
-tempfile = { workspace = true, optional = true }
-anyhow = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
+anyhow.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
-anyhow.workspace = true
 mockall = "0.13.0"
 
 [features]
-regtest = ["tempfile", "anyhow", "serde"]
+regtest = []
 
 [[example]]
 name = "bitcoin_client_example"
