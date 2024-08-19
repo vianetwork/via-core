@@ -102,7 +102,6 @@ pub struct L1ToL2Message {
     pub tx_outputs: Vec<TxOut>,
 }
 
-#[allow(unused)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum InscriptionMessage {
     L1BatchDAReference(L1BatchDAReferenceInput),
@@ -150,7 +149,6 @@ lazy_static! {
 }
 pub(crate) const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 
-#[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct InscriptionRequest {
     pub message: InscriptionMessage,
@@ -159,16 +157,13 @@ pub struct InscriptionRequest {
     pub commit_tx_input: CommitTxInput,
 }
 
-#[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct InscriberContext {
     pub fifo_queue: VecDeque<InscriptionRequest>,
 }
 
-#[allow(unused)]
 const CTX_CAPACITY: usize = 10;
 
-#[allow(unused)]
 impl InscriberContext {
     pub fn new() -> Self {
         Self {
@@ -177,7 +172,13 @@ impl InscriberContext {
     }
 }
 
-#[allow(unused)]
+impl Default for InscriberContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+
 #[derive(Clone, Debug)]
 pub struct InscriberOutput {
     pub commit_txid: Txid,
@@ -260,5 +261,5 @@ impl From<bitcoin::hex::HexToArrayError> for BitcoinError {
 pub type BitcoinSignerResult<T> = Result<T>;
 // pub type BitcoinInscriberResult<T> = Result<T>;
 pub type BitcoinIndexerResult<T> = Result<T>;
-#[allow(unused)]
+
 pub type BitcoinTransactionBuilderResult<T> = Result<T>;

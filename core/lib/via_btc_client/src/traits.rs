@@ -68,8 +68,6 @@ pub trait BitcoinRpc: Send + Sync {
     ) -> BitcoinRpcResult<bitcoincore_rpc::json::EstimateSmartFeeResult>;
 }
 
-#[allow(dead_code)]
-#[async_trait]
 pub trait BitcoinSigner: Send + Sync {
     fn new(private_key: &str, network: Network) -> types::BitcoinSignerResult<Self>
     where
@@ -123,17 +121,4 @@ pub trait BitcoinInscriptionIndexerOpt: Send + Sync {
         parent_hash: &BlockHash,
         child_hash: &BlockHash,
     ) -> BitcoinIndexerResult<bool>;
-}
-
-#[allow(dead_code)]
-#[async_trait]
-pub trait BitcoinWithdrawalTransactionBuilder: Send + Sync {
-    async fn new(config: &str) -> types::BitcoinTransactionBuilderResult<Self>
-    where
-        Self: Sized;
-    async fn build_withdrawal_transaction(
-        &self,
-        address: &str,
-        amount: u128,
-    ) -> types::BitcoinTransactionBuilderResult<String>;
 }

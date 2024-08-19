@@ -13,8 +13,11 @@ use crate::{
     types::{BitcoinError, BitcoinSignerResult},
 };
 
+/// KeyManager handles the creation and management of Bitcoin keys and addresses.
+/// It provides functionality for signing transactions using both ECDSA and Schnorr signatures.
+#[derive(Clone)]
 pub struct KeyManager {
-    pub secp: Secp256k1<All>,
+    secp: Secp256k1<All>,
     sk: SecretKey,
     address: Address,
     keypair: Keypair,
@@ -22,8 +25,40 @@ pub struct KeyManager {
     script_pubkey: ScriptBuf,
 }
 
+impl Default for KeyManager {
+    fn default() -> Self {
+        let secp = Secp256k1::new();
+        let sk = PrivateKey::generate(Network::Regtest);
+        let keypair = Keypair::from_secret_key(&secp, &sk.inner);
+        let compressed_pk = CompressedPublicKey::from_private_key(&secp, &sk)
+            .expect("Failed to generate compressed public key");
+        let address = Address::p2wpkh(&compressed_pk, Network::Testnet);
+        let internal_key = keypair.x_only_public_key().0;
+        let script_pubkey = address.script_pubkey();
+
+        Self {
+            secp,
+            sk: sk.inner,
+            address,
+            keypair,
+            internal_key,
+            script_pubkey,
+        }
+    }
+}
+
 #[async_trait]
 impl BitcoinSigner for KeyManager {
+    /// Creates a new KeyManager instance from a WIF-encoded private key and network.
+    ///
+    /// # Arguments
+    ///
+    /// * `private_key_wif_str` - A WIF-encoded private key string
+    /// * `network` - The Bitcoin network (e.g., Mainnet, Testnet)
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the KeyManager instance or a BitcoinError
     fn new(private_key_wif_str: &str, network: Network) -> BitcoinSignerResult<Self> {
         let secp = Secp256k1::new();
 
@@ -48,16 +83,14 @@ impl BitcoinSigner for KeyManager {
 
         let script_pubkey = ScriptBuf::new_p2wpkh(&wpkh);
 
-        let res = KeyManager {
+        Ok(Self {
             secp,
             sk,
             address,
             keypair,
             internal_key,
             script_pubkey,
-        };
-
-        Ok(res)
+        })
     }
 
     fn get_p2wpkh_address(&self) -> BitcoinSignerResult<Address> {
@@ -91,121 +124,54 @@ impl BitcoinSigner for KeyManager {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use std::str::FromStr;
+#[cfg(test)]
+mod tests {
+    use bitcoin::{AddressType, Network};
 
-//     use bitcoin::{
-//         absolute::LockTime, key::UntweakedPublicKey, taproot::TaprootMerkleBranch,
-//         transaction::Version, Address, Amount, Block, OutPoint, Sequence, Txid,
-//     };
-//     use bitcoincore_rpc::json::{EstimateMode, EstimateSmartFeeResult, GetRawTransactionResult};
-//     use mockall::{mock, predicate::*};
-//     use secp256k1::Parity;
-//     use types::BitcoinRpcResult;
+    use super::*;
 
-//     use super::*;
-//     use crate::types;
+    #[test]
+    fn test_key_manager_default() {
+        let key_manager = KeyManager::default();
+        assert_eq!(
+            key_manager.address.address_type().unwrap(),
+            AddressType::P2wpkh
+        );
+    }
 
-//     #[tokio::test]
-//     async fn test_new_signer() {
-//         let private_key = "cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc";
+    #[test]
+    fn test_key_manager_new() {
+        let private_key = "cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc";
+        let key_manager = KeyManager::new(private_key, Network::Testnet).unwrap();
+        assert_eq!(
+            key_manager.address.address_type().unwrap(),
+            AddressType::P2wpkh
+        );
+    }
 
-//         let signer = BasicSigner::new(private_key);
-//         assert!(signer.is_ok());
-//     }
+    #[test]
+    fn test_sign_ecdsa() {
+        let key_manager = KeyManager::default();
+        let message = Message::from_slice(&[1; 32]).unwrap();
+        let signature = key_manager.sign_ecdsa(message).unwrap();
+        assert!(key_manager
+            .secp
+            .verify_ecdsa(&message, &signature, &key_manager.get_public_key())
+            .is_ok());
+    }
 
-//     #[tokio::test]
-//     async fn test_sign_ecdsa() {
-//         let private_key =
-//             PrivateKey::from_wif("cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc").unwrap();
-//         let secp = Secp256k1::new();
-//         let public_key = private_key.public_key(&secp);
-//         let pubkey_hash = public_key.wpubkey_hash().unwrap();
-
-//         let prev_tx = Transaction {
-//             version: Version(2),
-//             lock_time: LockTime::ZERO,
-//             input: vec![],
-//             output: vec![TxOut {
-//                 value: Amount::from_sat(100000),
-//                 script_pubkey: ScriptBuf::new_p2wpkh(&pubkey_hash),
-//             }],
-//         };
-
-//         let signer = BasicSigner::new(&private_key.to_wif()).unwrap();
-
-//         let unsigned_tx = Transaction {
-//             version: Version(2),
-//             lock_time: LockTime::ZERO,
-//             input: vec![bitcoin::TxIn {
-//                 previous_output: OutPoint::new(Txid::all_zeros(), 0),
-//                 script_sig: ScriptBuf::new(),
-//                 sequence: Sequence::from_hex("0xffffffff").unwrap(),
-//                 witness: Witness::new(),
-//             }],
-//             output: vec![],
-//         };
-
-//         let result = signer.sign_ecdsa(&unsigned_tx, 0).await;
-
-//         assert!(result.is_ok());
-//         assert!(!result.unwrap().is_empty());
-//     }
-
-//     #[tokio::test]
-//     async fn test_sign_reveal() {
-//         let private_key =
-//             PrivateKey::from_wif("cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc").unwrap();
-//         let secp = Secp256k1::new();
-//         let public_key = private_key.public_key(&secp);
-
-//         let internal_key_bytes = [2u8; 32];
-//         let internal_key = UntweakedPublicKey::from_slice(&internal_key_bytes).unwrap();
-
-//         let control_block = ControlBlock {
-//             leaf_version: LeafVersion::TapScript,
-//             output_key_parity: Parity::Even,
-//             internal_key,
-//             merkle_branch: TaprootMerkleBranch::default(),
-//         };
-
-//         let prev_tx = Transaction {
-//             version: Version(2),
-//             lock_time: LockTime::ZERO,
-//             input: vec![],
-//             output: vec![TxOut {
-//                 value: Amount::from_sat(100000),
-//                 script_pubkey: ScriptBuf::new_p2tr(
-//                     &secp,
-//                     UntweakedPublicKey::from(public_key.inner),
-//                     None,
-//                 ),
-//             }],
-//         };
-
-//         let signer = BasicSigner::new(&private_key.to_wif()).unwrap();
-
-//         let unsigned_tx = Transaction {
-//             version: Version(2),
-//             lock_time: LockTime::ZERO,
-//             input: vec![bitcoin::TxIn {
-//                 previous_output: OutPoint::new(Txid::all_zeros(), 0),
-//                 script_sig: ScriptBuf::new(),
-//                 sequence: Sequence::MAX,
-//                 witness: Witness::new(),
-//             }],
-//             output: vec![],
-//         };
-
-//         let tapscript = ScriptBuf::new();
-//         let leaf_version = LeafVersion::TapScript;
-
-//         let result = signer
-//             .sign_schnorr(&unsigned_tx, 0, &tapscript, leaf_version, &control_block)
-//             .await;
-
-//         assert!(result.is_ok());
-//         assert!(!result.unwrap().is_empty());
-//     }
-// }
+    #[test]
+    fn test_sign_schnorr() {
+        let key_manager = KeyManager::default();
+        let message = Message::from_slice(&[1; 32]).unwrap();
+        let signature = key_manager.sign_schnorr(message).unwrap();
+        assert!(key_manager
+            .secp
+            .verify_schnorr(
+                &signature,
+                &message,
+                &key_manager.get_internal_key().unwrap()
+            )
+            .is_ok());
+    }
+}
