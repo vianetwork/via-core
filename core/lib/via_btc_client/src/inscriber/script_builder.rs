@@ -131,6 +131,7 @@ impl InscriptionData {
                     .ok();
 
                 final_script_result = basic_script
+                    .push_slice(&*types::L1_BATCH_DA_REFERENCE_MSG)
                     .push_slice(l1_batch_hash_encoded)
                     .push_slice(l1_batch_index_encoded)
                     .push_slice(da_identifier_encoded)
@@ -161,6 +162,7 @@ impl InscriptionData {
                     .ok();
 
                 final_script_result = basic_script
+                    .push_slice(&*types::PROOF_DA_REFERENCE_MSG)
                     .push_slice(l1_batch_reveal_txid_encoded)
                     .push_slice(da_identifier_encoded)
                     .push_slice(da_reference_encoded);
@@ -177,11 +179,13 @@ impl InscriptionData {
                 match input.attestation {
                     types::Vote::Ok => {
                         final_script_result = basic_script
+                            .push_slice(&*types::VALIDATOR_ATTESTATION_MSG)
                             .push_slice(reference_txid_encoded)
                             .push_opcode(all::OP_PUSHNUM_1);
                     }
                     types::Vote::NotOk => {
                         final_script_result = basic_script
+                            .push_slice(&*types::VALIDATOR_ATTESTATION_MSG)
                             .push_slice(reference_txid_encoded)
                             .push_opcode(OP_0);
                     }
@@ -219,7 +223,9 @@ impl InscriptionData {
                     .extend_from_slice(bridge_p2wpkh_mpc_address_bytes)
                     .ok();
 
-                final_script_result = tapscript.push_slice(bridge_p2wpkh_mpc_address_encoded);
+                final_script_result = tapscript
+                    .push_slice(&*types::SYSTEM_BOOTSTRAPPING_MSG)
+                    .push_slice(bridge_p2wpkh_mpc_address_encoded);
             }
 
             types::InscriptionMessage::ProposeSequencer(input) => {
@@ -231,7 +237,9 @@ impl InscriptionData {
                     .extend_from_slice(sequencer_new_p2wpkh_address_bytes)
                     .ok();
 
-                final_script_result = basic_script.push_slice(sequencer_new_p2wpkh_address_encoded);
+                final_script_result = basic_script
+                    .push_slice(&*types::PROPOSE_SEQUENCER_MSG)
+                    .push_slice(sequencer_new_p2wpkh_address_encoded);
             }
 
             types::InscriptionMessage::L1ToL2Message(input) => {
@@ -253,6 +261,7 @@ impl InscriptionData {
                 call_data_encoded.extend_from_slice(&input.call_data).ok();
 
                 final_script_result = basic_script
+                    .push_slice(&*types::L1_TO_L2_MSG)
                     .push_slice(receiver_l2_address_encoded)
                     .push_slice(l2_contract_address_encoded)
                     .push_slice(call_data_encoded);

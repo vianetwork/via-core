@@ -1,3 +1,10 @@
+use crate::types;
+use crate::types::{
+    CommonFields, FullInscriptionMessage as Message, L1BatchDAReference, L1BatchDAReferenceInput,
+    L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput, ProposeSequencer,
+    ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput, ValidatorAttestation,
+    ValidatorAttestationInput, Vote,
+};
 use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
@@ -7,13 +14,6 @@ use bitcoin::{
 };
 use zksync_basic_types::H256;
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
-
-use crate::types::{
-    CommonFields, FullInscriptionMessage as Message, L1BatchDAReference, L1BatchDAReferenceInput,
-    L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput, ProposeSequencer,
-    ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput, ValidatorAttestation,
-    ValidatorAttestationInput, Vote,
-};
 
 const MIN_WITNESS_LENGTH: usize = 3;
 const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
@@ -69,22 +69,32 @@ impl MessageParser {
         let message_type = instructions.get(1)?;
 
         match message_type {
-            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"SystemBootstrappingMessage" => {
+            Instruction::PushBytes(bytes)
+                if bytes.as_bytes() == types::SYSTEM_BOOTSTRAPPING_MSG.as_bytes() =>
+            {
                 self.parse_system_bootstrapping(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"ProposeSequencerMessage" => {
+            Instruction::PushBytes(bytes)
+                if bytes.as_bytes() == types::PROPOSE_SEQUENCER_MSG.as_bytes() =>
+            {
                 self.parse_propose_sequencer(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"ValidatorAttestationMessage" => {
+            Instruction::PushBytes(bytes)
+                if bytes.as_bytes() == types::VALIDATOR_ATTESTATION_MSG.as_bytes() =>
+            {
                 self.parse_validator_attestation(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"L1BatchDAReference" => {
+            Instruction::PushBytes(bytes)
+                if bytes.as_bytes() == types::L1_BATCH_DA_REFERENCE_MSG.as_bytes() =>
+            {
                 self.parse_l1_batch_da_reference(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"ProofDAReferenceMessage" => {
+            Instruction::PushBytes(bytes)
+                if bytes.as_bytes() == types::PROOF_DA_REFERENCE_MSG.as_bytes() =>
+            {
                 self.parse_proof_da_reference(instructions, common_fields)
             }
-            Instruction::PushBytes(bytes) if bytes.as_bytes() == b"L1ToL2Message" => {
+            Instruction::PushBytes(bytes) if bytes.as_bytes() == types::L1_TO_L2_MSG.as_bytes() => {
                 self.parse_l1_to_l2_message(tx, instructions, common_fields)
             }
             _ => None,

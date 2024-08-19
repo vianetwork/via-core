@@ -4,6 +4,7 @@ use bitcoin::{
     script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress,
     Amount, TxIn, TxOut, Txid,
 };
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zksync_basic_types::H256;
@@ -130,6 +131,20 @@ pub struct FeePayerCtx {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommitTxInput {
     pub spent_utxo: Vec<TxIn>,
+}
+
+lazy_static! {
+    pub static ref SYSTEM_BOOTSTRAPPING_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"SystemBootstrappingMessage");
+    pub static ref PROPOSE_SEQUENCER_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"ProposeSequencerMessage");
+    pub static ref VALIDATOR_ATTESTATION_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"ValidatorAttestationMessage");
+    pub static ref L1_BATCH_DA_REFERENCE_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"L1BatchDAReferenceMessage");
+    pub static ref PROOF_DA_REFERENCE_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"ProofDAReferenceMessage");
+    pub static ref L1_TO_L2_MSG: PushBytesBuf = PushBytesBuf::from(b"L1ToL2Message");
 }
 
 #[allow(unused)]

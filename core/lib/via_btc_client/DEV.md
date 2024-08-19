@@ -151,7 +151,7 @@ Sender Validation: only valid sequencer
 |      OP_FALSE                                            |
 |      OP_IF                                               |
 |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')" |
-|      OP_PUSHBYTES_32  b"Str('L1BatchDAReference')"       |
+|      OP_PUSHBYTES_32  b"Str('L1BatchDAReferenceMessage')"|
 |      OP_PUSHBYTES_32  b"l1_batch_hash"                   |
 |      OP_PUSHBYTES_32  b"l1_batch_index"                  |
 |      OP_PUSHBYTES_32  b"celestia"                        |

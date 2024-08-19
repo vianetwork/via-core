@@ -7670,6 +7670,7 @@ dependencies = [
  "hex",
  "inquire",
  "jsonrpsee",
+ "lazy_static",
  "mockall",
  "rand 0.8.5",
  "reqwest 0.12.5",
