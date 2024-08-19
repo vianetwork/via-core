@@ -108,10 +108,8 @@ impl BitcoinOps for BitcoinClient {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::Network;
-
     use super::*;
-    use crate::{regtest::BitcoinRegtest, traits::BitcoinOps};
+    use crate::{regtest::BitcoinRegtest, traits::BitcoinOps, types::Network};
 
     #[tokio::test]
     async fn test_new() {

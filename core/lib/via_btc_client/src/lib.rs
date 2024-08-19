@@ -1,9 +1,8 @@
-pub mod traits;
-mod types;
+pub(crate) mod traits;
+pub mod types;
 
-pub mod client;
-mod indexer;
-mod inscriber;
-pub mod regtest;
-pub mod signer;
-mod transaction_builder;
+pub(crate) mod client;
+pub mod indexer;
+pub mod inscriber;
+pub(crate) mod regtest;
+pub(crate) mod signer;
