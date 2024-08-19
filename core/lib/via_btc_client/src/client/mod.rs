@@ -116,7 +116,7 @@ mod tests {
     #[tokio::test]
     async fn test_new() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
             .await
             .expect("Failed to create BitcoinClient");
 

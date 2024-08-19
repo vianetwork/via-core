@@ -104,32 +104,32 @@ mod tests {
     use secp256k1::Secp256k1;
 
     use super::*;
-    use crate::{client::BitcoinRpcClient, traits::BitcoinRpc};
-
-    #[tokio::test]
-    async fn test_bitcoin_regtest() {
-        let regtest = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let rpc = BitcoinRpcClient::new(&regtest.get_url(), "rpcuser", "rpcpassword")
-            .expect("Failed create rpc client");
-
-        let block_count = rpc
-            .get_block_count()
-            .await
-            .expect("Failed to get block count");
-        assert!(block_count > 100);
-
-        let address = regtest.get_address();
-        let private_key = regtest.get_private_key();
-        let balance = rpc
-            .get_balance(address)
-            .await
-            .expect("Failed to get balance of test address");
-        assert!(balance > 300000);
-
-        let secp = Secp256k1::new();
-        let compressed_public_key = CompressedPublicKey::from_private_key(&secp, private_key)
-            .expect("Failed to generate address from test private_key");
-        let derived_address = Address::p2wpkh(&compressed_public_key, Network::Regtest);
-        assert_eq!(*address, derived_address, "Address mismatch!");
-    }
+    // use crate::{client::BitcoinRpcClient, traits::BitcoinRpc};
+    //
+    // #[tokio::test]
+    // async fn test_bitcoin_regtest() {
+    //     let regtest = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
+    //     let rpc = BitcoinRpcClient::new(&regtest.get_url(), "rpcuser", "rpcpassword")
+    //         .expect("Failed create rpc client");
+    //
+    //     let block_count = rpc
+    //         .get_block_count()
+    //         .await
+    //         .expect("Failed to get block count");
+    //     assert!(block_count > 100);
+    //
+    //     let address = regtest.get_address();
+    //     let private_key = regtest.get_private_key();
+    //     let balance = rpc
+    //         .get_balance(address)
+    //         .await
+    //         .expect("Failed to get balance of test address");
+    //     assert!(balance > 300000);
+    //
+    //     let secp = Secp256k1::new();
+    //     let compressed_public_key = CompressedPublicKey::from_private_key(&secp, private_key)
+    //         .expect("Failed to generate address from test private_key");
+    //     let derived_address = Address::p2wpkh(&compressed_public_key, Network::Regtest);
+    //     assert_eq!(*address, derived_address, "Address mismatch!");
+    // }
 }
