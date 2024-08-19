@@ -2,27 +2,18 @@ use std::collections::VecDeque;
 
 use bitcoin::{
     script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress,
-    Amount, TxIn, Txid,
+    Amount, TxIn, TxOut, Txid,
 };
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zksync_basic_types::H256;
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
 
-#[derive(Serialize, Deserialize)]
-pub enum BitcoinMessage {}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {
     Ok,
     NotOk,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct CommonFields {
-    pub schnorr_signature: TaprootSignature,
-    pub encoded_public_key: PushBytesBuf,
-    pub via_inscription_protocol_identifier: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -65,6 +56,12 @@ pub struct ValidatorAttestation {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct CommonFields {
+    pub schnorr_signature: TaprootSignature,
+    pub encoded_public_key: PushBytesBuf,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct SystemBootstrappingInput {
     pub start_block_height: u32,
     pub verifier_p2wpkh_addresses: Vec<BitcoinAddress>,
@@ -100,6 +97,7 @@ pub struct L1ToL2Message {
     pub common: CommonFields,
     pub amount: Amount,
     pub input: L1ToL2MessageInput,
+    pub tx_outputs: Vec<TxOut>,
 }
 
 #[allow(unused)]
@@ -114,6 +112,16 @@ pub enum InscriptionMessage {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum FullInscriptionMessage {
+    L1BatchDAReference(L1BatchDAReference),
+    ProofDAReference(ProofDAReference),
+    ValidatorAttestation(ValidatorAttestation),
+    SystemBootstrapping(SystemBootstrapping),
+    ProposeSequencer(ProposeSequencer),
+    L1ToL2Message(L1ToL2Message),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeePayerCtx {
     pub fee_payer_utxo_txid: Txid,
     pub fee_payer_utxo_vout: u32,
@@ -124,6 +132,21 @@ pub struct FeePayerCtx {
 pub struct CommitTxInput {
     pub spent_utxo: Vec<TxIn>,
 }
+
+lazy_static! {
+    pub static ref SYSTEM_BOOTSTRAPPING_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"SystemBootstrappingMessage");
+    pub static ref PROPOSE_SEQUENCER_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"ProposeSequencerMessage");
+    pub static ref VALIDATOR_ATTESTATION_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"ValidatorAttestationMessage");
+    pub static ref L1_BATCH_DA_REFERENCE_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"L1BatchDAReferenceMessage");
+    pub static ref PROOF_DA_REFERENCE_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"ProofDAReferenceMessage");
+    pub static ref L1_TO_L2_MSG: PushBytesBuf = PushBytesBuf::from(b"L1ToL2Message");
+}
+pub(crate) const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 
 #[allow(unused)]
 #[derive(Clone, Debug)]
@@ -233,7 +256,7 @@ impl From<bitcoin::hex::HexToArrayError> for BitcoinError {
 }
 
 pub type BitcoinSignerResult<T> = Result<T>;
-pub type BitcoinInscriberResult<T> = Result<T>;
+// pub type BitcoinInscriberResult<T> = Result<T>;
 pub type BitcoinIndexerResult<T> = Result<T>;
 #[allow(unused)]
 pub type BitcoinTransactionBuilderResult<T> = Result<T>;

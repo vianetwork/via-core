@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Network, OutPoint, TxOut, Txid};
+use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::EstimateMode;
 
 use crate::{
@@ -8,8 +8,8 @@ use crate::{
 };
 
 mod rpc_client;
-#[allow(unused)]
-pub use rpc_client::BitcoinRpcClient;
+pub use bitcoin::Network;
+pub use rpc_client::{Auth, BitcoinRpcClient};
 
 use crate::types::BitcoinError;
 
@@ -21,12 +21,11 @@ pub struct BitcoinClient {
 
 #[async_trait]
 impl BitcoinOps for BitcoinClient {
-    async fn new(rpc_url: &str, network: Network) -> BitcoinClientResult<Self>
+    async fn new(rpc_url: &str, network: Network, auth: Auth) -> BitcoinClientResult<Self>
     where
         Self: Sized,
     {
-        // TODO: change rpc_user & rpc_password here, move it to args
-        let rpc = Box::new(BitcoinRpcClient::new(rpc_url, "rpcuser", "rpcpassword")?);
+        let rpc = Box::new(BitcoinRpcClient::new(rpc_url, auth)?);
 
         Ok(Self { rpc, network })
     }
@@ -75,9 +74,12 @@ impl BitcoinOps for BitcoinClient {
         Ok(height as u128)
     }
 
-    async fn fetch_and_parse_block(&self, block_height: u128) -> BitcoinClientResult<String> {
-        let _block = self.rpc.get_block(block_height).await?;
-        todo!()
+    async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block> {
+        self.rpc.get_block_by_height(block_height).await
+    }
+
+    async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block> {
+        self.rpc.get_block_by_hash(block_hash).await
     }
 
     async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64> {
@@ -96,6 +98,10 @@ impl BitcoinOps for BitcoinClient {
                 Err(BitcoinError::FeeEstimationFailed(err))
             }
         }
+    }
+
+    async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction> {
+        self.rpc.get_transaction(txid).await
     }
 
     fn get_network(&self) -> Network {
@@ -124,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_balance() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let _client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let _client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -141,7 +147,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_utxos() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let _client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let _client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -157,7 +163,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_block_height() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -173,7 +179,7 @@ mod tests {
     #[tokio::test]
     async fn test_estimate_fee() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
             .await
             .expect("Failed to create BitcoinClient");
 

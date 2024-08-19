@@ -1,17 +1,18 @@
 // Please checkout ../../Dev.md file Taproot Script section for more details on the via_inscription_protocol structure and message types
 
 // use crate::inscriber::types;
-use crate::types;
 use anyhow::{Context, Result};
-use bitcoin::hashes::Hash;
-use bitcoin::opcodes::{all, OP_0, OP_FALSE};
-use bitcoin::script::{Builder as ScriptBuilder, PushBytesBuf};
-use bitcoin::secp256k1::{Secp256k1, Signing, Verification};
-use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{key::UntweakedPublicKey, taproot::TaprootSpendInfo, ScriptBuf};
-use bitcoin::{Address, Network};
+use bitcoin::{
+    hashes::Hash,
+    key::UntweakedPublicKey,
+    opcodes::{all, OP_0, OP_FALSE},
+    script::{Builder as ScriptBuilder, PushBytesBuf},
+    secp256k1::{Secp256k1, Signing, Verification},
+    taproot::{TaprootBuilder, TaprootSpendInfo},
+    Address, Network, ScriptBuf,
+};
 
-const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
+use crate::types;
 
 pub struct InscriptionData {
     pub inscription_script: ScriptBuf,
@@ -76,9 +77,10 @@ impl InscriptionData {
     }
 
     fn build_basic_inscription_script(encoded_pubkey: &PushBytesBuf) -> Result<ScriptBuilder> {
-        let mut via_prefix_encoded = PushBytesBuf::with_capacity(VIA_INSCRIPTION_PROTOCOL.len());
+        let mut via_prefix_encoded =
+            PushBytesBuf::with_capacity(types::VIA_INSCRIPTION_PROTOCOL.len());
         via_prefix_encoded
-            .extend_from_slice(VIA_INSCRIPTION_PROTOCOL.as_bytes())
+            .extend_from_slice(types::VIA_INSCRIPTION_PROTOCOL.as_bytes())
             .ok();
 
         let script = ScriptBuilder::new()
@@ -128,6 +130,7 @@ impl InscriptionData {
                     .ok();
 
                 final_script_result = basic_script
+                    .push_slice(&*types::L1_BATCH_DA_REFERENCE_MSG)
                     .push_slice(l1_batch_hash_encoded)
                     .push_slice(l1_batch_index_encoded)
                     .push_slice(da_identifier_encoded)
@@ -158,6 +161,7 @@ impl InscriptionData {
                     .ok();
 
                 final_script_result = basic_script
+                    .push_slice(&*types::PROOF_DA_REFERENCE_MSG)
                     .push_slice(l1_batch_reveal_txid_encoded)
                     .push_slice(da_identifier_encoded)
                     .push_slice(da_reference_encoded);
@@ -174,11 +178,13 @@ impl InscriptionData {
                 match input.attestation {
                     types::Vote::Ok => {
                         final_script_result = basic_script
+                            .push_slice(&*types::VALIDATOR_ATTESTATION_MSG)
                             .push_slice(reference_txid_encoded)
                             .push_opcode(all::OP_PUSHNUM_1);
                     }
                     types::Vote::NotOk => {
                         final_script_result = basic_script
+                            .push_slice(&*types::VALIDATOR_ATTESTATION_MSG)
                             .push_slice(reference_txid_encoded)
                             .push_opcode(OP_0);
                     }
@@ -216,7 +222,9 @@ impl InscriptionData {
                     .extend_from_slice(bridge_p2wpkh_mpc_address_bytes)
                     .ok();
 
-                final_script_result = tapscript.push_slice(bridge_p2wpkh_mpc_address_encoded);
+                final_script_result = tapscript
+                    .push_slice(&*types::SYSTEM_BOOTSTRAPPING_MSG)
+                    .push_slice(bridge_p2wpkh_mpc_address_encoded);
             }
 
             types::InscriptionMessage::ProposeSequencer(input) => {
@@ -228,7 +236,9 @@ impl InscriptionData {
                     .extend_from_slice(sequencer_new_p2wpkh_address_bytes)
                     .ok();
 
-                final_script_result = basic_script.push_slice(sequencer_new_p2wpkh_address_encoded);
+                final_script_result = basic_script
+                    .push_slice(&*types::PROPOSE_SEQUENCER_MSG)
+                    .push_slice(sequencer_new_p2wpkh_address_encoded);
             }
 
             types::InscriptionMessage::L1ToL2Message(input) => {
@@ -250,6 +260,7 @@ impl InscriptionData {
                 call_data_encoded.extend_from_slice(&input.call_data).ok();
 
                 final_script_result = basic_script
+                    .push_slice(&*types::L1_TO_L2_MSG)
                     .push_slice(receiver_l2_address_encoded)
                     .push_slice(l2_contract_address_encoded)
                     .push_slice(call_data_encoded);

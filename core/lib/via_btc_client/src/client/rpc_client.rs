@@ -1,9 +1,10 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Block, OutPoint, Transaction, Txid};
+use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, Txid};
+pub use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::{
     bitcoincore_rpc_json::EstimateMode,
     json::{EstimateSmartFeeResult, ScanTxOutRequest},
-    Auth, Client, RpcApi,
+    Client, RpcApi,
 };
 
 use crate::{traits::BitcoinRpc, types::BitcoinRpcResult};
@@ -14,12 +15,7 @@ pub struct BitcoinRpcClient {
 
 #[allow(unused)]
 impl BitcoinRpcClient {
-    pub fn new(
-        url: &str,
-        rpc_user: &str,
-        rpc_password: &str,
-    ) -> Result<Self, bitcoincore_rpc::Error> {
-        let auth = Auth::UserPass(rpc_user.to_string(), rpc_password.to_string());
+    pub fn new(url: &str, auth: Auth) -> Result<Self, bitcoincore_rpc::Error> {
         let client = Client::new(url, auth)?;
         Ok(Self { client })
     }
@@ -71,9 +67,13 @@ impl BitcoinRpc for BitcoinRpcClient {
         self.client.get_block_count().map_err(|e| e.into())
     }
 
-    async fn get_block(&self, block_height: u128) -> BitcoinRpcResult<Block> {
+    async fn get_block_by_height(&self, block_height: u128) -> BitcoinRpcResult<Block> {
         let block_hash = self.client.get_block_hash(block_height as u64)?;
         self.client.get_block(&block_hash).map_err(|e| e.into())
+    }
+
+    async fn get_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinRpcResult<Block> {
+        self.client.get_block(block_hash).map_err(|e| e.into())
     }
 
     async fn get_best_block_hash(&self) -> BitcoinRpcResult<bitcoin::BlockHash> {

@@ -71,6 +71,7 @@ Write integration tests in the `examples` directory.
 - Only make methods public that are needed by external users.
 
 ## Taproot Script witness data for via inscription standard
+
 ```
 Witness Structure for each message type
 in our case da_identifier is b"celestia"
@@ -101,7 +102,7 @@ Votable : No
 
 
 (2)
-Propose Sequencer 
+Propose Sequencer
 verifier should sent attestation to network to validate this message
 Sender Validation: one of the verifiers
 Votable: Yes
@@ -150,7 +151,7 @@ Sender Validation: only valid sequencer
 |      OP_FALSE                                            |
 |      OP_IF                                               |
 |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')" |
-|      OP_PUSHBYTES_32  b"Str('L1BatchDAReference')"       |
+|      OP_PUSHBYTES_32  b"Str('L1BatchDAReferenceMessage')"|
 |      OP_PUSHBYTES_32  b"l1_batch_hash"                   |
 |      OP_PUSHBYTES_32  b"l1_batch_index"                  |
 |      OP_PUSHBYTES_32  b"celestia"                        |
