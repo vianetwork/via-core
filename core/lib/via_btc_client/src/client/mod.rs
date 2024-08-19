@@ -4,9 +4,11 @@ use bitcoincore_rpc::json::EstimateMode;
 
 mod rpc_client;
 
-use crate::client::rpc_client::BitcoinRpcClient;
-use crate::traits::{BitcoinOps, BitcoinRpc};
-use crate::types::{Auth, BitcoinClientResult, BitcoinError, Network};
+use crate::{
+    client::rpc_client::BitcoinRpcClient,
+    traits::{BitcoinOps, BitcoinRpc},
+    types::{Auth, BitcoinClientResult, BitcoinError, Network},
+};
 
 #[allow(unused)]
 pub struct BitcoinClient {
