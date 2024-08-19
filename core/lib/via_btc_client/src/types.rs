@@ -146,6 +146,7 @@ lazy_static! {
         PushBytesBuf::from(b"ProofDAReferenceMessage");
     pub static ref L1_TO_L2_MSG: PushBytesBuf = PushBytesBuf::from(b"L1ToL2Message");
 }
+pub(crate) const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 
 #[allow(unused)]
 #[derive(Clone, Debug)]

@@ -16,7 +16,6 @@ use zksync_basic_types::H256;
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
 
 const MIN_WITNESS_LENGTH: usize = 3;
-const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 
 pub struct MessageParser {
     network: Network,
@@ -318,6 +317,6 @@ impl MessageParser {
 fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> {
     // TODO: also check first part of the script (OP_CHECKSIG and other stuff)
     instructions.iter().position(|instr| {
-        matches!(instr, Instruction::PushBytes(bytes) if bytes.as_bytes() == VIA_INSCRIPTION_PROTOCOL.as_bytes())
+        matches!(instr, Instruction::PushBytes(bytes) if bytes.as_bytes() == types::VIA_INSCRIPTION_PROTOCOL.as_bytes())
     })
 }

@@ -14,8 +14,6 @@ use bitcoin::{
 
 use crate::types;
 
-const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
-
 pub struct InscriptionData {
     pub inscription_script: ScriptBuf,
     pub script_size: usize,
@@ -79,9 +77,10 @@ impl InscriptionData {
     }
 
     fn build_basic_inscription_script(encoded_pubkey: &PushBytesBuf) -> Result<ScriptBuilder> {
-        let mut via_prefix_encoded = PushBytesBuf::with_capacity(VIA_INSCRIPTION_PROTOCOL.len());
+        let mut via_prefix_encoded =
+            PushBytesBuf::with_capacity(types::VIA_INSCRIPTION_PROTOCOL.len());
         via_prefix_encoded
-            .extend_from_slice(VIA_INSCRIPTION_PROTOCOL.as_bytes())
+            .extend_from_slice(types::VIA_INSCRIPTION_PROTOCOL.as_bytes())
             .ok();
 
         let script = ScriptBuilder::new()
