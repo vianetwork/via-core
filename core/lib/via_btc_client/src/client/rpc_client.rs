@@ -1,13 +1,15 @@
 use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, Txid};
-pub use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::{
     bitcoincore_rpc_json::EstimateMode,
     json::{EstimateSmartFeeResult, ScanTxOutRequest},
     Client, RpcApi,
 };
 
-use crate::{traits::BitcoinRpc, types::BitcoinRpcResult};
+use crate::{
+    traits::BitcoinRpc,
+    types::{Auth, BitcoinRpcResult},
+};
 
 pub struct BitcoinRpcClient {
     client: Client,

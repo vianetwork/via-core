@@ -2,16 +2,11 @@ use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::EstimateMode;
 
-use crate::{
-    traits::{BitcoinOps, BitcoinRpc},
-    types::BitcoinClientResult,
-};
-
 mod rpc_client;
-pub use bitcoin::Network;
-pub use rpc_client::{Auth, BitcoinRpcClient};
 
-use crate::types::BitcoinError;
+use crate::client::rpc_client::BitcoinRpcClient;
+use crate::traits::{BitcoinOps, BitcoinRpc};
+use crate::types::{Auth, BitcoinClientResult, BitcoinError, Network};
 
 #[allow(unused)]
 pub struct BitcoinClient {

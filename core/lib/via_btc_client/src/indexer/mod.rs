@@ -9,12 +9,11 @@ use parser::MessageParser;
 
 use crate::{
     client::BitcoinClient,
-    traits::BitcoinInscriptionIndexerOpt,
+    traits::{BitcoinInscriptionIndexerOpt, BitcoinOps},
     types::{
         BitcoinError, BitcoinIndexerResult, CommonFields, FullInscriptionMessage, L1ToL2Message,
         Vote,
     },
-    BitcoinOps,
 };
 
 struct BootstrapState {

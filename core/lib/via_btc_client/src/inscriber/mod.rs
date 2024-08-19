@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-pub use bitcoin::Network as BitcoinNetwork;
 use bitcoin::{
     absolute,
     hashes::Hash,
@@ -25,7 +24,7 @@ use crate::{
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
     types,
-    types::InscriberContext,
+    types::{InscriberContext, Network},
 };
 
 mod fee;
@@ -63,7 +62,7 @@ struct Inscriber {
 impl Inscriber {
     pub async fn new(
         rpc_url: &str,
-        network: BitcoinNetwork,
+        network: Network,
         auth: Auth,
         signer_private_key: &str,
         persisted_ctx: Option<types::InscriberContext>,

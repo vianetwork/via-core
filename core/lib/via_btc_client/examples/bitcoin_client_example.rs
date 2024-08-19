@@ -6,8 +6,7 @@ use bitcoin::{
     OutPoint, Sequence, Transaction, TxIn, TxOut, Witness,
 };
 use via_btc_client::{
-    client::BitcoinClient, regtest::BitcoinRegtest, signer::BasicSigner, traits::BitcoinSigner,
-    BitcoinOps,
+    client::BitcoinClient, regtest::BitcoinRegtest, traits::BitcoinSigner, BitcoinOps,
 };
 
 #[tokio::main]
