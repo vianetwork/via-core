@@ -53,7 +53,7 @@ impl BootstrapState {
             .values()
             .filter(|&v| *v == Vote::Ok)
             .count();
-        positive_votes * 2 > total_votes
+        positive_votes * 2 > total_votes && total_votes == self.verifier_addresses.len()
     }
 }
 
