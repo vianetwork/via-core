@@ -101,6 +101,7 @@ impl Drop for BitcoinRegtest {
 #[cfg(test)]
 mod tests {
     use bitcoin::CompressedPublicKey;
+    use bitcoincore_rpc::Auth;
     use secp256k1::Secp256k1;
 
     use super::*;
@@ -109,7 +110,7 @@ mod tests {
     #[tokio::test]
     async fn test_bitcoin_regtest() {
         let regtest = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let rpc = BitcoinRpcClient::new(&regtest.get_url(), "rpcuser", "rpcpassword")
+        let rpc = BitcoinRpcClient::new(&regtest.get_url(), Auth::UserPass("rpcuser".to_string(), "rpcpassword".to_string()))
             .expect("Failed create rpc client");
 
         let block_count = rpc

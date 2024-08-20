@@ -119,7 +119,7 @@ mod tests {
     #[tokio::test]
     async fn test_new() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let client = BitcoinClient::new(&context.get_url(), Network::Regtest)
+        let client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::UserPass("rpcuser".to_string(), "rpcpassword".to_string()))
             .await
             .expect("Failed to create BitcoinClient");
 
@@ -163,7 +163,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_block_height() {
         let context = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::None)
+        let client = BitcoinClient::new(&context.get_url(), Network::Regtest, Auth::UserPass("rpcuser".to_string(), "rpcpassword".to_string()))
             .await
             .expect("Failed to create BitcoinClient");
 
