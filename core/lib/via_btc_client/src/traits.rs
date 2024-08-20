@@ -4,7 +4,7 @@ use bitcoin::{
     secp256k1::{All, Secp256k1},
     Address, Block, BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid,
 };
-use bitcoincore_rpc::{bitcoincore_rpc_json::GetBlockchainInfoResult, Auth};
+use bitcoincore_rpc::bitcoincore_rpc_json::GetBlockchainInfoResult;
 use secp256k1::{
     ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, Message, PublicKey,
 };
@@ -18,9 +18,6 @@ use crate::{
 #[allow(dead_code)]
 #[async_trait]
 pub trait BitcoinOps: Send + Sync {
-    async fn new(rpc_url: &str, network: Network, auth: Auth) -> BitcoinClientResult<Self>
-    where
-        Self: Sized;
     async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
     async fn broadcast_signed_transaction(
         &self,

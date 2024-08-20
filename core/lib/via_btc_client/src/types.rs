@@ -257,8 +257,19 @@ impl From<bitcoin::hex::HexToArrayError> for BitcoinError {
     }
 }
 
+/// Custom error type for the BitcoinInscriptionIndexer
+#[derive(Error, Debug)]
+pub enum IndexerError {
+    #[error("Bootstrap process incomplete: {0}")]
+    IncompleteBootstrap(String),
+    #[error("Invalid block height: {0}")]
+    InvalidBlockHeight(u32),
+    #[error("Bitcoin client error: {0}")]
+    BitcoinClientError(#[from] BitcoinError),
+}
+
+pub type BitcoinIndexerResult<T> = std::result::Result<T, IndexerError>;
 pub type BitcoinSignerResult<T> = Result<T>;
 // pub type BitcoinInscriberResult<T> = Result<T>;
-pub type BitcoinIndexerResult<T> = Result<T>;
 
 pub type BitcoinTransactionBuilderResult<T> = Result<T>;

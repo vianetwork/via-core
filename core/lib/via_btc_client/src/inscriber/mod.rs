@@ -67,7 +67,7 @@ impl Inscriber {
         signer_private_key: &str,
         persisted_ctx: Option<types::InscriberContext>,
     ) -> Result<Self> {
-        let client = Box::new(BitcoinClient::new(rpc_url, network, auth).await?);
+        let client = Box::new(BitcoinClient::new(rpc_url, network, auth)?);
         let signer = Box::new(KeyManager::new(signer_private_key, network)?);
         let context = persisted_ctx.unwrap_or_default();
 

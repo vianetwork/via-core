@@ -16,10 +16,9 @@ pub struct BitcoinClient {
     network: Network,
 }
 
-#[async_trait]
-impl BitcoinOps for BitcoinClient {
+impl BitcoinClient {
     #[instrument(skip(auth), target = "bitcoin_client")]
-    async fn new(rpc_url: &str, network: Network, auth: Auth) -> BitcoinClientResult<Self>
+    pub(crate) fn new(rpc_url: &str, network: Network, auth: Auth) -> BitcoinClientResult<Self>
     where
         Self: Sized,
     {
@@ -27,7 +26,10 @@ impl BitcoinOps for BitcoinClient {
         let rpc = Box::new(BitcoinRpcClient::new(rpc_url, auth)?);
         Ok(Self { rpc, network })
     }
+}
 
+#[async_trait]
+impl BitcoinOps for BitcoinClient {
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128> {
         debug!("Getting balance");
