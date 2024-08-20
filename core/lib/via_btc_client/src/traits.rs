@@ -15,9 +15,8 @@ use crate::{
     types::{BitcoinClientResult, BitcoinIndexerResult, FullInscriptionMessage},
 };
 
-#[allow(dead_code)]
 #[async_trait]
-pub trait BitcoinOps: Send + Sync {
+pub(crate) trait BitcoinOps: Send + Sync {
     async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
     async fn broadcast_signed_transaction(
         &self,
@@ -42,9 +41,8 @@ pub trait BitcoinOps: Send + Sync {
     async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
 }
 
-#[allow(dead_code)]
 #[async_trait]
-pub trait BitcoinRpc: Send + Sync {
+pub(crate) trait BitcoinRpc: Send + Sync {
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64>;
     async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinRpcResult<Txid>;
     async fn list_unspent(&self, address: &Address) -> BitcoinRpcResult<Vec<OutPoint>>;
@@ -66,7 +64,7 @@ pub trait BitcoinRpc: Send + Sync {
     async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
 }
 
-pub trait BitcoinSigner: Send + Sync {
+pub(crate) trait BitcoinSigner: Send + Sync {
     fn new(private_key: &str, network: Network) -> types::BitcoinSignerResult<Self>
     where
         Self: Sized;
@@ -86,9 +84,8 @@ pub trait BitcoinSigner: Send + Sync {
     fn get_public_key(&self) -> PublicKey;
 }
 
-#[allow(dead_code)]
 #[async_trait]
-pub trait BitcoinIndexerOpt: Send + Sync {
+pub(crate) trait BitcoinIndexerOpt: Send + Sync {
     async fn new(
         rpc_url: &str,
         network: Network,

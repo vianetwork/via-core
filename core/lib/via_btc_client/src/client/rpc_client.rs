@@ -20,13 +20,13 @@ pub struct BitcoinRpcClient {
 }
 
 impl BitcoinRpcClient {
-    #[instrument(skip(auth), target = "bitcoin_client")]
+    #[instrument(skip(auth), target = "bitcoin_client::rpc_client")]
     pub fn new(url: &str, auth: Auth) -> Result<Self, bitcoincore_rpc::Error> {
         let client = Client::new(url, auth)?;
         Ok(Self { client })
     }
 
-    #[instrument(skip(self, f), target = "bitcoin_client")]
+    #[instrument(skip(self, f), target = "bitcoin_client::rpc_client")]
     async fn with_retry<F, T>(&self, f: F) -> BitcoinRpcResult<T>
     where
         F: Fn() -> BitcoinRpcResult<T> + Send + Sync,
@@ -49,7 +49,7 @@ impl BitcoinRpcClient {
 
 #[async_trait]
 impl BitcoinRpc for BitcoinRpcClient {
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64> {
         self.with_retry(|| {
             debug!("Getting balance");
@@ -61,7 +61,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self, tx_hex), target = "bitcoin_client")]
+    #[instrument(skip(self, tx_hex), target = "bitcoin_client::rpc_client")]
     async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinRpcResult<Txid> {
         self.with_retry(|| {
             debug!("Sending raw transaction");
@@ -72,7 +72,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn list_unspent(&self, address: &Address) -> BitcoinRpcResult<Vec<OutPoint>> {
         self.with_retry(|| {
             debug!("Listing unspent outputs");
@@ -92,7 +92,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_transaction(&self, txid: &Txid) -> BitcoinRpcResult<Transaction> {
         self.with_retry(|| {
             debug!("Getting transaction");
@@ -103,7 +103,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_block_count(&self) -> BitcoinRpcResult<u64> {
         self.with_retry(|| {
             debug!("Getting block count");
@@ -112,7 +112,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_block_by_height(&self, block_height: u128) -> BitcoinRpcResult<Block> {
         self.with_retry(|| {
             debug!("Getting block by height");
@@ -122,7 +122,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinRpcResult<Block> {
         self.with_retry(|| {
             debug!("Getting block by hash");
@@ -131,7 +131,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_best_block_hash(&self) -> BitcoinRpcResult<BlockHash> {
         self.with_retry(|| {
             debug!("Getting best block hash");
@@ -140,7 +140,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_raw_transaction_info(
         &self,
         txid: &Txid,
@@ -154,7 +154,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn estimate_smart_fee(
         &self,
         conf_target: u16,
@@ -169,7 +169,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
-    #[instrument(skip(self), target = "bitcoin_client")]
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult> {
         self.with_retry(|| {
             debug!("Getting blockchain info");

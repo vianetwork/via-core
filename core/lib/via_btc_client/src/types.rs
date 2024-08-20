@@ -270,6 +270,6 @@ pub enum IndexerError {
 
 pub type BitcoinIndexerResult<T> = std::result::Result<T, IndexerError>;
 pub type BitcoinSignerResult<T> = Result<T>;
-// pub type BitcoinInscriberResult<T> = Result<T>;
+pub type BitcoinInscriberResult<T> = Result<T>;
 
 pub type BitcoinTransactionBuilderResult<T> = Result<T>;

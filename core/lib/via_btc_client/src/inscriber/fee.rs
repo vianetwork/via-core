@@ -1,5 +1,6 @@
-use anyhow::Result;
 use bitcoin::Amount;
+
+use crate::types::{BitcoinError, BitcoinInscriberResult};
 
 // Fee Estimation Constants
 // const VERSION_SIZE: usize = 4;
@@ -56,13 +57,15 @@ impl InscriberFeeCalculator {
         p2wpkh_outputs_count: u32,
         p2tr_outputs_count: u32,
         p2tr_witness_sizes: Vec<usize>,
-    ) -> Result<usize> {
+    ) -> BitcoinInscriberResult<usize> {
         // https://bitcoinops.org/en/tools/calc-size/
         // https://en.bitcoin.it/wiki/Protocol_documentation#Common_structures
         // https://btcinformation.org/en/developer-reference#p2p-network
 
         if p2tr_inputs_count == p2tr_witness_sizes.len() as u32 {
-            return Err(anyhow::anyhow!("Invalid witness sizes count"));
+            return Err(BitcoinError::FeeEstimationFailed(
+                "Invalid witness sizes count".to_string(),
+            ));
         }
 
         let p2wpkh_input_size = P2WPKH_INPUT_BASE_SIZE * p2wpkh_inputs_count as usize;
@@ -93,7 +96,7 @@ impl InscriberFeeCalculator {
         p2tr_outputs_count: u32,
         p2tr_witness_sizes: Vec<usize>,
         fee_rate: u64,
-    ) -> Result<Amount> {
+    ) -> BitcoinInscriberResult<Amount> {
         let transaction_size = Self::estimate_transaction_size(
             p2wpkh_inputs_count,
             p2tr_inputs_count,

@@ -37,7 +37,7 @@ impl MessageParser {
         Self { network }
     }
 
-    #[instrument(skip(self, tx))]
+    #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
     pub fn parse_transaction(&self, tx: &Transaction) -> Vec<Message> {
         debug!("Parsing transaction");
         tx.input
@@ -46,7 +46,7 @@ impl MessageParser {
             .collect()
     }
 
-    #[instrument(skip(self, input, tx))]
+    #[instrument(skip(self, input, tx), target = "bitcoin_indexer::parser")]
     fn parse_input(&self, input: &bitcoin::TxIn, tx: &Transaction) -> Option<Message> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
@@ -88,7 +88,10 @@ impl MessageParser {
         self.parse_message(tx, &instructions[via_index..], &common_fields)
     }
 
-    #[instrument(skip(self, tx, instructions, common_fields))]
+    #[instrument(
+        skip(self, tx, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
     fn parse_message(
         &self,
         tx: &Transaction,
@@ -140,7 +143,10 @@ impl MessageParser {
         }
     }
 
-    #[instrument(skip(self, instructions, common_fields))]
+    #[instrument(
+        skip(self, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
     fn parse_system_bootstrapping(
         &self,
         instructions: &[Instruction],
@@ -208,7 +214,10 @@ impl MessageParser {
         }))
     }
 
-    #[instrument(skip(self, instructions, common_fields))]
+    #[instrument(
+        skip(self, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
     fn parse_propose_sequencer(
         &self,
         instructions: &[Instruction],
@@ -242,7 +251,10 @@ impl MessageParser {
         }))
     }
 
-    #[instrument(skip(self, instructions, common_fields))]
+    #[instrument(
+        skip(self, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
     fn parse_validator_attestation(
         &self,
         instructions: &[Instruction],
@@ -284,7 +296,10 @@ impl MessageParser {
         }))
     }
 
-    #[instrument(skip(self, instructions, common_fields))]
+    #[instrument(
+        skip(self, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
     fn parse_l1_batch_da_reference(
         &self,
         instructions: &[Instruction],
@@ -329,7 +344,10 @@ impl MessageParser {
         }))
     }
 
-    #[instrument(skip(self, instructions, common_fields))]
+    #[instrument(
+        skip(self, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
     fn parse_proof_da_reference(
         &self,
         instructions: &[Instruction],
@@ -372,7 +390,10 @@ impl MessageParser {
         }))
     }
 
-    #[instrument(skip(self, tx, instructions, common_fields))]
+    #[instrument(
+        skip(self, tx, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
     fn parse_l1_to_l2_message(
         &self,
         tx: &Transaction,
@@ -416,7 +437,7 @@ impl MessageParser {
     }
 }
 
-#[instrument(skip(instructions))]
+#[instrument(skip(instructions), target = "bitcoin_indexer::parser")]
 fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> {
     let position = instructions.iter().position(|instr| {
         matches!(instr, Instruction::PushBytes(bytes) if bytes.as_bytes() == types::VIA_INSCRIPTION_PROTOCOL.as_bytes())

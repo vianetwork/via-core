@@ -70,7 +70,7 @@ pub struct BitcoinInscriptionIndexer {
 
 #[async_trait]
 impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
-    #[instrument(skip(rpc_url, network, bootstrap_txids), err)]
+    #[instrument(skip(rpc_url, network, bootstrap_txids), target = "bitcoin_indexer")]
     async fn new(
         rpc_url: &str,
         network: Network,
@@ -102,7 +102,7 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
         Self::create_indexer(bootstrap_state, client, parser, network)
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip(self), target = "bitcoin_indexer")]
     async fn process_blocks(
         &self,
         starting_block: u32,
@@ -120,7 +120,7 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
         Ok(res)
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip(self), target = "bitcoin_indexer")]
     async fn process_block(
         &self,
         block_height: u32,
@@ -148,7 +148,7 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
         Ok(messages)
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip(self), target = "bitcoin_indexer")]
     async fn are_blocks_connected(
         &self,
         parent_hash: &BlockHash,
@@ -202,7 +202,7 @@ impl BitcoinInscriptionIndexer {
         }
     }
 
-    #[instrument(skip(self, message))]
+    #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
             FullInscriptionMessage::ProposeSequencer(m) => {
@@ -242,7 +242,7 @@ impl BitcoinInscriptionIndexer {
         }
     }
 
-    #[instrument(skip(state, message))]
+    #[instrument(skip(state, message), target = "bitcoin_indexer")]
     fn process_bootstrap_message(
         state: &mut BootstrapState,
         message: FullInscriptionMessage,
@@ -291,7 +291,7 @@ impl BitcoinInscriptionIndexer {
         }
     }
 
-    #[instrument(skip(self, message))]
+    #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_l1_to_l2_transfer(&self, message: &L1ToL2Message) -> bool {
         let is_valid = message
             .tx_outputs
@@ -301,7 +301,7 @@ impl BitcoinInscriptionIndexer {
         is_valid
     }
 
-    #[instrument(skip(common_fields))]
+    #[instrument(skip(common_fields), target = "bitcoin_indexer")]
     fn get_sender_address(common_fields: &CommonFields, network: Network) -> Option<Address> {
         secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
             .ok()

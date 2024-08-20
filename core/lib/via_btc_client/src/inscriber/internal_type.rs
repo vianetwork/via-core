@@ -1,5 +1,6 @@
 use bitcoin::{taproot::ControlBlock, Amount, Transaction, TxIn, TxOut, Txid};
 
+#[derive(Debug)]
 pub struct CommitTxInputRes {
     pub commit_tx_inputs: Vec<TxIn>,
     pub unlocked_value: Amount,
@@ -7,6 +8,7 @@ pub struct CommitTxInputRes {
     pub utxo_amounts: Vec<Amount>,
 }
 
+#[derive(Debug)]
 pub struct CommitTxOutputRes {
     pub commit_tx_change_output: TxOut,
     pub commit_tx_tapscript_output: TxOut,
@@ -14,6 +16,7 @@ pub struct CommitTxOutputRes {
     pub _commit_tx_fee: Amount,
 }
 
+#[derive(Debug)]
 pub struct RevealTxInputRes {
     pub reveal_tx_input: Vec<TxIn>,
     pub prev_outs: Vec<TxOut>,
@@ -21,12 +24,14 @@ pub struct RevealTxInputRes {
     pub control_block: ControlBlock,
 }
 
+#[derive(Debug)]
 pub struct RevealTxOutputRes {
     pub reveal_tx_change_output: TxOut,
     pub reveal_fee_rate: u64,
     pub _reveal_fee: Amount,
 }
 
+#[derive(Debug)]
 pub struct FinalTx {
     pub tx: Transaction,
     pub txid: Txid,
