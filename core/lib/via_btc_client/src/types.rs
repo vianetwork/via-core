@@ -178,7 +178,6 @@ impl Default for InscriberContext {
     }
 }
 
-
 #[derive(Clone, Debug)]
 pub struct InscriberOutput {
     pub commit_txid: Txid,

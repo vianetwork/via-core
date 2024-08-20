@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn test_sign_ecdsa() {
         let key_manager = KeyManager::default();
-        let message = Message::from_slice(&[1; 32]).unwrap();
+        let message = Message::from_digest_slice(&[1; 32]).unwrap();
         let signature = key_manager.sign_ecdsa(message).unwrap();
         assert!(key_manager
             .secp
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn test_sign_schnorr() {
         let key_manager = KeyManager::default();
-        let message = Message::from_slice(&[1; 32]).unwrap();
+        let message = Message::from_digest_slice(&[1; 32]).unwrap();
         let signature = key_manager.sign_schnorr(message).unwrap();
         assert!(key_manager
             .secp

@@ -4,7 +4,7 @@ use bitcoin::{
     secp256k1::{All, Secp256k1},
     Address, Block, BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid,
 };
-use bitcoincore_rpc::Auth;
+use bitcoincore_rpc::{bitcoincore_rpc_json::GetBlockchainInfoResult, Auth};
 use secp256k1::{
     ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, Message, PublicKey,
 };
@@ -66,6 +66,7 @@ pub trait BitcoinRpc: Send + Sync {
         conf_target: u16,
         estimate_mode: Option<bitcoincore_rpc::json::EstimateMode>,
     ) -> BitcoinRpcResult<bitcoincore_rpc::json::EstimateSmartFeeResult>;
+    async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
 }
 
 pub trait BitcoinSigner: Send + Sync {
