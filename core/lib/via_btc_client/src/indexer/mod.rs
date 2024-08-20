@@ -9,7 +9,7 @@ use parser::MessageParser;
 
 use crate::{
     client::BitcoinClient,
-    traits::{BitcoinInscriptionIndexerOpt, BitcoinOps},
+    traits::{BitcoinIndexerOpt, BitcoinOps},
     types::{
         BitcoinError, BitcoinIndexerResult, CommonFields, FullInscriptionMessage, L1ToL2Message,
         Vote,
@@ -66,7 +66,7 @@ pub struct BitcoinInscriptionIndexer {
 }
 
 #[async_trait]
-impl BitcoinInscriptionIndexerOpt for BitcoinInscriptionIndexer {
+impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
     async fn new(
         rpc_url: &str,
         network: Network,

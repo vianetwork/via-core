@@ -89,18 +89,9 @@ pub trait BitcoinSigner: Send + Sync {
     fn get_public_key(&self) -> PublicKey;
 }
 
-// #[allow(dead_code)]
-// #[async_trait]
-// pub trait BitcoinInscriber: Send + Sync {
-//     async fn new(config: &str) -> BitcoinInscriberResult<Self>
-//     where
-//         Self: Sized;
-//     async fn inscribe(&self, message_type: &str, data: &str) -> BitcoinInscriberResult<String>;
-// }
-
 #[allow(dead_code)]
 #[async_trait]
-pub trait BitcoinInscriptionIndexerOpt: Send + Sync {
+pub trait BitcoinIndexerOpt: Send + Sync {
     async fn new(
         rpc_url: &str,
         network: Network,
