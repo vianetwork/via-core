@@ -83,28 +83,3 @@ pub(crate) trait BitcoinSigner: Send + Sync {
 
     fn get_public_key(&self) -> PublicKey;
 }
-
-#[async_trait]
-pub(crate) trait BitcoinIndexerOpt: Send + Sync {
-    async fn new(
-        rpc_url: &str,
-        network: Network,
-        bootstrap_txids: Vec<Txid>,
-    ) -> BitcoinIndexerResult<Self>
-    where
-        Self: Sized;
-    async fn process_blocks(
-        &self,
-        starting_block: u32,
-        ending_block: u32,
-    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>>;
-    async fn process_block(
-        &self,
-        block_height: u32,
-    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>>;
-    async fn are_blocks_connected(
-        &self,
-        parent_hash: &BlockHash,
-        child_hash: &BlockHash,
-    ) -> BitcoinIndexerResult<bool>;
-}

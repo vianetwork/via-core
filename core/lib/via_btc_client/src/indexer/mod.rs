@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use async_trait::async_trait;
 use bitcoin::{Address, BlockHash, KnownHrp, Network, Txid};
 use bitcoincore_rpc::Auth;
 use tracing::{debug, error, info, instrument, warn};
@@ -10,7 +9,7 @@ use parser::MessageParser;
 
 use crate::{
     client::BitcoinClient,
-    traits::{BitcoinIndexerOpt, BitcoinOps},
+    traits::BitcoinOps,
     types,
     types::{BitcoinIndexerResult, CommonFields, FullInscriptionMessage, L1ToL2Message, Vote},
 };
@@ -68,10 +67,9 @@ pub struct BitcoinInscriptionIndexer {
     network: Network,
 }
 
-#[async_trait]
-impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
+impl BitcoinInscriptionIndexer {
     #[instrument(skip(rpc_url, network, bootstrap_txids), target = "bitcoin_indexer")]
-    async fn new(
+    pub async fn new(
         rpc_url: &str,
         network: Network,
         bootstrap_txids: Vec<Txid>,
@@ -103,7 +101,7 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
-    async fn process_blocks(
+    pub async fn process_blocks(
         &self,
         starting_block: u32,
         ending_block: u32,
@@ -121,7 +119,7 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
-    async fn process_block(
+    pub async fn process_block(
         &self,
         block_height: u32,
     ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
@@ -149,7 +147,7 @@ impl BitcoinIndexerOpt for BitcoinInscriptionIndexer {
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
-    async fn are_blocks_connected(
+    pub async fn are_blocks_connected(
         &self,
         parent_hash: &BlockHash,
         child_hash: &BlockHash,
@@ -320,6 +318,7 @@ impl BitcoinInscriptionIndexer {
 mod tests {
     use std::str::FromStr;
 
+    use async_trait::async_trait;
     use bitcoin::{
         block::Header, hashes::Hash, Amount, Block, OutPoint, ScriptBuf, Transaction, TxMerkleNode,
         TxOut,
