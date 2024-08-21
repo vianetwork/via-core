@@ -161,16 +161,19 @@ mod tests {
         }
     }
 
+    fn get_client_with_mock(mock_bitcoin_rpc: MockBitcoinRpc) -> BitcoinClient {
+        BitcoinClient {
+            rpc: Box::new(mock_bitcoin_rpc),
+            network: Network::Bitcoin,
+        }
+    }
+
     #[tokio::test]
     async fn test_get_balance() {
         let mut mock_rpc = MockBitcoinRpc::new();
         mock_rpc.expect_get_balance().return_once(|_| Ok(1000000));
 
-        let client = BitcoinClient {
-            rpc: Box::new(mock_rpc),
-            network: Network::Bitcoin,
-        };
-
+        let client = get_client_with_mock(mock_rpc);
         let address = Address::from_str("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")
             .unwrap()
             .require_network(Network::Bitcoin)
@@ -189,10 +192,7 @@ mod tests {
             .expect_send_raw_transaction()
             .return_once(move |_| Ok(expected_txid));
 
-        let client = BitcoinClient {
-            rpc: Box::new(mock_rpc),
-            network: Network::Bitcoin,
-        };
+        let client = get_client_with_mock(mock_rpc);
 
         let txid = client
             .broadcast_signed_transaction("dummy_hex")
@@ -223,10 +223,7 @@ mod tests {
             })
         });
 
-        let client = BitcoinClient {
-            rpc: Box::new(mock_rpc),
-            network: Network::Bitcoin,
-        };
+        let client = get_client_with_mock(mock_rpc);
 
         let address = Address::from_str("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")
             .unwrap()
@@ -261,10 +258,7 @@ mod tests {
             })
         });
 
-        let client = BitcoinClient {
-            rpc: Box::new(mock_rpc),
-            network: Network::Bitcoin,
-        };
+        let client = get_client_with_mock(mock_rpc);
 
         let txid = Txid::all_zeros();
         let confirmed = client.check_tx_confirmation(&txid, 2).await.unwrap();
@@ -276,10 +270,7 @@ mod tests {
         let mut mock_rpc = MockBitcoinRpc::new();
         mock_rpc.expect_get_block_count().return_once(|| Ok(654321));
 
-        let client = BitcoinClient {
-            rpc: Box::new(mock_rpc),
-            network: Network::Bitcoin,
-        };
+        let client = get_client_with_mock(mock_rpc);
 
         let height = client.fetch_block_height().await.unwrap();
         assert_eq!(height, 654321);
@@ -296,10 +287,7 @@ mod tests {
             })
         });
 
-        let client = BitcoinClient {
-            rpc: Box::new(mock_rpc),
-            network: Network::Bitcoin,
-        };
+        let client = get_client_with_mock(mock_rpc);
 
         let fee_rate = client.get_fee_rate(6).await.unwrap();
         assert_eq!(fee_rate, 1000);

@@ -347,12 +347,7 @@ mod tests {
         }
     }
 
-    fn create_mock_indexer() -> BitcoinInscriptionIndexer {
-        let mut mock_client = MockBitcoinOps::new();
-        mock_client
-            .expect_get_network()
-            .returning(|| Network::Testnet);
-
+    fn get_indexer_with_mock(mock_client: MockBitcoinOps) -> BitcoinInscriptionIndexer {
         let parser = MessageParser::new(Network::Testnet);
         let bridge_address = Address::from_str("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
             .unwrap()
@@ -400,23 +395,7 @@ mod tests {
             .expect_get_network()
             .returning(|| Network::Testnet);
 
-        let indexer = BitcoinInscriptionIndexer {
-            client: Box::new(mock_client),
-            parser: MessageParser::new(Network::Testnet),
-            bridge_address: Address::from_str("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
-                .unwrap()
-                .require_network(Network::Testnet)
-                .unwrap(),
-            sequencer_address: Address::from_str(
-                "tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7",
-            )
-            .unwrap()
-            .require_network(Network::Testnet)
-            .unwrap(),
-            verifier_addresses: vec![],
-            starting_block_number: 0,
-            network: Network::Testnet,
-        };
+        let indexer = get_indexer_with_mock(mock_client);
 
         let result = indexer
             .are_blocks_connected(&parent_hash, &child_hash)
@@ -451,24 +430,7 @@ mod tests {
             .expect_get_network()
             .returning(|| Network::Testnet);
 
-        let indexer = BitcoinInscriptionIndexer {
-            client: Box::new(mock_client),
-            parser: MessageParser::new(Network::Testnet),
-            bridge_address: Address::from_str("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
-                .unwrap()
-                .require_network(Network::Testnet)
-                .unwrap(),
-            sequencer_address: Address::from_str(
-                "tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7",
-            )
-            .unwrap()
-            .require_network(Network::Testnet)
-            .unwrap(),
-            verifier_addresses: vec![],
-            starting_block_number: 0,
-            network: Network::Testnet,
-        };
-
+        let indexer = get_indexer_with_mock(mock_client);
         let result = indexer.process_blocks(start_block, end_block).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 0);
@@ -476,7 +438,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_valid_message() {
-        let indexer = create_mock_indexer();
+        let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
         let propose_sequencer = FullInscriptionMessage::ProposeSequencer(types::ProposeSequencer {
             common: CommonFields {
@@ -508,7 +470,7 @@ mod tests {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                 },
-                input: crate::types::L1BatchDAReferenceInput {
+                input: types::L1BatchDAReferenceInput {
                     l1_batch_hash: zksync_basic_types::H256::zero(),
                     l1_batch_index: zksync_types::L1BatchNumber(0),
                     da_identifier: "test".to_string(),
@@ -536,12 +498,12 @@ mod tests {
         assert!(indexer.is_valid_message(&l1_to_l2_message));
 
         let system_bootstrapping =
-            FullInscriptionMessage::SystemBootstrapping(crate::types::SystemBootstrapping {
+            FullInscriptionMessage::SystemBootstrapping(types::SystemBootstrapping {
                 common: CommonFields {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                 },
-                input: crate::types::SystemBootstrappingInput {
+                input: types::SystemBootstrappingInput {
                     start_block_height: 0,
                     bridge_p2wpkh_mpc_address: indexer.bridge_address.clone(),
                     verifier_p2wpkh_addresses: vec![],
@@ -574,7 +536,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_valid_l1_to_l2_transfer() {
-        let indexer = create_mock_indexer();
+        let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
         let valid_message = L1ToL2Message {
             common: CommonFields {

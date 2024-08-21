@@ -6,3 +6,4 @@ pub mod indexer;
 pub mod inscriber;
 pub(crate) mod regtest;
 pub(crate) mod signer;
+pub(crate) mod utils;

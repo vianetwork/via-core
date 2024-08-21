@@ -127,14 +127,8 @@ impl Inscriber {
             &inscription_data,
         )?;
 
-        let broadcast_status = self
-            .broadcast_inscription(&final_commit_tx, &final_reveal_tx)
+        self.broadcast_inscription(&final_commit_tx, &final_reveal_tx)
             .await?;
-
-        if !broadcast_status {
-            error!("Failed to broadcast inscription");
-            return Err(anyhow::anyhow!("Failed to broadcast inscription"));
-        }
 
         self.insert_inscription_to_context(
             input,
@@ -655,66 +649,23 @@ impl Inscriber {
     }
 
     #[instrument(skip(self, commit, reveal), target = "bitcoin_inscriber")]
-    async fn broadcast_inscription(&self, commit: &FinalTx, reveal: &FinalTx) -> Result<bool> {
+    async fn broadcast_inscription(&self, commit: &FinalTx, reveal: &FinalTx) -> Result<()> {
         info!("Broadcasting inscription transactions");
         let commit_tx_hex = commit.tx.raw_hex().to_string();
         let reveal_tx_hex = reveal.tx.raw_hex().to_string();
 
-        let mut commit_broadcasted = false;
-        let mut reveal_broadcasted = false;
+        let commit_tx_id = self
+            .client
+            .broadcast_signed_transaction(&commit_tx_hex)
+            .await?;
+        let reveal_tx_id = self
+            .client
+            .broadcast_signed_transaction(&reveal_tx_hex)
+            .await?;
 
-        for attempt in 1..=BROADCAST_RETRY_COUNT {
-            debug!(
-                "Attempting to broadcast commit transaction (attempt {})",
-                attempt
-            );
-            let res = self
-                .client
-                .broadcast_signed_transaction(&commit_tx_hex)
-                .await;
+        info!("Both transactions broadcasted successfully with ids: commit: {commit_tx_id}, reveal: {reveal_tx_id}");
 
-            if res.is_ok() {
-                commit_broadcasted = true;
-                info!("Commit transaction broadcasted successfully");
-                break;
-            } else {
-                warn!(
-                    "Failed to broadcast commit transaction (attempt {})",
-                    attempt
-                );
-            }
-        }
-
-        for attempt in 1..=BROADCAST_RETRY_COUNT {
-            debug!(
-                "Attempting to broadcast reveal transaction (attempt {})",
-                attempt
-            );
-            let res = self
-                .client
-                .broadcast_signed_transaction(&reveal_tx_hex)
-                .await;
-
-            if res.is_ok() {
-                reveal_broadcasted = true;
-                info!("Reveal transaction broadcasted successfully");
-                break;
-            } else {
-                warn!(
-                    "Failed to broadcast reveal transaction (attempt {})",
-                    attempt
-                );
-            }
-        }
-
-        let result = commit_broadcasted && reveal_broadcasted;
-        if result {
-            info!("Both transactions broadcasted successfully");
-        } else {
-            error!("Failed to broadcast one or both transactions");
-        }
-
-        Ok(result)
+        Ok(())
     }
 
     #[instrument(
