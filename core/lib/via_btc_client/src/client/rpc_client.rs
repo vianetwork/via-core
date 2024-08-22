@@ -41,10 +41,20 @@ impl BitcoinRpc for BitcoinRpcClient {
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64> {
         Self::retry_rpc(|| {
             debug!("Getting balance");
-            let descriptor = format!("addr({})", address);
-            let request = vec![ScanTxOutRequest::Single(descriptor)];
-            let result = self.client.scan_tx_out_set_blocking(&request)?;
-            Ok(result.total_amount.to_sat())
+            let result = self.client.list_unspent(
+                Some(1),          // minconf
+                None,             // maxconf
+                Some(&[address]), // addresses
+                None,             // include_unsafe
+                None,             // query_options
+            )?;
+
+            let total_amount: u64 = result
+                .into_iter()
+                .map(|unspent| unspent.amount.to_sat())
+                .sum();
+
+            Ok(total_amount)
         })
         .await
     }
@@ -56,6 +66,34 @@ impl BitcoinRpc for BitcoinRpcClient {
             self.client
                 .send_raw_transaction(tx_hex)
                 .map_err(|e| e.into())
+        })
+        .await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
+    async fn list_unspent_based_on_node_wallet(
+        &self,
+        address: &Address,
+    ) -> BitcoinRpcResult<Vec<OutPoint>> {
+        Self::retry_rpc(|| {
+            debug!("Listing unspent outputs based on node wallet");
+            let result = self.client.list_unspent(
+                Some(1),          // minconf
+                None,             // maxconf
+                Some(&[address]), // addresses
+                None,             // include_unsafe
+                None,
+            )?;
+
+            let unspent: Vec<OutPoint> = result
+                .into_iter()
+                .map(|unspent| OutPoint {
+                    txid: unspent.txid,
+                    vout: unspent.vout,
+                })
+                .collect();
+
+            Ok(unspent)
         })
         .await
     }

@@ -51,10 +51,14 @@ impl BitcoinOps for BitcoinClient {
         Ok(txid)
     }
 
+    // The address should be imported to the node
+    // bitcoin-cli createwallet "watch-only" true
+    // bitcoin-cli getdescriptorinfo "addr(p2wpkh address)"
+    // bitcoin-cli importdescriptors '[{"desc": "addr(p2wpkh address)", "timestamp": "now", "range": 1000, "watchonly": true, "label": "watch-only"}]'
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>> {
         debug!("Fetching UTXOs");
-        let outpoints = self.rpc.list_unspent(address).await?;
+        let outpoints = self.rpc.list_unspent_based_on_node_wallet(address).await?;
 
         let mut utxos = Vec::with_capacity(outpoints.len());
 
@@ -108,7 +112,7 @@ impl BitcoinOps for BitcoinClient {
                         "Invalid fee rate".to_string(),
                     )),
                 }
-            },
+            }
             None => {
                 let err = estimation
                     .errors
@@ -163,6 +167,7 @@ mod tests {
         impl BitcoinRpc for BitcoinRpc {
             async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u64>;
             async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinClientResult<Txid>;
+            async fn list_unspent_based_on_node_wallet(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
             async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
             async fn get_block_count(&self) -> BitcoinClientResult<u64>;
@@ -223,7 +228,7 @@ mod tests {
             vout: 0,
         };
         mock_rpc
-            .expect_list_unspent()
+            .expect_list_unspent_based_on_node_wallet()
             .return_once(move |_| Ok(vec![outpoint]));
         mock_rpc.expect_get_transaction().return_once(|_| {
             Ok(Transaction {
