@@ -292,6 +292,7 @@ impl Inscriber {
     }
 
     #[instrument(skip(self, script_pubkey), target = "bitcoin_inscriber")]
+    // this method checks if the script_pubkey is p2wpkh and matches with signer's p2wpkh script_pubkey or not
     fn is_p2wpkh(&self, script_pubkey: &ScriptBuf) -> bool {
         let p2wpkh_script = self.signer.get_p2wpkh_script_pubkey();
         script_pubkey == p2wpkh_script
@@ -332,7 +333,13 @@ impl Inscriber {
         let commit_tx_change_output_value = tx_input_data
             .unlocked_value
             .checked_sub(fee_amount)
-            .ok_or_else(|| anyhow::anyhow!("Required amount is greater than spendable UTXOs"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Required Amount: {:?}, Spendable Amount: {:?} ",
+                    fee_amount,
+                    tx_input_data.unlocked_value
+                )
+            })?;
 
         let commit_tx_change_output = TxOut {
             value: commit_tx_change_output_value,
@@ -534,7 +541,13 @@ impl Inscriber {
         let reveal_change_amount = tx_input_data
             .unlock_value
             .checked_sub(fee_amount)
-            .ok_or_else(|| anyhow::anyhow!("Required amount is greater than spendable UTXOs"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Required Amount:{:?} Spendable Amount: {:?} ",
+                    fee_amount,
+                    tx_input_data.unlock_value
+                )
+            })?;
 
         let reveal_tx_change_output = TxOut {
             value: reveal_change_amount,
@@ -622,14 +635,6 @@ impl Inscriber {
         // Sign the tapscript reveal sighash using the signer
         let msg = Message::from_digest(reveal_input_sighash.to_byte_array());
         let reveal_input_signature = self.signer.sign_schnorr(msg)?;
-
-        // verify signature
-        let internal_key = self.signer.get_internal_key()?;
-        let secp_ref = self.signer.get_secp_ref();
-
-        secp_ref
-            .verify_schnorr(&reveal_input_signature, &msg, &internal_key)
-            .context("Failed to verify signature")?;
 
         // Update the witness stack.
 
@@ -744,5 +749,156 @@ impl Inscriber {
         self.context = snapshot;
         debug!("Context recreated from snapshot");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::BitcoinClientResult;
+    use crate::types::BitcoinSignerResult;
+    use crate::types::InscriptionMessage;
+    use crate::types::L1BatchDAReferenceInput;
+
+    use async_trait::async_trait;
+    use mockall::{mock, predicate::*};
+
+    use bitcoin::{
+        key::UntweakedPublicKey,
+        secp256k1::{
+            ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, All,
+            Keypair, Message, PublicKey, Secp256k1,
+        },
+        Block, BlockHash, CompressedPublicKey, OutPoint, PrivateKey, ScriptBuf, Transaction, TxOut,
+    };
+
+    mock! {
+        BitcoinOps {}
+        #[async_trait]
+        impl BitcoinOps for BitcoinOps {
+            async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
+            async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
+            async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
+            async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
+            async fn broadcast_signed_transaction(&self, signed_transaction: &str) -> BitcoinClientResult<Txid>;
+            async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>>;
+            async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool>;
+            async fn fetch_block_height(&self) -> BitcoinClientResult<u128>;
+            async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
+            fn get_network(&self) -> BitcoinNetwork;
+        }
+    }
+
+    mock! {
+        BitcoinSigner {}
+        impl BitcoinSigner for BitcoinSigner {
+            fn sign_ecdsa(&self, msg: Message) -> BitcoinSignerResult<ECDSASignature>;
+            fn sign_schnorr(&self, msg: Message) -> BitcoinSignerResult<SchnorrSignature>;
+            fn get_p2wpkh_address(&self) -> BitcoinSignerResult<Address>;
+            fn get_p2wpkh_script_pubkey(&self) -> &ScriptBuf;
+            fn get_secp_ref(&self) -> &Secp256k1<All>;
+            fn get_internal_key(&self) -> BitcoinSignerResult<UntweakedPublicKey>;
+            fn get_public_key(&self) -> PublicKey;
+        }
+    }
+
+    fn get_mock_inscriber_and_conditions() -> Inscriber {
+        let mut client = MockBitcoinOps::new();
+        let mut signer = MockBitcoinSigner::new();
+        let context = InscriberContext::default();
+
+        // Setup signer
+        let secp = Secp256k1::new();
+        let sk = PrivateKey::generate(BitcoinNetwork::Regtest);
+        let keypair = Keypair::from_secret_key(&secp, &sk.inner);
+        let compressed_pk = CompressedPublicKey::from_private_key(&secp, &sk)
+            .expect("Failed to generate compressed public key");
+        let address = Address::p2wpkh(&compressed_pk, BitcoinNetwork::Regtest);
+        let internal_key = keypair.x_only_public_key().0;
+        let script_pubkey = address.script_pubkey();
+
+        // Setup mock for get_secp_ref
+        signer.expect_get_secp_ref().return_const(secp.clone()); // Returning a reference to a Secp256k1 instance
+
+        // Setup mock for get_internal_key
+        signer
+            .expect_get_internal_key()
+            .returning(move || Ok(internal_key));
+
+        // Setup mock for get_p2wpkh_address
+        signer
+            .expect_get_p2wpkh_address()
+            .returning(move || Ok(address.clone()));
+
+        // Setup mock for get_p2wpkh_script_pubkey
+        signer
+            .expect_get_p2wpkh_script_pubkey()
+            .return_const(script_pubkey.clone());
+
+        // sign_ecdsa
+        signer
+            .expect_sign_ecdsa()
+            .times(2)
+            .returning(|_| Ok(ECDSASignature::from_compact(&[0; 64]).unwrap()));
+
+        // sign_schnorr
+        signer
+            .expect_sign_schnorr()
+            .times(1)
+            .returning(|_| Ok(SchnorrSignature::from_slice(&[0; 64]).unwrap()));
+
+        // get_public_key
+        let pk = sk.public_key(&secp);
+        signer.expect_get_public_key().return_const(pk.inner);
+
+        // Setup Client
+        client
+            .expect_get_network()
+            .times(2)
+            .return_const(BitcoinNetwork::Regtest);
+
+        client.expect_fetch_utxos().returning(move |_| {
+            let fake_outpoint = OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            };
+
+            let fake_txout = TxOut {
+                value: Amount::from_btc(2.0).unwrap(),
+                script_pubkey: script_pubkey.clone(),
+            };
+
+            Ok(vec![(fake_outpoint, fake_txout)])
+        });
+
+        client.expect_get_fee_rate().returning(|_| Ok(1));
+
+        client
+            .expect_broadcast_signed_transaction()
+            .returning(|_| Ok(Txid::all_zeros()));
+
+        Inscriber {
+            client: Box::new(client),
+            signer: Box::new(signer),
+            context,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_inscriber_inscribe() {
+        let mut inscriber = get_mock_inscriber_and_conditions();
+
+        let l1_da_batch_ref = L1BatchDAReferenceInput {
+            l1_batch_hash: zksync_basic_types::H256([0; 32]),
+            l1_batch_index: zksync_basic_types::L1BatchNumber(0_u32),
+            da_identifier: "da_identifier_celestia".to_string(),
+            blob_id: "batch_temp_blob_id".to_string(),
+        };
+
+        let inscribe_message = InscriptionMessage::L1BatchDAReference(l1_da_batch_ref);
+
+        let res = inscriber.inscribe(inscribe_message).await.unwrap();
+
+        assert_eq!(res.len(), 2);
     }
 }

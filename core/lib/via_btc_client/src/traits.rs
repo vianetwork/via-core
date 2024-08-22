@@ -68,10 +68,6 @@ pub(crate) trait BitcoinRpc: Send + Sync {
 }
 
 pub(crate) trait BitcoinSigner: Send + Sync {
-    fn new(private_key: &str, network: Network) -> types::BitcoinSignerResult<Self>
-    where
-        Self: Sized;
-
     fn sign_ecdsa(&self, msg: Message) -> types::BitcoinSignerResult<ECDSASignature>;
 
     fn sign_schnorr(&self, msg: Message) -> types::BitcoinSignerResult<SchnorrSignature>;
