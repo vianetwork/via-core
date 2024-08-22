@@ -5,7 +5,7 @@ use bitcoincore_rpc::{
     json::{EstimateSmartFeeResult, GetBlockchainInfoResult, ScanTxOutRequest},
     Client, RpcApi,
 };
-use tracing::{debug, error, instrument};
+use tracing::{debug, instrument};
 
 use crate::{
     traits::BitcoinRpc,

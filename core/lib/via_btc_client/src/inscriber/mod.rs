@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
@@ -11,7 +13,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{Auth, RawTx};
 use secp256k1::Message;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::{
     client::BitcoinClient,
