@@ -98,7 +98,17 @@ impl BitcoinOps for BitcoinClient {
             .await?;
 
         match estimation.fee_rate {
-            Some(fee_rate) => Ok(fee_rate.to_sat()),
+            Some(fee_rate) => {
+                // convert btc/kb to sat/byte
+                let fee_rate_sat_kb = fee_rate.to_sat();
+                let fee_rate_sat_byte = fee_rate_sat_kb.checked_div(1000);
+                match fee_rate_sat_byte {
+                    Some(fee_rate_sat_byte) => Ok(fee_rate_sat_byte),
+                    None => Err(BitcoinError::FeeEstimationFailed(
+                        "Invalid fee rate".to_string(),
+                    )),
+                }
+            },
             None => {
                 let err = estimation
                     .errors
@@ -294,6 +304,7 @@ mod tests {
         let client = get_client_with_mock(mock_rpc);
 
         let fee_rate = client.get_fee_rate(6).await.unwrap();
-        assert_eq!(fee_rate, 1000);
+        // 1000 sat/kb = 1 sat/byte
+        assert_eq!(fee_rate, 1);
     }
 }
