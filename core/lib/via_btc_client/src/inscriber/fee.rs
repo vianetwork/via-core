@@ -75,9 +75,9 @@ impl InscriberFeeCalculator {
         let mut p2tr_input_size = 0;
 
         for witness_size in p2tr_witness_sizes {
-            let witness_virtual_size = witness_size.checked_div(VIRTUAL_SIZE_DIVIDER)
-                .ok_or(BitcoinError::FeeEstimationFailed("Invalid witness size".to_string()))?;
-
+            let witness_virtual_size = witness_size.checked_div(VIRTUAL_SIZE_DIVIDER).ok_or(
+                BitcoinError::FeeEstimationFailed("Invalid witness size".to_string()),
+            )?;
 
             p2tr_input_size += P2TR_INPUT_BASE_SIZE + witness_virtual_size + 1;
         }

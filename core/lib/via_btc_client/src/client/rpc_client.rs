@@ -9,7 +9,7 @@ use tracing::{debug, instrument};
 
 use crate::{
     traits::BitcoinRpc,
-    types::{NodeAuth, BitcoinRpcResult},
+    types::{BitcoinRpcResult, NodeAuth},
     utils::with_retry,
 };
 

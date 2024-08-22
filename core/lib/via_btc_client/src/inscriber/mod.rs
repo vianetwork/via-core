@@ -9,7 +9,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot::{ControlBlock, LeafVersion},
     transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence, TapLeafHash,
-    TapSighashType, Transaction, TxIn, TxOut, Witness, Txid
+    TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoincore_rpc::{Auth, RawTx};
 use secp256k1::Message;
@@ -26,7 +26,7 @@ use crate::{
     },
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
-    types::{InscriberContext, InscriptionMessage, BitcoinNetwork},
+    types::{BitcoinNetwork, InscriberContext, InscriptionMessage},
 };
 
 mod fee;
@@ -60,12 +60,8 @@ pub struct Inscriber {
     context: InscriberContext,
 }
 
-
 impl Inscriber {
-    #[instrument(
-        skip(rpc_url, auth, signer_private_key),
-        target = "bitcoin_inscriber"
-    )]
+    #[instrument(skip(rpc_url, auth, signer_private_key), target = "bitcoin_inscriber")]
     pub async fn new(
         rpc_url: &str,
         network: BitcoinNetwork,
@@ -93,7 +89,6 @@ impl Inscriber {
         debug!("Balance obtained: {}", balance);
         Ok(balance)
     }
-
 
     // returns commitment and reveal transaction ids
     // res[0] = commitment txid
@@ -334,7 +329,9 @@ impl Inscriber {
             fee_rate,
         )?;
 
-        let commit_tx_change_output_value = tx_input_data.unlocked_value.checked_sub(fee_amount)
+        let commit_tx_change_output_value = tx_input_data
+            .unlocked_value
+            .checked_sub(fee_amount)
             .ok_or_else(|| anyhow::anyhow!("Required amount is greater than spendable UTXOs"))?;
 
         let commit_tx_change_output = TxOut {
@@ -534,7 +531,9 @@ impl Inscriber {
             fee_rate,
         )?;
 
-        let reveal_change_amount = tx_input_data.unlock_value.checked_sub(fee_amount)
+        let reveal_change_amount = tx_input_data
+            .unlock_value
+            .checked_sub(fee_amount)
             .ok_or_else(|| anyhow::anyhow!("Required amount is greater than spendable UTXOs"))?;
 
         let reveal_tx_change_output = TxOut {
