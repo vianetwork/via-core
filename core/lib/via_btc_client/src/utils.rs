@@ -1,7 +1,4 @@
 use tokio::time::Duration;
-use tracing::Level;
-
-use crate::types::BitcoinRpcResult;
 
 pub(crate) async fn with_retry<F, T, E>(
     f: F,

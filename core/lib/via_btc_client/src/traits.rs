@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use async_trait::async_trait;
 use bitcoin::{
     key::UntweakedPublicKey,
@@ -10,10 +12,7 @@ use secp256k1::{
 };
 use types::BitcoinRpcResult;
 
-use crate::{
-    types,
-    types::{BitcoinClientResult, BitcoinIndexerResult, FullInscriptionMessage},
-};
+use crate::{types, types::BitcoinClientResult};
 
 #[async_trait]
 pub(crate) trait BitcoinOps: Send + Sync {
