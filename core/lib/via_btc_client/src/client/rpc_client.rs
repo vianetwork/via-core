@@ -9,7 +9,7 @@ use tracing::{debug, instrument};
 
 use crate::{
     traits::BitcoinRpc,
-    types::{Auth, BitcoinRpcResult},
+    types::{NodeAuth, BitcoinRpcResult},
     utils::with_retry,
 };
 
@@ -22,7 +22,7 @@ pub struct BitcoinRpcClient {
 
 impl BitcoinRpcClient {
     #[instrument(skip(auth), target = "bitcoin_client::rpc_client")]
-    pub fn new(url: &str, auth: Auth) -> Result<Self, bitcoincore_rpc::Error> {
+    pub fn new(url: &str, auth: NodeAuth) -> Result<Self, bitcoincore_rpc::Error> {
         let client = Client::new(url, auth)?;
         Ok(Self { client })
     }

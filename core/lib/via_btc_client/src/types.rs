@@ -1,11 +1,11 @@
 use std::collections::VecDeque;
 
-pub use bitcoin::Network;
+pub use bitcoin::Network as BitcoinNetwork;
 use bitcoin::{
     script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress,
     Amount, TxIn, TxOut, Txid,
 };
-pub use bitcoincore_rpc::Auth;
+pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

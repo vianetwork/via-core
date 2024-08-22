@@ -9,7 +9,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot::{ControlBlock, LeafVersion},
     transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence, TapLeafHash,
-    TapSighashType, Transaction, TxIn, TxOut, Witness,
+    TapSighashType, Transaction, TxIn, TxOut, Witness, Txid
 };
 use bitcoincore_rpc::{Auth, RawTx};
 use secp256k1::Message;
@@ -26,7 +26,7 @@ use crate::{
     },
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
-    types::{InscriberContext, InscriptionMessage, Network},
+    types::{InscriberContext, InscriptionMessage, BitcoinNetwork},
 };
 
 mod fee;
@@ -54,20 +54,21 @@ const REVEAL_TX_P2WPKH_INPUT_COUNT: u32 = 1;
 
 const BROADCAST_RETRY_COUNT: u32 = 3;
 
-struct Inscriber {
+pub struct Inscriber {
     client: Box<dyn BitcoinOps>,
     signer: Box<dyn BitcoinSigner>,
     context: InscriberContext,
 }
 
+
 impl Inscriber {
     #[instrument(
-        skip(rpc_url, auth, signer_private_key, persisted_ctx),
+        skip(rpc_url, auth, signer_private_key),
         target = "bitcoin_inscriber"
     )]
     pub async fn new(
         rpc_url: &str,
-        network: Network,
+        network: BitcoinNetwork,
         auth: Auth,
         signer_private_key: &str,
         persisted_ctx: Option<InscriberContext>,
@@ -84,15 +85,21 @@ impl Inscriber {
         })
     }
 
-    // the inscribe should provide report for upper layer to give them information for updates on the transactions
-    // {
-    //    "consumed_utxos": [],
-    //    "commit_tx": {},
-    //    "reveal_tx": {},
-    //    "tx_incldued_in_block": []
-    // }
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
+    pub async fn get_balance(&self) -> Result<u128> {
+        debug!("Getting balance");
+        let address_ref = &self.signer.get_p2wpkh_address()?;
+        let balance = self.client.get_balance(address_ref).await?;
+        debug!("Balance obtained: {}", balance);
+        Ok(balance)
+    }
+
+
+    // returns commitment and reveal transaction ids
+    // res[0] = commitment txid
+    // res[1] = reveal txid
     #[instrument(skip(self, input), target = "bitcoin_inscriber")]
-    pub async fn inscribe(&mut self, input: InscriptionMessage) -> Result<()> {
+    pub async fn inscribe(&mut self, input: InscriptionMessage) -> Result<Vec<Txid>> {
         info!("Starting inscription process");
         self.sync_context_with_blockchain().await?;
 
@@ -132,6 +139,9 @@ impl Inscriber {
         self.broadcast_inscription(&final_commit_tx, &final_reveal_tx)
             .await?;
 
+        let commit_txid = final_commit_tx.txid;
+        let reveal_txid = final_reveal_tx.txid;
+
         self.insert_inscription_to_context(
             input,
             final_commit_tx,
@@ -142,7 +152,7 @@ impl Inscriber {
         )?;
 
         info!("Inscription process completed successfully");
-        Ok(())
+        Ok(vec![commit_txid, reveal_txid])
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
@@ -447,7 +457,7 @@ impl Inscriber {
 
         let network = self.client.get_network();
 
-        let tapproot_address =
+        let taproot_address =
             Address::p2tr_tweaked(inscription_data.taproot_spend_info.output_key(), network);
 
         let reveal_p2tr_utxo_input: (OutPoint, TxOut, ControlBlock) = (
@@ -457,7 +467,7 @@ impl Inscriber {
             },
             TxOut {
                 value: commit_output.commit_tx_tapscript_output.value,
-                script_pubkey: tapproot_address.script_pubkey(),
+                script_pubkey: taproot_address.script_pubkey(),
             },
             control_block,
         );

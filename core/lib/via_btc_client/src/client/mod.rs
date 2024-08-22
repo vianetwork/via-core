@@ -8,17 +8,17 @@ mod rpc_client;
 use crate::{
     client::rpc_client::BitcoinRpcClient,
     traits::{BitcoinOps, BitcoinRpc},
-    types::{Auth, BitcoinClientResult, BitcoinError, Network},
+    types::{NodeAuth, BitcoinClientResult, BitcoinError, BitcoinNetwork},
 };
 
 pub struct BitcoinClient {
     rpc: Box<dyn BitcoinRpc>,
-    network: Network,
+    network: BitcoinNetwork,
 }
 
 impl BitcoinClient {
     #[instrument(skip(auth), target = "bitcoin_client")]
-    pub(crate) fn new(rpc_url: &str, network: Network, auth: Auth) -> BitcoinClientResult<Self>
+    pub(crate) fn new(rpc_url: &str, network: BitcoinNetwork, auth: NodeAuth) -> BitcoinClientResult<Self>
     where
         Self: Sized,
     {
@@ -106,7 +106,7 @@ impl BitcoinOps for BitcoinClient {
         }
     }
 
-    fn get_network(&self) -> Network {
+    fn get_network(&self) -> BitcoinNetwork {
         self.network
     }
 
@@ -164,7 +164,7 @@ mod tests {
     fn get_client_with_mock(mock_bitcoin_rpc: MockBitcoinRpc) -> BitcoinClient {
         BitcoinClient {
             rpc: Box::new(mock_bitcoin_rpc),
-            network: Network::Bitcoin,
+            network: BitcoinNetwork::Bitcoin,
         }
     }
 
@@ -176,7 +176,7 @@ mod tests {
         let client = get_client_with_mock(mock_rpc);
         let address = Address::from_str("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")
             .unwrap()
-            .require_network(Network::Bitcoin)
+            .require_network(BitcoinNetwork::Bitcoin)
             .unwrap();
         let balance = client.get_balance(&address).await.unwrap();
         assert_eq!(balance, 1000000);
@@ -227,7 +227,7 @@ mod tests {
 
         let address = Address::from_str("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")
             .unwrap()
-            .require_network(Network::Bitcoin)
+            .require_network(BitcoinNetwork::Bitcoin)
             .unwrap();
         let utxos = client.fetch_utxos(&address).await.unwrap();
         assert_eq!(utxos.len(), 1);
