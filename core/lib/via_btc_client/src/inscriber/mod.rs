@@ -334,8 +334,11 @@ impl Inscriber {
             fee_rate,
         )?;
 
+        let commit_tx_change_output_value = tx_input_data.unlocked_value.checked_sub(fee_amount)
+            .ok_or_else(|| anyhow::anyhow!("Required amount is greater than spendable UTXOs"))?;
+
         let commit_tx_change_output = TxOut {
-            value: tx_input_data.unlocked_value - fee_amount,
+            value: commit_tx_change_output_value,
             script_pubkey: self.signer.get_p2wpkh_script_pubkey().clone(),
         };
 
@@ -531,7 +534,8 @@ impl Inscriber {
             fee_rate,
         )?;
 
-        let reveal_change_amount = tx_input_data.unlock_value - fee_amount;
+        let reveal_change_amount = tx_input_data.unlock_value.checked_sub(fee_amount)
+            .ok_or_else(|| anyhow::anyhow!("Required amount is greater than spendable UTXOs"))?;
 
         let reveal_tx_change_output = TxOut {
             value: reveal_change_amount,
