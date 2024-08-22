@@ -450,7 +450,7 @@ impl Inscriber {
         let control_block = inscription_data
             .taproot_spend_info
             .control_block(&(
-                inscription_data.script_pubkey.clone(),
+                inscription_data.inscription_script.clone(),
                 LeafVersion::TapScript,
             ))
             .ok_or_else(|| anyhow::anyhow!("Failed to get control block"))?;
