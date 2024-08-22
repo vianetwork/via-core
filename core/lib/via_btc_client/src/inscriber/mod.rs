@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-pub use bitcoin::Network as BitcoinNetwork;
 use bitcoin::{
     absolute,
     hashes::Hash,
@@ -12,6 +11,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{Auth, RawTx};
 use secp256k1::Message;
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
     client::BitcoinClient,
@@ -24,8 +24,7 @@ use crate::{
     },
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
-    types,
-    types::InscriberContext,
+    types::{InscriberContext, InscriptionMessage, Network},
 };
 
 mod fee;
@@ -59,18 +58,22 @@ struct Inscriber {
     context: InscriberContext,
 }
 
-#[allow(dead_code)]
 impl Inscriber {
+    #[instrument(
+        skip(rpc_url, auth, signer_private_key, persisted_ctx),
+        target = "bitcoin_inscriber"
+    )]
     pub async fn new(
         rpc_url: &str,
-        network: BitcoinNetwork,
+        network: Network,
         auth: Auth,
         signer_private_key: &str,
-        persisted_ctx: Option<types::InscriberContext>,
+        persisted_ctx: Option<InscriberContext>,
     ) -> Result<Self> {
-        let client = Box::new(BitcoinClient::new(rpc_url, network, auth).await?);
+        info!("Creating new Inscriber");
+        let client = Box::new(BitcoinClient::new(rpc_url, network, auth)?);
         let signer = Box::new(KeyManager::new(signer_private_key, network)?);
-        let context = persisted_ctx.unwrap_or_else(types::InscriberContext::new);
+        let context = persisted_ctx.unwrap_or_default();
 
         Ok(Self {
             client,
@@ -86,7 +89,9 @@ impl Inscriber {
     //    "reveal_tx": {},
     //    "tx_incldued_in_block": []
     // }
-    pub async fn inscribe(&mut self, input: types::InscriptionMessage) -> Result<()> {
+    #[instrument(skip(self, input), target = "bitcoin_inscriber")]
+    pub async fn inscribe(&mut self, input: InscriptionMessage) -> Result<()> {
+        info!("Starting inscription process");
         self.sync_context_with_blockchain().await?;
 
         let secp_ref = &self.signer.get_secp_ref();
@@ -122,13 +127,8 @@ impl Inscriber {
             &inscription_data,
         )?;
 
-        let broadcast_status = self
-            .broadcast_inscription(&final_commit_tx, &final_reveal_tx)
+        self.broadcast_inscription(&final_commit_tx, &final_reveal_tx)
             .await?;
-
-        if !broadcast_status {
-            return Err(anyhow::anyhow!("Failed to broadcast inscription"));
-        }
 
         self.insert_inscription_to_context(
             input,
@@ -139,11 +139,15 @@ impl Inscriber {
             commit_tx_input_info,
         )?;
 
+        info!("Inscription process completed successfully");
         Ok(())
     }
 
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
     async fn sync_context_with_blockchain(&mut self) -> Result<()> {
+        debug!("Syncing context with blockchain");
         if self.context.fifo_queue.is_empty() {
+            debug!("Context queue is empty, no sync needed");
             return Ok(());
         }
 
@@ -155,19 +159,19 @@ impl Inscriber {
                 .await?;
 
             if !res {
-                // add popped inscription back to the first of queue and break the loop
-                // if the tx is not confirmed yet
-                // if the head tx is not confirmed, it means that the rest of the txs are not confirmed
-                // so we can break the loop
+                debug!("Transaction not confirmed, adding back to queue");
                 self.context.fifo_queue.push_front(inscription);
                 break;
             }
         }
 
+        debug!("Context sync completed");
         Ok(())
     }
 
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
     async fn prepare_commit_tx_input(&self) -> Result<CommitTxInputRes> {
+        debug!("Preparing commit transaction input");
         let mut commit_tx_inputs: Vec<TxIn> = Vec::new();
         let mut unlocked_value: Amount = Amount::ZERO;
         let mut inputs_count: u32 = 0;
@@ -268,6 +272,8 @@ impl Inscriber {
             utxo_amounts.push(txout.value);
         }
 
+        debug!("Commit transaction input prepared");
+
         let res = CommitTxInputRes {
             commit_tx_inputs,
             unlocked_value,
@@ -278,17 +284,22 @@ impl Inscriber {
         Ok(res)
     }
 
+    #[instrument(skip(self, script_pubkey), target = "bitcoin_inscriber")]
     fn is_p2wpkh(&self, script_pubkey: &ScriptBuf) -> bool {
         let p2wpkh_script = self.signer.get_p2wpkh_script_pubkey();
-
         script_pubkey == p2wpkh_script
     }
 
+    #[instrument(
+        skip(self, tx_input_data, inscription_pubkey),
+        target = "bitcoin_inscriber"
+    )]
     async fn prepare_commit_tx_output(
         &self,
         tx_input_data: &CommitTxInputRes,
         inscription_pubkey: ScriptBuf,
     ) -> Result<CommitTxOutputRes> {
+        debug!("Preparing commit transaction output");
         let inscription_commitment_output = TxOut {
             value: Amount::ZERO,
             script_pubkey: inscription_pubkey,
@@ -316,6 +327,8 @@ impl Inscriber {
             script_pubkey: self.signer.get_p2wpkh_script_pubkey().clone(),
         };
 
+        debug!("Commit transaction output prepared");
+
         let res = CommitTxOutputRes {
             commit_tx_change_output,
             commit_tx_tapscript_output: inscription_commitment_output,
@@ -326,17 +339,21 @@ impl Inscriber {
         Ok(res)
     }
 
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
     async fn get_fee_rate(&self) -> Result<u64> {
+        debug!("Getting fee rate");
         let res = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await?;
-
+        debug!("Fee rate obtained: {}", res);
         Ok(res)
     }
 
+    #[instrument(skip(self, input, output), target = "bitcoin_inscriber")]
     fn sign_commit_tx(
         &self,
         input: &CommitTxInputRes,
         output: &CommitTxOutputRes,
     ) -> Result<FinalTx> {
+        debug!("Signing commit transaction");
         let mut commit_outputs: [TxOut; 2] = [TxOut::NULL, TxOut::NULL];
 
         commit_outputs[COMMIT_TX_CHANGE_OUTPUT_INDEX as usize] =
@@ -387,6 +404,8 @@ impl Inscriber {
         let commit_tx = commit_tx_sighasher.into_transaction();
         let txid = commit_tx.compute_txid();
 
+        debug!("Commit transaction signed");
+
         let res = FinalTx {
             tx: commit_tx.clone(),
             txid,
@@ -395,12 +414,14 @@ impl Inscriber {
         Ok(res)
     }
 
+    #[instrument(skip(self, commit_tx, inscription_data), target = "bitcoin_inscriber")]
     fn prepare_reveal_tx_input(
         &self,
         commit_output: &CommitTxOutputRes,
         commit_tx: &FinalTx,
         inscription_data: &InscriptionData,
     ) -> Result<RevealTxInputRes> {
+        debug!("Preparing reveal transaction input");
         let p2wpkh_script_pubkey = self.signer.get_p2wpkh_script_pubkey();
 
         let fee_payer_utxo_input: (OutPoint, TxOut) = (
@@ -465,6 +486,8 @@ impl Inscriber {
         prev_outs[REVEAL_TX_FEE_INPUT_INDEX as usize] = fee_payer_utxo_input.1;
         prev_outs[REVEAL_TX_TAPSCRIPT_REVEAL_INDEX as usize] = reveal_p2tr_utxo_input.1;
 
+        debug!("Reveal transaction input prepared");
+
         let res = RevealTxInputRes {
             reveal_tx_input: reveal_tx_inputs.to_vec(),
             prev_outs: prev_outs.to_vec(),
@@ -475,11 +498,16 @@ impl Inscriber {
         Ok(res)
     }
 
+    #[instrument(
+        skip(self, tx_input_data, inscription_data),
+        target = "bitcoin_inscriber"
+    )]
     async fn prepare_reveal_tx_output(
         &self,
         tx_input_data: &RevealTxInputRes,
         inscription_data: &InscriptionData,
     ) -> Result<RevealTxOutputRes> {
+        debug!("Preparing reveal transaction output");
         let fee_rate = self.get_fee_rate().await?;
 
         let fee_amount = InscriberFeeCalculator::estimate_fee(
@@ -498,6 +526,8 @@ impl Inscriber {
             script_pubkey: self.signer.get_p2wpkh_script_pubkey().clone(),
         };
 
+        debug!("Reveal transaction output prepared");
+
         let res = RevealTxOutputRes {
             reveal_tx_change_output,
             reveal_fee_rate: fee_rate,
@@ -507,12 +537,17 @@ impl Inscriber {
         Ok(res)
     }
 
+    #[instrument(
+        skip(self, input, output, inscription_data),
+        target = "bitcoin_inscriber"
+    )]
     fn sign_reveal_tx(
         &self,
         input: &RevealTxInputRes,
         output: &RevealTxOutputRes,
         inscription_data: &InscriptionData,
     ) -> Result<FinalTx> {
+        debug!("Signing reveal transaction");
         let mut unsigned_reveal_tx = Transaction {
             version: transaction::Version::TWO,  // Post BIP-68.
             lock_time: absolute::LockTime::ZERO, // Ignore the locktime.
@@ -603,6 +638,8 @@ impl Inscriber {
 
         let reveal_tx = sighasher.into_transaction();
 
+        debug!("Reveal transaction signed");
+
         let res = FinalTx {
             tx: reveal_tx.clone(),
             txid: reveal_tx.compute_txid(),
@@ -611,54 +648,51 @@ impl Inscriber {
         Ok(res)
     }
 
-    async fn broadcast_inscription(&self, commit: &FinalTx, reveal: &FinalTx) -> Result<bool> {
+    #[instrument(skip(self, commit, reveal), target = "bitcoin_inscriber")]
+    async fn broadcast_inscription(&self, commit: &FinalTx, reveal: &FinalTx) -> Result<()> {
+        info!("Broadcasting inscription transactions");
         let commit_tx_hex = commit.tx.raw_hex().to_string();
         let reveal_tx_hex = reveal.tx.raw_hex().to_string();
 
-        let mut commit_broadcasted = false;
-        let mut reveal_broadcasted = false;
+        let commit_tx_id = self
+            .client
+            .broadcast_signed_transaction(&commit_tx_hex)
+            .await?;
+        let reveal_tx_id = self
+            .client
+            .broadcast_signed_transaction(&reveal_tx_hex)
+            .await?;
 
-        // broadcast commit tx with retry
-        for _ in 0..BROADCAST_RETRY_COUNT {
-            let res = self
-                .client
-                .broadcast_signed_transaction(&commit_tx_hex)
-                .await;
+        info!("Both transactions broadcasted successfully with ids: commit: {commit_tx_id}, reveal: {reveal_tx_id}");
 
-            if res.is_ok() {
-                commit_broadcasted = true;
-                break;
-            }
-        }
-
-        // broadcast reveal tx with retry
-        for _ in 0..BROADCAST_RETRY_COUNT {
-            let res = self
-                .client
-                .broadcast_signed_transaction(&reveal_tx_hex)
-                .await;
-
-            if res.is_ok() {
-                reveal_broadcasted = true;
-                break;
-            }
-        }
-
-        Ok(commit_broadcasted && reveal_broadcasted)
+        Ok(())
     }
 
+    #[instrument(
+        skip(
+            self,
+            req,
+            commit,
+            reveal,
+            commit_output_info,
+            reveal_output_info,
+            commit_input_info
+        ),
+        target = "bitcoin_inscriber"
+    )]
     fn insert_inscription_to_context(
         &mut self,
-        req: types::InscriptionMessage,
+        req: InscriptionMessage,
         commit: FinalTx,
         reveal: FinalTx,
         commit_output_info: CommitTxOutputRes,
         reveal_output_info: RevealTxOutputRes,
         commit_input_info: CommitTxInputRes,
     ) -> Result<()> {
-        let inscription_request = types::InscriptionRequest {
+        debug!("Inserting inscription to context");
+        let inscription_request = crate::types::InscriptionRequest {
             message: req,
-            inscriber_output: types::InscriberOutput {
+            inscriber_output: crate::types::InscriberOutput {
                 commit_txid: commit.txid,
                 commit_raw_tx: commit.tx.raw_hex().to_string(),
                 commit_tx_fee_rate: commit_output_info.commit_tx_fee_rate,
@@ -667,31 +701,33 @@ impl Inscriber {
                 reveal_tx_fee_rate: reveal_output_info.reveal_fee_rate,
                 is_broadcasted: true,
             },
-            fee_payer_ctx: types::FeePayerCtx {
+            fee_payer_ctx: crate::types::FeePayerCtx {
                 fee_payer_utxo_txid: reveal.txid,
                 fee_payer_utxo_vout: REVEAL_TX_CHANGE_OUTPUT_INDEX,
                 fee_payer_utxo_value: reveal_output_info.reveal_tx_change_output.value,
             },
-            commit_tx_input: types::CommitTxInput {
+            commit_tx_input: crate::types::CommitTxInput {
                 spent_utxo: commit_input_info.commit_tx_inputs.clone(),
             },
         };
 
         self.context.fifo_queue.push_back(inscription_request);
+        debug!("Inscription inserted to context");
 
         Ok(())
     }
 
-    pub fn get_context_snapshot(&self) -> Result<types::InscriberContext> {
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
+    pub fn get_context_snapshot(&self) -> Result<InscriberContext> {
+        debug!("Getting context snapshot");
         Ok(self.context.clone())
     }
 
-    pub fn recreate_context_from_snapshot(
-        &mut self,
-        snapshot: types::InscriberContext,
-    ) -> Result<()> {
+    #[instrument(skip(self, snapshot), target = "bitcoin_inscriber")]
+    pub fn recreate_context_from_snapshot(&mut self, snapshot: InscriberContext) -> Result<()> {
+        info!("Recreating context from snapshot");
         self.context = snapshot;
-
+        debug!("Context recreated from snapshot");
         Ok(())
     }
 }

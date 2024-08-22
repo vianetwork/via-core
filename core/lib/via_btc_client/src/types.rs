@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
 
+pub use bitcoin::Network;
 use bitcoin::{
     script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress,
     Amount, TxIn, TxOut, Txid,
 };
+pub use bitcoincore_rpc::Auth;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -100,7 +102,6 @@ pub struct L1ToL2Message {
     pub tx_outputs: Vec<TxOut>,
 }
 
-#[allow(unused)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum InscriptionMessage {
     L1BatchDAReference(L1BatchDAReferenceInput),
@@ -148,7 +149,6 @@ lazy_static! {
 }
 pub(crate) const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 
-#[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct InscriptionRequest {
     pub message: InscriptionMessage,
@@ -157,16 +157,13 @@ pub struct InscriptionRequest {
     pub commit_tx_input: CommitTxInput,
 }
 
-#[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct InscriberContext {
     pub fifo_queue: VecDeque<InscriptionRequest>,
 }
 
-#[allow(unused)]
 const CTX_CAPACITY: usize = 10;
 
-#[allow(unused)]
 impl InscriberContext {
     pub fn new() -> Self {
         Self {
@@ -175,7 +172,12 @@ impl InscriberContext {
     }
 }
 
-#[allow(unused)]
+impl Default for InscriberContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct InscriberOutput {
     pub commit_txid: Txid,
@@ -255,8 +257,19 @@ impl From<bitcoin::hex::HexToArrayError> for BitcoinError {
     }
 }
 
+/// Custom error type for the BitcoinInscriptionIndexer
+#[derive(Error, Debug)]
+pub enum IndexerError {
+    #[error("Bootstrap process incomplete: {0}")]
+    IncompleteBootstrap(String),
+    #[error("Invalid block height: {0}")]
+    InvalidBlockHeight(u32),
+    #[error("Bitcoin client error: {0}")]
+    BitcoinClientError(#[from] BitcoinError),
+}
+
+pub type BitcoinIndexerResult<T> = std::result::Result<T, IndexerError>;
 pub type BitcoinSignerResult<T> = Result<T>;
-// pub type BitcoinInscriberResult<T> = Result<T>;
-pub type BitcoinIndexerResult<T> = Result<T>;
-#[allow(unused)]
+pub type BitcoinInscriberResult<T> = Result<T>;
+
 pub type BitcoinTransactionBuilderResult<T> = Result<T>;

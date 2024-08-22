@@ -7,9 +7,11 @@ use std::{
 use anyhow::Result;
 use bitcoin::{address::NetworkUnchecked, Address, Network, PrivateKey};
 
-const COMPOSE_FILE_PATH: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/docker-compose-btc.yml");
-const CLI_CONTAINER_NAME: &str = "tests-bitcoin-cli-1";
+const COMPOSE_FILE_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/resources/docker-compose-btc.yml"
+);
+const CLI_CONTAINER_NAME: &str = "resources-bitcoin-cli-1";
 
 pub struct BitcoinRegtest {
     private_key: PrivateKey,
@@ -105,23 +107,27 @@ mod tests {
     use secp256k1::Secp256k1;
 
     use super::*;
-    use crate::{client::BitcoinRpcClient, traits::BitcoinRpc};
+    use crate::{client::BitcoinClient, traits::BitcoinOps};
 
     #[tokio::test]
     async fn test_bitcoin_regtest() {
         let regtest = BitcoinRegtest::new().expect("Failed to create BitcoinRegtest");
-        let rpc = BitcoinRpcClient::new(&regtest.get_url(), Auth::UserPass("rpcuser".to_string(), "rpcpassword".to_string()))
-            .expect("Failed create rpc client");
+        let client = BitcoinClient::new(
+            &regtest.get_url(),
+            Network::Regtest,
+            Auth::UserPass("rpcuser".to_string(), "rpcpassword".to_string()),
+        )
+        .expect("Failed create rpc client");
 
-        let block_count = rpc
-            .get_block_count()
+        let block_count = client
+            .fetch_block_height()
             .await
             .expect("Failed to get block count");
         assert!(block_count > 100);
 
         let address = regtest.get_address();
         let private_key = regtest.get_private_key();
-        let balance = rpc
+        let balance = client
             .get_balance(address)
             .await
             .expect("Failed to get balance of test address");

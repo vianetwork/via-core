@@ -34,16 +34,18 @@ serde_json.workspace = true
 inquire = "0.7.5"
 anyhow.workspace = true
 serde.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
 
 [dev-dependencies]
 mockall = "0.13.0"
 
 [features]
-regtest = []
+regtest = ["tracing-subscriber"]
 
 [[example]]
-name = "bitcoin_client_example"
-path = "examples/bitcoin_client_example.rs"
+name = "indexer"
+path = "examples/indexer_init_example.rs"
 required-features = ["regtest"]
 
 [[example]]

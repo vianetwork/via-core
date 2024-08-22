@@ -7679,6 +7679,8 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "zksync_basic_types",
  "zksync_config",
  "zksync_da_client",
