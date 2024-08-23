@@ -51,3 +51,7 @@ required-features = ["regtest"]
 [[example]]
 name = "data_inscription_example"
 path = "examples/data_inscription_example.rs"
+
+[[example]]
+name = "inscriber"
+path = "examples/inscriber.rs"

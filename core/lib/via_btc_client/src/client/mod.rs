@@ -8,17 +8,21 @@ mod rpc_client;
 use crate::{
     client::rpc_client::BitcoinRpcClient,
     traits::{BitcoinOps, BitcoinRpc},
-    types::{Auth, BitcoinClientResult, BitcoinError, Network},
+    types::{BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth},
 };
 
 pub struct BitcoinClient {
     rpc: Box<dyn BitcoinRpc>,
-    network: Network,
+    network: BitcoinNetwork,
 }
 
 impl BitcoinClient {
     #[instrument(skip(auth), target = "bitcoin_client")]
-    pub(crate) fn new(rpc_url: &str, network: Network, auth: Auth) -> BitcoinClientResult<Self>
+    pub(crate) fn new(
+        rpc_url: &str,
+        network: BitcoinNetwork,
+        auth: NodeAuth,
+    ) -> BitcoinClientResult<Self>
     where
         Self: Sized,
     {
@@ -47,10 +51,14 @@ impl BitcoinOps for BitcoinClient {
         Ok(txid)
     }
 
+    // The address should be imported to the node
+    // bitcoin-cli createwallet "watch-only" true
+    // bitcoin-cli getdescriptorinfo "addr(p2wpkh address)"
+    // bitcoin-cli importdescriptors '[{"desc": "addr(p2wpkh address)", "timestamp": "now", "range": 1000, "watchonly": true, "label": "watch-only"}]'
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>> {
         debug!("Fetching UTXOs");
-        let outpoints = self.rpc.list_unspent(address).await?;
+        let outpoints = self.rpc.list_unspent_based_on_node_wallet(address).await?;
 
         let mut utxos = Vec::with_capacity(outpoints.len());
 
@@ -94,7 +102,17 @@ impl BitcoinOps for BitcoinClient {
             .await?;
 
         match estimation.fee_rate {
-            Some(fee_rate) => Ok(fee_rate.to_sat()),
+            Some(fee_rate) => {
+                // convert btc/kb to sat/byte
+                let fee_rate_sat_kb = fee_rate.to_sat();
+                let fee_rate_sat_byte = fee_rate_sat_kb.checked_div(1000);
+                match fee_rate_sat_byte {
+                    Some(fee_rate_sat_byte) => Ok(fee_rate_sat_byte),
+                    None => Err(BitcoinError::FeeEstimationFailed(
+                        "Invalid fee rate".to_string(),
+                    )),
+                }
+            }
             None => {
                 let err = estimation
                     .errors
@@ -106,7 +124,7 @@ impl BitcoinOps for BitcoinClient {
         }
     }
 
-    fn get_network(&self) -> Network {
+    fn get_network(&self) -> BitcoinNetwork {
         self.network
     }
 
@@ -149,6 +167,7 @@ mod tests {
         impl BitcoinRpc for BitcoinRpc {
             async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u64>;
             async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinClientResult<Txid>;
+            async fn list_unspent_based_on_node_wallet(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
             async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
             async fn get_block_count(&self) -> BitcoinClientResult<u64>;
@@ -164,7 +183,7 @@ mod tests {
     fn get_client_with_mock(mock_bitcoin_rpc: MockBitcoinRpc) -> BitcoinClient {
         BitcoinClient {
             rpc: Box::new(mock_bitcoin_rpc),
-            network: Network::Bitcoin,
+            network: BitcoinNetwork::Bitcoin,
         }
     }
 
@@ -176,7 +195,7 @@ mod tests {
         let client = get_client_with_mock(mock_rpc);
         let address = Address::from_str("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")
             .unwrap()
-            .require_network(Network::Bitcoin)
+            .require_network(BitcoinNetwork::Bitcoin)
             .unwrap();
         let balance = client.get_balance(&address).await.unwrap();
         assert_eq!(balance, 1000000);
@@ -209,7 +228,7 @@ mod tests {
             vout: 0,
         };
         mock_rpc
-            .expect_list_unspent()
+            .expect_list_unspent_based_on_node_wallet()
             .return_once(move |_| Ok(vec![outpoint]));
         mock_rpc.expect_get_transaction().return_once(|_| {
             Ok(Transaction {
@@ -227,7 +246,7 @@ mod tests {
 
         let address = Address::from_str("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")
             .unwrap()
-            .require_network(Network::Bitcoin)
+            .require_network(BitcoinNetwork::Bitcoin)
             .unwrap();
         let utxos = client.fetch_utxos(&address).await.unwrap();
         assert_eq!(utxos.len(), 1);
@@ -290,6 +309,7 @@ mod tests {
         let client = get_client_with_mock(mock_rpc);
 
         let fee_rate = client.get_fee_rate(6).await.unwrap();
-        assert_eq!(fee_rate, 1000);
+        // 1000 sat/kb = 1 sat/byte
+        assert_eq!(fee_rate, 1);
     }
 }

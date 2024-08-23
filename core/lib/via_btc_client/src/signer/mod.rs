@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use bitcoin::{
     key::UntweakedPublicKey,
+    secp256k1::{
+        ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, PublicKey,
+    },
     secp256k1::{All, Keypair, Message, Secp256k1, SecretKey},
     Address, CompressedPublicKey, Network, PrivateKey, ScriptBuf,
-};
-use secp256k1::{
-    ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, PublicKey,
 };
 
 use crate::{
@@ -25,30 +25,7 @@ pub struct KeyManager {
     script_pubkey: ScriptBuf,
 }
 
-impl Default for KeyManager {
-    fn default() -> Self {
-        let secp = Secp256k1::new();
-        let sk = PrivateKey::generate(Network::Regtest);
-        let keypair = Keypair::from_secret_key(&secp, &sk.inner);
-        let compressed_pk = CompressedPublicKey::from_private_key(&secp, &sk)
-            .expect("Failed to generate compressed public key");
-        let address = Address::p2wpkh(&compressed_pk, Network::Testnet);
-        let internal_key = keypair.x_only_public_key().0;
-        let script_pubkey = address.script_pubkey();
-
-        Self {
-            secp,
-            sk: sk.inner,
-            address,
-            keypair,
-            internal_key,
-            script_pubkey,
-        }
-    }
-}
-
-#[async_trait]
-impl BitcoinSigner for KeyManager {
+impl KeyManager {
     /// Creates a new KeyManager instance from a WIF-encoded private key and network.
     ///
     /// # Arguments
@@ -59,7 +36,7 @@ impl BitcoinSigner for KeyManager {
     /// # Returns
     ///
     /// A Result containing the KeyManager instance or a BitcoinError
-    fn new(private_key_wif_str: &str, network: Network) -> BitcoinSignerResult<Self> {
+    pub(crate) fn new(private_key_wif_str: &str, network: Network) -> BitcoinSignerResult<Self> {
         let secp = Secp256k1::new();
 
         let private_key = PrivateKey::from_wif(private_key_wif_str)
@@ -92,7 +69,32 @@ impl BitcoinSigner for KeyManager {
             script_pubkey,
         })
     }
+}
 
+impl Default for KeyManager {
+    fn default() -> Self {
+        let secp = Secp256k1::new();
+        let sk = PrivateKey::generate(Network::Regtest);
+        let keypair = Keypair::from_secret_key(&secp, &sk.inner);
+        let compressed_pk = CompressedPublicKey::from_private_key(&secp, &sk)
+            .expect("Failed to generate compressed public key");
+        let address = Address::p2wpkh(&compressed_pk, Network::Testnet);
+        let internal_key = keypair.x_only_public_key().0;
+        let script_pubkey = address.script_pubkey();
+
+        Self {
+            secp,
+            sk: sk.inner,
+            address,
+            keypair,
+            internal_key,
+            script_pubkey,
+        }
+    }
+}
+
+#[async_trait]
+impl BitcoinSigner for KeyManager {
     fn get_p2wpkh_address(&self) -> BitcoinSignerResult<Address> {
         Ok(self.address.clone())
     }
