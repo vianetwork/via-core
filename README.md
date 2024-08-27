@@ -36,22 +36,25 @@ Prover related code is in the  directory `/prover`.
 
 ## Branches
 
-- `via-main` is the main branch for the project. the code in this branch is the most stable and is used for production.
-- `main`: this branch is equivalent to the zksync-era repo `main` branch.
-- (feat/fix/chore)/`<branch-name>`: these branches are used for development and are merged into the `via-main` branch.
-- release/`<version>`: these branches are used for release based on the `via-main` branch.
+- `main` is the main branch for the project. the code in this branch is the most stable and is used for production.
+- `zksync-main`: this branch is equivalent to the zksync-era repo `main` branch.
+- (feat/fix/chore)/`<branch-name>`: these branches are used for development and are merged into the `main` branch.
+- release/`<version>`: these branches are used for release based on the `main` branch.
   
-> Since we like to be updated with the latest changes in the zksync repo, we will periodically sync the `main` branch with the zksync repo and then merge the changes into the `via-main` branch. (rebase)
+> Since we like to be updated with the latest changes in the zksync repo, we will periodically sync the `zksync-main` branch with the zksync repo and then merge the changes into the `main` branch. (rebase)
 
 > We also adopt an approach to reduce the possibility of merge conflicts by adding a `via_` prefix to services and components that we add to the project and also creating our own new orchestration layer (binaries) for via project.
 
 ```
 git remote add upstream git@github.com:matter-labs/zksync-era.git
-git checkout main
+git checkout zksync-main
 git pull upstream main
-git checkout via-main
-git rebase main
+git checkout main
+git rebase zksync-main
 ```
+
+> This approach will changing our git history, so we will need to force push to the `main` branch after the rebase.
+> Please be careful when using this approach and communicate with the team before doing so.
 
 ## Disclaimer
 
