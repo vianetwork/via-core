@@ -1,0 +1,57 @@
+[package]
+name = "via_btc_client"
+description = "Via Network Bitcoin Inscription Standard Implementation"
+version.workspace = true
+edition.workspace = true
+authors = ["Via Network"]
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+zksync_types.workspace = true
+zksync_config.workspace = true
+zksync_da_client.workspace = true
+zksync_basic_types.workspace = true
+
+thiserror.workspace = true
+async-trait.workspace = true
+jsonrpsee = { workspace = true, features = [
+    "client",
+    "macros",
+] }
+lazy_static.workspace = true
+tokio.workspace = true
+bitcoin = "0.32.2"
+bitcoincore-rpc = "0.19.0"
+rand.workspace = true
+hex.workspace = true
+secp256k1 = "0.29.0"
+reqwest = "0.12.5"
+serde_json.workspace = true
+inquire = "0.7.5"
+anyhow.workspace = true
+serde.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
+
+[dev-dependencies]
+mockall = "0.13.0"
+
+[features]
+regtest = ["tracing-subscriber"]
+
+[[example]]
+name = "indexer"
+path = "examples/indexer_init_example.rs"
+required-features = ["regtest"]
+
+[[example]]
+name = "data_inscription_example"
+path = "examples/data_inscription_example.rs"
+
+[[example]]
+name = "inscriber"
+path = "examples/inscriber.rs"
