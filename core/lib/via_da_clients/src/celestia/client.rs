@@ -27,7 +27,7 @@ impl CelestiaClient {
     pub async fn new(celestia_conf: ViaCelestiaConfig) -> anyhow::Result<Self> {
         let client = Client::new(&celestia_conf.api_node_url, Some(&celestia_conf.auth_token))
             .await
-            .expect("Failed creating rpc client");
+            .map_err(|error| anyhow!("Failed to create a client: {}", error))?;
 
         Ok(Self {
             light_node_url: celestia_conf.api_node_url,
@@ -45,11 +45,18 @@ impl DataAvailabilityClient for CelestiaClient {
         data: Vec<u8>,
     ) -> Result<types::DispatchResponse, types::DAError> {
         // NOTE: during refactoring move namespace to the config
-        let my_namespace = Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).expect("Invalid namespace");
+        let my_namespace =
+            Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).map_err(|error| types::DAError {
+                error: error.into(),
+                is_retriable: false,
+            })?;
 
         let share_version = celestia_types::consts::appconsts::SHARE_VERSION_ZERO;
 
-        let blob = Blob::new(my_namespace, data.clone()).expect("Failed to create a blob");
+        let blob = Blob::new(my_namespace, data.clone()).map_err(|error| types::DAError {
+            error: error.into(),
+            is_retriable: false,
+        })?;
 
         let commitment_result = match Commitment::from_blob(my_namespace, share_version, &data) {
             Ok(commit) => commit,
@@ -94,7 +101,11 @@ impl DataAvailabilityClient for CelestiaClient {
         &self,
         blob_id: &str,
     ) -> Result<Option<types::InclusionData>, types::DAError> {
-        let my_namespace = Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).expect("Invalid namespace");
+        let my_namespace =
+            Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).map_err(|error| types::DAError {
+                error: error.into(),
+                is_retriable: false,
+            })?;
 
         // [8]byte block height ++ [32]byte commitment
         let blob_id_bytes = hex::decode(blob_id).map_err(|error| types::DAError {
@@ -105,12 +116,16 @@ impl DataAvailabilityClient for CelestiaClient {
         let block_height =
             u64::from_be_bytes(blob_id_bytes[..8].try_into().map_err(|_| types::DAError {
                 error: anyhow!("Failed to convert block height"),
-                is_retriable: true,
+                is_retriable: false,
             })?);
 
-        let commitment_data: [u8; 32] = blob_id_bytes[8..40]
-            .try_into()
-            .expect("slice with incorrect length");
+        let commitment_data: [u8; 32] =
+            blob_id_bytes[8..40]
+                .try_into()
+                .map_err(|_| types::DAError {
+                    error: anyhow!("Failed to convert commitment"),
+                    is_retriable: false,
+                })?;
         let commitment = Commitment(commitment_data);
 
         let blob = self
