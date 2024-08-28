@@ -818,9 +818,9 @@ impl InscriptionManager {
 
         let mut witness_data: Witness = Witness::new();
 
-        witness_data.push(&reveal_input_signature.to_vec());
+        witness_data.push(reveal_input_signature.to_vec());
         witness_data.push(
-            &self
+            self
                 .inscription_data
                 .as_ref()
                 .context("Inscription data is not set")?
@@ -829,7 +829,7 @@ impl InscriptionManager {
         );
 
         // add control block
-        witness_data.push(&reveal_p2tr_input.2.serialize());
+        witness_data.push(reveal_p2tr_input.2.serialize());
 
         *sighasher
             .witness_mut(reveal_input_index)

@@ -645,12 +645,12 @@ impl Inscriber {
 
         let mut witness_data: Witness = Witness::new();
 
-        witness_data.push(&reveal_input_signature.to_vec());
-        witness_data.push(&inscription_data.inscription_script.to_bytes());
+        witness_data.push(reveal_input_signature.to_vec());
+        witness_data.push(inscription_data.inscription_script.to_bytes());
 
         // add control block to witness
         let control_block = input.control_block.clone();
-        witness_data.push(&control_block.serialize());
+        witness_data.push(control_block.serialize());
 
         *sighasher
             .witness_mut(REVEAL_TX_TAPSCRIPT_REVEAL_INDEX as usize)
