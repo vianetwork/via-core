@@ -30,7 +30,7 @@ impl WiringLayer for NoDAClientWiringLayer {
         let client: Box<dyn DataAvailabilityClient> = Box::new(NoDAClient);
 
         Ok(Output {
-            client: DAClientResource(client),
+            client: (client),
         })
     }
 }

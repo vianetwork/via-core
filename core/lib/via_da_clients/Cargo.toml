@@ -1,0 +1,31 @@
+[package]
+name = "via_da_clients"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+celestia-rpc = { version = "0.4.0", git = "https://github.com/eigerco/lumina.git" }
+celestia-types = { version = "0.4.0", git = "https://github.com/eigerco/lumina.git" }
+
+anyhow.workspace = true
+async-trait.workspace = true
+zksync_types.workspace = true
+zksync_config.workspace = true
+serde = { workspace = true, features = ["derive"] }
+hex = "0.4"
+
+zksync_object_store.workspace = true
+zksync_da_client.workspace = true
+zksync_node_framework.workspace = true
+zksync_env_config.workspace = true
+
+[dev-dependencies]
+assert_matches.workspace = true
+tokio = { workspace = true, features = ["full"] }
+pretty_assertions.workspace = true
