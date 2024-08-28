@@ -754,15 +754,7 @@ impl Inscriber {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::types::BitcoinClientResult;
-    use crate::types::BitcoinSignerResult;
-    use crate::types::InscriptionMessage;
-    use crate::types::L1BatchDAReferenceInput;
-
     use async_trait::async_trait;
-    use mockall::{mock, predicate::*};
-
     use bitcoin::{
         key::UntweakedPublicKey,
         secp256k1::{
@@ -770,6 +762,12 @@ mod tests {
             Keypair, Message, PublicKey, Secp256k1,
         },
         Block, BlockHash, CompressedPublicKey, OutPoint, PrivateKey, ScriptBuf, Transaction, TxOut,
+    };
+    use mockall::{mock, predicate::*};
+
+    use super::*;
+    use crate::types::{
+        BitcoinClientResult, BitcoinSignerResult, InscriptionMessage, L1BatchDAReferenceInput,
     };
 
     mock! {

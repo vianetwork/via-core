@@ -1,7 +1,9 @@
-use via_btc_client::types as inscribe_types;
-use via_btc_client::{inscriber::Inscriber, types::BitcoinNetwork, types::NodeAuth};
-
 use anyhow::{Context, Result};
+use via_btc_client::{
+    inscriber::Inscriber,
+    types as inscribe_types,
+    types::{BitcoinNetwork, NodeAuth},
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {

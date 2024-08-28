@@ -2,9 +2,9 @@ use async_trait::async_trait;
 use bitcoin::{
     key::UntweakedPublicKey,
     secp256k1::{
-        ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, PublicKey,
+        ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, All, Keypair,
+        Message, PublicKey, Secp256k1, SecretKey,
     },
-    secp256k1::{All, Keypair, Message, Secp256k1, SecretKey},
     Address, CompressedPublicKey, Network, PrivateKey, ScriptBuf,
 };
 
