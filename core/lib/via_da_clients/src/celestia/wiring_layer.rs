@@ -6,6 +6,7 @@ use zksync_node_framework::{
     implementations::resources::da_client::DAClientResource,
     service::ServiceContext,
     wiring_layer::{WiringError, WiringLayer},
+    IntoContext,
 };
 
 use crate::celestia::client::CelestiaClient;
@@ -21,18 +22,26 @@ impl ViaCelestiaClientWiringLayer {
     }
 }
 
+#[derive(Debug, IntoContext)]
+pub struct Output {
+    pub client: DAClientResource,
+}
+
 #[async_trait::async_trait]
 impl WiringLayer for ViaCelestiaClientWiringLayer {
+    type Input = ();
+    type Output = Output;
+
     fn layer_name(&self) -> &'static str {
         "via_da_layer"
     }
 
-    async fn wire(self: Box<Self>, mut context: ServiceContext<'_>) -> Result<(), WiringError> {
+    async fn wire(self, _input: Self::Input) -> Result<Self::Output, WiringError> {
         let client = CelestiaClient::new(self.config).await?;
         let client: Box<dyn DataAvailabilityClient> = Box::new(client);
 
-        context.insert_resource(DAClientResource(client))?;
-
-        Ok(())
+        Ok(Output {
+            client: DAClientResource(client),
+        })
     }
 }
