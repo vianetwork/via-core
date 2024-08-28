@@ -29,6 +29,7 @@ pub use self::{
     snapshots_creator::SnapshotsCreatorConfig,
     utils::PrometheusConfig,
     vm_runner::{BasicWitnessInputProducerConfig, ProtectiveReadsWriterConfig},
+    via_celestia::ViaCelestiaConfig,
 };
 
 pub mod api;
@@ -66,5 +67,6 @@ pub mod snapshots_creator;
 pub mod utils;
 pub mod vm_runner;
 pub mod wallets;
+pub mod via_celestia;
 
 const BYTES_IN_MEGABYTE: usize = 1_024 * 1_024;
