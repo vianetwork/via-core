@@ -13,7 +13,7 @@ pub use zksync_da_client::{types, DataAvailabilityClient};
 
 /// If no value is provided for GasPrice, then this will be serialized to `-1.0` which means the node that
 /// receives the request will calculate the GasPrice for given blob.
-const GAS_PRICE : f64 = -1.0;
+const GAS_PRICE: f64 = -1.0;
 
 /// An implementation of the `DataAvailabilityClient` trait that stores the pubdata in the Celestia DA.
 #[derive(Clone)]
