@@ -820,8 +820,7 @@ impl InscriptionManager {
 
         witness_data.push(reveal_input_signature.to_vec());
         witness_data.push(
-            self
-                .inscription_data
+            self.inscription_data
                 .as_ref()
                 .context("Inscription data is not set")?
                 .inscription_script
