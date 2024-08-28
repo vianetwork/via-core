@@ -4,7 +4,6 @@ use zksync_config::ViaCelestiaConfig;
 use zksync_da_client::DataAvailabilityClient;
 use zksync_node_framework::{
     implementations::resources::da_client::DAClientResource,
-    service::ServiceContext,
     wiring_layer::{WiringError, WiringLayer},
     IntoContext,
 };
