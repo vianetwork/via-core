@@ -81,10 +81,13 @@ members = [
     "core/tests/vm-benchmark",
     # Parts of prover workspace that are needed for Core workspace
     "prover/crates/lib/prover_dal",
-
+    
     # VIA Protocol Related Crates
     "core/lib/via_btc_client",
+    "core/lib/via_da_clients",
+
 ]
+
 resolver = "2"
 
 exclude = []
@@ -306,3 +309,4 @@ zksync_logs_bloom_backfill = { version = "0.1.0", path = "core/node/logs_bloom_b
 
 # VIA Protocol Related Components
 via_btc_client= { version = "0.1.0", path = "core/lib/via_btc_client" }
+via_da_clients = { path = "core/lib/via_da_clients" }
