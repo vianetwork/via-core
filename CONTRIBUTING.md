@@ -20,7 +20,6 @@ There are many ways to contribute to the ZK Stack:
 3. Resolve issues: either by showing an issue isn't a problem and the current state is ok as is or by fixing the problem
    and opening a PR.
 
-
 ## Fixing issues
 
 To contribute code fixing issues, please fork the repo, fix an issue, commit, add documentation as per the PR template,
