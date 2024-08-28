@@ -63,7 +63,7 @@ impl DataAvailabilityClient for CelestiaClient {
             Err(error) => {
                 return Err(types::DAError {
                     error: error.into(),
-                    is_retriable: true,
+                    is_retriable: false,
                 })
             }
         };
@@ -110,7 +110,7 @@ impl DataAvailabilityClient for CelestiaClient {
         // [8]byte block height ++ [32]byte commitment
         let blob_id_bytes = hex::decode(blob_id).map_err(|error| types::DAError {
             error: error.into(),
-            is_retriable: true,
+            is_retriable: false,
         })?;
 
         let block_height =
