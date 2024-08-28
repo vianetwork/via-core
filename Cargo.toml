@@ -82,6 +82,9 @@ members = [
     "core/tests/vm-benchmark/harness",
     # Parts of prover workspace that are needed for Core workspace
     "prover/crates/lib/prover_dal",
+
+    # VIA Protocol Related Crates
+    "core/lib/via_btc_client",
 ]
 resolver = "2"
 
@@ -302,3 +305,6 @@ zksync_node_api_server = { version = "0.1.0", path = "core/node/api_server" }
 zksync_tee_verifier_input_producer = { version = "0.1.0", path = "core/node/tee_verifier_input_producer" }
 zksync_base_token_adjuster = { version = "0.1.0", path = "core/node/base_token_adjuster" }
 zksync_logs_bloom_backfill = { version = "0.1.0", path = "core/node/logs_bloom_backfill" }
+
+# VIA Protocol Related Components
+via_btc_client= { version = "0.1.0", path = "core/lib/via_btc_client" }
