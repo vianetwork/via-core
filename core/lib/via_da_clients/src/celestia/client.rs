@@ -6,10 +6,14 @@ use std::{
 use anyhow::anyhow;
 use async_trait::async_trait;
 use celestia_rpc::{BlobClient, Client};
-use celestia_types::{blob::GasPrice, nmt::Namespace, Blob, Commitment};
+use celestia_types::{nmt::Namespace, Blob, Commitment, TxConfig};
 use hex;
 pub use zksync_config::ViaCelestiaConfig;
 pub use zksync_da_client::{types, DataAvailabilityClient};
+
+/// If no value is provided for GasPrice, then this will be serialized to `-1.0` which means the node that
+/// receives the request will calculate the GasPrice for given blob.
+const GAS_PRICE : f64 = -1.0;
 
 /// An implementation of the `DataAvailabilityClient` trait that stores the pubdata in the Celestia DA.
 #[derive(Clone)]
@@ -51,18 +55,25 @@ impl DataAvailabilityClient for CelestiaClient {
             Err(error) => {
                 return Err(types::DAError {
                     error: error.into(),
-                    is_transient: true,
+                    is_retriable: true,
                 })
             }
         };
 
+        // NOTE: during refactoring add address to the config
+        // we can specify the sender address for the transaction with using TxConfig
+        let tx_config = TxConfig {
+            gas_price: Some(GAS_PRICE),
+            ..Default::default()
+        };
+
         let block_hight = self
             .inner
-            .blob_submit(&[blob], GasPrice::default())
+            .blob_submit(&[blob], tx_config)
             .await
             .map_err(|error| types::DAError {
                 error: error.into(),
-                is_transient: true,
+                is_retriable: true,
             })?;
 
         // [8]byte block height ++ [32]byte commitment
@@ -87,13 +98,13 @@ impl DataAvailabilityClient for CelestiaClient {
         // [8]byte block height ++ [32]byte commitment
         let blob_id_bytes = hex::decode(blob_id).map_err(|error| types::DAError {
             error: error.into(),
-            is_transient: true,
+            is_retriable: true,
         })?;
 
         let block_height =
             u64::from_be_bytes(blob_id_bytes[..8].try_into().map_err(|_| types::DAError {
                 error: anyhow!("Failed to convert block height"),
-                is_transient: true,
+                is_retriable: true,
             })?);
 
         let commitment_data: [u8; 32] = blob_id_bytes[8..40]
@@ -107,7 +118,7 @@ impl DataAvailabilityClient for CelestiaClient {
             .await
             .map_err(|error| types::DAError {
                 error: error.into(),
-                is_transient: true,
+                is_retriable: true,
             })?;
 
         let inclusion_data = types::InclusionData { data: blob.data };
