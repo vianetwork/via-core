@@ -12799,6 +12799,7 @@ name = "zksync_types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assert_matches",
  "bigdecimal",
  "bincode",
  "bitcoin",
@@ -12883,6 +12884,7 @@ dependencies = [
 name = "zksync_vm_interface"
 version = "0.1.0"
 dependencies = [
+ "assert_matches",
  "hex",
  "serde",
  "thiserror",
