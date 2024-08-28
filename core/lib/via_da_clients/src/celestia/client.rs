@@ -44,6 +44,7 @@ impl DataAvailabilityClient for CelestiaClient {
         _batch_number: u32,
         data: Vec<u8>,
     ) -> Result<types::DispatchResponse, types::DAError> {
+        // NOTE: during refactoring move namespace to the config
         let my_namespace = Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).expect("Invalid namespace");
 
         let share_version = celestia_types::consts::appconsts::SHARE_VERSION_ZERO;
