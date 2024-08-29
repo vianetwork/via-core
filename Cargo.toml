@@ -85,6 +85,7 @@ members = [
     # VIA Protocol Related Crates
     "core/lib/via_btc_client",
     "core/lib/via_da_clients",
+    "core/node/btc_watch",
 
 ]
 

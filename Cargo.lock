@@ -8440,6 +8440,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_btc_watch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "vise",
+ "zksync_dal",
+ "zksync_shared_metrics",
+]
+
+[[package]]
 name = "via_da_clients"
 version = "0.1.0"
 dependencies = [
