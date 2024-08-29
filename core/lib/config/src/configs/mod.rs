@@ -2,6 +2,7 @@
 pub use self::{
     api::ApiConfig,
     base_token_adjuster::BaseTokenAdjusterConfig,
+    btc_watch::BtcWatchConfig,
     commitment_generator::CommitmentGeneratorConfig,
     contract_verifier::ContractVerifierConfig,
     contracts::{ContractsConfig, EcosystemContracts},
@@ -29,12 +30,12 @@ pub use self::{
     snapshots_creator::SnapshotsCreatorConfig,
     utils::PrometheusConfig,
     via_celestia::ViaCelestiaConfig,
-    btc_watch::BtcWatchConfig,
     vm_runner::{BasicWitnessInputProducerConfig, ProtectiveReadsWriterConfig},
 };
 
 pub mod api;
 pub mod base_token_adjuster;
+pub mod btc_watch;
 pub mod chain;
 mod commitment_generator;
 pub mod consensus;
@@ -69,6 +70,5 @@ pub mod utils;
 pub mod via_celestia;
 pub mod vm_runner;
 pub mod wallets;
-pub mod btc_watch;
 
 const BYTES_IN_MEGABYTE: usize = 1_024 * 1_024;
