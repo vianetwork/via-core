@@ -23,6 +23,7 @@ mod utils;
 mod via_celestia;
 
 mod base_token_adjuster;
+mod btc_watch;
 mod da_dispatcher;
 mod external_price_api_client;
 mod external_proof_integration_api;
