@@ -28,6 +28,7 @@ const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 6;
 const MIN_PROOF_DA_REFERENCE_INSTRUCTIONS: usize = 5;
 const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
 
+#[derive(Debug)]
 pub struct MessageParser {
     network: Network,
 }

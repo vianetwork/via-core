@@ -57,6 +57,7 @@ impl BootstrapState {
 }
 
 /// The main indexer struct for processing Bitcoin inscriptions
+#[derive(Debug)]
 pub struct BitcoinInscriptionIndexer {
     client: Box<dyn BitcoinOps>,
     parser: MessageParser,
@@ -160,6 +161,10 @@ impl BitcoinInscriptionIndexer {
         let are_connected = child_block.header.prev_blockhash == *parent_hash;
         debug!("Blocks connected: {}", are_connected);
         Ok(are_connected)
+    }
+
+    pub async fn fetch_block_height(&self) -> BitcoinIndexerResult<u128> {
+        self.client.fetch_block_height().await.map_err(|e| e.into())
     }
 }
 

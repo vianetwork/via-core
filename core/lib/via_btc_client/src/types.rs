@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-pub use bitcoin::Network as BitcoinNetwork;
+pub use bitcoin::{Network as BitcoinNetwork, Txid as BitcoinTxid};
 use bitcoin::{
     script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress,
     Amount, TxIn, TxOut, Txid,
