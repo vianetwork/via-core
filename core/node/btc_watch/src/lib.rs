@@ -2,9 +2,12 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use tokio::sync::watch;
-use via_btc_client::indexer::BitcoinInscriptionIndexer;
-use via_btc_client::types::{BitcoinNetwork, BitcoinTxid};
+use via_btc_client::{
+    indexer::BitcoinInscriptionIndexer,
+    types::{BitcoinNetwork, BitcoinTxid},
+};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
+
 use crate::event_processors::EventProcessorError;
 
 mod event_processors;
@@ -60,7 +63,7 @@ impl BtcWatch {
             None => indexer
                 .fetch_block_height()
                 .await
-                .context("cannot get current Bitcoin block")? as u32
+                .context("cannot get current Bitcoin block")? as u32,
         };
 
         Ok(BtcWatchState {
@@ -108,10 +111,11 @@ impl BtcWatch {
             return Ok(());
         }
 
-        let _messages = self.indexer.process_blocks(
-            self.last_processed_bitcoin_block + 1,
-            to_block
-        ).await.unwrap();
+        let _messages = self
+            .indexer
+            .process_blocks(self.last_processed_bitcoin_block + 1, to_block)
+            .await
+            .unwrap();
 
         // TODO: process messages
 
