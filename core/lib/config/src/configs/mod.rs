@@ -29,6 +29,7 @@ pub use self::{
     snapshots_creator::SnapshotsCreatorConfig,
     utils::PrometheusConfig,
     via_celestia::ViaCelestiaConfig,
+    btc_watch::BtcWatchConfig,
     vm_runner::{BasicWitnessInputProducerConfig, ProtectiveReadsWriterConfig},
 };
 
@@ -68,5 +69,6 @@ pub mod utils;
 pub mod via_celestia;
 pub mod vm_runner;
 pub mod wallets;
+pub mod btc_watch;
 
 const BYTES_IN_MEGABYTE: usize = 1_024 * 1_024;
