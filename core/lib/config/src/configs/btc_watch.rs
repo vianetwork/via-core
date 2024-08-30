@@ -40,3 +40,16 @@ impl BtcWatchConfig {
         self.bootstrap_txids.clone()
     }
 }
+
+impl BtcWatchConfig {
+    /// Creates a mock configuration object suitable for unit tests.
+    /// Values inside match the config used for localhost development.
+    pub fn for_tests() -> Self {
+        Self {
+            btc_node_poll_interval: 1000,
+            rpc_url: "http://localhost:18332".to_string(),
+            network: "regtest".to_string(),
+            bootstrap_txids: vec![],
+        }
+    }
+}
