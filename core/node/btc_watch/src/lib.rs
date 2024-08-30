@@ -2,15 +2,15 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use tokio::sync::watch;
-use via_btc_client::{
-    indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinNetwork, BitcoinTxid},
-};
+use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::BitcoinTxid};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 
 use crate::event_processors::EventProcessorError;
 
 mod event_processors;
+
+// re-exporting here isn't necessary, but it's a good practice to keep all the public types in one place
+pub use via_btc_client::types::BitcoinNetwork;
 
 #[derive(Debug)]
 struct BtcWatchState {
