@@ -87,6 +87,7 @@ members = [
     "core/lib/via_da_clients",
     "core/node/btc_watch",
 
+    "core/bin/via_server",
 ]
 
 resolver = "2"

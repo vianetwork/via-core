@@ -8476,6 +8476,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.5.16",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+ "zksync_config",
+ "zksync_env_config",
+ "zksync_node_framework",
+ "zksync_storage",
+ "zksync_types",
+ "zksync_utils",
+ "zksync_vlog",
+]
+
+[[package]]
 name = "vise"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
