@@ -1,0 +1,16 @@
+[package]
+name = "via_btc_sender"
+description = "VIA Bitcoin Sender"
+version.workspace = true
+edition.workspace = true
+authors = [ "VIA Protocol Team"]
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+via_btc_client.workspace = true
+
+[dev-dependencies]
