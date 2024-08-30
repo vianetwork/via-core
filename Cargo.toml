@@ -86,7 +86,12 @@ members = [
     "core/lib/via_btc_client",
     "core/lib/via_da_clients",
     "core/node/btc_watch",
+<<<<<<< HEAD
     "core/node/via_da_dispatcher",
+=======
+
+    "core/bin/via_server",
+>>>>>>> 64216c36 (feat: add `via_server` mock bin)
 ]
 
 resolver = "2"
