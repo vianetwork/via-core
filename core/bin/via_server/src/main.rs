@@ -1,6 +1,6 @@
 use anyhow::Context as _;
 use clap::Parser;
-use zksync_config::configs::{PostgresConfig, Secrets, ObservabilityConfig, DatabaseSecrets};
+use zksync_config::configs::{DatabaseSecrets, ObservabilityConfig, PostgresConfig, Secrets};
 use zksync_env_config::FromEnv;
 
 mod node_builder;

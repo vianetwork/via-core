@@ -8421,7 +8421,6 @@ dependencies = [
  "bitcoincore-rpc",
  "hex",
  "inquire",
- "jsonrpsee 0.23.2",
  "lazy_static",
  "mockall",
  "rand 0.8.5",
@@ -8435,7 +8434,6 @@ dependencies = [
  "tracing-subscriber",
  "zksync_basic_types",
  "zksync_config",
- "zksync_da_client",
  "zksync_types",
 ]
 
@@ -8487,15 +8485,17 @@ dependencies = [
  "tracing",
  "vise",
  "zksync_config",
+<<<<<<< HEAD
  "zksync_da_client",
  "zksync_dal",
  "zksync_l1_contract_interface",
  "zksync_object_store",
  "zksync_prover_interface",
  "zksync_core_leftovers",
+=======
+>>>>>>> 0c9ba20f (chore: fmt, lint, extra deps fixes)
  "zksync_env_config",
  "zksync_node_framework",
- "zksync_protobuf_config",
  "zksync_storage",
  "zksync_types",
  "zksync_utils",

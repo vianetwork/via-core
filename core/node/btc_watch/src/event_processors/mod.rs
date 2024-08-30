@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::fmt;
 
 use zksync_dal::{Connection, Core};
