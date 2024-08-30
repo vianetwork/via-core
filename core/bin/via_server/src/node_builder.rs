@@ -3,7 +3,6 @@ use zksync_config::{
     configs::{PostgresConfig, Secrets},
     BtcWatchConfig,
 };
-use zksync_env_config::FromEnv;
 use zksync_node_framework::{
     implementations::layers::{btc_watch::BtcWatchLayer, pools_layer::PoolsLayerBuilder},
     service::{ZkStackService, ZkStackServiceBuilder},
@@ -32,16 +31,15 @@ impl NodeBuilder {
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("Database secrets are not provided"))?,
         )
-            .with_master(true)
-            .with_replica(true)
-            .build();
+        .with_master(true)
+        .with_replica(true)
+        .build();
         self.node.add_layer(pools_layer);
         Ok(self)
     }
 
     fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
-        let btc_watch_config =
-            BtcWatchConfig::for_tests();
+        let btc_watch_config = BtcWatchConfig::for_tests();
         self.node.add_layer(BtcWatchLayer::new(btc_watch_config));
         Ok(self)
     }

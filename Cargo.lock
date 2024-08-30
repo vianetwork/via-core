@@ -8421,7 +8421,6 @@ dependencies = [
  "bitcoincore-rpc",
  "hex",
  "inquire",
- "jsonrpsee 0.23.2",
  "lazy_static",
  "mockall",
  "rand 0.8.5",
@@ -8435,7 +8434,6 @@ dependencies = [
  "tracing-subscriber",
  "zksync_basic_types",
  "zksync_config",
- "zksync_da_client",
  "zksync_types",
 ]
 
@@ -8485,10 +8483,8 @@ dependencies = [
  "tokio",
  "tracing",
  "zksync_config",
- "zksync_core_leftovers",
  "zksync_env_config",
  "zksync_node_framework",
- "zksync_protobuf_config",
  "zksync_storage",
  "zksync_types",
  "zksync_utils",

@@ -13,15 +13,10 @@ categories.workspace = true
 [dependencies]
 zksync_types.workspace = true
 zksync_config.workspace = true
-zksync_da_client.workspace = true
 zksync_basic_types.workspace = true
 
 thiserror.workspace = true
 async-trait.workspace = true
-jsonrpsee = { workspace = true, features = [
-    "client",
-    "macros",
-] }
 lazy_static.workspace = true
 tokio.workspace = true
 bitcoin = "0.32.2"
@@ -31,7 +26,7 @@ hex.workspace = true
 secp256k1 = "0.29.0"
 reqwest = "0.12.5"
 serde_json.workspace = true
-inquire = "0.7.5"
+inquire = { version = "0.7.5", optional = true }
 anyhow.workspace = true
 serde.workspace = true
 tracing.workspace = true
@@ -51,6 +46,7 @@ required-features = ["regtest"]
 [[example]]
 name = "data_inscription_example"
 path = "examples/data_inscription_example.rs"
+required-features = ["inquire"]
 
 [[example]]
 name = "inscriber"
