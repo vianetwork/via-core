@@ -10345,6 +10345,7 @@ dependencies = [
  "tokio",
  "tracing",
  "trybuild",
+ "via_btc_watch",
  "via_da_dispatcher",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",
