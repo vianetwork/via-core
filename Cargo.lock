@@ -8438,6 +8438,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_btc_sender"
+version = "0.1.0"
+dependencies = [
+ "via_btc_client",
+]
+
+[[package]]
 name = "via_btc_watch"
 version = "0.1.0"
 dependencies = [
