@@ -5,11 +5,11 @@ on:
     branches: [ main ]
     types: [ opened, reopened, synchronize ]
   merge_group:
-#  push:
-#    branches:
-#      - staging
-#      - trying
-#      - '!release-please--branches--**'
+  push:
+    branches:
+      - staging
+      - trying
+      - '!release-please--branches--**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -80,11 +80,11 @@ jobs:
               - '!**/*.md'
               - '!**/*.MD'
 
-#  ci-for-core-lint:
-#    name: CI for Core lint Components
-#    needs: changed_files
-#    if: contains(github.ref_name, 'release-please--branches')
-#    uses: ./.github/workflows/ci-core-lint-reusable.yml
+  ci-for-core-lint:
+    name: CI for Core lint Components
+    needs: changed_files
+    if: contains(github.ref_name, 'release-please--branches')
+    uses: ./.github/workflows/ci-core-lint-reusable.yml
 
   ci-for-core:
     name: CI for Core Components
