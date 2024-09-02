@@ -32,8 +32,8 @@ services:
     environment:
       - CACHE_DIR=/usr/src/cache
       - SCCACHE_CACHE_SIZE=50g
-      - SCCACHE_GCS_BUCKET=matterlabs-infra-sccache-storage
-      - SCCACHE_GCS_SERVICE_ACCOUNT=gha-ci-runners@matterlabs-infra.iam.gserviceaccount.com
+#      - SCCACHE_GCS_BUCKET=matterlabs-infra-sccache-storage
+#      - SCCACHE_GCS_SERVICE_ACCOUNT=gha-ci-runners@matterlabs-infra.iam.gserviceaccount.com
       - SCCACHE_ERROR_LOG=/tmp/sccache_log.txt
       - SCCACHE_GCS_RW_MODE=READ_WRITE
       - CI=1
