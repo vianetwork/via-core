@@ -29,6 +29,7 @@ pub use self::{
     snapshots_creator::SnapshotsCreatorConfig,
     utils::PrometheusConfig,
     via_btc_watch::ViaBtcWatchConfig,
+    via_btc_sender::ViaBtcSenderConfig,
     via_celestia::ViaCelestiaConfig,
     vm_runner::{BasicWitnessInputProducerConfig, ProtectiveReadsWriterConfig},
 };
@@ -67,6 +68,7 @@ pub mod snapshot_recovery;
 pub mod snapshots_creator;
 pub mod utils;
 pub mod via_btc_watch;
+pub mod via_btc_sender;
 pub mod via_celestia;
 pub mod vm_runner;
 pub mod wallets;
