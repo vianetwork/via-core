@@ -59,6 +59,8 @@ via_da_dispatcher.workspace = true
 
 # Via dependencies
 via_btc_watch.workspace = true
+via_btc_client.workspace = true
+via_btc_sender.workspace = true
 
 pin-project-lite.workspace = true
 tracing.workspace = true

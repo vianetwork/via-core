@@ -37,5 +37,6 @@ pub mod tree_data_fetcher;
 pub mod validate_chain_ids;
 pub mod via_btc_watch;
 pub mod via_da_dispatcher;
+pub mod via_btc_sender;
 pub mod vm_runner;
 pub mod web3_api;

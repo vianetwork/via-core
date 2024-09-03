@@ -8441,7 +8441,13 @@ dependencies = [
 name = "via_btc_sender"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "thiserror",
+ "tokio",
+ "tracing",
  "via_btc_client",
+ "zksync_dal",
 ]
 
 [[package]]
@@ -10369,6 +10375,8 @@ dependencies = [
  "tokio",
  "tracing",
  "trybuild",
+ "via_btc_client",
+ "via_btc_sender",
  "via_btc_watch",
  "via_da_dispatcher",
  "zksync_base_token_adjuster",

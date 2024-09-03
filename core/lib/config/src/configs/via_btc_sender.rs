@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ViaBtcSenderConfig {
@@ -11,6 +12,9 @@ pub struct ViaBtcSenderConfig {
 
     // SEQUENCER/ VERIFIER
     pub actor_role: String,
+
+    // service interval
+    pub poll_interval: u64,
 }
 
 impl ViaBtcSenderConfig {
@@ -34,6 +38,10 @@ impl ViaBtcSenderConfig {
     pub fn actor_role(&self) -> &str {
         &self.actor_role
     }
+
+    pub fn poll_interval(&self) -> Duration {
+        Duration::from_millis(self.poll_interval)
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -45,6 +53,7 @@ impl ViaBtcSenderConfig {
             rpc_password: "pass".to_string(),
             network: "regtest".to_string(),
             actor_role: "sequencer".to_string(),
+            poll_interval: 1000,
         }
     }
 }

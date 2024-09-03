@@ -88,3 +88,9 @@ pub(crate) trait BitcoinSigner: Send + Sync {
 
     fn get_public_key(&self) -> PublicKey;
 }
+
+impl std::fmt::Debug for dyn BitcoinSigner + 'static {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BitcoinSigner").finish()
+    }
+}

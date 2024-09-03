@@ -54,6 +54,7 @@ const REVEAL_TX_P2WPKH_INPUT_COUNT: u32 = 1;
 
 const BROADCAST_RETRY_COUNT: u32 = 3;
 
+#[derive(Debug)]
 pub struct Inscriber {
     client: Box<dyn BitcoinOps>,
     signer: Box<dyn BitcoinSigner>,
