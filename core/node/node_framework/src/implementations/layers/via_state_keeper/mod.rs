@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use via_state_keeper::{
-    seal_criteria::ConditionalSealer, AsyncRocksdbCache, BatchExecutor, OutputHandler,
-    StateKeeperIO, ZkSyncStateKeeper,
+    seal_criteria::ConditionalSealer, AsyncRocksdbCache, OutputHandler, StateKeeperIO,
+    ZkSyncStateKeeper,
 };
-use zksync_state::{AsyncCatchupTask, ReadStorageFactory};
+use zksync_state::{AsyncCatchupTask, OwnedStorage, ReadStorageFactory};
 use zksync_storage::RocksDB;
+use zksync_vm_executor::interface::BatchExecutorFactory;
 
 pub mod main_batch_executor;
 pub mod mempool_io;
@@ -101,7 +102,7 @@ impl WiringLayer for StateKeeperLayer {
 
         let state_keeper = StateKeeperTask {
             io,
-            batch_executor: batch_executor_base,
+            executor_factory: batch_executor_base,
             output_handler,
             sealer,
             storage_factory: Arc::new(storage_factory),
@@ -124,7 +125,7 @@ impl WiringLayer for StateKeeperLayer {
 #[derive(Debug)]
 pub struct StateKeeperTask {
     io: Box<dyn StateKeeperIO>,
-    batch_executor: Box<dyn BatchExecutor>,
+    executor_factory: Box<dyn BatchExecutorFactory<OwnedStorage>>,
     output_handler: OutputHandler,
     sealer: Arc<dyn ConditionalSealer>,
     storage_factory: Arc<dyn ReadStorageFactory>,
@@ -140,7 +141,7 @@ impl Task for StateKeeperTask {
         let state_keeper = ZkSyncStateKeeper::new(
             stop_receiver.0,
             self.io,
-            self.batch_executor,
+            self.executor_factory,
             self.output_handler,
             self.sealer,
             self.storage_factory,
