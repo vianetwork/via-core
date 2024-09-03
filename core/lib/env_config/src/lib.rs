@@ -23,7 +23,6 @@ mod utils;
 mod via_celestia;
 
 mod base_token_adjuster;
-mod btc_watch;
 mod da_dispatcher;
 mod external_price_api_client;
 mod external_proof_integration_api;
@@ -31,6 +30,7 @@ mod genesis;
 mod prover_job_monitor;
 #[cfg(test)]
 mod test_utils;
+mod via_btc_watch;
 mod vm_runner;
 mod wallets;
 

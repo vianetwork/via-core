@@ -34,7 +34,7 @@ impl BtcWatch {
         poll_interval: Duration,
     ) -> anyhow::Result<Self> {
         let indexer = BitcoinInscriptionIndexer::new(rpc_url, network, bootstrap_txids).await?;
-        let mut storage = pool.connection_tagged("btc_watch").await?;
+        let mut storage = pool.connection_tagged("via_btc_watch").await?;
         let state = Self::initialize_state(&indexer, &mut storage).await?;
         tracing::info!("initialized state: {state:?}");
         drop(storage);
@@ -81,7 +81,7 @@ impl BtcWatch {
                 _ = stop_receiver.changed() => break,
             }
 
-            let mut storage = pool.connection_tagged("btc_watch").await?;
+            let mut storage = pool.connection_tagged("via_btc_watch").await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(EventProcessorError::Internal(err)) => {
@@ -98,7 +98,7 @@ impl BtcWatch {
             }
         }
 
-        tracing::info!("Stop signal received, btc_watch is shutting down");
+        tracing::info!("Stop signal received, via_btc_watch is shutting down");
         Ok(())
     }
 

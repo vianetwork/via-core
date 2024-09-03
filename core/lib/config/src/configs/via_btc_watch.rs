@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Configuration for the Bitcoin watch crate.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
-pub struct BtcWatchConfig {
+pub struct ViaBtcWatchConfig {
     /// How often we want to poll the Bitcoin node.
     /// Value in milliseconds.
     pub btc_node_poll_interval: u64,
@@ -19,7 +19,7 @@ pub struct BtcWatchConfig {
     pub bootstrap_txids: Vec<String>,
 }
 
-impl BtcWatchConfig {
+impl ViaBtcWatchConfig {
     /// Converts `self.btc_node_poll_interval` into `Duration`.
     pub fn poll_interval(&self) -> Duration {
         Duration::from_millis(self.btc_node_poll_interval)
@@ -41,7 +41,7 @@ impl BtcWatchConfig {
     }
 }
 
-impl BtcWatchConfig {
+impl ViaBtcWatchConfig {
     /// Creates a mock configuration object suitable for unit tests.
     /// Values inside match the config used for localhost development.
     pub fn for_tests() -> Self {
