@@ -1,5 +1,5 @@
 use via_btc_watch::{BitcoinNetwork, BtcWatch};
-use zksync_config::BtcWatchConfig;
+use zksync_config::ViaBtcWatchConfig;
 
 use crate::{
     implementations::resources::pools::{MasterPool, PoolResource},
@@ -15,7 +15,7 @@ use crate::{
 #[derive(Debug)]
 pub struct BtcWatchLayer {
     // TODO: divide into multiple configs
-    btc_watch_config: BtcWatchConfig,
+    btc_watch_config: ViaBtcWatchConfig,
 }
 
 #[derive(Debug, FromContext)]
@@ -32,7 +32,7 @@ pub struct Output {
 }
 
 impl BtcWatchLayer {
-    pub fn new(btc_watch_config: BtcWatchConfig) -> Self {
+    pub fn new(btc_watch_config: ViaBtcWatchConfig) -> Self {
         Self { btc_watch_config }
     }
 }

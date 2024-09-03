@@ -1,10 +1,10 @@
 use anyhow::Context;
 use zksync_config::{
     configs::{PostgresConfig, Secrets},
-    BtcWatchConfig,
+    ViaBtcWatchConfig,
 };
 use zksync_node_framework::{
-    implementations::layers::{btc_watch::BtcWatchLayer, pools_layer::PoolsLayerBuilder},
+    implementations::layers::{pools_layer::PoolsLayerBuilder, via_btc_watch::BtcWatchLayer},
     service::{ZkStackService, ZkStackServiceBuilder},
 };
 
@@ -39,7 +39,7 @@ impl NodeBuilder {
     }
 
     fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
-        let btc_watch_config = BtcWatchConfig::for_tests();
+        let btc_watch_config = ViaBtcWatchConfig::for_tests();
         self.node.add_layer(BtcWatchLayer::new(btc_watch_config));
         Ok(self)
     }

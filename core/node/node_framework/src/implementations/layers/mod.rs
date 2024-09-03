@@ -1,7 +1,6 @@
 pub mod base_token;
 pub mod batch_status_updater;
 pub mod block_reverter;
-pub mod btc_watch;
 pub mod circuit_breaker_checker;
 pub mod commitment_generator;
 pub mod consensus;
@@ -36,5 +35,6 @@ pub mod sync_state_updater;
 pub mod tee_verifier_input_producer;
 pub mod tree_data_fetcher;
 pub mod validate_chain_ids;
+pub mod via_btc_watch;
 pub mod vm_runner;
 pub mod web3_api;
