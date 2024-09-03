@@ -5,9 +5,9 @@ use tokio::sync::watch;
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::BitcoinTxid};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 
-use crate::event_processors::EventProcessorError;
+use crate::message_processors::MessageProcessorError;
 
-mod event_processors;
+mod message_processors;
 
 // re-exporting here isn't necessary, but it's a good practice to keep all the public types in one place
 pub use via_btc_client::types::BitcoinNetwork;
@@ -63,7 +63,8 @@ impl BtcWatch {
             None => indexer
                 .fetch_block_height()
                 .await
-                .context("cannot get current Bitcoin block")? as u32,
+                .context("cannot get current Bitcoin block")?
+                .saturating_sub(200) as u32,
         };
 
         Ok(BtcWatchState {
@@ -84,7 +85,7 @@ impl BtcWatch {
             let mut storage = pool.connection_tagged("via_btc_watch").await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
-                Err(EventProcessorError::Internal(err)) => {
+                Err(MessageProcessorError::Internal(err)) => {
                     tracing::error!("Internal error processing new blocks: {err:?}");
                     return Err(err);
                 }
@@ -105,7 +106,7 @@ impl BtcWatch {
     async fn loop_iteration(
         &mut self,
         _storage: &mut Connection<'_, Core>,
-    ) -> Result<(), EventProcessorError> {
+    ) -> Result<(), MessageProcessorError> {
         let to_block = self.indexer.fetch_block_height().await.unwrap() as u32;
         if to_block <= self.last_processed_bitcoin_block {
             return Ok(());

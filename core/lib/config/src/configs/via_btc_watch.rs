@@ -9,14 +9,26 @@ pub struct ViaBtcWatchConfig {
     /// Value in milliseconds.
     pub btc_node_poll_interval: u64,
 
+    /// Amount of confirmations for the Bitcoin message to be processed.
+    pub confirmations_for_btc_msg: Option<u64>,
+
     /// URL of the Bitcoin node RPC.
     pub rpc_url: String,
+
+    /// Username for the Bitcoin node RPC.
+    pub rpc_user: String,
+
+    /// Password for the Bitcoin node RPC.
+    pub rpc_password: String,
 
     /// Network of the Bitcoin node.
     pub network: String,
 
     /// List of transaction IDs to bootstrap the indexer.
     pub bootstrap_txids: Vec<String>,
+
+    /// Role of the actor. SEQUENCER or VERIFIER.
+    pub actor_role: String,
 }
 
 impl ViaBtcWatchConfig {
@@ -25,9 +37,29 @@ impl ViaBtcWatchConfig {
         Duration::from_millis(self.btc_node_poll_interval)
     }
 
+    /// Returns the amount of confirmations for the Bitcoin message to be processed.
+    pub fn confirmations_for_btc_msg(&self) -> Option<u64> {
+        self.confirmations_for_btc_msg
+    }
+
+    /// Returns the role of the actor.
+    pub fn actor_role(&self) -> &str {
+        &self.actor_role
+    }
+
     /// Returns the RPC URL of the Bitcoin node.
     pub fn rpc_url(&self) -> &str {
         &self.rpc_url
+    }
+
+    /// Returns the RPC user of the Bitcoin node.
+    pub fn rpc_user(&self) -> &str {
+        &self.rpc_user
+    }
+
+    /// Returns the RPC password of the Bitcoin node.
+    pub fn rpc_password(&self) -> &str {
+        &self.rpc_password
     }
 
     /// Returns the network of the Bitcoin node.
@@ -47,9 +79,13 @@ impl ViaBtcWatchConfig {
     pub fn for_tests() -> Self {
         Self {
             btc_node_poll_interval: 1000,
+            confirmations_for_btc_msg: Some(3),
             rpc_url: "http://localhost:18332".to_string(),
+            rpc_user: "".to_string(),
+            rpc_password: "".to_string(),
             network: "regtest".to_string(),
             bootstrap_txids: vec![],
+            actor_role: "SEQUENCER".to_string(),
         }
     }
 }
