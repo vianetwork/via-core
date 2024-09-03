@@ -3,10 +3,9 @@ use std::time::Duration;
 use anyhow::Result; // add context in logic implementation phase
 use tokio::sync::watch;
 use via_btc_client::inscriber::Inscriber;
-use zksync_dal::{Connection, ConnectionPool, Core};
-
 // re-exporting here isn't necessary, but it's a good practice to keep all the public types in one place
 pub use via_btc_client::types::BitcoinNetwork;
+use zksync_dal::{Connection, ConnectionPool, Core};
 
 #[derive(Debug)]
 pub struct BtcSender {
