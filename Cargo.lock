@@ -11913,7 +11913,6 @@ dependencies = [
  "vise",
  "zksync_config",
  "zksync_dal",
- "zksync_prover_dal",
  "zksync_shared_metrics",
  "zksync_types",
 ]
@@ -12282,7 +12281,6 @@ dependencies = [
  "zksync_object_store",
  "zksync_proof_data_handler",
  "zksync_protobuf_config",
- "zksync_prover_dal",
  "zksync_queued_job_processor",
  "zksync_reorg_detector",
  "zksync_state",

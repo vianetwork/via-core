@@ -11,7 +11,6 @@ use via_indexer_dal::Indexer;
 use via_verifier_dal::Verifier;
 use zksync_dal::{ConnectionPool, Core};
 use zksync_db_connection::connection_pool::ConnectionPoolBuilder;
-use zksync_prover_dal::Prover;
 use zksync_types::url::SensitiveUrl;
 
 use crate::resource::Resource;
@@ -126,10 +125,6 @@ pub struct ReplicaPool {}
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct ProverPool {}
-
-#[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct VerifierPool {}
 
 #[derive(Debug, Clone)]
@@ -155,14 +150,6 @@ impl PoolKind for ReplicaPool {
 
     fn kind_str() -> &'static str {
         "replica"
-    }
-}
-
-impl PoolKind for ProverPool {
-    type DbMarker = Prover;
-
-    fn kind_str() -> &'static str {
-        "prover"
     }
 }
 

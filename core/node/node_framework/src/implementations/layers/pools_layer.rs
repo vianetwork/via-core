@@ -3,7 +3,7 @@ use zksync_dal::{ConnectionPool, Core};
 
 use crate::{
     implementations::resources::pools::{
-        IndexerPool, MasterPool, PoolResource, ProverPool, ReplicaPool, VerifierPool,
+        IndexerPool, MasterPool, PoolResource, ReplicaPool, VerifierPool,
     },
     wiring_layer::{WiringError, WiringLayer},
     IntoContext,
@@ -15,7 +15,6 @@ pub struct PoolsLayerBuilder {
     config: PostgresConfig,
     with_master: bool,
     with_replica: bool,
-    with_prover: bool,
     with_verifier: bool,
     with_indexer: bool,
     secrets: DatabaseSecrets,
@@ -29,7 +28,6 @@ impl PoolsLayerBuilder {
             config,
             with_master: false,
             with_replica: false,
-            with_prover: false,
             with_verifier: false,
             with_indexer: false,
             secrets: database_secrets,
@@ -45,12 +43,6 @@ impl PoolsLayerBuilder {
     /// Allows to enable the replica pool.
     pub fn with_replica(mut self, with_replica: bool) -> Self {
         self.with_replica = with_replica;
-        self
-    }
-
-    /// Allows to enable the prover pool.
-    pub fn with_prover(mut self, with_prover: bool) -> Self {
-        self.with_prover = with_prover;
         self
     }
 
@@ -73,7 +65,6 @@ impl PoolsLayerBuilder {
             secrets: self.secrets,
             with_master: self.with_master,
             with_replica: self.with_replica,
-            with_prover: self.with_prover,
             with_verifier: self.with_verifier,
             with_indexer: self.with_indexer,
         }
@@ -87,14 +78,12 @@ impl PoolsLayerBuilder {
 ///
 /// - `PoolResource::<MasterPool>` (if master pool is enabled)
 /// - `PoolResource::<ReplicaPool>` (if replica pool is enabled)
-/// - `PoolResource::<ProverPool>` (if prover pool is enabled)
 #[derive(Debug)]
 pub struct PoolsLayer {
     config: PostgresConfig,
     secrets: DatabaseSecrets,
     with_master: bool,
     with_replica: bool,
-    with_prover: bool,
     with_verifier: bool,
     with_indexer: bool,
 }
@@ -104,7 +93,6 @@ pub struct PoolsLayer {
 pub struct Output {
     pub master_pool: Option<PoolResource<MasterPool>>,
     pub replica_pool: Option<PoolResource<ReplicaPool>>,
-    pub prover_pool: Option<PoolResource<ProverPool>>,
     pub verifier_pool: Option<PoolResource<VerifierPool>>,
     pub indexer_pool: Option<PoolResource<IndexerPool>>,
 }
@@ -119,12 +107,7 @@ impl WiringLayer for PoolsLayer {
     }
 
     async fn wire(self, _input: Self::Input) -> Result<Self::Output, WiringError> {
-        if !self.with_master
-            && !self.with_replica
-            && !self.with_prover
-            && !self.with_verifier
-            && !self.with_indexer
-        {
+        if !self.with_master && !self.with_replica && !self.with_verifier && !self.with_indexer {
             return Err(WiringError::Configuration(
                 "At least one pool should be enabled".to_string(),
             ));
@@ -166,17 +149,6 @@ impl WiringLayer for PoolsLayer {
             None
         };
 
-        let prover_pool = if self.with_prover {
-            Some(PoolResource::<ProverPool>::new(
-                self.secrets.prover_url()?,
-                self.config.max_connections()?,
-                None,
-                None,
-            ))
-        } else {
-            None
-        };
-
         let verifier_pool = if self.with_verifier {
             Some(PoolResource::<VerifierPool>::new(
                 self.secrets.verifier_url()?,
@@ -202,7 +174,6 @@ impl WiringLayer for PoolsLayer {
         Ok(Output {
             master_pool,
             replica_pool,
-            prover_pool,
             verifier_pool,
             indexer_pool,
         })
