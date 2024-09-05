@@ -24,7 +24,7 @@ use crate::{
     sync_dal::SyncDal, system_dal::SystemDal, tee_proof_generation_dal::TeeProofGenerationDal,
     tee_verifier_input_producer_dal::TeeVerifierInputProducerDal, tokens_dal::TokensDal,
     tokens_web3_dal::TokensWeb3Dal, transactions_dal::TransactionsDal,
-    transactions_web3_dal::TransactionsWeb3Dal, via_data_availability_dal::ViaDataAvailabilityDal,
+    transactions_web3_dal::TransactionsWeb3Dal,
     vm_runner_dal::VmRunnerDal,
 };
 
@@ -60,7 +60,6 @@ pub mod tokens_dal;
 pub mod tokens_web3_dal;
 pub mod transactions_dal;
 pub mod transactions_web3_dal;
-pub mod via_data_availability_dal;
 pub mod vm_runner_dal;
 
 #[cfg(test)]
@@ -130,8 +129,6 @@ where
     fn pruning_dal(&mut self) -> PruningDal<'_, 'a>;
 
     fn data_availability_dal(&mut self) -> DataAvailabilityDal<'_, 'a>;
-
-    fn via_data_availability_dal(&mut self) -> ViaDataAvailabilityDal<'_, 'a>;
 
     fn vm_runner_dal(&mut self) -> VmRunnerDal<'_, 'a>;
 
@@ -253,10 +250,6 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
 
     fn data_availability_dal(&mut self) -> DataAvailabilityDal<'_, 'a> {
         DataAvailabilityDal { storage: self }
-    }
-
-    fn via_data_availability_dal(&mut self) -> ViaDataAvailabilityDal<'_, 'a> {
-        ViaDataAvailabilityDal { storage: self }
     }
 
     fn vm_runner_dal(&mut self) -> VmRunnerDal<'_, 'a> {
