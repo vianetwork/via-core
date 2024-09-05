@@ -24,7 +24,8 @@ use crate::{
     sync_dal::SyncDal, system_dal::SystemDal, tee_proof_generation_dal::TeeProofGenerationDal,
     tee_verifier_input_producer_dal::TeeVerifierInputProducerDal, tokens_dal::TokensDal,
     tokens_web3_dal::TokensWeb3Dal, transactions_dal::TransactionsDal,
-    transactions_web3_dal::TransactionsWeb3Dal, vm_runner_dal::VmRunnerDal,
+    transactions_web3_dal::TransactionsWeb3Dal, via_transactions_dal::ViaTransactionsDal,
+    vm_runner_dal::VmRunnerDal,
 };
 
 pub mod base_token_dal;
@@ -63,6 +64,7 @@ pub mod vm_runner_dal;
 
 #[cfg(test)]
 mod tests;
+pub mod via_transactions_dal;
 
 // This module is private and serves as a way to seal the trait.
 mod private {
@@ -76,7 +78,7 @@ where
     Self: 'a,
 {
     fn transactions_dal(&mut self) -> TransactionsDal<'_, 'a>;
-
+    fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a>;
     fn transactions_web3_dal(&mut self) -> TransactionsWeb3Dal<'_, 'a>;
 
     fn tee_verifier_input_producer_dal(&mut self) -> TeeVerifierInputProducerDal<'_, 'a>;
@@ -145,6 +147,10 @@ impl private::Sealed for Connection<'_, Core> {}
 impl<'a> CoreDal<'a> for Connection<'a, Core> {
     fn transactions_dal(&mut self) -> TransactionsDal<'_, 'a> {
         TransactionsDal { storage: self }
+    }
+
+    fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a> {
+        ViaTransactionsDal { storage: self }
     }
 
     fn transactions_web3_dal(&mut self) -> TransactionsWeb3Dal<'_, 'a> {

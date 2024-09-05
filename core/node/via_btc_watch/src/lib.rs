@@ -64,7 +64,7 @@ impl BtcWatch {
     ) -> anyhow::Result<BtcWatchState> {
         // TODO: change it to actual value
         let last_processed_bitcoin_block = match storage
-            .transactions_dal()
+            .via_transactions_dal()
             .get_last_processed_l1_block()
             .await?
         {
