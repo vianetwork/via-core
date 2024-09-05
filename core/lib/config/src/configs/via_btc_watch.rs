@@ -2,6 +2,12 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub enum ActorRole {
+    Sequencer,
+    Verifier,
+}
+
 /// Configuration for the Bitcoin watch crate.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ViaBtcWatchConfig {
@@ -28,7 +34,7 @@ pub struct ViaBtcWatchConfig {
     pub bootstrap_txids: Vec<String>,
 
     /// Role of the actor. SEQUENCER or VERIFIER.
-    pub actor_role: String,
+    pub actor_role: ActorRole,
 }
 
 impl ViaBtcWatchConfig {
@@ -43,7 +49,7 @@ impl ViaBtcWatchConfig {
     }
 
     /// Returns the role of the actor.
-    pub fn actor_role(&self) -> &str {
+    pub fn actor_role(&self) -> &ActorRole {
         &self.actor_role
     }
 
@@ -85,7 +91,7 @@ impl ViaBtcWatchConfig {
             rpc_password: "".to_string(),
             network: "regtest".to_string(),
             bootstrap_txids: vec![],
-            actor_role: "SEQUENCER".to_string(),
+            actor_role: ActorRole::Sequencer,
         }
     }
 }
