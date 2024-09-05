@@ -166,6 +166,15 @@ impl BitcoinInscriptionIndexer {
     pub async fn fetch_block_height(&self) -> BitcoinIndexerResult<u128> {
         self.client.fetch_block_height().await.map_err(|e| e.into())
     }
+
+    pub fn get_state(&self) -> (Address, Address, Vec<Address>, u32) {
+        (
+            self.bridge_address.clone(),
+            self.sequencer_address.clone(),
+            self.verifier_addresses.clone(),
+            self.starting_block_number,
+        )
+    }
 }
 
 impl BitcoinInscriptionIndexer {

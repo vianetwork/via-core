@@ -1,16 +1,18 @@
+mod message_processors;
+
 use std::time::Duration;
 
 use anyhow::Context as _;
 use tokio::sync::watch;
+// re-exporting here isn't necessary, but it's a good practice to keep all the public types in one place
+pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::BitcoinTxid};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 
-use crate::message_processors::MessageProcessorError;
-
-mod message_processors;
-
-// re-exporting here isn't necessary, but it's a good practice to keep all the public types in one place
-pub use via_btc_client::types::BitcoinNetwork;
+use self::message_processors::{
+    DAOpsMessageProcessor, L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError,
+    SystemOpsMessageProcessor,
+};
 
 #[derive(Debug)]
 struct BtcWatchState {
@@ -23,6 +25,7 @@ pub struct BtcWatch {
     poll_interval: Duration,
     last_processed_bitcoin_block: u32,
     pool: ConnectionPool<Core>,
+    message_processors: Vec<Box<dyn MessageProcessor>>,
 }
 
 impl BtcWatch {
@@ -39,13 +42,19 @@ impl BtcWatch {
         tracing::info!("initialized state: {state:?}");
         drop(storage);
 
-        // TODO: init event processors
+        let (bridge_address, _, _, _starting_block) = indexer.get_state();
+        let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
+            Box::new(L1ToL2MessageProcessor::new(bridge_address)),
+            Box::new(SystemOpsMessageProcessor::new()),
+            Box::new(DAOpsMessageProcessor::new()),
+        ];
 
         Ok(Self {
             indexer,
             poll_interval,
             last_processed_bitcoin_block: state.last_processed_bitcoin_block,
             pool,
+            message_processors,
         })
     }
 
@@ -105,20 +114,30 @@ impl BtcWatch {
 
     async fn loop_iteration(
         &mut self,
-        _storage: &mut Connection<'_, Core>,
+        storage: &mut Connection<'_, Core>,
     ) -> Result<(), MessageProcessorError> {
-        let to_block = self.indexer.fetch_block_height().await.unwrap() as u32;
+        let to_block = self
+            .indexer
+            .fetch_block_height()
+            .await
+            .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
+            as u32;
         if to_block <= self.last_processed_bitcoin_block {
             return Ok(());
         }
 
-        let _messages = self
+        let messages = self
             .indexer
             .process_blocks(self.last_processed_bitcoin_block + 1, to_block)
             .await
-            .unwrap();
+            .map_err(|e| MessageProcessorError::Internal(e.into()))?;
 
-        // TODO: process messages
+        for processor in &mut self.message_processors {
+            // TODO: add filtering by message type, not cloning all the messages
+            processor
+                .process_messages(storage, messages.clone())
+                .await?;
+        }
 
         self.last_processed_bitcoin_block = to_block;
         Ok(())
