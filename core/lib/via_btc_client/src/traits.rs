@@ -40,6 +40,12 @@ pub(crate) trait BitcoinOps: Send + Sync {
     async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
 }
 
+impl std::fmt::Debug for dyn BitcoinOps + 'static {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BitcoinOps").finish()
+    }
+}
+
 #[async_trait]
 pub(crate) trait BitcoinRpc: Send + Sync {
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64>;

@@ -8421,7 +8421,6 @@ dependencies = [
  "bitcoincore-rpc",
  "hex",
  "inquire",
- "jsonrpsee 0.23.2",
  "lazy_static",
  "mockall",
  "rand 0.8.5",
@@ -8435,8 +8434,22 @@ dependencies = [
  "tracing-subscriber",
  "zksync_basic_types",
  "zksync_config",
- "zksync_da_client",
  "zksync_types",
+]
+
+[[package]]
+name = "via_btc_watch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "vise",
+ "zksync_dal",
+ "zksync_shared_metrics",
 ]
 
 [[package]]
@@ -8458,6 +8471,24 @@ dependencies = [
  "zksync_node_framework",
  "zksync_object_store",
  "zksync_types",
+]
+
+[[package]]
+name = "via_server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.5.16",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+ "zksync_config",
+ "zksync_env_config",
+ "zksync_node_framework",
+ "zksync_storage",
+ "zksync_types",
+ "zksync_utils",
+ "zksync_vlog",
 ]
 
 [[package]]
@@ -10309,6 +10340,7 @@ dependencies = [
  "tokio",
  "tracing",
  "trybuild",
+ "via_btc_watch",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",
  "zksync_circuit_breaker",

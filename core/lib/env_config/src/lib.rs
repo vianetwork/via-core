@@ -30,6 +30,7 @@ mod genesis;
 mod prover_job_monitor;
 #[cfg(test)]
 mod test_utils;
+mod via_btc_watch;
 mod vm_runner;
 mod wallets;
 
