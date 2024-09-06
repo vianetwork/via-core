@@ -38,7 +38,7 @@ impl InscriptionData {
         let basic_script = Self::build_basic_inscription_script(&encoded_pubkey)?;
 
         let (inscription_script, script_size) =
-            Self::complete_inscription(basic_script, inscription_message)?;
+            Self::complete_inscription(basic_script, inscription_message, network)?;
 
         let (script_pubkey, taproot_spend_info) = Self::construct_inscription_commitment_data(
             secp,
@@ -111,6 +111,7 @@ impl InscriptionData {
     fn complete_inscription(
         basic_script: ScriptBuilder,
         message: &types::InscriptionMessage,
+        network: Network,
     ) -> Result<(ScriptBuf, usize)> {
         debug!("Completing inscription for message type: {:?}", message);
         let final_script_result = match message {
@@ -124,10 +125,10 @@ impl InscriptionData {
                 Self::build_validator_attestation_script(basic_script, input)
             }
             types::InscriptionMessage::SystemBootstrapping(input) => {
-                Self::build_system_bootstrapping_script(basic_script, input)
+                Self::build_system_bootstrapping_script(basic_script, input, network)?
             }
             types::InscriptionMessage::ProposeSequencer(input) => {
-                Self::build_propose_sequencer_script(basic_script, input)
+                Self::build_propose_sequencer_script(basic_script, input, network)?
             }
             types::InscriptionMessage::L1ToL2Message(input) => {
                 Self::build_l1_to_l2_message_script(basic_script, input)
@@ -213,7 +214,8 @@ impl InscriptionData {
     fn build_system_bootstrapping_script(
         basic_script: ScriptBuilder,
         input: &types::SystemBootstrappingInput,
-    ) -> ScriptBuilder {
+        network: Network,
+    ) -> Result<ScriptBuilder> {
         debug!("Building SystemBootstrapping script");
         let start_block_height_encoded =
             Self::encode_push_bytes(&input.start_block_height.to_be_bytes());
@@ -221,17 +223,20 @@ impl InscriptionData {
         let mut script = basic_script.push_slice(start_block_height_encoded);
 
         for verifier_p2wpkh_address in &input.verifier_p2wpkh_addresses {
+            let network_checked_address =
+                verifier_p2wpkh_address.clone().require_network(network)?;
             let address_encoded =
-                Self::encode_push_bytes(verifier_p2wpkh_address.to_string().as_bytes());
+                Self::encode_push_bytes(network_checked_address.to_string().as_bytes());
             script = script.push_slice(address_encoded);
         }
 
-        let bridge_address_encoded =
-            Self::encode_push_bytes(input.bridge_p2wpkh_mpc_address.to_string().as_bytes());
+        let bridge_address = input
+            .bridge_p2wpkh_mpc_address
+            .clone()
+            .require_network(network)?;
+        let bridge_address_encoded = Self::encode_push_bytes(bridge_address.to_string().as_bytes());
 
-        script
-            .push_slice(&*types::SYSTEM_BOOTSTRAPPING_MSG)
-            .push_slice(bridge_address_encoded)
+        Ok(script.push_slice(bridge_address_encoded))
     }
 
     #[instrument(
@@ -241,14 +246,19 @@ impl InscriptionData {
     fn build_propose_sequencer_script(
         basic_script: ScriptBuilder,
         input: &types::ProposeSequencerInput,
-    ) -> ScriptBuilder {
+        network: Network,
+    ) -> Result<ScriptBuilder> {
         debug!("Building ProposeSequencer script");
-        let address_encoded =
-            Self::encode_push_bytes(input.sequencer_new_p2wpkh_address.to_string().as_bytes());
 
-        basic_script
+        let address = input
+            .sequencer_new_p2wpkh_address
+            .clone()
+            .require_network(network)?;
+        let address_encoded = Self::encode_push_bytes(address.to_string().as_bytes());
+
+        Ok(basic_script
             .push_slice(&*types::PROPOSE_SEQUENCER_MSG)
-            .push_slice(address_encoded)
+            .push_slice(address_encoded))
     }
 
     #[instrument(

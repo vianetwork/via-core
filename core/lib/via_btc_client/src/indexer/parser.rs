@@ -211,12 +211,19 @@ impl MessageParser {
 
         debug!("Parsed bridge address");
 
+        // we need this to enable serde serialization and deserialization on the library structs
+        let network_unchecked_verifier_addresses: Vec<Address<NetworkUnchecked>> =
+            verifier_addresses
+                .iter()
+                .map(|a| a.as_unchecked().clone())
+                .collect();
+
         Some(Message::SystemBootstrapping(SystemBootstrapping {
             common: common_fields.clone(),
             input: SystemBootstrappingInput {
                 start_block_height,
-                bridge_p2wpkh_mpc_address: bridge_address,
-                verifier_p2wpkh_addresses: verifier_addresses,
+                bridge_p2wpkh_mpc_address: bridge_address.as_unchecked().clone(),
+                verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
             },
         }))
     }
@@ -253,7 +260,7 @@ impl MessageParser {
         Some(Message::ProposeSequencer(ProposeSequencer {
             common: common_fields.clone(),
             input: ProposeSequencerInput {
-                sequencer_new_p2wpkh_address: sequencer_address,
+                sequencer_new_p2wpkh_address: sequencer_address.as_unchecked().clone(),
             },
         }))
     }
