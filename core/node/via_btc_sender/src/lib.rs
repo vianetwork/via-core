@@ -1,30 +1,75 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result; // add context in logic implementation phase
 use tokio::sync::watch;
-use via_btc_client::inscriber::Inscriber;
 // re-exporting here isn't necessary, but it's a good practice to keep all the public types in one place
-pub use via_btc_client::types::BitcoinNetwork;
+pub use via_btc_client::types::{BitcoinNetwork, NodeAuth};
+use via_btc_client::{inscriber::Inscriber, types::InscriberContext};
+use zksync_config::{ObjectStoreConfig, ViaBtcSenderConfig};
 use zksync_dal::{Connection, ConnectionPool, Core};
+use zksync_object_store::{ObjectStore, ObjectStoreFactory};
 
 #[derive(Debug)]
 pub struct BtcSender {
     _inscriber: Inscriber,
     pool: ConnectionPool<Core>,
     poll_interval: Duration,
+    _object_store: Arc<dyn ObjectStore>,
 }
 
 impl BtcSender {
     pub async fn new(
-        _rpc_url: &str,
-        _rpc_username: &str,
-        _rpc_password: &str,
+        config: ViaBtcSenderConfig,
         _pool: ConnectionPool<Core>,
         _poll_interval: Duration,
+        object_store_conf: ObjectStoreConfig,
     ) -> anyhow::Result<Self> {
         // create a new instance of the BitcoinInscriber
         // read context from database and create a new instance of the BitcoinInscriber context
-        todo!();
+
+        let network = match config.network() {
+            "mainnet" => BitcoinNetwork::Bitcoin,
+            "testnet" => BitcoinNetwork::Testnet,
+            "regtest" => BitcoinNetwork::Regtest,
+            _ => return Err(anyhow::anyhow!("Invalid network")),
+        };
+
+        let auth = NodeAuth::UserPass(
+            config.rpc_user().to_string(),
+            config.rpc_password().to_string(),
+        );
+
+        // TODO: Read the actor role and apply the logic accordingly
+
+        // Read the persisted context from the gcs bucket
+
+        let object_store = ObjectStoreFactory::new(object_store_conf)
+            .create_store()
+            .await?;
+
+        // read latest stored context id from the database (id of the last stored inscriber transaction history)
+
+        let temp_id = 2_u32;
+
+        // read the context from the object store
+
+        let context = object_store.get::<InscriberContext>(temp_id).await?;
+
+        let inscriber = Inscriber::new(
+            config.rpc_url(),
+            network,
+            auth,
+            config.private_key(),
+            Some(context),
+        )
+        .await?;
+
+        Ok(Self {
+            _inscriber: inscriber,
+            pool: _pool,
+            poll_interval: _poll_interval,
+            _object_store: object_store,
+        })
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {

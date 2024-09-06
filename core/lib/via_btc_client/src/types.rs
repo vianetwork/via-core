@@ -185,8 +185,8 @@ impl StoredObject for InscriberContext {
 
     type Key<'a> = u32;
 
-    fn encode_key(_key: Self::Key<'_>) -> String {
-        "inscriber_context.bin".to_string()
+    fn encode_key(key: Self::Key<'_>) -> String {
+        format!("inscriber_context_{key}.bin")
     }
 
     serialize_using_bincode!();

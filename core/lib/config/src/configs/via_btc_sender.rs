@@ -16,6 +16,8 @@ pub struct ViaBtcSenderConfig {
 
     // service interval
     pub poll_interval: u64,
+
+    pub private_key: String,
 }
 
 impl ViaBtcSenderConfig {
@@ -43,6 +45,10 @@ impl ViaBtcSenderConfig {
     pub fn poll_interval(&self) -> Duration {
         Duration::from_millis(self.poll_interval)
     }
+
+    pub fn private_key(&self) -> &str {
+        &self.private_key
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -55,6 +61,7 @@ impl ViaBtcSenderConfig {
             network: "regtest".to_string(),
             actor_role: "sequencer".to_string(),
             poll_interval: 1000,
+            private_key: "private".to_string(),
         }
     }
 }

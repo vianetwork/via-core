@@ -13,6 +13,10 @@ categories.workspace = true
 [dependencies]
 via_btc_client.workspace = true
 zksync_dal.workspace = true
+zksync_config.workspace = true
+zksync_object_store.workspace = true
+
+
 
 tokio.workspace = true
 anyhow.workspace = true

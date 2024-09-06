@@ -8448,7 +8448,9 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "zksync_config",
  "zksync_dal",
+ "zksync_object_store",
 ]
 
 [[package]]
