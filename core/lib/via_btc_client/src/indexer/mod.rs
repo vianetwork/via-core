@@ -1,17 +1,18 @@
 use std::collections::HashMap;
 
-use bitcoin::{Address, BlockHash, KnownHrp, Network, Txid};
+use bitcoin::{Address, BlockHash, Network, Txid};
 use bitcoincore_rpc::Auth;
 use tracing::{debug, error, info, instrument, warn};
 
 mod parser;
 use parser::MessageParser;
+pub use parser::{get_btc_address, get_eth_address};
 
 use crate::{
     client::BitcoinClient,
     traits::BitcoinOps,
     types,
-    types::{BitcoinIndexerResult, CommonFields, FullInscriptionMessage, L1ToL2Message, Vote},
+    types::{BitcoinIndexerResult, FullInscriptionMessage, L1ToL2Message, Vote},
 };
 
 /// Represents the state during the bootstrap process
@@ -218,25 +219,25 @@ impl BitcoinInscriptionIndexer {
     fn is_valid_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
             FullInscriptionMessage::ProposeSequencer(m) => {
-                let is_valid = Self::get_sender_address(&m.common, self.network)
+                let is_valid = parser::get_btc_address(&m.common, self.network)
                     .map_or(false, |addr| self.verifier_addresses.contains(&addr));
                 debug!("ProposeSequencer message validity: {}", is_valid);
                 is_valid
             }
             FullInscriptionMessage::ValidatorAttestation(m) => {
-                let is_valid = Self::get_sender_address(&m.common, self.network)
+                let is_valid = parser::get_btc_address(&m.common, self.network)
                     .map_or(false, |addr| self.verifier_addresses.contains(&addr));
                 debug!("ValidatorAttestation message validity: {}", is_valid);
                 is_valid
             }
             FullInscriptionMessage::L1BatchDAReference(m) => {
-                let is_valid = Self::get_sender_address(&m.common, self.network)
+                let is_valid = parser::get_btc_address(&m.common, self.network)
                     .map_or(false, |addr| addr == self.sequencer_address);
                 debug!("L1BatchDAReference message validity: {}", is_valid);
                 is_valid
             }
             FullInscriptionMessage::ProofDAReference(m) => {
-                let is_valid = Self::get_sender_address(&m.common, self.network)
+                let is_valid = parser::get_btc_address(&m.common, self.network)
                     .map_or(false, |addr| addr == self.sequencer_address);
                 debug!("ProofDAReference message validity: {}", is_valid);
                 is_valid
@@ -269,7 +270,7 @@ impl BitcoinInscriptionIndexer {
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
                 debug!("Processing ProposeSequencer message");
-                if let Some(sender_address) = Self::get_sender_address(&ps.common, Network::Testnet)
+                if let Some(sender_address) = parser::get_btc_address(&ps.common, Network::Testnet)
                 {
                     // TODO: use actual network
                     if state.verifier_addresses.contains(&sender_address) {
@@ -282,7 +283,7 @@ impl BitcoinInscriptionIndexer {
                 debug!("Processing ValidatorAttestation message");
                 if state.proposed_sequencer.is_some() {
                     if let Some(sender_address) =
-                        Self::get_sender_address(&va.common, Network::Testnet)
+                        parser::get_btc_address(&va.common, Network::Testnet)
                     {
                         // TODO: use actual network
                         if state.verifier_addresses.contains(&sender_address) {
@@ -311,20 +312,6 @@ impl BitcoinInscriptionIndexer {
             .any(|output| output.script_pubkey == self.bridge_address.script_pubkey());
         debug!("L1ToL2Message transfer validity: {}", is_valid);
         is_valid
-    }
-
-    #[instrument(skip(common_fields), target = "bitcoin_indexer")]
-    fn get_sender_address(common_fields: &CommonFields, network: Network) -> Option<Address> {
-        secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
-            .ok()
-            .map(|public_key| {
-                Address::p2tr(
-                    &bitcoin::secp256k1::Secp256k1::new(),
-                    public_key,
-                    None,
-                    KnownHrp::from(network),
-                )
-            })
     }
 }
 

@@ -3,7 +3,7 @@ use bitcoin::{
     hashes::Hash,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, Network, ScriptBuf, Transaction, Txid,
+    Address, Amount, KnownHrp, Network, ScriptBuf, Transaction, Txid,
 };
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
@@ -451,6 +451,33 @@ fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> 
     }
 
     position
+}
+
+pub fn get_btc_address(common_fields: &CommonFields, network: Network) -> Option<Address> {
+    secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
+        .ok()
+        .map(|public_key| {
+            Address::p2tr(
+                &bitcoin::secp256k1::Secp256k1::new(),
+                public_key,
+                None,
+                KnownHrp::from(network),
+            )
+        })
+}
+
+pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {
+    secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
+        .ok()
+        .map(|public_key| {
+            let pubkey_bytes = public_key.serialize();
+
+            // Take the first 20 bytes of the public key
+            let mut address_bytes = [0u8; 20];
+            address_bytes.copy_from_slice(&pubkey_bytes[0..20]);
+
+            EVMAddress::from(address_bytes)
+        })
 }
 
 #[cfg(test)]
