@@ -1,7 +1,5 @@
 use anyhow::{Context, Result};
-
 use tokio::sync::watch;
-
 use via_btc_client::{
     client::BitcoinClient, inscriber::Inscriber, traits::Serializable, types::InscriptionMessage,
 };

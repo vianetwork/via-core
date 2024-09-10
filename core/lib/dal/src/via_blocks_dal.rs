@@ -1,5 +1,3 @@
-pub use crate::models::storage_block::{L1BatchMetadataError, L1BatchWithOptionalMetadata};
-use crate::{models::storage_btc_block::ViaBtcStorageBlockDetails, Core};
 use zksync_db_connection::{
     connection::Connection,
     error::DalResult,
@@ -9,6 +7,9 @@ use zksync_types::{
     btc_block::ViaBtcBlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType,
     L1BatchNumber,
 };
+
+pub use crate::models::storage_block::{L1BatchMetadataError, L1BatchWithOptionalMetadata};
+use crate::{models::storage_btc_block::ViaBtcStorageBlockDetails, Core};
 
 #[derive(Debug)]
 pub struct ViaBlocksDal<'a, 'c> {
@@ -128,17 +129,12 @@ impl ViaBlocksDal<'_, '_> {
                 via_btc_inscriptions_request_history.inscription_request_context_id
             FROM
                 l1_batches
-            
-            LEFT JOIN via_btc_inscriptions_request
-                ON l1_batches.eth_commit_tx_id=via_btc_inscriptions_request.id
-            LEFT JOIN via_btc_inscriptions_request_history
-                ON via_btc_inscriptions_request.id=via_btc_inscriptions_request_history.inscription_request_id
-                
+                LEFT JOIN via_btc_inscriptions_request ON l1_batches.eth_commit_tx_id = via_btc_inscriptions_request.id
+                LEFT JOIN via_btc_inscriptions_request_history ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
             WHERE
                 eth_commit_tx_id IS NOT NULL
-                AND
-                eth_prove_tx_id IS NULL
-                AND number=$1
+                AND eth_prove_tx_id IS NULL
+                AND number = $1
             "#,
             l1_block_number
         )

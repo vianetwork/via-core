@@ -1,5 +1,6 @@
-use async_trait::async_trait;
 use std::fmt;
+
+use async_trait::async_trait;
 use zksync_dal::{Connection, Core};
 use zksync_types::{
     btc_inscription_operations::ViaBtcInscriptionRequestType, commitment::L1BatchWithMetadata,

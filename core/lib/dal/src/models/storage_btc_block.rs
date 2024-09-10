@@ -1,6 +1,7 @@
+use std::str::FromStr;
+
 use anyhow::Context;
 use bitcoin::Txid;
-use std::str::FromStr;
 use zksync_types::{btc_block::ViaBtcBlockDetails, H256};
 
 #[derive(Debug, Clone, sqlx::FromRow)]

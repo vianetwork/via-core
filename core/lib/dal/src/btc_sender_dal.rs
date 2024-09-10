@@ -1,10 +1,8 @@
 use bitcoin::hash_types::Txid;
-
+use zksync_db_connection::connection::Connection;
 use zksync_types::{
     btc_inscription_operations::ViaBtcInscriptionRequestType, btc_sender::ViaBtcInscriptionRequest,
 };
-
-use zksync_db_connection::connection::Connection;
 
 use crate::{models::storage_btc_inscription_request::ViaStorageBtcInscriptionRequest, Core};
 
@@ -25,13 +23,7 @@ impl ViaBtcSenderDal<'_, '_> {
             ViaBtcInscriptionRequest,
             r#"
             INSERT INTO
-                via_btc_inscriptions_request (
-                    request_type,
-                    inscription_message,
-                    predicted_fee,
-                    created_at,
-                    updated_at
-                )
+                via_btc_inscriptions_request (request_type, inscription_message, predicted_fee, created_at, updated_at)
             VALUES
                 ($1, $2, $3, NOW(), NOW())
             RETURNING
@@ -56,12 +48,10 @@ impl ViaBtcSenderDal<'_, '_> {
                 via_btc_inscriptions_request.*
             FROM
                 via_btc_inscriptions_request
-            LEFT JOIN via_btc_inscriptions_request_history
-                ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
+                LEFT JOIN via_btc_inscriptions_request_history ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
             WHERE
                 via_btc_inscriptions_request_history.sent_at_block IS NOT NULL
-                AND
-                via_btc_inscriptions_request_history.confirmed_at IS NULL
+                AND via_btc_inscriptions_request_history.confirmed_at IS NULL
             ORDER BY
                 via_btc_inscriptions_request.id
             "#
@@ -82,8 +72,7 @@ impl ViaBtcSenderDal<'_, '_> {
                 via_btc_inscriptions_request.*
             FROM
                 via_btc_inscriptions_request
-                LEFT JOIN via_btc_inscriptions_request_history
-                ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
+                LEFT JOIN via_btc_inscriptions_request_history ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
             WHERE
                 via_btc_inscriptions_request_history.inscription_request_id IS NULL
             ORDER BY

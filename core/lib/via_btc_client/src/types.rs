@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use bincode::{deserialize, serialize};
 use bitcoin::{
     address::NetworkUnchecked, script::PushBytesBuf, taproot::Signature as TaprootSignature,
@@ -7,7 +9,6 @@ pub use bitcoin::{Address as BitcoinAddress, Network as BitcoinNetwork, Txid as 
 pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use thiserror::Error;
 use zksync_basic_types::H256;
 use zksync_object_store::{serialize_using_bincode, Bucket, StoredObject};
