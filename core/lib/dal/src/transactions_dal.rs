@@ -302,7 +302,7 @@ impl TransactionsDal<'_, '_> {
             .expect("Data is mandatory")
             .data;
         let value = u256_to_big_decimal(tx.execute.value);
-        let paymaster = tx.common_data.paymaster_params.paymaster.0.as_ref();
+        let paymaster = tx.common_data.paymaster_params.paymaster.0;
         let paymaster_input = &tx.common_data.paymaster_params.paymaster_input;
         let secs = (tx.received_timestamp_ms / 1000) as i64;
         let nanosecs = ((tx.received_timestamp_ms % 1000) * 1_000_000) as u32;

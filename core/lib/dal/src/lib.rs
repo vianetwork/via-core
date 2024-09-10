@@ -3,6 +3,7 @@
 // Linter settings.
 #![warn(clippy::cast_lossless)]
 
+use btc_sender_dal::ViaBtcSenderDal;
 pub use sqlx::{types::BigDecimal, Error as SqlxError};
 use zksync_db_connection::connection::DbMarker;
 pub use zksync_db_connection::{
@@ -24,13 +25,15 @@ use crate::{
     sync_dal::SyncDal, system_dal::SystemDal, tee_proof_generation_dal::TeeProofGenerationDal,
     tee_verifier_input_producer_dal::TeeVerifierInputProducerDal, tokens_dal::TokensDal,
     tokens_web3_dal::TokensWeb3Dal, transactions_dal::TransactionsDal,
-    transactions_web3_dal::TransactionsWeb3Dal, via_data_availability_dal::ViaDataAvailabilityDal,
-    via_transactions_dal::ViaTransactionsDal, vm_runner_dal::VmRunnerDal,
+    transactions_web3_dal::TransactionsWeb3Dal, via_blocks_dal::ViaBlocksDal,
+    via_data_availability_dal::ViaDataAvailabilityDal, via_transactions_dal::ViaTransactionsDal,
+    vm_runner_dal::VmRunnerDal,
 };
 
 pub mod base_token_dal;
 pub mod blocks_dal;
 pub mod blocks_web3_dal;
+pub mod btc_sender_dal;
 pub mod consensus;
 pub mod consensus_dal;
 pub mod contract_verification_dal;
@@ -60,6 +63,7 @@ pub mod tokens_dal;
 pub mod tokens_web3_dal;
 pub mod transactions_dal;
 pub mod transactions_web3_dal;
+pub mod via_blocks_dal;
 pub mod via_data_availability_dal;
 pub mod via_transactions_dal;
 pub mod vm_runner_dal;
@@ -88,11 +92,15 @@ where
 
     fn blocks_dal(&mut self) -> BlocksDal<'_, 'a>;
 
+    fn via_blocks_dal(&mut self) -> ViaBlocksDal<'_, 'a>;
+
     fn blocks_web3_dal(&mut self) -> BlocksWeb3Dal<'_, 'a>;
 
     fn consensus_dal(&mut self) -> ConsensusDal<'_, 'a>;
 
     fn eth_sender_dal(&mut self) -> EthSenderDal<'_, 'a>;
+
+    fn btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a>;
 
     fn events_dal(&mut self) -> EventsDal<'_, 'a>;
 
@@ -169,6 +177,10 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
         BlocksDal { storage: self }
     }
 
+    fn via_blocks_dal(&mut self) -> ViaBlocksDal<'_, 'a> {
+        ViaBlocksDal { storage: self }
+    }
+
     fn blocks_web3_dal(&mut self) -> BlocksWeb3Dal<'_, 'a> {
         BlocksWeb3Dal { storage: self }
     }
@@ -179,6 +191,10 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
 
     fn eth_sender_dal(&mut self) -> EthSenderDal<'_, 'a> {
         EthSenderDal { storage: self }
+    }
+
+    fn btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a> {
+        ViaBtcSenderDal { storage: self }
     }
 
     fn events_dal(&mut self) -> EventsDal<'_, 'a> {

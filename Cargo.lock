@@ -8417,6 +8417,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bincode",
  "bitcoin",
  "bitcoincore-rpc",
  "hex",
@@ -9787,6 +9788,7 @@ dependencies = [
  "anyhow",
  "bigdecimal",
  "bincode",
+ "bitcoin",
  "chrono",
  "hex",
  "itertools 0.10.5",
@@ -10948,6 +10950,7 @@ dependencies = [
  "anyhow",
  "bigdecimal",
  "bincode",
+ "bitcoin",
  "blake2 0.10.6",
  "chrono",
  "derive_more",

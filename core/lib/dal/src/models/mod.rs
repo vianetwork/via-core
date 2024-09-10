@@ -5,6 +5,8 @@ use zksync_types::{ProtocolVersionId, H160, H256};
 
 mod call;
 pub mod storage_base_token_ratio;
+pub mod storage_btc_block;
+pub mod storage_btc_inscription_request;
 pub(crate) mod storage_data_availability;
 pub mod storage_eth_tx;
 pub mod storage_event;
