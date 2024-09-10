@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                l1_batches.number,\n                l1_batches.hash,\n                via_btc_inscriptions_request_history.commit_tx_id,\n                via_btc_inscriptions_request_history.reveal_tx_id,\n                via_btc_inscriptions_request_history.inscription_request_context_id\n            FROM\n                l1_batches\n            \n            LEFT JOIN via_btc_inscriptions_request\n                ON l1_batches.eth_commit_tx_id=via_btc_inscriptions_request.id\n            LEFT JOIN via_btc_inscriptions_request_history\n                ON via_btc_inscriptions_request.id=via_btc_inscriptions_request_history.inscription_request_id\n                \n            WHERE\n                eth_commit_tx_id IS NOT NULL\n                AND\n                eth_prove_tx_id IS NULL\n                AND number=$1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "hash",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "commit_tx_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "reveal_tx_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "inscription_request_context_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "98883b576bc68b3a5dda6d0c5bbce5270b648adc4221fb79888e3d24303ad823"
+}

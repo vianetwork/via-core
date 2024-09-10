@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n                via_btc_inscriptions_request (\n                    request_type,\n                    inscription_message,\n                    predicted_fee,\n                    created_at,\n                    updated_at\n                )\n            VALUES\n                ($1, $2, $3, NOW(), NOW())\n            RETURNING\n                *\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "request_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "inscription_message",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "predicted_fee",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "efb056a4730dac1a30949d4f33bfbb4d2afd2d4d0982449f8542442a4d7b75db"
+}
