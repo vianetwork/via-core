@@ -1,5 +1,4 @@
-use std::collections::VecDeque;
-
+use bincode::{deserialize, serialize};
 use bitcoin::{
     address::NetworkUnchecked, script::PushBytesBuf, taproot::Signature as TaprootSignature,
     Amount, TxIn, TxOut, Txid,
@@ -8,10 +7,13 @@ pub use bitcoin::{Address as BitcoinAddress, Network as BitcoinNetwork, Txid as 
 pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use thiserror::Error;
 use zksync_basic_types::H256;
 use zksync_object_store::{serialize_using_bincode, Bucket, StoredObject};
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
+
+use crate::traits::Serializable;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {
@@ -112,6 +114,19 @@ pub enum InscriptionMessage {
     SystemBootstrapping(SystemBootstrappingInput),
     ProposeSequencer(ProposeSequencerInput),
     L1ToL2Message(L1ToL2MessageInput),
+}
+
+impl Serializable for InscriptionMessage {
+    fn to_bytes(&self) -> Vec<u8> {
+        serialize(self).expect("error serialize the InscriptionMessage")
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self
+    where
+        Self: Sized,
+    {
+        deserialize(bytes).expect("error deserialize the InscriptionMessage")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -12,17 +12,13 @@ use crate::{
 };
 
 pub struct BitcoinClient {
-    rpc: Box<dyn BitcoinRpc>,
-    network: BitcoinNetwork,
+    pub rpc: Box<dyn BitcoinRpc>,
+    pub network: BitcoinNetwork,
 }
 
 impl BitcoinClient {
     #[instrument(skip(auth), target = "bitcoin_client")]
-    pub(crate) fn new(
-        rpc_url: &str,
-        network: BitcoinNetwork,
-        auth: NodeAuth,
-    ) -> BitcoinClientResult<Self>
+    pub fn new(rpc_url: &str, network: BitcoinNetwork, auth: NodeAuth) -> BitcoinClientResult<Self>
     where
         Self: Sized,
     {
