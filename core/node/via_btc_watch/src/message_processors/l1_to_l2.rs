@@ -127,7 +127,7 @@ impl L1ToL2MessageProcessor {
                 canonical_tx_hash: Default::default(),
                 to_mint: Default::default(),
                 refund_recipient: Default::default(),
-                eth_block: 0, // TODO: get the block number from the message
+                eth_block: msg.common.block_height as u64,
             },
             received_timestamp_ms: unix_timestamp_ms(),
         })

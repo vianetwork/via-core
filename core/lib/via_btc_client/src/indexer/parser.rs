@@ -39,16 +39,21 @@ impl MessageParser {
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
-    pub fn parse_transaction(&self, tx: &Transaction) -> Vec<Message> {
+    pub fn parse_transaction(&self, tx: &Transaction, block_height: u32) -> Vec<Message> {
         debug!("Parsing transaction");
         tx.input
             .iter()
-            .filter_map(|input| self.parse_input(input, tx))
+            .filter_map(|input| self.parse_input(input, tx, block_height))
             .collect()
     }
 
     #[instrument(skip(self, input, tx), target = "bitcoin_indexer::parser")]
-    fn parse_input(&self, input: &bitcoin::TxIn, tx: &Transaction) -> Option<Message> {
+    fn parse_input(
+        &self,
+        input: &bitcoin::TxIn,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Option<Message> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
             debug!("Witness length is less than minimum required");
@@ -84,6 +89,7 @@ impl MessageParser {
         let common_fields = CommonFields {
             schnorr_signature: signature,
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
+            block_height,
         };
 
         self.parse_message(tx, &instructions[via_index..], &common_fields)
@@ -499,7 +505,7 @@ mod tests {
         let parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        let messages = parser.parse_transaction(&tx);
+        let messages = parser.parse_transaction(&tx, 0);
         assert_eq!(messages.len(), 1);
     }
 
@@ -511,7 +517,7 @@ mod tests {
         let tx = setup_test_transaction();
 
         if let Some(Message::SystemBootstrapping(bootstrapping)) =
-            parser.parse_transaction(&tx).pop()
+            parser.parse_transaction(&tx, 0).pop()
         {
             assert_eq!(bootstrapping.input.start_block_height, 10);
             assert_eq!(bootstrapping.input.verifier_p2wpkh_addresses.len(), 1);

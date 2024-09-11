@@ -1,6 +1,8 @@
 use anyhow::Result;
 use tracing_subscriber;
-use via_btc_client::{indexer::BitcoinInscriptionIndexer, regtest::BitcoinRegtest, types::Network};
+use via_btc_client::{
+    indexer::BitcoinInscriptionIndexer, regtest::BitcoinRegtest, types::BitcoinNetwork,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -13,7 +15,7 @@ async fn main() -> Result<()> {
     let miner = context.get_miner_address()?;
     tracing::info!("miner address: {}", miner);
     let indexer =
-        BitcoinInscriptionIndexer::new(&context.get_url(), Network::Regtest, vec![]).await;
+        BitcoinInscriptionIndexer::new(&context.get_url(), BitcoinNetwork::Regtest, vec![]).await;
 
     if let Err(e) = indexer {
         tracing::error!("Failed to create indexer: {:?}", e);

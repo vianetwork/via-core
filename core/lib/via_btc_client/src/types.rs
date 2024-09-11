@@ -60,6 +60,7 @@ pub struct ValidatorAttestation {
 pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
+    pub block_height: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]

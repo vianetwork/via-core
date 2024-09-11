@@ -60,11 +60,11 @@ pub mod tokens_dal;
 pub mod tokens_web3_dal;
 pub mod transactions_dal;
 pub mod transactions_web3_dal;
+pub mod via_transactions_dal;
 pub mod vm_runner_dal;
 
 #[cfg(test)]
 mod tests;
-pub mod via_transactions_dal;
 
 // This module is private and serves as a way to seal the trait.
 mod private {
