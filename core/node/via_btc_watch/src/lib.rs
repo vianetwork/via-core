@@ -4,9 +4,11 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use tokio::sync::watch;
+// re-export via_btc_client types
+pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinAddress, BitcoinNetwork, BitcoinTxid},
+    types::{BitcoinAddress, BitcoinTxid},
 };
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::PriorityOpId;

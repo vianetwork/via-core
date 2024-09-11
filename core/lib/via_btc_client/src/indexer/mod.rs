@@ -87,7 +87,7 @@ impl BitcoinInscriptionIndexer {
         for txid in bootstrap_txids {
             debug!("Processing bootstrap transaction: {}", txid);
             let tx = client.get_transaction(&txid).await?;
-            let messages = parser.parse_transaction(&tx);
+            let messages = parser.parse_transaction(&tx, 0);
 
             for message in messages {
                 Self::process_bootstrap_message(&mut bootstrap_state, message, txid);
@@ -136,7 +136,7 @@ impl BitcoinInscriptionIndexer {
         let messages: Vec<_> = block
             .txdata
             .iter()
-            .flat_map(|tx| self.parser.parse_transaction(tx))
+            .flat_map(|tx| self.parser.parse_transaction(tx, block_height))
             .filter(|message| self.is_valid_message(message))
             .collect();
 
@@ -321,14 +321,14 @@ mod tests {
 
     use async_trait::async_trait;
     use bitcoin::{
-        block::Header, hashes::Hash, Amount, Block, OutPoint, ScriptBuf, Transaction, TxMerkleNode,
-        TxOut,
+        block::Header, hashes::Hash, Amount, Block, KnownHrp, OutPoint, ScriptBuf, Transaction,
+        TxMerkleNode, TxOut,
     };
     use mockall::{mock, predicate::*};
     use secp256k1::Secp256k1;
 
     use super::*;
-    use crate::types::BitcoinClientResult;
+    use crate::types::{BitcoinClientResult, CommonFields};
 
     mock! {
         BitcoinOps {}
@@ -444,6 +444,7 @@ mod tests {
             common: CommonFields {
                 schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                 encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
+                block_height: 0,
             },
             input: types::ProposeSequencerInput {
                 sequencer_new_p2wpkh_address: indexer.sequencer_address.clone(),
@@ -456,6 +457,7 @@ mod tests {
                 common: CommonFields {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
+                    block_height: 0,
                 },
                 input: types::ValidatorAttestationInput {
                     reference_txid: Txid::all_zeros(),
@@ -469,6 +471,7 @@ mod tests {
                 common: CommonFields {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
+                    block_height: 0,
                 },
                 input: types::L1BatchDAReferenceInput {
                     l1_batch_hash: zksync_basic_types::H256::zero(),
@@ -483,6 +486,7 @@ mod tests {
             common: CommonFields {
                 schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                 encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
+                block_height: 0,
             },
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
@@ -502,6 +506,7 @@ mod tests {
                 common: CommonFields {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
+                    block_height: 0,
                 },
                 input: types::SystemBootstrappingInput {
                     start_block_height: 0,
@@ -524,9 +529,10 @@ mod tests {
             encoded_public_key: bitcoin::script::PushBytesBuf::from(
                 x_only_public_key.0.serialize(),
             ),
+            block_height: 0,
         };
 
-        let sender_address = BitcoinInscriptionIndexer::get_sender_address(&common_fields, network);
+        let sender_address = parser::get_btc_address(&common_fields, network);
         assert!(sender_address.is_some());
 
         let expected_address =
@@ -542,6 +548,7 @@ mod tests {
             common: CommonFields {
                 schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                 encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
+                block_height: 0,
             },
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
@@ -560,6 +567,7 @@ mod tests {
             common: CommonFields {
                 schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                 encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
+                block_height: 0,
             },
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
