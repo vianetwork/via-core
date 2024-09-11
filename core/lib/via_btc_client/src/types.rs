@@ -1,10 +1,9 @@
 use std::collections::VecDeque;
 
 use bitcoin::{
-    script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress,
-    Amount, TxIn, TxOut, Txid,
+    script::PushBytesBuf, taproot::Signature as TaprootSignature, Amount, TxIn, TxOut, Txid,
 };
-pub use bitcoin::{Network as BitcoinNetwork, Txid as BitcoinTxid};
+pub use bitcoin::{Address as BitcoinAddress, Network as BitcoinNetwork, Txid as BitcoinTxid};
 pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -61,6 +60,7 @@ pub struct ValidatorAttestation {
 pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
+    pub block_height: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]

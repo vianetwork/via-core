@@ -3,7 +3,7 @@ use bitcoin::{
     hashes::Hash,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, Network, ScriptBuf, Transaction, Txid,
+    Address, Amount, KnownHrp, Network, ScriptBuf, Transaction, Txid,
 };
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
@@ -39,16 +39,21 @@ impl MessageParser {
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
-    pub fn parse_transaction(&self, tx: &Transaction) -> Vec<Message> {
+    pub fn parse_transaction(&self, tx: &Transaction, block_height: u32) -> Vec<Message> {
         debug!("Parsing transaction");
         tx.input
             .iter()
-            .filter_map(|input| self.parse_input(input, tx))
+            .filter_map(|input| self.parse_input(input, tx, block_height))
             .collect()
     }
 
     #[instrument(skip(self, input, tx), target = "bitcoin_indexer::parser")]
-    fn parse_input(&self, input: &bitcoin::TxIn, tx: &Transaction) -> Option<Message> {
+    fn parse_input(
+        &self,
+        input: &bitcoin::TxIn,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Option<Message> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
             debug!("Witness length is less than minimum required");
@@ -84,6 +89,7 @@ impl MessageParser {
         let common_fields = CommonFields {
             schnorr_signature: signature,
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
+            block_height,
         };
 
         self.parse_message(tx, &instructions[via_index..], &common_fields)
@@ -453,6 +459,33 @@ fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> 
     position
 }
 
+pub fn get_btc_address(common_fields: &CommonFields, network: Network) -> Option<Address> {
+    secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
+        .ok()
+        .map(|public_key| {
+            Address::p2tr(
+                &bitcoin::secp256k1::Secp256k1::new(),
+                public_key,
+                None,
+                KnownHrp::from(network),
+            )
+        })
+}
+
+pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {
+    secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
+        .ok()
+        .map(|public_key| {
+            let pubkey_bytes = public_key.serialize();
+
+            // Take the first 20 bytes of the public key
+            let mut address_bytes = [0u8; 20];
+            address_bytes.copy_from_slice(&pubkey_bytes[0..20]);
+
+            EVMAddress::from(address_bytes)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use bitcoin::{consensus::encode::deserialize, hashes::hex::FromHex};
@@ -472,7 +505,7 @@ mod tests {
         let parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        let messages = parser.parse_transaction(&tx);
+        let messages = parser.parse_transaction(&tx, 0);
         assert_eq!(messages.len(), 1);
     }
 
@@ -484,7 +517,7 @@ mod tests {
         let tx = setup_test_transaction();
 
         if let Some(Message::SystemBootstrapping(bootstrapping)) =
-            parser.parse_transaction(&tx).pop()
+            parser.parse_transaction(&tx, 0).pop()
         {
             assert_eq!(bootstrapping.input.start_block_height, 10);
             assert_eq!(bootstrapping.input.verifier_p2wpkh_addresses.len(), 1);

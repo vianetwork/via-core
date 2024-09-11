@@ -127,16 +127,17 @@ mod tests {
 
         let address = regtest.get_address();
         let private_key = regtest.get_private_key();
-        let balance = client
-            .get_balance(address)
-            .await
-            .expect("Failed to get balance of test address");
-        assert!(balance > 300000);
 
         let secp = Secp256k1::new();
         let compressed_public_key = CompressedPublicKey::from_private_key(&secp, private_key)
             .expect("Failed to generate address from test private_key");
         let derived_address = Address::p2wpkh(&compressed_public_key, Network::Regtest);
         assert_eq!(*address, derived_address, "Address mismatch!");
+
+        let balance = client
+            .get_balance(address)
+            .await
+            .expect("Failed to get balance of test address");
+        assert!(balance > 300000);
     }
 }
