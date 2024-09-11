@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use commands::{
-    database::DatabaseCommands, lint::LintArgs, snapshot::SnapshotCommands, test::TestCommands,
+    contracts::ContractsArgs, database::DatabaseCommands, lint::LintArgs, prover::ProverCommands,
+    snapshot::SnapshotCommands, test::TestCommands,
 };
 use common::{
     check_general_prerequisites,
@@ -48,8 +49,10 @@ enum SupervisorSubcommands {
     Fmt(FmtArgs),
     #[command(hide = true)]
     Markdown,
-    #[command(about = MSG_PROVER_VERSION_ABOUT)]
-    ProverVersion,
+    #[command(subcommand, about = MSG_PROVER_VERSION_ABOUT)]
+    Prover(ProverCommands),
+    #[command(about = MSG_CONTRACTS_ABOUT)]
+    Contracts(ContractsArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -106,7 +109,8 @@ async fn run_subcommand(args: Supervisor, shell: &Shell) -> anyhow::Result<()> {
         }
         SupervisorSubcommands::Lint(args) => commands::lint::run(shell, args)?,
         SupervisorSubcommands::Fmt(args) => commands::fmt::run(shell.clone(), args).await?,
-        SupervisorSubcommands::ProverVersion => commands::prover_version::run(shell).await?,
+        SupervisorSubcommands::Prover(command) => commands::prover::run(shell, command).await?,
+        SupervisorSubcommands::Contracts(args) => commands::contracts::run(shell, args)?,
     }
     Ok(())
 }
