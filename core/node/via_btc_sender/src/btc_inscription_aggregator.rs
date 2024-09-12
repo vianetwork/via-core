@@ -1,8 +1,12 @@
 use std::str::FromStr;
 
-use anyhow::{Ok, Result};
+use anyhow::{Context, Ok, Result};
 use tokio::sync::watch;
-use via_btc_client::{traits::Serializable, types::InscriptionMessage};
+use via_btc_client::{
+    inscriber::Inscriber,
+    traits::Serializable,
+    types::{InscriptionConfig, InscriptionMessage},
+};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
@@ -12,6 +16,7 @@ use crate::aggregator::ViaAggregator;
 
 #[derive(Debug)]
 pub struct ViaBtcInscriptionAggregator {
+    inscriber: Inscriber,
     aggregator: ViaAggregator,
     pool: ConnectionPool<Core>,
     config: ViaBtcSenderConfig,
@@ -19,11 +24,14 @@ pub struct ViaBtcInscriptionAggregator {
 
 impl ViaBtcInscriptionAggregator {
     pub async fn new(
+        inscriber: Inscriber,
         pool: ConnectionPool<Core>,
         config: ViaBtcSenderConfig,
     ) -> anyhow::Result<Self> {
         let aggregator = ViaAggregator::new(config.clone());
+
         Ok(Self {
+            inscriber,
             aggregator,
             pool,
             config,
@@ -75,13 +83,26 @@ impl ViaBtcInscriptionAggregator {
             let inscription_message =
                 InscriptionMessage::to_bytes(&op.get_inscription_message().clone());
 
-            // Todo: Fetch real values from raw_tx and predicted_fees
+            // Estimate the tx fee to execute the inscription request.
+            let inscribe_info = self
+                .inscriber
+                .prepare_inscribe(
+                    &op.get_inscription_message().clone(),
+                    InscriptionConfig::default(),
+                )
+                .await
+                .context("Get fee prepare inscriber")
+                .unwrap();
+
+            let prediction_fee = inscribe_info.reveal_tx_output_info._reveal_fee
+                + inscribe_info.commit_tx_output_info._commit_tx_fee;
+
             let inscription_request = transaction
                 .btc_sender_dal()
                 .via_save_btc_inscriptions_request(
                     op.get_action_type(),
                     inscription_message,
-                    0 as u32,
+                    prediction_fee.to_sat(),
                 )
                 .await
                 .unwrap();
