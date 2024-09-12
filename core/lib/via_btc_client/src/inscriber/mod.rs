@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{borrow::Borrow, collections::HashMap};
 
 use anyhow::{Context, Result};
 use bitcoin::{
@@ -20,13 +20,14 @@ use crate::{
     inscriber::{
         fee::InscriberFeeCalculator,
         internal_type::{
-            CommitTxInputRes, CommitTxOutputRes, FinalTx, RevealTxInputRes, RevealTxOutputRes,
+            CommitTxInputRes, CommitTxOutputRes, FinalTx, InscriberInfo, RevealTxInputRes,
+            RevealTxOutputRes,
         },
         script_builder::InscriptionData,
     },
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
-    types::{BitcoinNetwork, InscriberContext, InscriptionMessage},
+    types::{BitcoinNetwork, InscriberContext, InscriptionConfig, InscriptionMessage},
 };
 
 mod fee;
@@ -91,12 +92,12 @@ impl Inscriber {
         Ok(balance)
     }
 
-    // returns commitment and reveal transaction ids
-    // res[0] = commitment txid
-    // res[1] = reveal txid
     #[instrument(skip(self, input), target = "bitcoin_inscriber")]
-    pub async fn inscribe(&mut self, input: InscriptionMessage) -> Result<Vec<Txid>> {
-        info!("Starting inscription process");
+    pub async fn prepare_inscribe(
+        &mut self,
+        input: &InscriptionMessage,
+        config: InscriptionConfig,
+    ) -> Result<InscriberInfo> {
         self.sync_context_with_blockchain().await?;
 
         let secp_ref = &self.signer.get_secp_ref();
@@ -111,6 +112,7 @@ impl Inscriber {
             .prepare_commit_tx_output(
                 &commit_tx_input_info,
                 inscription_data.script_pubkey.clone(),
+                config,
             )
             .await?;
 
@@ -132,23 +134,42 @@ impl Inscriber {
             &inscription_data,
         )?;
 
-        self.broadcast_inscription(&final_commit_tx, &final_reveal_tx)
-            .await?;
-
-        let commit_txid = final_commit_tx.txid;
-        let reveal_txid = final_reveal_tx.txid;
-
-        self.insert_inscription_to_context(
-            input,
+        Ok(InscriberInfo {
             final_commit_tx,
             final_reveal_tx,
             commit_tx_output_info,
             reveal_tx_output_info,
             commit_tx_input_info,
-        )?;
+        })
+    }
+
+    // returns commitment and reveal transaction ids
+    // res[0] = commitment txid
+    // res[1] = reveal txid
+    #[instrument(skip(self, input), target = "bitcoin_inscriber")]
+    pub async fn inscribe(
+        &mut self,
+        input: InscriptionMessage,
+        config: InscriptionConfig,
+    ) -> Result<InscriberInfo> {
+        info!("Starting inscription process");
+
+        let inscriber_info = self
+            .prepare_inscribe(&input, config)
+            .await
+            .context("Error prepare inscriber infos")
+            .unwrap();
+
+        self.broadcast_inscription(
+            &inscriber_info.final_commit_tx,
+            &inscriber_info.final_reveal_tx,
+        )
+        .await?;
+
+        self.insert_inscription_to_context(input, inscriber_info.borrow())?;
 
         info!("Inscription process completed successfully");
-        Ok(vec![commit_txid, reveal_txid])
+        Ok(inscriber_info)
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
@@ -307,6 +328,7 @@ impl Inscriber {
         &self,
         tx_input_data: &CommitTxInputRes,
         inscription_pubkey: ScriptBuf,
+        config: InscriptionConfig,
     ) -> Result<CommitTxOutputRes> {
         debug!("Preparing commit transaction output");
         let inscription_commitment_output = TxOut {
@@ -319,7 +341,8 @@ impl Inscriber {
 
         // increase fee rate based on pending transactions in context
 
-        let increase_factor = FEE_RATE_INCREASE_PER_PENDING_TX * pending_tx_in_context as u64;
+        let increase_factor = (FEE_RATE_INCREASE_PER_PENDING_TX * config.fee_multiplier)
+            * pending_tx_in_context as u64;
         fee_rate += fee_rate * increase_factor / 100;
 
         let fee_amount = InscriberFeeCalculator::estimate_fee(
@@ -689,46 +712,34 @@ impl Inscriber {
         Ok(())
     }
 
-    #[instrument(
-        skip(
-            self,
-            req,
-            commit,
-            reveal,
-            commit_output_info,
-            reveal_output_info,
-            commit_input_info
-        ),
-        target = "bitcoin_inscriber"
-    )]
+    #[instrument(skip(self, req, inscriber_info,), target = "bitcoin_inscriber")]
     fn insert_inscription_to_context(
         &mut self,
         req: InscriptionMessage,
-        commit: FinalTx,
-        reveal: FinalTx,
-        commit_output_info: CommitTxOutputRes,
-        reveal_output_info: RevealTxOutputRes,
-        commit_input_info: CommitTxInputRes,
+        inscriber_info: &InscriberInfo,
     ) -> Result<()> {
         debug!("Inserting inscription to context");
         let inscription_request = crate::types::InscriptionRequest {
             message: req,
             inscriber_output: crate::types::InscriberOutput {
-                commit_txid: commit.txid,
-                commit_raw_tx: commit.tx.raw_hex().to_string(),
-                commit_tx_fee_rate: commit_output_info.commit_tx_fee_rate,
-                reveal_txid: reveal.txid,
-                reveal_raw_tx: reveal.tx.raw_hex().to_string(),
-                reveal_tx_fee_rate: reveal_output_info.reveal_fee_rate,
+                commit_txid: inscriber_info.final_commit_tx.txid,
+                commit_raw_tx: inscriber_info.final_commit_tx.tx.raw_hex().to_string(),
+                commit_tx_fee_rate: inscriber_info.commit_tx_output_info.commit_tx_fee_rate,
+                reveal_txid: inscriber_info.final_reveal_tx.txid,
+                reveal_raw_tx: inscriber_info.final_reveal_tx.tx.raw_hex().to_string(),
+                reveal_tx_fee_rate: inscriber_info.reveal_tx_output_info.reveal_fee_rate,
                 is_broadcasted: true,
             },
             fee_payer_ctx: crate::types::FeePayerCtx {
-                fee_payer_utxo_txid: reveal.txid,
+                fee_payer_utxo_txid: inscriber_info.final_reveal_tx.txid,
                 fee_payer_utxo_vout: REVEAL_TX_CHANGE_OUTPUT_INDEX,
-                fee_payer_utxo_value: reveal_output_info.reveal_tx_change_output.value,
+                fee_payer_utxo_value: inscriber_info
+                    .reveal_tx_output_info
+                    .reveal_tx_change_output
+                    .value,
             },
             commit_tx_input: crate::types::CommitTxInput {
-                spent_utxo: commit_input_info.commit_tx_inputs.clone(),
+                spent_utxo: inscriber_info.commit_tx_input_info.commit_tx_inputs.clone(),
             },
         };
 
@@ -896,8 +907,12 @@ mod tests {
 
         let inscribe_message = InscriptionMessage::L1BatchDAReference(l1_da_batch_ref);
 
-        let res = inscriber.inscribe(inscribe_message).await.unwrap();
+        let res = inscriber
+            .inscribe(inscribe_message, InscriptionConfig::default())
+            .await
+            .unwrap();
 
-        assert_eq!(res.len(), 2);
+        assert_ne!(res.final_commit_tx.txid, Txid::all_zeros());
+        assert_ne!(res.final_reveal_tx.txid, Txid::all_zeros());
     }
 }

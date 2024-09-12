@@ -130,6 +130,17 @@ impl Serializable for InscriptionMessage {
     }
 }
 
+#[derive(Debug)]
+pub struct InscriptionConfig {
+    pub fee_multiplier: u64,
+}
+
+impl Default for InscriptionConfig {
+    fn default() -> Self {
+        InscriptionConfig { fee_multiplier: 1 }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum FullInscriptionMessage {
     L1BatchDAReference(L1BatchDAReference),

@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use via_btc_client::{
     inscriber::Inscriber,
-    types as inscribe_types,
-    types::{BitcoinNetwork, NodeAuth},
+    types::{self as inscribe_types, BitcoinNetwork, InscriptionConfig, NodeAuth},
 };
 
 #[tokio::main]
@@ -40,10 +39,11 @@ async fn main() -> Result<()> {
         blob_id: "batch_temp_blob_id".to_string(),
     };
 
-    let l1_batch_da_txid = inscriber_instance
-        .inscribe(inscribe_types::InscriptionMessage::L1BatchDAReference(
-            l1_da_batch_ref,
-        ))
+    let inscribe_info = inscriber_instance
+        .inscribe(
+            inscribe_types::InscriptionMessage::L1BatchDAReference(l1_da_batch_ref),
+            InscriptionConfig::default(),
+        )
         .await
         .context("Failed to inscribe L1BatchDAReference")?;
 
@@ -52,15 +52,16 @@ async fn main() -> Result<()> {
     println!("context: {:?}", context);
 
     let l1_da_proof_ref = inscribe_types::ProofDAReferenceInput {
-        l1_batch_reveal_txid: l1_batch_da_txid[1],
+        l1_batch_reveal_txid: inscribe_info.final_reveal_tx.txid,
         da_identifier: "da_identifier_celestia".to_string(),
         blob_id: "proof_temp_blob_id".to_string(),
     };
 
     let _da_proof_ref_reveal_txid = inscriber_instance
-        .inscribe(inscribe_types::InscriptionMessage::ProofDAReference(
-            l1_da_proof_ref,
-        ))
+        .inscribe(
+            inscribe_types::InscriptionMessage::ProofDAReference(l1_da_proof_ref),
+            InscriptionConfig::default(),
+        )
         .await
         .context("Failed to inscribe ProofDAReference")?;
 
