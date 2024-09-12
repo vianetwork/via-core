@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                via_btc_inscriptions_request.*\n            FROM\n                via_btc_inscriptions_request\n            LEFT JOIN via_btc_inscriptions_request_history\n                ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id\n            WHERE\n                via_btc_inscriptions_request_history.sent_at_block IS NOT NULL\n                AND\n                via_btc_inscriptions_request_history.confirmed_at IS NULL\n            ORDER BY\n                via_btc_inscriptions_request.id\n            ",
+  "query": "\n            INSERT INTO\n                via_btc_inscriptions_request (request_type, inscription_message, predicted_fee, created_at, updated_at)\n            VALUES\n                ($1, $2, $3, NOW(), NOW())\n            RETURNING\n                *\n            ",
   "describe": {
     "columns": [
       {
@@ -25,26 +25,36 @@
       },
       {
         "ordinal": 4,
+        "name": "confirmed_inscriptions_request_history_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Varchar",
+        "Bytea",
+        "Int8"
+      ]
     },
     "nullable": [
       false,
       false,
       true,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "9615c0301f798b1728734c960c69ff0d3b95d90a186fbd6fc96b065bceddb574"
+  "hash": "5644db74e4626d2c689b1a24c8b7a23c11c6079a7d4f715a7387d9a96a91c52c"
 }

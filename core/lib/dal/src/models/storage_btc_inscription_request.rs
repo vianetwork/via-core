@@ -13,6 +13,7 @@ pub struct ViaStorageBtcInscriptionRequest {
     pub request_type: String,
     pub inscription_message: Option<Vec<u8>>,
     pub predicted_fee: Option<i64>,
+    pub confirmed_inscriptions_request_history_id: Option<i64>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -23,15 +24,13 @@ pub struct ViaStorageBtcInscriptionRequestHistory {
     pub commit_tx_id: String,
     pub reveal_tx_id: String,
     pub inscription_request_id: i64,
-    pub inscription_request_context_id: i64,
-    pub signed_raw_tx: Option<Vec<u8>>,
+    pub signed_commit_tx: Option<Vec<u8>>,
+    pub signed_reveal_tx: Option<Vec<u8>>,
     pub actual_fees: i64,
     pub sent_at_block: i64,
     pub confirmed_at: Option<NaiveDateTime>,
-    pub has_failed: bool,
-    pub node_message: String,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
+    pub created_at: Option<NaiveDateTime>,
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 impl From<ViaStorageBtcInscriptionRequest> for ViaBtcInscriptionRequest {
@@ -40,6 +39,8 @@ impl From<ViaStorageBtcInscriptionRequest> for ViaBtcInscriptionRequest {
             id: req.id,
             request_type: ViaBtcInscriptionRequestType::from_str(&req.request_type).unwrap(),
             inscription_message: req.inscription_message,
+            confirmed_inscriptions_request_history_id: req
+                .confirmed_inscriptions_request_history_id,
             predicted_fee: req.predicted_fee,
             created_at: req.created_at,
             updated_at: req.updated_at,
@@ -54,13 +55,11 @@ impl From<ViaStorageBtcInscriptionRequestHistory> for ViaBtcInscriptionRequestHi
             commit_tx_id: Txid::from_str(&history.commit_tx_id).unwrap(),
             reveal_tx_id: Txid::from_str(&history.reveal_tx_id).unwrap(),
             inscription_request_id: history.inscription_request_id,
-            inscription_request_context_id: history.inscription_request_context_id,
             sent_at_block: history.sent_at_block,
-            signed_raw_tx: history.signed_raw_tx,
+            signed_commit_tx: history.signed_commit_tx,
+            signed_reveal_tx: history.signed_reveal_tx,
             actual_fees: history.actual_fees,
             confirmed_at: history.confirmed_at,
-            has_failed: history.has_failed,
-            node_message: history.node_message,
         }
     }
 }

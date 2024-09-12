@@ -3,6 +3,7 @@ CREATE TABLE "via_btc_inscriptions_request" (
   "request_type" varchar NOT NULL,
   "inscription_message" BYTEA,
   "predicted_fee" bigint,
+  "confirmed_inscriptions_request_history_id" bigint UNIQUE,
   "created_at" timestamp NOT NULL DEFAULT 'now()',
   "updated_at" timestamp NOT NULL
 );
@@ -12,15 +13,15 @@ CREATE TABLE "via_btc_inscriptions_request_history" (
   "commit_tx_id" varchar UNIQUE NOT NULL,
   "reveal_tx_id" varchar UNIQUE NOT NULL,
   "inscription_request_id" bigint NOT NULL,
-  "inscription_request_context_id" bigint NOT NULL,
-  "signed_raw_tx" BYTEA NOT NULL,
-  "actual_fees" bigint,
+  "signed_commit_tx" BYTEA NOT NULL,
+  "signed_reveal_tx" BYTEA NOT NULL,
+  "actual_fees" bigint NOT NULL,
   "confirmed_at" timestamp DEFAULT null,
-  "has_failed" bool NOT NULL,
   "sent_at_block" bigint NOT NULL,
-  "node_message" varchar DEFAULT '',
   "created_at" timestamp DEFAULT 'now()',
   "updated_at" timestamp NOT NULL
 );
 
 ALTER TABLE "via_btc_inscriptions_request_history" ADD FOREIGN KEY ("inscription_request_id") REFERENCES "via_btc_inscriptions_request" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+
+ALTER TABLE "via_btc_inscriptions_request_history" ADD FOREIGN KEY ("id") REFERENCES "via_btc_inscriptions_request" ("confirmed_inscriptions_request_history_id");

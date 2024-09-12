@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                *\n            FROM\n                via_btc_inscriptions_request_history\n            WHERE\n                inscription_request_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "commit_tx_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "reveal_tx_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "inscription_request_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "signed_commit_tx",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "signed_reveal_tx",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 6,
+        "name": "actual_fees",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "confirmed_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "sent_at_block",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "d4131d46c315517f65af28a56db3dbf10040c97bb5b9a63c2ead3f78af3881fb"
+}

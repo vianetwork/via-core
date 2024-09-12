@@ -125,8 +125,7 @@ impl ViaBlocksDal<'_, '_> {
                 l1_batches.number,
                 l1_batches.hash,
                 via_btc_inscriptions_request_history.commit_tx_id,
-                via_btc_inscriptions_request_history.reveal_tx_id,
-                via_btc_inscriptions_request_history.inscription_request_context_id
+                via_btc_inscriptions_request_history.reveal_tx_id
             FROM
                 l1_batches
                 LEFT JOIN via_btc_inscriptions_request ON l1_batches.eth_commit_tx_id = via_btc_inscriptions_request.id

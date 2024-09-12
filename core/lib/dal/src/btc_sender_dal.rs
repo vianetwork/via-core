@@ -1,10 +1,17 @@
+use anyhow::Context;
 use bitcoin::hash_types::Txid;
 use zksync_db_connection::connection::Connection;
 use zksync_types::{
-    btc_inscription_operations::ViaBtcInscriptionRequestType, btc_sender::ViaBtcInscriptionRequest,
+    btc_inscription_operations::ViaBtcInscriptionRequestType,
+    btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory},
 };
 
-use crate::{models::storage_btc_inscription_request::ViaStorageBtcInscriptionRequest, Core};
+use crate::{
+    models::storage_btc_inscription_request::{
+        ViaStorageBtcInscriptionRequest, ViaStorageBtcInscriptionRequestHistory,
+    },
+    Core,
+};
 
 #[derive(Debug)]
 pub struct ViaBtcSenderDal<'a, 'c> {
@@ -17,7 +24,7 @@ impl ViaBtcSenderDal<'_, '_> {
         &mut self,
         inscription_request_type: ViaBtcInscriptionRequestType,
         inscription_message: Vec<u8>,
-        predicted_fee: u32,
+        predicted_fee: u64,
     ) -> sqlx::Result<ViaBtcInscriptionRequest> {
         let inscription_request = sqlx::query_as!(
             ViaBtcInscriptionRequest,
@@ -31,7 +38,7 @@ impl ViaBtcSenderDal<'_, '_> {
             "#,
             inscription_request_type.to_string(),
             inscription_message,
-            i64::from(predicted_fee),
+            predicted_fee as i64,
         )
         .fetch_one(self.storage.conn())
         .await?;
@@ -93,8 +100,8 @@ impl ViaBtcSenderDal<'_, '_> {
         commit_tx_id: Txid,
         reveal_tx_id: Txid,
         inscription_request_id: i64,
-        inscription_request_context_id: i64,
-        signed_raw_tx: Vec<u8>,
+        signed_commit_tx: Vec<u8>,
+        signed_reveal_tx: Vec<u8>,
         actual_fees: i64,
         sent_at_block: i64,
     ) -> anyhow::Result<Option<u32>> {
@@ -105,8 +112,8 @@ impl ViaBtcSenderDal<'_, '_> {
                     commit_tx_id,
                     reveal_tx_id,
                     inscription_request_id,
-                    inscription_request_context_id,
-                    signed_raw_tx,
+                    signed_commit_tx,
+                    signed_reveal_tx,
                     actual_fees,
                     sent_at_block,
                     created_at,
@@ -120,13 +127,107 @@ impl ViaBtcSenderDal<'_, '_> {
             commit_tx_id.to_string(),
             reveal_tx_id.to_string(),
             inscription_request_id,
-            inscription_request_context_id,
-            signed_raw_tx,
+            signed_commit_tx,
+            signed_reveal_tx,
             actual_fees,
             sent_at_block as i32
         )
         .fetch_optional(self.storage.conn())
         .await?
         .map(|row| row.id as u32))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_last_inscription_request_history(
+        &mut self,
+        inscription_request_id: i64,
+    ) -> anyhow::Result<Option<ViaBtcInscriptionRequestHistory>> {
+        let inscription_request_history = sqlx::query_as!(
+            ViaStorageBtcInscriptionRequestHistory,
+            r#"
+            SELECT
+                *
+            FROM
+                via_btc_inscriptions_request_history
+            WHERE
+                inscription_request_id = $1
+            ORDER BY
+                id DESC
+            LIMIT
+                1
+            "#,
+            inscription_request_id
+        )
+        .fetch_optional(self.storage.conn())
+        .await?;
+
+        Ok(inscription_request_history
+            .map(|inscription| ViaBtcInscriptionRequestHistory::from(inscription)))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_total_inscription_request_history(
+        &mut self,
+        inscription_request_id: i64,
+    ) -> anyhow::Result<i64> {
+        let total = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(id) AS COUNT
+            FROM
+                via_btc_inscriptions_request_history
+            WHERE
+                inscription_request_id = $1
+            "#,
+            inscription_request_id
+        )
+        .fetch_one(self.storage.conn())
+        .await?;
+
+        // Return the count or 0 if no records were found
+        Ok(total.count.unwrap_or(0))
+    }
+
+    pub async fn confirm_inscription(
+        &mut self,
+        inscriptions_request_id: i64,
+        inscriptions_request_history_id: i64,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        let mut transaction = self
+            .storage
+            .start_transaction()
+            .await
+            .context("start_transaction")?;
+
+        sqlx::query!(
+            r#"
+            UPDATE via_btc_inscriptions_request_history
+            SET
+                updated_at = NOW(),
+                confirmed_at = NOW()
+            WHERE
+                id = $1
+            "#,
+            inscriptions_request_history_id
+        )
+        .execute(transaction.conn())
+        .await?;
+
+        sqlx::query!(
+            r#"
+            UPDATE via_btc_inscriptions_request
+            SET
+                updated_at = NOW(),
+                confirmed_inscriptions_request_history_id = $2
+            WHERE
+                id = $1
+            "#,
+            inscriptions_request_id,
+            inscriptions_request_history_id
+        )
+        .execute(transaction.conn())
+        .await?;
+
+        transaction.commit().await.context("commit()")
     }
 }
