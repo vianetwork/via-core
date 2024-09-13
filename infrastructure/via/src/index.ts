@@ -2,7 +2,7 @@
 
 import { program, Command } from 'commander';
 import { spawnSync } from 'child_process';
-import { serverCommand as server} from './server';
+import { serverCommand as server } from './server';
 import { command as up } from './up';
 import { command as down } from './down';
 import { command as completion } from './completion';
