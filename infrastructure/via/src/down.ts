@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import * as utils from 'utils';
 import * as fs from 'fs';
-import {VIA_DOCKER_COMPOSE} from "./docker";
+import { VIA_DOCKER_COMPOSE } from './docker';
 
 export async function down() {
     await utils.spawn('docker compose -f ' + VIA_DOCKER_COMPOSE + ' down -v');

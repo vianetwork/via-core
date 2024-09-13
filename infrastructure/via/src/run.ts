@@ -2,7 +2,6 @@ import { Command } from 'commander';
 import * as utils from 'utils';
 import fs from 'fs';
 
-
 // installs all dependencies
 export async function yarn() {
     await utils.spawn('run_retried yarn install --frozen-lockfile');
@@ -18,7 +17,6 @@ export async function catLogs(exitCode?: number) {
     }
 }
 
-
 export async function snapshots_creator() {
     process.chdir(`${process.env.ZKSYNC_HOME}`);
     let logLevel = 'RUST_LOG=snapshots_creator=debug';
@@ -29,6 +27,5 @@ export const command = new Command('run').description('Run miscellaneous applica
 
 command.command('yarn').description('Install all JS dependencies').action(yarn);
 command.command('cat-logs [exit_code]').description('Print server logs').action(catLogs);
-
 
 command.command('snapshots-creator').action(snapshots_creator);

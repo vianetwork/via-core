@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import * as utils from 'utils';
 
-export const VIA_DOCKER_COMPOSE = "docker-compose-via.yml"
+export const VIA_DOCKER_COMPOSE = 'docker-compose-via.yml';
 
 const IMAGES = [
     'server-v2',

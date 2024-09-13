@@ -14,7 +14,6 @@ import * as run from './run';
 // import * as server from './server';
 import { createVolumes, up } from './up';
 
-
 // Checks if all required tools are installed with the correct versions
 const checkEnv = async (): Promise<void> => {
     const tools = ['node', 'yarn', 'docker', 'cargo'];
@@ -44,13 +43,11 @@ type InitSetupOptions = {
     runObservability: boolean;
 };
 const initSetup = async ({
-                             skipSubmodulesCheckout,
-                             skipEnvSetup,
-                             runObservability,
-                         }: InitSetupOptions): Promise<void> => {
-    await announced(
-        `Initializing in 'Roll-up mode'}`
-    );
+    skipSubmodulesCheckout,
+    skipEnvSetup,
+    runObservability
+}: InitSetupOptions): Promise<void> => {
+    await announced(`Initializing in 'Roll-up mode'}`);
     if (!skipSubmodulesCheckout) {
         await announced('Checkout submodules', submoduleUpdate());
     }
@@ -118,22 +115,22 @@ type InitDevCmdActionOptions = InitSetupOptions & {
     shouldCheckPostgres: boolean; // Whether to perform `cargo sqlx prepare --check`
 };
 export const initDevCmdAction = async ({
-                                           skipEnvSetup,
-                                           skipSubmodulesCheckout,
-                                           skipVerifier,
-                                           skipTestTokenDeployment,
-                                           baseTokenName,
-                                           runObservability,
-                                           localLegacyBridgeTesting,
-                                           shouldCheckPostgres
-                                       }: InitDevCmdActionOptions): Promise<void> => {
+    skipEnvSetup,
+    skipSubmodulesCheckout,
+    skipVerifier,
+    skipTestTokenDeployment,
+    baseTokenName,
+    runObservability,
+    localLegacyBridgeTesting,
+    shouldCheckPostgres
+}: InitDevCmdActionOptions): Promise<void> => {
     if (localLegacyBridgeTesting) {
         await makeEraChainIdSameAsCurrent();
     }
     await initSetup({
         skipEnvSetup,
         skipSubmodulesCheckout,
-        runObservability,
+        runObservability
     });
 
     // ?
@@ -146,7 +143,6 @@ export const initDevCmdAction = async ({
         await makeEraAddressSameAsCurrent();
     }
 };
-
 
 // ########################### Command Definitions ###########################
 export const initCommand = new Command('init')
@@ -163,4 +159,3 @@ export const initCommand = new Command('init')
     .option('--should-check-postgres', 'Whether to perform cargo sqlx prepare --check during database setup', true)
     .description('Deploys the shared bridge and registers a hyperchain locally, as quickly as possible.')
     .action(initDevCmdAction);
-

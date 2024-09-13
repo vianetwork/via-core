@@ -9,7 +9,6 @@ export async function build(): Promise<void> {
     await utils.spawn('yarn l2-contracts build');
 }
 
-
 export function updateContractsEnv(initEnv: string, deployLog: String, envVars: Array<string>): string {
     let updatedContracts = '';
     for (const envVar of envVars) {
