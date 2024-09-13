@@ -1607,7 +1607,6 @@ impl BlocksDal<'_, '_> {
         bootloader_hash: H256,
         default_aa_hash: H256,
         protocol_version_id: ProtocolVersionId,
-
         with_da_inclusion_info: bool,
     ) -> anyhow::Result<Vec<L1BatchWithMetadata>> {
         let raw_batches = sqlx::query_as!(

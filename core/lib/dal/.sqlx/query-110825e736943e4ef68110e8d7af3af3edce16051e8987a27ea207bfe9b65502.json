@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                *\n            FROM\n                via_btc_inscriptions_request_history\n            WHERE\n                inscription_request_id = $1\n            ",
+  "query": "\n            SELECT\n                *\n            FROM\n                via_btc_inscriptions_request_history\n            WHERE\n                inscription_request_id = $1\n            ORDER BY\n                id DESC\n            LIMIT\n                1\n            ",
   "describe": {
     "columns": [
       {
@@ -78,5 +78,5 @@
       false
     ]
   },
-  "hash": "d4131d46c315517f65af28a56db3dbf10040c97bb5b9a63c2ead3f78af3881fb"
+  "hash": "110825e736943e4ef68110e8d7af3af3edce16051e8987a27ea207bfe9b65502"
 }

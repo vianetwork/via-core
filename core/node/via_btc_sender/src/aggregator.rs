@@ -10,7 +10,10 @@ use zksync_types::{
 
 use crate::{
     aggregated_operations::ViaAggregatedOperation,
-    publish_criterion::{ViaBtcL1BatchCommitCriterion, ViaNumberCriterion},
+    config::{BLOCK_TIME_TO_COMMIT, BLOCK_TIME_TO_PROOF},
+    publish_criterion::{
+        TimestampDeadlineCriterion, ViaBtcL1BatchCommitCriterion, ViaNumberCriterion,
+    },
 };
 
 #[derive(Debug)]
@@ -23,14 +26,26 @@ pub struct ViaAggregator {
 impl ViaAggregator {
     pub fn new(config: ViaBtcSenderConfig) -> Self {
         Self {
-            commit_l1_block_criteria: vec![Box::from(ViaNumberCriterion {
-                op: ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
-                limit: config.max_aggregated_blocks_to_commit(),
-            })],
-            commit_proof_criteria: vec![Box::from(ViaNumberCriterion {
-                op: ViaBtcInscriptionRequestType::CommitProofOnchain,
-                limit: config.max_aggregated_proofs_to_commit(),
-            })],
+            commit_l1_block_criteria: vec![
+                Box::from(ViaNumberCriterion {
+                    op: ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
+                    limit: config.max_aggregated_blocks_to_commit(),
+                }),
+                Box::from(TimestampDeadlineCriterion {
+                    op: ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
+                    deadline_seconds: BLOCK_TIME_TO_COMMIT as u64,
+                }),
+            ],
+            commit_proof_criteria: vec![
+                Box::from(ViaNumberCriterion {
+                    op: ViaBtcInscriptionRequestType::CommitProofOnchain,
+                    limit: config.max_aggregated_proofs_to_commit(),
+                }),
+                Box::from(TimestampDeadlineCriterion {
+                    op: ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
+                    deadline_seconds: BLOCK_TIME_TO_PROOF as u64,
+                }),
+            ],
             config,
         }
     }

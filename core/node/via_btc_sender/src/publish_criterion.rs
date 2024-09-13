@@ -1,6 +1,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use zksync_dal::{Connection, Core};
 use zksync_types::{
     btc_inscription_operations::ViaBtcInscriptionRequestType, commitment::L1BatchWithMetadata,
@@ -39,6 +40,33 @@ impl ViaBtcL1BatchCommitCriterion for ViaNumberCriterion {
         _storage: &mut Connection<'_, Core>,
         consecutive_l1_batches: &[L1BatchWithMetadata],
     ) -> Option<L1BatchNumber> {
-        Some(1.into())
+        Some(consecutive_l1_batches[0].header.number)
+    }
+}
+
+#[derive(Debug)]
+pub struct TimestampDeadlineCriterion {
+    pub op: ViaBtcInscriptionRequestType,
+    /// Maximum L1 batch age in seconds. Once reached, we pack and publish all the available L1 batches.
+    pub deadline_seconds: u64,
+}
+
+#[async_trait]
+impl ViaBtcL1BatchCommitCriterion for TimestampDeadlineCriterion {
+    fn name(&self) -> &'static str {
+        "timestamp"
+    }
+
+    async fn last_l1_batch_to_publish(
+        &mut self,
+        _storage: &mut Connection<'_, Core>,
+        consecutive_l1_batches: &[L1BatchWithMetadata],
+    ) -> Option<L1BatchNumber> {
+        let current_timestamp = Utc::now().timestamp() as u64;
+        let block_timestamp = consecutive_l1_batches[0].header.timestamp;
+        if block_timestamp + self.deadline_seconds <= current_timestamp {
+            return Some(consecutive_l1_batches[0].header.number);
+        }
+        None
     }
 }

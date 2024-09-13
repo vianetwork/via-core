@@ -8447,6 +8447,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "bitcoin",
+ "chrono",
  "hex",
  "thiserror",
  "tokio",
