@@ -140,10 +140,6 @@ export async function build(image: string, cmd: Command) {
     await dockerCommand('build', image, cmd.platform, cmd.customTag);
 }
 
-export async function customBuildForHyperchain(image: string, dockerOrg: string) {
-    await dockerCommand('build', image, 'linux/amd64', dockerOrg);
-}
-
 export async function push(image: string, cmd: Command) {
     await dockerCommand('build', image, cmd.platform, cmd.customTag, '--push');
 }

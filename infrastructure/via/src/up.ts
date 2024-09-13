@@ -7,6 +7,9 @@ export function createVolumes() {
     fs.mkdirSync(`${process.env.VIA_HOME}/volumes/postgres`, {
         recursive: true
     });
+    fs.mkdirSync(`${process.env.VIA_HOME}/volumes/bitcoin`, {
+        recursive: true
+    });
 }
 
 export async function up(composeFile?: string) {
