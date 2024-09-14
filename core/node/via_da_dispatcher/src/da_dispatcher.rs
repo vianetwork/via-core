@@ -1,4 +1,4 @@
-use std::{future::Future, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use chrono::Utc;
@@ -10,15 +10,18 @@ use zksync_da_client::{
     DataAvailabilityClient,
 };
 use zksync_dal::{ConnectionPool, Core, CoreDal};
-use zksync_types::L1BatchNumber;
+use zksync_object_store::ObjectStore;
+use zksync_types::{protocol_version::L1VerifierConfig, L1BatchNumber};
 
-use crate::metrics::METRICS;
+use crate::{metrics::METRICS, proof_manager::ProofManager};
 
 #[derive(Debug)]
 pub struct DataAvailabilityDispatcher {
     client: Box<dyn DataAvailabilityClient>,
     pool: ConnectionPool<Core>,
     config: DADispatcherConfig,
+    proof_manager: ProofManager,
+    l1_verifier_config: L1VerifierConfig,
 }
 
 impl DataAvailabilityDispatcher {
@@ -26,11 +29,17 @@ impl DataAvailabilityDispatcher {
         pool: ConnectionPool<Core>,
         config: DADispatcherConfig,
         client: Box<dyn DataAvailabilityClient>,
+        blob_store: Arc<dyn ObjectStore>,
+        l1_verifier_config: L1VerifierConfig,
     ) -> Self {
+        let proof_manager = ProofManager::new(blob_store);
+
         Self {
             pool,
             config,
             client,
+            proof_manager,
+            l1_verifier_config,
         }
     }
 
@@ -40,7 +49,8 @@ impl DataAvailabilityDispatcher {
                 break;
             }
 
-            let subtasks = futures::future::join(
+            // Run dispatch, poll_for_inclusion, and dispatch_proofs concurrently
+            let subtasks = futures::future::join3(
                 async {
                     if let Err(err) = self.dispatch().await {
                         tracing::error!("dispatch error {err:?}");
@@ -49,6 +59,11 @@ impl DataAvailabilityDispatcher {
                 async {
                     if let Err(err) = self.poll_for_inclusion().await {
                         tracing::error!("poll_for_inclusion error {err:?}");
+                    }
+                },
+                async {
+                    if let Err(err) = self.dispatch_proofs().await {
+                        tracing::error!("dispatch_proofs error {err:?}");
                     }
                 },
             );
@@ -123,6 +138,55 @@ impl DataAvailabilityDispatcher {
         Ok(())
     }
 
+    /// Dispatches proofs to the data availability layer, and saves the blob_id in the database.
+    async fn dispatch_proofs(&self) -> anyhow::Result<()> {
+        let mut storage = self.pool.access_storage_tagged("da_dispatcher").await?;
+
+        if let Some(prove_batches) = self
+            .proof_manager
+            .load_real_proof_operation(&mut storage, self.l1_verifier_config.clone())
+            .await
+        {
+            for (proof, batch) in prove_batches
+                .proofs
+                .iter()
+                .zip(prove_batches.l1_batches.iter())
+            {
+                // Serialize the proof data
+                let proof_data = bincode::serialize(proof).context("Failed to serialize proof")?;
+
+                let dispatch_response =
+                    retry(self.config.max_retries(), batch.header.number, || {
+                        self.client
+                            .dispatch_blob(batch.header.number.0, proof_data.clone())
+                    })
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to dispatch proof blob for batch_number: {}",
+                            batch.header.number
+                        )
+                    })?;
+                let sent_at = Utc::now().naive_utc();
+
+                let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
+                conn.via_data_availability_dal()
+                    .insert_proof_da(
+                        batch.header.number,
+                        dispatch_response.blob_id.as_str(),
+                        sent_at,
+                    )
+                    .await?;
+                drop(conn);
+
+                tracing::info!("Dispatched proof for batch_number: {}", batch.header.number);
+            }
+        } else {
+            tracing::info!("No proofs ready for dispatch");
+        }
+        Ok(())
+    }
+
     /// Polls the data availability layer for inclusion data, and saves it in the database.
     async fn poll_for_inclusion(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
@@ -147,8 +211,8 @@ impl DataAvailabilityDispatcher {
                     )
                 })?
         } else {
-            // if the inclusion verification is disabled, we don't need to wait for the inclusion
-            // data before committing the batch, so simply return an empty vector
+            // If the inclusion verification is disabled, we don't need to wait for the inclusion
+            // data before committing the batch, so simply return an empty vector.
             Some(InclusionData { data: vec![] })
         };
 
@@ -174,7 +238,7 @@ impl DataAvailabilityDispatcher {
             .set(blob_info.l1_batch_number.0 as usize);
 
         tracing::info!(
-            "Received an inclusion data for a batch_number: {}, inclusion_latency_seconds: {}",
+            "Received inclusion data for batch_number: {}, inclusion_latency_seconds: {}",
             blob_info.l1_batch_number,
             inclusion_latency.num_seconds()
         );
