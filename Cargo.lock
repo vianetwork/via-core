@@ -8474,6 +8474,9 @@ dependencies = [
  "zksync_config",
  "zksync_da_client",
  "zksync_dal",
+ "zksync_l1_contract_interface",
+ "zksync_object_store",
+ "zksync_prover_interface",
  "zksync_types",
  "zksync_utils",
 ]
