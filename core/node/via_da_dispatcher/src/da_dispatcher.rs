@@ -10,7 +10,7 @@ use zksync_da_client::{
     DataAvailabilityClient,
 };
 use zksync_dal::{ConnectionPool, Core, CoreDal};
-use zksync_object_store::ObjectStore;
+use zksync_object_store::{bincode, ObjectStore};
 use zksync_types::{protocol_version::L1VerifierConfig, L1BatchNumber};
 
 use crate::{metrics::METRICS, proof_manager::ProofManager};
@@ -140,11 +140,11 @@ impl DataAvailabilityDispatcher {
 
     /// Dispatches proofs to the data availability layer, and saves the blob_id in the database.
     async fn dispatch_proofs(&self) -> anyhow::Result<()> {
-        let mut storage = self.pool.access_storage_tagged("da_dispatcher").await?;
+        let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 
         if let Some(prove_batches) = self
             .proof_manager
-            .load_real_proof_operation(&mut storage, self.l1_verifier_config.clone())
+            .load_real_proof_operation(&mut conn, self.l1_verifier_config)
             .await
         {
             for (proof, batch) in prove_batches

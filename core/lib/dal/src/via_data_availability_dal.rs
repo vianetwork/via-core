@@ -214,4 +214,32 @@ impl ViaDataAvailabilityDal<'_, '_> {
             })
             .collect())
     }
+
+    pub async fn insert_proof_da(
+        &mut self,
+        number: L1BatchNumber,
+        blob_id: &str,
+        sent_at: chrono::NaiveDateTime,
+    ) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            INSERT INTO
+                data_availability (l1_batch_number, blob_id, sent_at, created_at, updated_at)
+            VALUES
+                ($1, $2, $3, NOW(), NOW())
+            ON CONFLICT DO NOTHING
+            "#,
+            i64::from(number.0),
+            blob_id,
+            sent_at,
+        )
+        .instrument("insert_proof_da")
+        .with_arg("number", &number)
+        .with_arg("blob_id", &blob_id)
+        .report_latency()
+        .execute(self.storage)
+        .await?;
+
+        Ok(())
+    }
 }

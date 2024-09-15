@@ -1,8 +1,6 @@
-// proof_manager.rs
-
 use std::sync::Arc;
 
-use zksync_dal::{Connection, Core};
+use zksync_dal::{Connection, Core, CoreDal};
 use zksync_l1_contract_interface::i_executor::methods::ProveBatches;
 use zksync_object_store::{ObjectStore, ObjectStoreError};
 use zksync_prover_interface::outputs::L1BatchProofForL1;
@@ -28,46 +26,57 @@ impl ProofManager {
         storage: &mut Connection<'_, Core>,
         l1_verifier_config: L1VerifierConfig,
     ) -> Option<ProveBatches> {
-        let previous_proven_batch_number = storage
-            .blocks_dal()
-            .get_last_l1_batch_with_prove_tx()
-            .await
-            .unwrap_or_default();
+        let previous_proven_batch_number =
+            match storage.blocks_dal().get_last_l1_batch_with_prove_tx().await {
+                Ok(batch_number) => batch_number,
+                Err(e) => {
+                    tracing::error!("Failed to retrieve the last L1 batch with proof tx: {}", e);
+                    return None;
+                }
+            };
         let batch_to_prove = previous_proven_batch_number + 1;
 
-        // Return `None` if batch is not committed yet.
-        let commit_tx_id = storage
+        let _commit_tx_id = match storage
             .blocks_dal()
             .get_eth_commit_tx_id(batch_to_prove)
             .await
-            .unwrap_or(None)?;
+        {
+            Ok(Some(tx_id)) => tx_id,
+            Ok(None) | Err(_) => return None, // No commit transaction, exit early.
+        };
 
-        // Note: Removed `is_4844_mode` logic that checks if the commit transaction is confirmed.
-
-        let minor_version = storage
+        let minor_version = match storage
             .blocks_dal()
             .get_batch_protocol_version_id(batch_to_prove)
             .await
-            .unwrap_or(None)
-            .unwrap();
+        {
+            Ok(Some(version)) => version,
+            Ok(None) | Err(_) => {
+                tracing::error!(
+                    "Failed to retrieve protocol version for batch {}",
+                    batch_to_prove
+                );
+                return None;
+            }
+        };
 
-        // Fetch allowed protocol versions corresponding to the verification key on L1.
-        let allowed_patch_versions = storage
+        let allowed_patch_versions = match storage
             .protocol_versions_dal()
             .get_patch_versions_for_vk(
                 minor_version,
                 l1_verifier_config.recursion_scheduler_level_vk_hash,
             )
             .await
-            .unwrap_or_default();
-
-        if allowed_patch_versions.is_empty() {
-            tracing::warn!(
-                "No patch version corresponds to the verification key on L1: {:?}",
-                l1_verifier_config.recursion_scheduler_level_vk_hash
-            );
-            return None;
-        }
+        {
+            Ok(versions) if !versions.is_empty() => versions,
+            Ok(_) | Err(_) => {
+                tracing::warn!(
+                    "No patch version corresponds to the verification key on L1: {:?}",
+                    l1_verifier_config.recursion_scheduler_level_vk_hash
+                );
+                return None;
+            }
+        };
 
         let allowed_versions: Vec<_> = allowed_patch_versions
             .into_iter()
@@ -77,31 +86,62 @@ impl ProofManager {
             })
             .collect();
 
-        // Attempt to load the proof from the object store.
-        let proof = self
+        let proof = match self
             .load_wrapped_fri_proofs_for_range(batch_to_prove, &allowed_versions)
-            .await?;
+            .await
+        {
+            Some(proof) => proof,
+            None => {
+                tracing::error!("Failed to load proof for batch {}", batch_to_prove);
+                return None;
+            }
+        };
 
-        let previous_proven_batch_metadata = storage
+        let previous_proven_batch_metadata = match storage
             .blocks_dal()
             .get_l1_batch_metadata(previous_proven_batch_number)
             .await
-            .unwrap_or_else(|| {
-                panic!(
+        {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                tracing::error!(
                     "L1 batch #{} with submitted proof is not complete in the DB",
                     previous_proven_batch_number
                 );
-            });
-        let metadata_for_batch_being_proved = storage
+                return None;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to retrieve L1 batch #{} metadata: {}",
+                    previous_proven_batch_number,
+                    e
+                );
+                return None;
+            }
+        };
+
+        let metadata_for_batch_being_proved = match storage
             .blocks_dal()
             .get_l1_batch_metadata(batch_to_prove)
             .await
-            .unwrap_or_else(|| {
-                panic!(
+        {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                tracing::error!(
                     "L1 batch #{} with generated proof is not complete in the DB",
                     batch_to_prove
                 );
-            });
+                return None;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to retrieve L1 batch #{} metadata: {}",
+                    batch_to_prove,
+                    e
+                );
+                return None;
+            }
+        };
 
         Some(ProveBatches {
             prev_l1_batch: previous_proven_batch_metadata,
@@ -121,15 +161,19 @@ impl ProofManager {
             match self.blob_store.get((l1_batch_number, *version)).await {
                 Ok(proof) => return Some(proof),
                 Err(ObjectStoreError::KeyNotFound(_)) => continue, // Proof is not ready yet.
-                Err(err) => panic!(
-                    "Failed to load proof for batch {}: {}",
-                    l1_batch_number.0, err
-                ),
+                Err(err) => {
+                    tracing::error!(
+                        "Failed to load proof for batch {} and version {:?}: {}",
+                        l1_batch_number.0,
+                        version,
+                        err
+                    );
+                    return None;
+                }
             }
         }
 
         // Check for deprecated file naming if patch 0 is allowed.
-        // TODO: Remove this in the next release.
         let is_patch_0_present = allowed_versions.iter().any(|v| v.patch.0 == 0);
         if is_patch_0_present {
             match self
@@ -138,11 +182,15 @@ impl ProofManager {
                 .await
             {
                 Ok(proof) => return Some(proof),
-                Err(ObjectStoreError::KeyNotFound(_)) => (), // Proof is not ready yet.
-                Err(err) => panic!(
-                    "Failed to load proof for batch {}: {}",
-                    l1_batch_number.0, err
-                ),
+                Err(ObjectStoreError::KeyNotFound(_)) => (),
+                Err(err) => {
+                    tracing::error!(
+                        "Failed to load proof for batch {} from deprecated naming: {}",
+                        l1_batch_number.0,
+                        err
+                    );
+                    return None;
+                }
             }
         }
 
