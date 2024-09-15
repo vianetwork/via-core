@@ -13,6 +13,7 @@ import { command as config } from './config';
 import { command as clean } from './clean';
 import { command as db } from './database';
 import * as env from './env';
+import { command as transactions } from './transactions';
 
 const COMMANDS = [
     server,
@@ -25,6 +26,7 @@ const COMMANDS = [
     config,
     clean,
     env.command,
+    transactions,
     completion(program as Command)
 ];
 
