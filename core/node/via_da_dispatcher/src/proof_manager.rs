@@ -1,3 +1,11 @@
+/*
+1- create migration for new table
+2- finalizing the via_data_availability_dal (add the new method and update the existing one to use the new table)
+3- polish proof_manager
+4- review the da_dispatcher task manager
+5- update pull for inclusion to use the new table and adopt the proof_manager too.
+*/
+
 use std::sync::Arc;
 
 use zksync_dal::{Connection, Core, CoreDal};
