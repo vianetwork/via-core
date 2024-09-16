@@ -12,6 +12,9 @@ pub(super) struct DataAvailabilityDispatcherMetrics {
     /// Latency of the dispatch of the blob.
     #[metrics(buckets = DISPATCH_LATENCIES, unit = Unit::Seconds)]
     pub blob_dispatch_latency: Histogram<Duration>,
+    // Latency of the dispatch of the proof.
+    #[metrics(buckets = DISPATCH_LATENCIES, unit = Unit::Seconds)]
+    pub proof_dispatch_latency: Histogram<Duration>,
     /// The duration between the moment when the blob is dispatched and the moment when it is included.
     #[metrics(buckets = Buckets::LATENCIES)]
     pub inclusion_latency: Histogram<Duration>,
@@ -25,8 +28,12 @@ pub(super) struct DataAvailabilityDispatcherMetrics {
     pub dispatch_call_retries: Histogram<usize>,
     /// Last L1 batch that was dispatched to the DA layer.
     pub last_dispatched_l1_batch: Gauge<usize>,
+    /// Last Proof batch that was dispatched to the DA layer.
+    pub last_dispatched_proof_batch: Gauge<usize>,
     /// Last L1 batch that has its inclusion finalized by DA layer.
     pub last_included_l1_batch: Gauge<usize>,
+    /// Last Proof batch that has its inclusion finalized by DA layer.
+    pub last_included_proof_batch: Gauge<usize>,
 }
 
 #[vise::register]

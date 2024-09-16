@@ -1,5 +1,4 @@
-pub use self::da_dispatcher::DataAvailabilityDispatcher;
+pub use self::da_dispatcher::ViaDataAvailabilityDispatcher;
 
 mod da_dispatcher;
 mod metrics;
-mod proof_manager;
