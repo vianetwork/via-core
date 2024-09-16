@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                proof_generation_details.l1_batch_number,\n                proof_generation_details.proof_blob_url\n            FROM\n                proof_generation_details\n            WHERE\n                proof_generation_details.status = 'generated'\n                AND proof_generation_details.proof_blob_url IS NOT NULL\n                AND EXISTS (\n                    SELECT\n                        1\n                    FROM\n                        via_data_availability\n                    WHERE\n                        l1_batch_number = proof_generation_details.l1_batch_number\n                        AND is_proof = FALSE\n                        AND blob_id IS NOT NULL\n                )\n                AND NOT EXISTS (\n                    SELECT\n                        1\n                    FROM\n                        via_data_availability\n                    WHERE\n                        l1_batch_number = proof_generation_details.l1_batch_number\n                        AND is_proof = TRUE\n                        AND blob_id IS NOT NULL\n                )\n            ORDER BY\n                proof_generation_details.l1_batch_number\n            LIMIT\n                $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "proof_blob_url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "74fcff888805071f06ff4710f45b724234dca431c72565ab28e58b01f4ad4792"
+}
