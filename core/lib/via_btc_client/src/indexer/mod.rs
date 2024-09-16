@@ -290,7 +290,6 @@ impl BitcoinInscriptionIndexer {
                 debug!("Processing ProposeSequencer message");
                 if let Some(sender_address) = parser::get_btc_address(&ps.common, Network::Testnet)
                 {
-                    // TODO: use actual network
                     if state.verifier_addresses.contains(&sender_address) {
                         let sequencer_address = ps
                             .input

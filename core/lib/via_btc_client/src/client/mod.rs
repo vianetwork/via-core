@@ -12,8 +12,8 @@ use crate::{
 };
 
 pub struct BitcoinClient {
-    pub rpc: Box<dyn BitcoinRpc>,
-    pub network: BitcoinNetwork,
+    rpc: Box<dyn BitcoinRpc>,
+    network: BitcoinNetwork,
 }
 
 impl BitcoinClient {

@@ -117,7 +117,7 @@ impl ViaBlocksDal<'_, '_> {
     pub async fn get_block_commit_details(
         &mut self,
         l1_block_number: i64,
-    ) -> anyhow::Result<Option<ViaBtcBlockDetails>> {
+    ) -> DalResult<Option<ViaBtcBlockDetails>> {
         let batch_details = sqlx::query_as!(
             ViaBtcStorageBlockDetails,
             r#"
@@ -137,9 +137,10 @@ impl ViaBlocksDal<'_, '_> {
             "#,
             l1_block_number
         )
-        .fetch_optional(self.storage.conn())
+        .instrument("get_block_commit_details")
+        .fetch_optional(self.storage)
         .await?;
 
-        Ok(batch_details.map(|batch_details| batch_details.into()))
+        Ok(batch_details.map(Into::into))
     }
 }

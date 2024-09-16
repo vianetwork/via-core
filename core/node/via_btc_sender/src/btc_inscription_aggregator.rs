@@ -76,7 +76,7 @@ impl ViaBtcInscriptionAggregator {
         if let Some(op) = self
             .aggregator
             .get_next_ready_operation(storage, base_system_contracts_hashes, protocol_version_id)
-            .await
+            .await?
         {
             let mut transaction = storage.start_transaction().await.unwrap();
 

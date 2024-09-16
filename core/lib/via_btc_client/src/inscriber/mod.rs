@@ -143,9 +143,6 @@ impl Inscriber {
         })
     }
 
-    // returns commitment and reveal transaction ids
-    // res[0] = commitment txid
-    // res[1] = reveal txid
     #[instrument(skip(self, input), target = "bitcoin_inscriber")]
     pub async fn inscribe(
         &mut self,
@@ -157,8 +154,7 @@ impl Inscriber {
         let inscriber_info = self
             .prepare_inscribe(&input, config)
             .await
-            .context("Error prepare inscriber infos")
-            .unwrap();
+            .context("Error prepare inscriber infos")?;
 
         self.broadcast_inscription(
             &inscriber_info.final_commit_tx,

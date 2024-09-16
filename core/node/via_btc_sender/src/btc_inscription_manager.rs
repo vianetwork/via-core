@@ -4,7 +4,7 @@ use tokio::sync::watch;
 use via_btc_client::{
     client::BitcoinClient,
     inscriber::Inscriber,
-    traits::Serializable,
+    traits::{BitcoinOps, Serializable},
     types::{InscriptionConfig, InscriptionMessage},
 };
 use zksync_config::ViaBtcSenderConfig;
@@ -83,23 +83,23 @@ impl ViaBtcInscriptionManager {
                 .context("Fetch the inscription request history")
                 .unwrap()
             {
-                let tx_details = self
+                let is_confirmed = self
                     .client
-                    .rpc
-                    .get_raw_transaction_info(&last_inscription_history.reveal_tx_id)
+                    .check_tx_confirmation(
+                        &last_inscription_history.reveal_tx_id,
+                        BLOCK_CONFIRMATIONS,
+                    )
                     .await
                     .unwrap();
 
-                let confirmations = tx_details.confirmations.clone().unwrap();
-
-                if confirmations >= BLOCK_CONFIRMATIONS {
+                if is_confirmed {
                     storage
                         .btc_sender_dal()
                         .confirm_inscription(inscription.id, last_inscription_history.id)
                         .await
                         .unwrap();
                 } else {
-                    let current_block = self.client.rpc.get_block_count().await.unwrap();
+                    let current_block = self.client.fetch_block_height().await.unwrap();
                     if last_inscription_history.sent_at_block + BLOCK_RESEND as i64
                         > current_block as i64
                     {
@@ -167,8 +167,7 @@ impl ViaBtcInscriptionManager {
     ) -> Result<(), anyhow::Error> {
         let sent_at_block = self
             .client
-            .rpc
-            .get_block_count()
+            .fetch_block_height()
             .await
             .context("Error to fetch current block number")
             .unwrap() as i64;

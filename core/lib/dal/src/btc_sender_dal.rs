@@ -19,7 +19,6 @@ pub struct ViaBtcSenderDal<'a, 'c> {
 }
 
 impl ViaBtcSenderDal<'_, '_> {
-    #[allow(clippy::too_many_arguments)]
     pub async fn via_save_btc_inscriptions_request(
         &mut self,
         inscription_request_type: ViaBtcInscriptionRequestType,
@@ -137,7 +136,6 @@ impl ViaBtcSenderDal<'_, '_> {
         .map(|row| row.id as u32))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn get_last_inscription_request_history(
         &mut self,
         inscription_request_id: i64,
@@ -165,7 +163,6 @@ impl ViaBtcSenderDal<'_, '_> {
             .map(|inscription| ViaBtcInscriptionRequestHistory::from(inscription)))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn get_total_inscription_request_history(
         &mut self,
         inscription_request_id: i64,

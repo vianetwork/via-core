@@ -1,4 +1,3 @@
-use anyhow::Context;
 use via_btc_client::types::{InscriptionMessage, L1BatchDAReferenceInput, ProofDAReferenceInput};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
@@ -55,16 +54,18 @@ impl ViaAggregator {
         storage: &mut Connection<'_, Core>,
         base_system_contracts_hashes: BaseSystemContractsHashes,
         protocol_version_id: ProtocolVersionId,
-    ) -> Option<ViaAggregatedOperation> {
+    ) -> anyhow::Result<Option<ViaAggregatedOperation>> {
         if let Some(op) = self.get_commit_proof_operation(storage).await {
-            Some(op)
+            Ok(Some(op))
         } else {
-            self.get_commit_l1_batch_operation(
-                storage,
-                base_system_contracts_hashes,
-                protocol_version_id,
-            )
-            .await
+            let commit_l1_batch = self
+                .get_commit_l1_batch_operation(
+                    storage,
+                    base_system_contracts_hashes,
+                    protocol_version_id,
+                )
+                .await?;
+            Ok(commit_l1_batch)
         }
     }
 
@@ -73,7 +74,7 @@ impl ViaAggregator {
         storage: &mut Connection<'_, Core>,
         base_system_contracts_hashes: BaseSystemContractsHashes,
         protocol_version_id: ProtocolVersionId,
-    ) -> Option<ViaAggregatedOperation> {
+    ) -> anyhow::Result<Option<ViaAggregatedOperation>> {
         let ready_for_commit_l1_batches = storage
             .blocks_dal()
             .get_ready_for_commit_l1_batches(
@@ -83,8 +84,11 @@ impl ViaAggregator {
                 protocol_version_id,
                 true,
             )
-            .await
-            .unwrap();
+            .await?;
+
+        if ready_for_commit_l1_batches.len() == 0 {
+            return Ok(None);
+        }
 
         if let Some(l1_batches) = extract_ready_subrange(
             storage,
@@ -102,12 +106,12 @@ impl ViaAggregator {
                 blob_id: "batch_temp_blob_id".to_string(),
             };
 
-            return Some(ViaAggregatedOperation::CommitL1BatchOnchain(
+            return Ok(Some(ViaAggregatedOperation::CommitL1BatchOnchain(
                 batch,
                 InscriptionMessage::L1BatchDAReference(input),
-            ));
+            )));
         }
-        None
+        Ok(None)
     }
 
     async fn get_commit_proof_operation(
@@ -120,7 +124,7 @@ impl ViaAggregator {
                 self.config.max_aggregated_proofs_to_commit() as usize
             )
             .await
-            .unwrap();
+            .ok()?;
 
         if let Some(l1_batches) =
             extract_ready_subrange(storage, &mut self.commit_proof_criteria, l1_batches.clone())
@@ -131,22 +135,18 @@ impl ViaAggregator {
             let batch_details = storage
                 .via_blocks_dal()
                 .get_block_commit_details(batch.header.number.0 as i64)
-                .await;
+                .await
+                .expect("L1 block has no details")?;
 
-            match batch_details.context("Error get batch details") {
-                Ok(b) => {
-                    let inputs = ProofDAReferenceInput {
-                        l1_batch_reveal_txid: b.unwrap().reveal_tx_id,
-                        da_identifier: "da_identifier_celestia".to_string(),
-                        blob_id: "proof_temp_blob_id".to_string(),
-                    };
-                    return Some(ViaAggregatedOperation::CommitProofOnchain(
-                        batch,
-                        InscriptionMessage::ProofDAReference(inputs),
-                    ));
-                }
-                Err(_) => (),
-            }
+            let inputs = ProofDAReferenceInput {
+                l1_batch_reveal_txid: batch_details.reveal_tx_id,
+                da_identifier: "da_identifier_celestia".to_string(),
+                blob_id: "proof_temp_blob_id".to_string(),
+            };
+            return Some(ViaAggregatedOperation::CommitProofOnchain(
+                batch,
+                InscriptionMessage::ProofDAReference(inputs),
+            ));
         }
         None
     }
