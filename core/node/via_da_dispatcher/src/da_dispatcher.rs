@@ -13,10 +13,7 @@ use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_l1_contract_interface::{i_executor::methods::ProveBatches, Tokenize};
 use zksync_object_store::{ObjectStore, ObjectStoreError};
 use zksync_prover_interface::outputs::L1BatchProofForL1;
-use zksync_types::{
-    protocol_version::{L1VerifierConfig, ProtocolSemanticVersion},
-    L1BatchNumber,
-};
+use zksync_types::{protocol_version::ProtocolSemanticVersion, L1BatchNumber};
 
 use crate::metrics::METRICS;
 
@@ -26,7 +23,6 @@ pub struct ViaDataAvailabilityDispatcher {
     pool: ConnectionPool<Core>,
     config: DADispatcherConfig,
     blob_store: Arc<dyn ObjectStore>,
-    l1_verifier_config: L1VerifierConfig,
 }
 
 impl ViaDataAvailabilityDispatcher {
@@ -35,14 +31,12 @@ impl ViaDataAvailabilityDispatcher {
         config: DADispatcherConfig,
         client: Box<dyn DataAvailabilityClient>,
         blob_store: Arc<dyn ObjectStore>,
-        l1_verifier_config: L1VerifierConfig,
     ) -> Self {
         Self {
             pool,
             config,
             client,
             blob_store,
-            l1_verifier_config,
         }
     }
 
@@ -155,10 +149,7 @@ impl ViaDataAvailabilityDispatcher {
 
         for proof in proofs {
             // fetch the proof from object store
-            let proof_data = match self
-                .load_real_proof_operation(self.l1_verifier_config, proof.l1_batch_number)
-                .await
-            {
+            let proof_data = match self.load_real_proof_operation(proof.l1_batch_number).await {
                 Some(proof) => proof,
                 None => {
                     tracing::error!("Failed to load proof for batch {}", proof.l1_batch_number.0);
@@ -221,7 +212,6 @@ impl ViaDataAvailabilityDispatcher {
     /// Loads a real proof operation for a given L1 batch number.
     async fn load_real_proof_operation(
         &self,
-        l1_verifier_config: L1VerifierConfig,
         batch_to_prove: L1BatchNumber,
     ) -> Option<ProveBatches> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
@@ -249,6 +239,23 @@ impl ViaDataAvailabilityDispatcher {
                 return None;
             }
         };
+
+        let latest_semantic_version = match storage
+            .protocol_versions_dal()
+            .latest_semantic_version()
+            .await
+        {
+            Ok(Some(version)) => version,
+            Ok(None) | Err(_) => {
+                tracing::error!("Failed to retrieve the latest semantic version");
+                return None;
+            }
+        };
+
+        let l1_verifier_config = storage
+            .protocol_versions_dal()
+            .l1_verifier_config_for_version(latest_semantic_version)
+            .await?;
 
         let allowed_patch_versions = match storage
             .protocol_versions_dal()
