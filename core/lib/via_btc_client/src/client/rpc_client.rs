@@ -16,7 +16,6 @@ use crate::{
 const RPC_MAX_RETRIES: u8 = 3;
 const RPC_RETRY_DELAY_MS: u64 = 500;
 
-#[derive(Debug)]
 pub struct BitcoinRpcClient {
     client: Client,
 }

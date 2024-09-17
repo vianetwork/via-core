@@ -83,9 +83,9 @@ impl ViaBtcSenderConfig {
             actor_role: "sequencer".to_string(),
             poll_interval: 1000,
             private_key: "private".to_string(),
-            max_aggregated_blocks_to_commit: 1.into(),
-            max_aggregated_proofs_to_commit: 1.into(),
-            max_txs_in_flight: 1 as i64,
+            max_aggregated_blocks_to_commit: 1,
+            max_aggregated_proofs_to_commit: 1,
+            max_txs_in_flight: 1,
         }
     }
 }

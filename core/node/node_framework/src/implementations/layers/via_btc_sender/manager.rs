@@ -1,4 +1,5 @@
-use via_btc_client::{client::BitcoinClient, inscriber::Inscriber, types::NodeAuth};
+use anyhow::Context;
+use via_btc_client::{inscriber::Inscriber, types::NodeAuth};
 use via_btc_sender::btc_inscription_manager::ViaBtcInscriptionManager;
 use via_btc_watch::BitcoinNetwork;
 use zksync_config::ViaBtcSenderConfig;
@@ -11,7 +12,7 @@ use crate::{
     FromContext, IntoContext,
 };
 
-/// Wiring layer for `eth_txs` managing
+/// Wiring layer for `inscriptions_requests` managing
 ///
 /// Responsible for initialization and running [`ViaBtcInscriptionTxManager`] component, that manages sending
 /// of `inscriptions_requests`(such as `CommitL1Block` or `CommitProof`) to L1.
@@ -53,7 +54,7 @@ impl WiringLayer for ViaInscriptionManagerLayer {
     type Output = Output;
 
     fn layer_name(&self) -> &'static str {
-        "eth_tx_manager_layer"
+        "via_btc_inscription_manager_layer"
     }
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
@@ -63,9 +64,6 @@ impl WiringLayer for ViaInscriptionManagerLayer {
         let network = BitcoinNetwork::from_core_arg(self.config.network())
             .map_err(|_| WiringError::Configuration("Wrong network in config".to_string()))?;
 
-        // Todo: update node auth
-        let client = BitcoinClient::new(self.config.rpc_url(), network, NodeAuth::None).unwrap();
-
         let inscriber = Inscriber::new(
             self.config.rpc_url(),
             network,
@@ -74,10 +72,10 @@ impl WiringLayer for ViaInscriptionManagerLayer {
             None,
         )
         .await
-        .unwrap();
+        .context("Init inscriber")?;
 
         let via_btc_inscription_manager =
-            ViaBtcInscriptionManager::new(client, inscriber, master_pool, self.config)
+            ViaBtcInscriptionManager::new(inscriber, master_pool, self.config)
                 .await
                 .unwrap();
 

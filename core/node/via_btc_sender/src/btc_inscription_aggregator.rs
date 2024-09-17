@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::{Context, Ok, Result};
+use anyhow::{Context, Result};
 use tokio::sync::watch;
 use via_btc_client::{
     inscriber::Inscriber,
@@ -52,10 +52,11 @@ impl ViaBtcInscriptionAggregator {
                 .connection_tagged("via_btc_inscription_creator")
                 .await?;
 
-            if let Err(err) = self.loop_iteration(&mut storage).await {
-                // Web3 API request failures can cause this,
-                // and anything more important is already properly reported.
-                tracing::warn!("btc_sender_inscription_aggregator error {err:?}");
+            match self.loop_iteration(&mut storage).await {
+                Ok(()) => { /* everything went fine */ }
+                Err(err) => {
+                    tracing::error!("Failed to process btc_sender_inscription_aggregator: {err}");
+                }
             }
         }
 
@@ -78,7 +79,7 @@ impl ViaBtcInscriptionAggregator {
             .get_next_ready_operation(storage, base_system_contracts_hashes, protocol_version_id)
             .await?
         {
-            let mut transaction = storage.start_transaction().await.unwrap();
+            let mut transaction = storage.start_transaction().await?;
 
             let inscription_message =
                 InscriptionMessage::to_bytes(&op.get_inscription_message().clone());
@@ -91,8 +92,7 @@ impl ViaBtcInscriptionAggregator {
                     InscriptionConfig::default(),
                 )
                 .await
-                .context("Get fee prepare inscriber")
-                .unwrap();
+                .context("Get fee prepare inscriber")?;
 
             let prediction_fee = inscribe_info.reveal_tx_output_info._reveal_fee
                 + inscribe_info.commit_tx_output_info._commit_tx_fee;
@@ -105,7 +105,7 @@ impl ViaBtcInscriptionAggregator {
                     prediction_fee.to_sat(),
                 )
                 .await
-                .unwrap();
+                .context("via save btc inscriptions request")?;
 
             transaction
                 .via_blocks_dal()
@@ -115,8 +115,8 @@ impl ViaBtcInscriptionAggregator {
                     op.get_action_type(),
                 )
                 .await
-                .unwrap();
-            transaction.commit().await.unwrap();
+                .context("set inscription request id")?;
+            transaction.commit().await?;
         }
         Ok(())
     }
@@ -124,13 +124,13 @@ impl ViaBtcInscriptionAggregator {
     // Todo: call indexer to fetch  the data
     async fn get_bootloader_code_hash(&self) -> anyhow::Result<H256> {
         let hex_str = "0000000000000000000000000000000000000000000000000000000000000000";
-        Ok(H256::from_str(&hex_str).unwrap())
+        Ok(H256::from_str(hex_str).unwrap())
     }
 
     // Todo: call indexer to fetch  the data
     async fn get_aa_code_hash(&self) -> anyhow::Result<H256> {
         let hex_str = "0000000000000000000000000000000000000000000000000000000000000000";
-        Ok(H256::from_str(&hex_str).unwrap())
+        Ok(H256::from_str(hex_str).unwrap())
     }
 
     // Todo: call indexer to fetch  the data

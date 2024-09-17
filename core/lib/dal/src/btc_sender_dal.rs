@@ -41,7 +41,7 @@ impl ViaBtcSenderDal<'_, '_> {
         )
         .fetch_one(self.storage.conn())
         .await?;
-        Ok(inscription_request.into())
+        Ok(inscription_request)
     }
 
     pub async fn get_inflight_inscriptions(
@@ -103,7 +103,7 @@ impl ViaBtcSenderDal<'_, '_> {
         signed_reveal_tx: Vec<u8>,
         actual_fees: i64,
         sent_at_block: i64,
-    ) -> anyhow::Result<Option<u32>> {
+    ) -> sqlx::Result<Option<u32>> {
         Ok(sqlx::query!(
             r#"
             INSERT INTO
@@ -139,7 +139,7 @@ impl ViaBtcSenderDal<'_, '_> {
     pub async fn get_last_inscription_request_history(
         &mut self,
         inscription_request_id: i64,
-    ) -> anyhow::Result<Option<ViaBtcInscriptionRequestHistory>> {
+    ) -> sqlx::Result<Option<ViaBtcInscriptionRequestHistory>> {
         let inscription_request_history = sqlx::query_as!(
             ViaStorageBtcInscriptionRequestHistory,
             r#"
@@ -159,14 +159,13 @@ impl ViaBtcSenderDal<'_, '_> {
         .fetch_optional(self.storage.conn())
         .await?;
 
-        Ok(inscription_request_history
-            .map(|inscription| ViaBtcInscriptionRequestHistory::from(inscription)))
+        Ok(inscription_request_history.map(ViaBtcInscriptionRequestHistory::from))
     }
 
     pub async fn get_total_inscription_request_history(
         &mut self,
         inscription_request_id: i64,
-    ) -> anyhow::Result<i64> {
+    ) -> sqlx::Result<i64> {
         let total = sqlx::query!(
             r#"
             SELECT
@@ -189,7 +188,7 @@ impl ViaBtcSenderDal<'_, '_> {
         &mut self,
         inscriptions_request_id: i64,
         inscriptions_request_history_id: i64,
-    ) -> anyhow::Result<(), anyhow::Error> {
+    ) -> anyhow::Result<()> {
         let mut transaction = self
             .storage
             .start_transaction()

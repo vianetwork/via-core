@@ -9,7 +9,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot::{ControlBlock, LeafVersion},
     transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence, TapLeafHash,
-    TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
+    TapSighashType, Transaction, TxIn, TxOut, Witness,
 };
 use bitcoincore_rpc::{Auth, RawTx};
 use secp256k1::Message;
@@ -104,7 +104,7 @@ impl Inscriber {
         let internal_key = self.signer.get_internal_key()?;
         let network = self.client.get_network();
 
-        let inscription_data = InscriptionData::new(&input, secp_ref, internal_key, network)?;
+        let inscription_data = InscriptionData::new(input, secp_ref, internal_key, network)?;
 
         let commit_tx_input_info = self.prepare_commit_tx_input().await?;
 
@@ -758,6 +758,11 @@ impl Inscriber {
         debug!("Context recreated from snapshot");
         Ok(())
     }
+
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
+    pub async fn get_client(&self) -> &dyn BitcoinOps {
+        &*self.client
+    }
 }
 
 #[cfg(test)]
@@ -770,6 +775,7 @@ mod tests {
             Keypair, Message, PublicKey, Secp256k1,
         },
         Block, BlockHash, CompressedPublicKey, OutPoint, PrivateKey, ScriptBuf, Transaction, TxOut,
+        Txid,
     };
     use mockall::{mock, predicate::*};
 

@@ -3,13 +3,11 @@ use via_btc_client::{
     types::{BitcoinNetwork, NodeAuth},
 };
 use via_btc_sender::btc_inscription_aggregator::ViaBtcInscriptionAggregator;
-use zksync_circuit_breaker::l1_txs::FailedL1TransactionChecker;
 use zksync_config::ViaBtcSenderConfig;
 
 use crate::{
     implementations::resources::{
-        circuit_breakers::CircuitBreakersResource,
-        pools::{MasterPool, PoolResource, ReplicaPool},
+        pools::{MasterPool, PoolResource},
         via_inscriber::InscriberResource,
     },
     service::StopReceiver,
@@ -43,10 +41,7 @@ pub struct ViaBtcInscriptionAggregatorLayer {
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<MasterPool>,
-    pub replica_pool: PoolResource<ReplicaPool>,
     pub inscriber: InscriberResource,
-    #[context(default)]
-    pub circuit_breakers: CircuitBreakersResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -68,13 +63,12 @@ impl WiringLayer for ViaBtcInscriptionAggregatorLayer {
     type Output = Output;
 
     fn layer_name(&self) -> &'static str {
-        "eth_tx_aggregator_layer"
+        "via_btc_inscription_request_aggregator_layer"
     }
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         // // Get resources.
         let master_pool = input.master_pool.get().await.unwrap();
-        let replica_pool = input.replica_pool.get().await.unwrap();
 
         let network = BitcoinNetwork::from_core_arg(self.config.network())
             .map_err(|_| WiringError::Configuration("Wrong network in config".to_string()))?;
@@ -89,16 +83,8 @@ impl WiringLayer for ViaBtcInscriptionAggregatorLayer {
         .await
         .unwrap();
 
-        // let config = self.eth_sender_config.sender.context("sender")?;
         let via_btc_inscription_aggregator =
             ViaBtcInscriptionAggregator::new(inscriber, master_pool, self.config).await?;
-
-        // Insert circuit breaker.
-        input
-            .circuit_breakers
-            .breakers
-            .insert(Box::new(FailedL1TransactionChecker { pool: replica_pool }))
-            .await;
 
         Ok(Output {
             via_btc_inscription_aggregator,

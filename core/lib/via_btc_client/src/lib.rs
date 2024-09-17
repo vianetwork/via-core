@@ -1,7 +1,7 @@
 pub mod traits;
 pub mod types;
 
-pub mod client;
+pub(crate) mod client;
 pub mod indexer;
 pub mod inscriber;
 #[cfg(feature = "regtest")]

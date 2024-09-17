@@ -2,9 +2,8 @@ use anyhow::{Context, Result};
 use bincode::serialize;
 use tokio::sync::watch;
 use via_btc_client::{
-    client::BitcoinClient,
     inscriber::Inscriber,
-    traits::{BitcoinOps, Serializable},
+    traits::Serializable,
     types::{InscriptionConfig, InscriptionMessage},
 };
 use zksync_config::ViaBtcSenderConfig;
@@ -13,8 +12,8 @@ use zksync_types::btc_sender::ViaBtcInscriptionRequest;
 
 use crate::config::{BLOCK_CONFIRMATIONS, BLOCK_RESEND};
 
+#[derive(Debug)]
 pub struct ViaBtcInscriptionManager {
-    client: BitcoinClient,
     inscriber: Inscriber,
     config: ViaBtcSenderConfig,
     pool: ConnectionPool<Core>,
@@ -22,13 +21,11 @@ pub struct ViaBtcInscriptionManager {
 
 impl ViaBtcInscriptionManager {
     pub async fn new(
-        client: BitcoinClient,
         inscriber: Inscriber,
         pool: ConnectionPool<Core>,
         config: ViaBtcSenderConfig,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            client,
             inscriber,
             config,
             pool,
@@ -50,7 +47,7 @@ impl ViaBtcInscriptionManager {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(err) => {
-                    tracing::error!("Failed to process new blocks: {err}");
+                    tracing::error!("Failed to process btc_sender_inscription_manager: {err}");
                 }
             }
         }
@@ -63,43 +60,47 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
-        self.send_new_inscription_txs(storage).await;
-        self.update_inscription_status_or_resend(storage).await;
+        self.send_new_inscription_txs(storage).await?;
+        self.update_inscription_status_or_resend(storage).await?;
         Ok(())
     }
 
-    async fn update_inscription_status_or_resend(&mut self, storage: &mut Connection<'_, Core>) {
-        let inflight_inscriptions = storage
-            .btc_sender_dal()
-            .get_inflight_inscriptions()
-            .await
-            .unwrap();
+    async fn update_inscription_status_or_resend(
+        &mut self,
+        storage: &mut Connection<'_, Core>,
+    ) -> anyhow::Result<()> {
+        let inflight_inscriptions = storage.btc_sender_dal().get_inflight_inscriptions().await?;
 
         for inscription in inflight_inscriptions {
             if let Some(last_inscription_history) = storage
                 .btc_sender_dal()
                 .get_last_inscription_request_history(inscription.id)
-                .await
-                .context("Fetch the inscription request history")
-                .unwrap()
+                .await?
             {
                 let is_confirmed = self
-                    .client
+                    .inscriber
+                    .get_client()
+                    .await
                     .check_tx_confirmation(
                         &last_inscription_history.reveal_tx_id,
                         BLOCK_CONFIRMATIONS,
                     )
-                    .await
-                    .unwrap();
+                    .await?;
 
                 if is_confirmed {
                     storage
                         .btc_sender_dal()
                         .confirm_inscription(inscription.id, last_inscription_history.id)
-                        .await
-                        .unwrap();
+                        .await?;
                 } else {
-                    let current_block = self.client.fetch_block_height().await.unwrap();
+                    let current_block = self
+                        .inscriber
+                        .get_client()
+                        .await
+                        .fetch_block_height()
+                        .await
+                        .context("context")?;
+
                     if last_inscription_history.sent_at_block + BLOCK_RESEND as i64
                         > current_block as i64
                     {
@@ -109,27 +110,29 @@ impl ViaBtcInscriptionManager {
                     let number_inscription_request_history = storage
                         .btc_sender_dal()
                         .get_total_inscription_request_history(inscription.id)
-                        .await
-                        .unwrap();
+                        .await?;
 
                     let config = InscriptionConfig {
                         fee_multiplier: number_inscription_request_history as u64 + 1,
                     };
 
                     self.send_inscription_tx(storage, &inscription, config)
-                        .await
-                        .unwrap();
+                        .await?;
                 }
             }
         }
+
+        Ok(())
     }
 
-    async fn send_new_inscription_txs(&mut self, storage: &mut Connection<'_, Core>) {
+    async fn send_new_inscription_txs(
+        &mut self,
+        storage: &mut Connection<'_, Core>,
+    ) -> anyhow::Result<()> {
         let number_inflight_txs = storage
             .btc_sender_dal()
             .get_inflight_inscriptions()
-            .await
-            .unwrap()
+            .await?
             .len();
 
         let number_of_available_slots_for_inscription_txs = self
@@ -141,22 +144,14 @@ impl ViaBtcInscriptionManager {
             let list_new_inscription_request = storage
                 .btc_sender_dal()
                 .list_new_inscription_request(number_of_available_slots_for_inscription_txs)
-                .await
-                .unwrap();
+                .await?;
 
             for inscription in list_new_inscription_request {
-                let result = self
-                    .send_inscription_tx(storage, &inscription, InscriptionConfig::default())
-                    .await;
-                // If one of the transactions doesn't succeed, this means we should return
-                // as new transactions have increasing nonces, so they will also result in an error
-                // about gapped nonces
-                if result.is_err() {
-                    tracing::info!("Skipping sending rest of new transactions because of error");
-                    break;
-                }
+                self.send_inscription_tx(storage, &inscription, InscriptionConfig::default())
+                    .await?;
             }
         }
+        Ok(())
     }
 
     pub(crate) async fn send_inscription_tx(
@@ -164,13 +159,14 @@ impl ViaBtcInscriptionManager {
         storage: &mut Connection<'_, Core>,
         tx: &ViaBtcInscriptionRequest,
         config: InscriptionConfig,
-    ) -> Result<(), anyhow::Error> {
+    ) -> anyhow::Result<()> {
         let sent_at_block = self
-            .client
+            .inscriber
+            .get_client()
+            .await
             .fetch_block_height()
             .await
-            .context("Error to fetch current block number")
-            .unwrap() as i64;
+            .context("Error to fetch current block number")? as i64;
 
         let input =
             InscriptionMessage::from_bytes(&tx.inscription_message.clone().unwrap_or_default());
@@ -179,15 +175,12 @@ impl ViaBtcInscriptionManager {
             .inscriber
             .inscribe(input, config)
             .await
-            .context("Sent inscription tx")
-            .unwrap();
+            .context("Sent inscription tx")?;
 
-        let signed_commit_tx = serialize(&inscribe_info.final_commit_tx.tx)
-            .context("Serilize the commit tx")
-            .unwrap();
-        let signed_reveal_tx = serialize(&inscribe_info.final_reveal_tx.tx)
-            .context("Serilize the reveal tx")
-            .unwrap();
+        let signed_commit_tx =
+            serialize(&inscribe_info.final_commit_tx.tx).context("Serilize the commit tx")?;
+        let signed_reveal_tx =
+            serialize(&inscribe_info.final_reveal_tx.tx).context("Serilize the reveal tx")?;
 
         let actual_fees = inscribe_info.reveal_tx_output_info._reveal_fee
             + inscribe_info.commit_tx_output_info._commit_tx_fee;
@@ -203,8 +196,7 @@ impl ViaBtcInscriptionManager {
                 actual_fees.to_sat() as i64,
                 sent_at_block,
             )
-            .await
-            .unwrap();
+            .await?;
         Ok(())
     }
 }

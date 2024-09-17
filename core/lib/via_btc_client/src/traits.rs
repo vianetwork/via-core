@@ -19,7 +19,6 @@ pub trait BitcoinOps: Send + Sync {
     async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
     async fn broadcast_signed_transaction(
         &self,
-        // TODO: change type here
         signed_transaction: &str,
     ) -> types::BitcoinClientResult<Txid>;
     async fn fetch_utxos(

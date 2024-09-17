@@ -2,10 +2,7 @@ use via_btc_client::types::{InscriptionMessage, L1BatchDAReferenceInput, ProofDA
 use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_types::{
-    btc_inscription_operations::ViaBtcInscriptionRequestType, commitment::L1BatchWithMetadata,
-    L1BatchNumber, ProtocolVersionId,
-};
+use zksync_types::{commitment::L1BatchWithMetadata, L1BatchNumber, ProtocolVersionId};
 
 use crate::{
     aggregated_operations::ViaAggregatedOperation,
@@ -26,23 +23,15 @@ impl ViaAggregator {
     pub fn new(config: ViaBtcSenderConfig) -> Self {
         Self {
             commit_l1_block_criteria: vec![
-                Box::from(ViaNumberCriterion {
-                    op: ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
-                    limit: config.max_aggregated_blocks_to_commit(),
-                }),
+                Box::from(ViaNumberCriterion {}),
                 Box::from(TimestampDeadlineCriterion {
-                    op: ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
-                    deadline_seconds: BLOCK_TIME_TO_COMMIT as u64,
+                    deadline_seconds: BLOCK_TIME_TO_COMMIT,
                 }),
             ],
             commit_proof_criteria: vec![
-                Box::from(ViaNumberCriterion {
-                    op: ViaBtcInscriptionRequestType::CommitProofOnchain,
-                    limit: config.max_aggregated_proofs_to_commit(),
-                }),
+                Box::from(ViaNumberCriterion {}),
                 Box::from(TimestampDeadlineCriterion {
-                    op: ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
-                    deadline_seconds: BLOCK_TIME_TO_PROOF as u64,
+                    deadline_seconds: BLOCK_TIME_TO_PROOF,
                 }),
             ],
             config,
@@ -55,7 +44,7 @@ impl ViaAggregator {
         base_system_contracts_hashes: BaseSystemContractsHashes,
         protocol_version_id: ProtocolVersionId,
     ) -> anyhow::Result<Option<ViaAggregatedOperation>> {
-        if let Some(op) = self.get_commit_proof_operation(storage).await {
+        if let Some(op) = self.get_commit_proof_operation(storage).await? {
             Ok(Some(op))
         } else {
             let commit_l1_batch = self
@@ -86,7 +75,7 @@ impl ViaAggregator {
             )
             .await?;
 
-        if ready_for_commit_l1_batches.len() == 0 {
+        if ready_for_commit_l1_batches.is_empty() {
             return Ok(None);
         }
 
@@ -117,14 +106,13 @@ impl ViaAggregator {
     async fn get_commit_proof_operation(
         &mut self,
         storage: &mut Connection<'_, Core>,
-    ) -> Option<ViaAggregatedOperation> {
+    ) -> anyhow::Result<Option<ViaAggregatedOperation>> {
         let l1_batches = storage
             .blocks_dal()
             .get_ready_for_dummy_proof_l1_batches(
                 self.config.max_aggregated_proofs_to_commit() as usize
             )
-            .await
-            .ok()?;
+            .await?;
 
         if let Some(l1_batches) =
             extract_ready_subrange(storage, &mut self.commit_proof_criteria, l1_batches.clone())
@@ -132,23 +120,23 @@ impl ViaAggregator {
         {
             let batch = l1_batches[0].clone();
 
-            let batch_details = storage
+            if let Some(batch_details) = storage
                 .via_blocks_dal()
                 .get_block_commit_details(batch.header.number.0 as i64)
-                .await
-                .expect("L1 block has no details")?;
-
-            let inputs = ProofDAReferenceInput {
-                l1_batch_reveal_txid: batch_details.reveal_tx_id,
-                da_identifier: "da_identifier_celestia".to_string(),
-                blob_id: "proof_temp_blob_id".to_string(),
-            };
-            return Some(ViaAggregatedOperation::CommitProofOnchain(
-                batch,
-                InscriptionMessage::ProofDAReference(inputs),
-            ));
+                .await?
+            {
+                let inputs = ProofDAReferenceInput {
+                    l1_batch_reveal_txid: batch_details.reveal_tx_id,
+                    da_identifier: "da_identifier_celestia".to_string(),
+                    blob_id: "proof_temp_blob_id".to_string(),
+                };
+                return Ok(Some(ViaAggregatedOperation::CommitProofOnchain(
+                    batch,
+                    InscriptionMessage::ProofDAReference(inputs),
+                )));
+            }
         }
-        None
+        Ok(None)
     }
 }
 

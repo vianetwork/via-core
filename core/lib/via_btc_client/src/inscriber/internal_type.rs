@@ -1,7 +1,4 @@
-use bincode::{deserialize, serialize};
 use bitcoin::{taproot::ControlBlock, Amount, Transaction, TxIn, TxOut, Txid};
-
-use crate::traits::Serializable;
 
 #[derive(Debug)]
 pub struct CommitTxInputRes {
