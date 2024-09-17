@@ -27,3 +27,9 @@ pub struct L1BatchDA {
     pub pubdata: Vec<u8>,
     pub l1_batch_number: L1BatchNumber,
 }
+
+#[derive(Debug)]
+pub struct ProofDA {
+    pub proof_blob_url: String,
+    pub l1_batch_number: L1BatchNumber,
+}

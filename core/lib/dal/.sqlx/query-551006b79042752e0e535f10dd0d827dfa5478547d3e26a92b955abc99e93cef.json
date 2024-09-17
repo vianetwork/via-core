@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    blob_id\n                FROM\n                    via_data_availability\n                WHERE\n                    l1_batch_number = $1\n                    AND is_proof = FALSE\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "blob_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "551006b79042752e0e535f10dd0d827dfa5478547d3e26a92b955abc99e93cef"
+}
