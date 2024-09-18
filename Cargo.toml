@@ -312,4 +312,6 @@ zksync_logs_bloom_backfill = { version = "0.1.0", path = "core/node/logs_bloom_b
 # VIA Protocol Related Components
 via_btc_client= { version = "0.1.0", path = "core/lib/via_btc_client" }
 via_da_clients = { version = "0.1.0", path = "core/lib/via_da_clients" }
-via_btc_watch = { version = "0.1.0", path = "core/node/btc_watch" }
+via_btc_watch = { version = "0.1.0", path = "core/node/via_btc_watch" }
+via_da_dispatcher = { version = "0.1.0", path = "core/node/via_da_dispatcher" }
+

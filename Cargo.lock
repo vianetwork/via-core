@@ -8486,15 +8486,25 @@ dependencies = [
  "tracing",
  "vise",
  "zksync_config",
-<<<<<<< HEAD
  "zksync_da_client",
  "zksync_dal",
  "zksync_l1_contract_interface",
  "zksync_object_store",
  "zksync_prover_interface",
- "zksync_core_leftovers",
-=======
->>>>>>> 0c9ba20f (chore: fmt, lint, extra deps fixes)
+ "zksync_types",
+ "zksync_utils",
+]
+
+[[package]]
+name = "via_server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.5.16",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+ "zksync_config",
  "zksync_env_config",
  "zksync_node_framework",
  "zksync_storage",
@@ -10353,6 +10363,7 @@ dependencies = [
  "tracing",
  "trybuild",
  "via_btc_watch",
+ "via_da_dispatcher",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",
  "zksync_circuit_breaker",

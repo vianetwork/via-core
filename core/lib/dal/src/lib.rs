@@ -24,8 +24,8 @@ use crate::{
     sync_dal::SyncDal, system_dal::SystemDal, tee_proof_generation_dal::TeeProofGenerationDal,
     tee_verifier_input_producer_dal::TeeVerifierInputProducerDal, tokens_dal::TokensDal,
     tokens_web3_dal::TokensWeb3Dal, transactions_dal::TransactionsDal,
-    transactions_web3_dal::TransactionsWeb3Dal,
-    vm_runner_dal::VmRunnerDal,
+    transactions_web3_dal::TransactionsWeb3Dal, via_data_availability_dal::ViaDataAvailabilityDal,
+    via_transactions_dal::ViaTransactionsDal, vm_runner_dal::VmRunnerDal,
 };
 
 pub mod base_token_dal;
@@ -60,6 +60,7 @@ pub mod tokens_dal;
 pub mod tokens_web3_dal;
 pub mod transactions_dal;
 pub mod transactions_web3_dal;
+pub mod via_data_availability_dal;
 pub mod via_transactions_dal;
 pub mod vm_runner_dal;
 
@@ -78,6 +79,8 @@ where
     Self: 'a,
 {
     fn transactions_dal(&mut self) -> TransactionsDal<'_, 'a>;
+
+    fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a>;
 
     fn transactions_web3_dal(&mut self) -> TransactionsWeb3Dal<'_, 'a>;
 
@@ -130,6 +133,7 @@ where
     fn pruning_dal(&mut self) -> PruningDal<'_, 'a>;
 
     fn data_availability_dal(&mut self) -> DataAvailabilityDal<'_, 'a>;
+    fn via_data_availability_dal(&mut self) -> ViaDataAvailabilityDal<'_, 'a>;
 
     fn vm_runner_dal(&mut self) -> VmRunnerDal<'_, 'a>;
 
@@ -147,6 +151,10 @@ impl private::Sealed for Connection<'_, Core> {}
 impl<'a> CoreDal<'a> for Connection<'a, Core> {
     fn transactions_dal(&mut self) -> TransactionsDal<'_, 'a> {
         TransactionsDal { storage: self }
+    }
+
+    fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a> {
+        ViaTransactionsDal { storage: self }
     }
 
     fn transactions_web3_dal(&mut self) -> TransactionsWeb3Dal<'_, 'a> {
@@ -251,6 +259,10 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
 
     fn data_availability_dal(&mut self) -> DataAvailabilityDal<'_, 'a> {
         DataAvailabilityDal { storage: self }
+    }
+
+    fn via_data_availability_dal(&mut self) -> ViaDataAvailabilityDal<'_, 'a> {
+        ViaDataAvailabilityDal { storage: self }
     }
 
     fn vm_runner_dal(&mut self) -> VmRunnerDal<'_, 'a> {
