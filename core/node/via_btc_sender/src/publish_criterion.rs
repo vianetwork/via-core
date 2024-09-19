@@ -2,7 +2,6 @@ use std::fmt;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use zksync_dal::{Connection, Core};
 use zksync_types::{btc_block::ViaBtcL1BlockDetails, L1BatchNumber};
 
 #[async_trait]
@@ -15,7 +14,6 @@ pub trait ViaBtcL1BatchCommitCriterion: fmt::Debug + Send + Sync {
     /// Otherwise, returns the number of the last L1 batch that needs to be committed.
     async fn last_l1_batch_to_publish(
         &mut self,
-        storage: &mut Connection<'_, Core>,
         consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber>;
 }
@@ -33,7 +31,6 @@ impl ViaBtcL1BatchCommitCriterion for ViaNumberCriterion {
 
     async fn last_l1_batch_to_publish(
         &mut self,
-        _storage: &mut Connection<'_, Core>,
         consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber> {
         let mut batch_numbers = consecutive_l1_batches.iter().map(|batch| batch.number.0);
@@ -64,7 +61,6 @@ impl ViaBtcL1BatchCommitCriterion for TimestampDeadlineCriterion {
 
     async fn last_l1_batch_to_publish(
         &mut self,
-        _storage: &mut Connection<'_, Core>,
         consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber> {
         let current_timestamp = Utc::now().timestamp() as u64;

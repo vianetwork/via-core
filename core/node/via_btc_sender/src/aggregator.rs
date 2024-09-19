@@ -81,7 +81,6 @@ impl ViaAggregator {
         validate_l1_batch_sequence(ready_for_commit_l1_batches.clone());
 
         if let Some(l1_batches) = extract_ready_subrange(
-            storage,
             &mut self.commit_l1_block_criteria,
             ready_for_commit_l1_batches,
         )
@@ -120,7 +119,6 @@ impl ViaAggregator {
         validate_l1_batch_sequence(ready_for_commit_proof_l1_batches.clone());
 
         if let Some(l1_batches) = extract_ready_subrange(
-            storage,
             &mut self.commit_proof_criteria,
             ready_for_commit_proof_l1_batches.clone(),
         )
@@ -146,14 +144,13 @@ impl ViaAggregator {
 }
 
 async fn extract_ready_subrange(
-    storage: &mut Connection<'_, Core>,
     publish_criteria: &mut [Box<dyn ViaBtcL1BatchCommitCriterion>],
     uncommited_l1_batches: Vec<ViaBtcL1BlockDetails>,
 ) -> Option<Vec<ViaBtcL1BlockDetails>> {
     let mut last_l1_batch: Option<L1BatchNumber> = None;
     for criterion in publish_criteria {
         let l1_batch_by_criterion = criterion
-            .last_l1_batch_to_publish(storage, &uncommited_l1_batches)
+            .last_l1_batch_to_publish(&uncommited_l1_batches)
             .await;
         if let Some(l1_batch) = l1_batch_by_criterion {
             last_l1_batch = Some(last_l1_batch.map_or(l1_batch, |number| number.min(l1_batch)));
