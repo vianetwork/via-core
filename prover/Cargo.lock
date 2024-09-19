@@ -8159,6 +8159,7 @@ dependencies = [
  "secp256k1 0.27.0",
  "serde",
  "serde_json",
+ "serde_with",
  "strum",
  "thiserror",
  "tracing",

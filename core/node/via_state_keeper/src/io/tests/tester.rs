@@ -2,21 +2,20 @@
 
 use std::{slice, sync::Arc, time::Duration};
 
-use zksync_base_token_adjuster::NoOpRatioProvider;
+use via_btc_client::{
+    client::BitcoinClient,
+    inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOpsConfig},
+};
+use via_fee_model::{ViaGasAdjuster, ViaMainNodeFeeInputProvider};
 use zksync_config::{
-    configs::{chain::StateKeeperConfig, eth_sender::PubdataSendingMode, wallets::Wallets},
+    configs::{chain::StateKeeperConfig, via_btc_client::ViaBtcClientConfig, wallets::Wallets},
     GasAdjusterConfig,
 };
 use zksync_contracts::BaseSystemContracts;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
-use zksync_eth_client::{clients::MockSettlementLayer, BaseFees};
 use zksync_multivm::{
     interface::{TransactionExecutionMetrics, TransactionExecutionResult},
     vm_latest::constants::BATCH_COMPUTATIONAL_GAS_LIMIT,
-};
-use zksync_node_fee_model::{
-    l1_gas_price::{GasAdjuster, GasAdjusterClient},
-    MainNodeFeeInputProvider,
 };
 use zksync_node_genesis::create_genesis_l1_batch;
 use zksync_node_test_utils::{
@@ -25,7 +24,7 @@ use zksync_node_test_utils::{
 use zksync_types::{
     block::L2BlockHeader,
     commitment::L1BatchCommitmentMode,
-    fee_model::{BatchFeeInput, FeeModelConfig, FeeModelConfigV1},
+    fee_model::{BatchFeeInput, FeeModelConfig, FeeModelConfigV2},
     l2::L2Tx,
     protocol_version::{L1VerifierConfig, ProtocolSemanticVersion},
     system_contracts::get_system_smart_contracts,
@@ -38,7 +37,7 @@ use crate::{MempoolGuard, MempoolIO};
 pub struct Tester {
     base_system_contracts: BaseSystemContracts,
     current_timestamp: u64,
-    commitment_mode: L1BatchCommitmentMode,
+    _commitment_mode: L1BatchCommitmentMode,
 }
 
 impl Tester {
@@ -47,60 +46,42 @@ impl Tester {
         Self {
             base_system_contracts,
             current_timestamp: 0,
-            commitment_mode,
+            _commitment_mode: commitment_mode,
         }
     }
 
-    async fn create_gas_adjuster(&self) -> GasAdjuster {
-        let block_fees = vec![0, 4, 6, 8, 7, 5, 5, 8, 10, 9];
-        let base_fees = block_fees
-            .into_iter()
-            .map(|base_fee_per_gas| BaseFees {
-                base_fee_per_gas,
-                base_fee_per_blob_gas: 1.into(), // Not relevant for the test
-                l2_pubdata_price: 0.into(),      // Not relevant for the test
-            })
-            .collect();
-        let eth_client = MockSettlementLayer::builder()
-            .with_fee_history(base_fees)
-            .build();
-
-        let gas_adjuster_config = GasAdjusterConfig {
-            default_priority_fee_per_gas: 10,
-            max_base_fee_samples: 10,
-            pricing_formula_parameter_a: 1.0,
-            pricing_formula_parameter_b: 1.0,
-            internal_l1_pricing_multiplier: 1.0,
-            internal_enforced_l1_gas_price: None,
-            internal_enforced_pubdata_price: None,
-            poll_period: 10,
-            max_l1_gas_price: None,
-            num_samples_for_blob_base_fee_estimate: 10,
-            internal_pubdata_pricing_multiplier: 1.0,
-            max_blob_base_fee: None,
-            settlement_mode: Default::default(),
+    pub(super) async fn create_batch_fee_input_provider(&self) -> ViaMainNodeFeeInputProvider {
+        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
+        let config = FeeModelConfigV2 {
+            minimal_l2_gas_price: 100_000_000_000,
+            compute_overhead_part: 0.0,
+            pubdata_overhead_part: 1.0,
+            batch_overhead_l1_gas: 700_000,
+            max_gas_per_batch: 500_000_000,
+            max_pubdata_per_batch: 100_000,
         };
-
-        GasAdjuster::new(
-            GasAdjusterClient::from_l1(Box::new(eth_client.into_client())),
-            gas_adjuster_config,
-            PubdataSendingMode::Calldata,
-            self.commitment_mode,
+        inscriber.get_client().await;
+        let client = BitcoinClient::new(
+            "",
+            via_btc_client::types::NodeAuth::None,
+            ViaBtcClientConfig::for_tests(),
         )
-        .await
+        .unwrap();
+        ViaMainNodeFeeInputProvider::new(
+            Arc::new(
+                ViaGasAdjuster::new(
+                    GasAdjusterConfig {
+                        internal_enforced_pubdata_price: Some(10),
+                        ..Default::default()
+                    },
+                    Arc::new(client),
+                )
+                .await
+                .unwrap(),
+            ),
+            FeeModelConfig::V2(config),
+        )
         .unwrap()
-    }
-
-    pub(super) async fn create_batch_fee_input_provider(&self) -> MainNodeFeeInputProvider {
-        let gas_adjuster = Arc::new(self.create_gas_adjuster().await);
-
-        MainNodeFeeInputProvider::new(
-            gas_adjuster,
-            Arc::new(NoOpRatioProvider::default()),
-            FeeModelConfig::V1(FeeModelConfigV1 {
-                minimal_l2_gas_price: self.minimal_l2_gas_price(),
-            }),
-        )
     }
 
     // Constant value to be used both in tests and inside of the IO.
@@ -112,14 +93,7 @@ impl Tester {
         &self,
         pool: ConnectionPool<Core>,
     ) -> (MempoolIO, MempoolGuard) {
-        let gas_adjuster = Arc::new(self.create_gas_adjuster().await);
-        let batch_fee_input_provider = MainNodeFeeInputProvider::new(
-            gas_adjuster,
-            Arc::new(NoOpRatioProvider::default()),
-            FeeModelConfig::V1(FeeModelConfigV1 {
-                minimal_l2_gas_price: self.minimal_l2_gas_price(),
-            }),
-        );
+        let batch_fee_input_provider = self.create_batch_fee_input_provider().await;
 
         let mempool = MempoolGuard::new(PriorityOpId(0), 100);
         let config = StateKeeperConfig {
@@ -151,6 +125,7 @@ impl Tester {
         if storage.blocks_dal().is_genesis_needed().await.unwrap() {
             create_genesis_l1_batch(
                 &mut storage,
+                L2ChainId::max(),
                 ProtocolSemanticVersion {
                     minor: ProtocolVersionId::latest(),
                     patch: 0.into(),

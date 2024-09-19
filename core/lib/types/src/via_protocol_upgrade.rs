@@ -27,7 +27,7 @@ impl ViaProtocolUpgrade {
 
         let tx = ProtocolUpgradeTx {
             execute: Execute {
-                contract_address: CONTRACT_DEPLOYER_ADDRESS,
+                contract_address: Some(CONTRACT_DEPLOYER_ADDRESS),
                 calldata: self.get_calldata(system_contracts)?,
                 value: U256::zero(),
                 factory_deps: vec![],

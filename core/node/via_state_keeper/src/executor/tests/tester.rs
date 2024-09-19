@@ -28,8 +28,8 @@ use zksync_types::{
     system_contracts::get_system_smart_contracts,
     utils::storage_key_for_standard_token_balance,
     vm::FastVmMode,
-    AccountTreeId, Address, Execute, L1BatchNumber, L2BlockNumber, PriorityOpId, ProtocolVersionId,
-    StorageLog, Transaction, H256, L2_BASE_TOKEN_ADDRESS, U256,
+    AccountTreeId, Address, Execute, L1BatchNumber, L2BlockNumber, L2ChainId, PriorityOpId,
+    ProtocolVersionId, StorageLog, Transaction, H256, L2_BASE_TOKEN_ADDRESS, U256,
 };
 use zksync_utils::u256_to_h256;
 use zksync_vm_executor::batch::MainBatchExecutorFactory;
@@ -246,6 +246,7 @@ impl Tester {
         if storage.blocks_dal().is_genesis_needed().await.unwrap() {
             create_genesis_l1_batch(
                 &mut storage,
+                L2ChainId::default(),
                 ProtocolSemanticVersion {
                     minor: ProtocolVersionId::latest(),
                     patch: 0.into(),
@@ -376,7 +377,7 @@ impl AccountLoadNextExecutable for Account {
 
         self.get_l2_tx_for_execute(
             Execute {
-                contract_address: address,
+                contract_address: Some(address),
                 calldata: LoadnextContractExecutionParams {
                     reads: 100,
                     writes: writes as usize,
@@ -412,7 +413,7 @@ impl AccountLoadNextExecutable for Account {
 
         self.get_l2_tx_for_execute(
             Execute {
-                contract_address: address,
+                contract_address: Some(address),
                 calldata,
                 value: Default::default(),
                 factory_deps: vec![],
