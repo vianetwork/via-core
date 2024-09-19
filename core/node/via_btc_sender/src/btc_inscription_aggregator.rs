@@ -80,42 +80,42 @@ impl ViaBtcInscriptionAggregator {
             .await?
         {
             let mut transaction = storage.start_transaction().await?;
+            for (index, message) in op.get_inscription_messages().clone().iter().enumerate() {
+                let inscription_message = InscriptionMessage::to_bytes(message);
 
-            let inscription_message =
-                InscriptionMessage::to_bytes(&op.get_inscription_message().clone());
+                // Estimate the tx fee to execute the inscription request.
+                let inscribe_info = self
+                    .inscriber
+                    .prepare_inscribe(message, InscriptionConfig::default())
+                    .await
+                    .context("Get fee prepare inscriber")?;
 
-            // Estimate the tx fee to execute the inscription request.
-            let inscribe_info = self
-                .inscriber
-                .prepare_inscribe(
-                    &op.get_inscription_message().clone(),
-                    InscriptionConfig::default(),
-                )
-                .await
-                .context("Get fee prepare inscriber")?;
+                let prediction_fee = inscribe_info.reveal_tx_output_info._reveal_fee
+                    + inscribe_info.commit_tx_output_info._commit_tx_fee;
 
-            let prediction_fee = inscribe_info.reveal_tx_output_info._reveal_fee
-                + inscribe_info.commit_tx_output_info._commit_tx_fee;
+                let inscription_request = transaction
+                    .btc_sender_dal()
+                    .via_save_btc_inscriptions_request(
+                        op.get_action_type(),
+                        inscription_message,
+                        prediction_fee.to_sat(),
+                    )
+                    .await
+                    .context("via save btc inscriptions request")?;
 
-            let inscription_request = transaction
-                .btc_sender_dal()
-                .via_save_btc_inscriptions_request(
-                    op.get_action_type(),
-                    inscription_message,
-                    prediction_fee.to_sat(),
-                )
-                .await
-                .context("via save btc inscriptions request")?;
-
-            transaction
-                .via_blocks_dal()
-                .set_inscription_request_id(
-                    op.get_l1_batch_metadata().header.number,
-                    inscription_request.id,
-                    op.get_action_type(),
-                )
-                .await
-                .context("set inscription request id")?;
+                transaction
+                    .via_blocks_dal()
+                    .set_inscription_request_id(
+                        op.get_l1_batches_detail()
+                            .get(index)
+                            .context("error to parse l1 block")?
+                            .number,
+                        inscription_request.id,
+                        op.get_action_type(),
+                    )
+                    .await
+                    .context("set inscription request id")?;
+            }
             transaction.commit().await?;
         }
         Ok(())

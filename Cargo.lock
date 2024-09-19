@@ -8453,6 +8453,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_da_dispatcher",
  "zksync_config",
  "zksync_contracts",
  "zksync_dal",

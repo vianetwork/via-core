@@ -3,7 +3,7 @@ use std::fmt;
 use async_trait::async_trait;
 use chrono::Utc;
 use zksync_dal::{Connection, Core};
-use zksync_types::{commitment::L1BatchWithMetadata, L1BatchNumber};
+use zksync_types::{btc_block::ViaBtcL1BlockDetails, L1BatchNumber};
 
 #[async_trait]
 pub trait ViaBtcL1BatchCommitCriterion: fmt::Debug + Send + Sync {
@@ -16,12 +16,14 @@ pub trait ViaBtcL1BatchCommitCriterion: fmt::Debug + Send + Sync {
     async fn last_l1_batch_to_publish(
         &mut self,
         storage: &mut Connection<'_, Core>,
-        consecutive_l1_batches: &[L1BatchWithMetadata],
+        consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber>;
 }
 
 #[derive(Debug)]
-pub struct ViaNumberCriterion {}
+pub struct ViaNumberCriterion {
+    pub limit: u32,
+}
 
 #[async_trait]
 impl ViaBtcL1BatchCommitCriterion for ViaNumberCriterion {
@@ -32,9 +34,19 @@ impl ViaBtcL1BatchCommitCriterion for ViaNumberCriterion {
     async fn last_l1_batch_to_publish(
         &mut self,
         _storage: &mut Connection<'_, Core>,
-        consecutive_l1_batches: &[L1BatchWithMetadata],
+        consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber> {
-        Some(consecutive_l1_batches[0].header.number)
+        let mut batch_numbers = consecutive_l1_batches.iter().map(|batch| batch.number.0);
+
+        let first = batch_numbers.next()?;
+        let last_batch_number = batch_numbers.last().unwrap_or(first);
+        let batch_count = last_batch_number - first + 1;
+        if batch_count >= self.limit {
+            let result = L1BatchNumber(first + self.limit - 1);
+            Some(result)
+        } else {
+            None
+        }
     }
 }
 
@@ -53,12 +65,12 @@ impl ViaBtcL1BatchCommitCriterion for TimestampDeadlineCriterion {
     async fn last_l1_batch_to_publish(
         &mut self,
         _storage: &mut Connection<'_, Core>,
-        consecutive_l1_batches: &[L1BatchWithMetadata],
+        consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber> {
         let current_timestamp = Utc::now().timestamp() as u64;
-        let block_timestamp = consecutive_l1_batches[0].header.timestamp;
+        let block_timestamp = consecutive_l1_batches[0].timestamp as u64;
         if block_timestamp + self.deadline_seconds as u64 <= current_timestamp {
-            return Some(consecutive_l1_batches[0].header.number);
+            return Some(consecutive_l1_batches[0].number);
         }
         None
     }

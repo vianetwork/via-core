@@ -2,7 +2,7 @@ use via_btc_client::types::{InscriptionMessage, L1BatchDAReferenceInput, ProofDA
 use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_types::{commitment::L1BatchWithMetadata, L1BatchNumber, ProtocolVersionId};
+use zksync_types::{btc_block::ViaBtcL1BlockDetails, L1BatchNumber, ProtocolVersionId};
 
 use crate::{
     aggregated_operations::ViaAggregatedOperation,
@@ -23,13 +23,17 @@ impl ViaAggregator {
     pub fn new(config: ViaBtcSenderConfig) -> Self {
         Self {
             commit_l1_block_criteria: vec![
-                Box::from(ViaNumberCriterion {}),
+                Box::from(ViaNumberCriterion {
+                    limit: config.max_aggregated_blocks_to_commit() as u32,
+                }),
                 Box::from(TimestampDeadlineCriterion {
                     deadline_seconds: BLOCK_TIME_TO_COMMIT,
                 }),
             ],
             commit_proof_criteria: vec![
-                Box::from(ViaNumberCriterion {}),
+                Box::from(ViaNumberCriterion {
+                    limit: config.max_aggregated_proofs_to_commit() as u32,
+                }),
                 Box::from(TimestampDeadlineCriterion {
                     deadline_seconds: BLOCK_TIME_TO_PROOF,
                 }),
@@ -65,19 +69,16 @@ impl ViaAggregator {
         protocol_version_id: ProtocolVersionId,
     ) -> anyhow::Result<Option<ViaAggregatedOperation>> {
         let ready_for_commit_l1_batches = storage
-            .blocks_dal()
+            .via_blocks_dal()
             .get_ready_for_commit_l1_batches(
                 self.config.max_aggregated_blocks_to_commit() as usize,
                 base_system_contracts_hashes.bootloader,
                 base_system_contracts_hashes.default_aa,
                 protocol_version_id,
-                true,
             )
             .await?;
 
-        if ready_for_commit_l1_batches.is_empty() {
-            return Ok(None);
-        }
+        validate_l1_batch_sequence(ready_for_commit_l1_batches.clone());
 
         if let Some(l1_batches) = extract_ready_subrange(
             storage,
@@ -86,18 +87,20 @@ impl ViaAggregator {
         )
         .await
         {
-            // Todo: update the 'da_identifier' and 'blob_id.
-            let batch = l1_batches[0].clone();
-            let input = L1BatchDAReferenceInput {
-                l1_batch_hash: batch.metadata.root_hash,
-                l1_batch_index: batch.header.number,
-                da_identifier: "da_identifier_celestia".to_string(),
-                blob_id: "batch_temp_blob_id".to_string(),
-            };
+            let mut inscription_messages = Vec::with_capacity(l1_batches.len());
+            for batch in l1_batches.clone() {
+                let input = L1BatchDAReferenceInput {
+                    l1_batch_hash: batch.hash,
+                    l1_batch_index: batch.number,
+                    da_identifier: self.config.da_identifier().to_string(),
+                    blob_id: batch.blob_id,
+                };
+                inscription_messages.push(InscriptionMessage::L1BatchDAReference(input));
+            }
 
             return Ok(Some(ViaAggregatedOperation::CommitL1BatchOnchain(
-                batch,
-                InscriptionMessage::L1BatchDAReference(input),
+                l1_batches,
+                inscription_messages,
             )));
         }
         Ok(None)
@@ -107,34 +110,36 @@ impl ViaAggregator {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> anyhow::Result<Option<ViaAggregatedOperation>> {
-        let l1_batches = storage
-            .blocks_dal()
-            .get_ready_for_dummy_proof_l1_batches(
+        let ready_for_commit_proof_l1_batches = storage
+            .via_blocks_dal()
+            .get_ready_for_commit_proof_l1_batches(
                 self.config.max_aggregated_proofs_to_commit() as usize
             )
             .await?;
 
-        if let Some(l1_batches) =
-            extract_ready_subrange(storage, &mut self.commit_proof_criteria, l1_batches.clone())
-                .await
-        {
-            let batch = l1_batches[0].clone();
+        validate_l1_batch_sequence(ready_for_commit_proof_l1_batches.clone());
 
-            if let Some(batch_details) = storage
-                .via_blocks_dal()
-                .get_block_commit_details(batch.header.number.0 as i64)
-                .await?
-            {
-                let inputs = ProofDAReferenceInput {
-                    l1_batch_reveal_txid: batch_details.reveal_tx_id,
-                    da_identifier: "da_identifier_celestia".to_string(),
-                    blob_id: "proof_temp_blob_id".to_string(),
+        if let Some(l1_batches) = extract_ready_subrange(
+            storage,
+            &mut self.commit_proof_criteria,
+            ready_for_commit_proof_l1_batches.clone(),
+        )
+        .await
+        {
+            let mut inscription_messages = Vec::with_capacity(l1_batches.len());
+            for batch in l1_batches.clone() {
+                let input = ProofDAReferenceInput {
+                    l1_batch_reveal_txid: batch.reveal_tx_id,
+                    da_identifier: self.config.da_identifier().to_string(),
+                    blob_id: batch.blob_id,
                 };
-                return Ok(Some(ViaAggregatedOperation::CommitProofOnchain(
-                    batch,
-                    InscriptionMessage::ProofDAReference(inputs),
-                )));
+                inscription_messages.push(InscriptionMessage::ProofDAReference(input));
             }
+
+            return Ok(Some(ViaAggregatedOperation::CommitProofOnchain(
+                l1_batches,
+                inscription_messages,
+            )));
         }
         Ok(None)
     }
@@ -143,8 +148,8 @@ impl ViaAggregator {
 async fn extract_ready_subrange(
     storage: &mut Connection<'_, Core>,
     publish_criteria: &mut [Box<dyn ViaBtcL1BatchCommitCriterion>],
-    uncommited_l1_batches: Vec<L1BatchWithMetadata>,
-) -> Option<Vec<L1BatchWithMetadata>> {
+    uncommited_l1_batches: Vec<ViaBtcL1BlockDetails>,
+) -> Option<Vec<ViaBtcL1BlockDetails>> {
     let mut last_l1_batch: Option<L1BatchNumber> = None;
     for criterion in publish_criteria {
         let l1_batch_by_criterion = criterion
@@ -159,7 +164,19 @@ async fn extract_ready_subrange(
     Some(
         uncommited_l1_batches
             .into_iter()
-            .take_while(|l1_batch| l1_batch.header.number <= last_l1_batch)
+            .take_while(|l1_batch| l1_batch.number <= last_l1_batch)
             .collect(),
     )
+}
+
+fn validate_l1_batch_sequence(ready_for_commit_l1_batches: Vec<ViaBtcL1BlockDetails>) {
+    ready_for_commit_l1_batches
+        .iter()
+        .reduce(|last_batch, next_batch| {
+            if last_batch.number + 1 == next_batch.number {
+                next_batch
+            } else {
+                panic!("L1 batches prepared for commit are not sequential");
+            }
+        });
 }

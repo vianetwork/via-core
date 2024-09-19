@@ -1,13 +1,13 @@
 use via_btc_client::types::InscriptionMessage;
 use zksync_types::{
-    btc_inscription_operations::ViaBtcInscriptionRequestType, commitment::L1BatchWithMetadata,
+    btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType,
 };
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ViaAggregatedOperation {
-    CommitL1BatchOnchain(L1BatchWithMetadata, InscriptionMessage),
-    CommitProofOnchain(L1BatchWithMetadata, InscriptionMessage),
+    CommitL1BatchOnchain(Vec<ViaBtcL1BlockDetails>, Vec<InscriptionMessage>),
+    CommitProofOnchain(Vec<ViaBtcL1BlockDetails>, Vec<InscriptionMessage>),
 }
 
 impl ViaAggregatedOperation {
@@ -18,14 +18,14 @@ impl ViaAggregatedOperation {
         }
     }
 
-    pub fn get_l1_batch_metadata(&self) -> L1BatchWithMetadata {
+    pub fn get_l1_batches_detail(&self) -> Vec<ViaBtcL1BlockDetails> {
         match self {
             Self::CommitL1BatchOnchain(l1_batch, _) => l1_batch.clone(),
             Self::CommitProofOnchain(l1_batch, _) => l1_batch.clone(),
         }
     }
 
-    pub fn get_inscription_message(&self) -> InscriptionMessage {
+    pub fn get_inscription_messages(&self) -> Vec<InscriptionMessage> {
         match self {
             Self::CommitL1BatchOnchain(_, message) => message.clone(),
             Self::CommitProofOnchain(_, message) => message.clone(),
