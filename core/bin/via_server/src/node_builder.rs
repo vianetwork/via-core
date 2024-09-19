@@ -1,20 +1,40 @@
 use anyhow::Context;
 use zksync_config::{
-    configs::{PostgresConfig, Secrets},
-    GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
+    configs::{wallets::Wallets, GeneralConfig, PostgresConfig, Secrets},
+    ContractsConfig, GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
 };
 use zksync_node_framework::{
-    implementations::layers::{pools_layer::PoolsLayerBuilder, via_btc_watch::BtcWatchLayer},
+    implementations::layers::{
+        object_store::ObjectStoreLayer, pools_layer::PoolsLayerBuilder,
+        postgres_metrics::PostgresMetricsLayer, prometheus_exporter::PrometheusExporterLayer,
+        sigint::SigintHandlerLayer, via_btc_watch::BtcWatchLayer,
+    },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
+use zksync_vlog::prometheus::PrometheusExporterConfig;
 
-pub struct NodeBuilder {
+/// Macro that looks into a path to fetch an optional config,
+/// and clones it into a variable.
+macro_rules! try_load_config {
+    ($path:expr) => {
+        $path.as_ref().context(stringify!($path))?.clone()
+    };
+}
+
+// TODO: list of upcoming layers
+// - prometheus_exporter
+//
+
+pub struct ViaNodeBuilder {
     node: ZkStackServiceBuilder,
-    postgres_config: PostgresConfig,
+    configs: ViaGeneralConfig,
+    // wallets: Wallets,
+    genesis_config: GenesisConfig,
+    // contracts_config: ContractsConfig,
     secrets: Secrets,
 }
 
-impl NodeBuilder {
+impl ViaNodeBuilder {
     pub fn new(
         via_general_config: ViaGeneralConfig,
         secrets: Secrets,
@@ -22,28 +42,48 @@ impl NodeBuilder {
     ) -> anyhow::Result<Self> {
         Ok(Self {
             node: ZkStackServiceBuilder::new().context("Cannot create ZkStackServiceBuilder")?,
-            postgres_config: via_general_config.postgres_config.unwrap(),
+            configs: via_general_config,
+            genesis_config,
             secrets,
         })
     }
 
+    pub fn runtime_handle(&self) -> tokio::runtime::Handle {
+        self.node.runtime_handle()
+    }
+
+    fn add_sigint_handler_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(SigintHandlerLayer);
+        Ok(self)
+    }
+
     fn add_pools_layer(mut self) -> anyhow::Result<Self> {
-        let pools_layer = PoolsLayerBuilder::empty(
-            self.postgres_config.clone(),
-            self.secrets
-                .database
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("Database secrets are not provided"))?,
-        )
-        .with_master(true)
-        .with_replica(true)
-        .build();
+        let config = try_load_config!(self.configs.postgres_config);
+        let secrets = try_load_config!(self.secrets.database);
+        let pools_layer = PoolsLayerBuilder::empty(config, secrets)
+            .with_master(true)
+            .with_replica(true)
+            .with_prover(true) // Used by house keeper.
+            .build();
         self.node.add_layer(pools_layer);
         Ok(self)
     }
 
+    fn add_postgres_metrics_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(PostgresMetricsLayer);
+        Ok(self)
+    }
+
+    fn add_object_store_layer(mut self) -> anyhow::Result<Self> {
+        let object_store_config = try_load_config!(self.configs.core_object_store);
+        self.node
+            .add_layer(ObjectStoreLayer::new(object_store_config));
+        Ok(self)
+    }
+
+    // VIA related layers
     fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
-        let btc_watch_config = ViaBtcWatchConfig::for_tests();
+        let btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
         self.node.add_layer(BtcWatchLayer::new(btc_watch_config));
         Ok(self)
     }

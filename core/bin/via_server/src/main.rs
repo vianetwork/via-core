@@ -75,13 +75,19 @@ fn main() -> anyhow::Result<()> {
         .observability
         .clone()
         .context("Observability config missing")?;
-    let observability_guard = observability_config.install()?;
+
+    let node_builder = node_builder::ViaNodeBuilder::new(configs, secrets, genesis)?;
+
+    let observability_guard = {
+        // Observability initialization should be performed within tokio context.
+        let _context_guard = node_builder.runtime_handle().enter();
+        observability_config.install()?
+    };
 
     // Build the node
-    // let node_builder = node_builder::NodeBuilder::new(configs, secrets, genesis)?;
-    // let node = node_builder.build()?;
 
-    // node.run(observability_guard)?;
+    let node = node_builder.build()?;
+    node.run(observability_guard)?;
 
     Ok(())
 }
