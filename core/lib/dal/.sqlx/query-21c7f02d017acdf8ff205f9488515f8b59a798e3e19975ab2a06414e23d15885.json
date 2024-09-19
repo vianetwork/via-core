@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE l1_batches\n                    SET\n                        eth_prove_tx_id = $1,\n                        updated_at = NOW()\n                    WHERE\n                        number = $2\n                        AND eth_prove_tx_id IS NULL\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "21c7f02d017acdf8ff205f9488515f8b59a798e3e19975ab2a06414e23d15885"
+}

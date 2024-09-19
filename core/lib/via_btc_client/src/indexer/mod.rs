@@ -90,7 +90,7 @@ impl BitcoinInscriptionIndexer {
             let messages = parser.parse_transaction(&tx, 0);
 
             for message in messages {
-                Self::process_bootstrap_message(&mut bootstrap_state, message, txid);
+                Self::process_bootstrap_message(&mut bootstrap_state, message, txid, network);
             }
 
             if bootstrap_state.is_complete() {
@@ -260,21 +260,43 @@ impl BitcoinInscriptionIndexer {
         state: &mut BootstrapState,
         message: FullInscriptionMessage,
         txid: Txid,
+        network: Network,
     ) {
         match message {
             FullInscriptionMessage::SystemBootstrapping(sb) => {
                 debug!("Processing SystemBootstrapping message");
-                state.verifier_addresses = sb.input.verifier_p2wpkh_addresses;
-                state.bridge_address = Some(sb.input.bridge_p2wpkh_mpc_address);
+
+                // convert the verifier addresses to the correct network
+                // scince the bootstrap message should run on the bootstrapping phase of sequencer
+                // i consume it's ok to using unwrap
+                let verifier_addresses = sb
+                    .input
+                    .verifier_p2wpkh_addresses
+                    .iter()
+                    .map(|addr| addr.clone().require_network(network).unwrap())
+                    .collect();
+
+                state.verifier_addresses = verifier_addresses;
+
+                let bridge_address = sb
+                    .input
+                    .bridge_p2wpkh_mpc_address
+                    .require_network(network)
+                    .unwrap();
+                state.bridge_address = Some(bridge_address);
                 state.starting_block_number = sb.input.start_block_height;
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
                 debug!("Processing ProposeSequencer message");
                 if let Some(sender_address) = parser::get_btc_address(&ps.common, Network::Testnet)
                 {
-                    // TODO: use actual network
                     if state.verifier_addresses.contains(&sender_address) {
-                        state.proposed_sequencer = Some(ps.input.sequencer_new_p2wpkh_address);
+                        let sequencer_address = ps
+                            .input
+                            .sequencer_new_p2wpkh_address
+                            .require_network(network)
+                            .unwrap();
+                        state.proposed_sequencer = Some(sequencer_address);
                         state.proposed_sequencer_txid = Some(txid);
                     }
                 }
@@ -447,7 +469,11 @@ mod tests {
                 block_height: 0,
             },
             input: types::ProposeSequencerInput {
-                sequencer_new_p2wpkh_address: indexer.sequencer_address.clone(),
+                sequencer_new_p2wpkh_address: indexer
+                    .sequencer_address
+                    .clone()
+                    .as_unchecked()
+                    .to_owned(),
             },
         });
         assert!(!indexer.is_valid_message(&propose_sequencer));
@@ -510,7 +536,11 @@ mod tests {
                 },
                 input: types::SystemBootstrappingInput {
                     start_block_height: 0,
-                    bridge_p2wpkh_mpc_address: indexer.bridge_address.clone(),
+                    bridge_p2wpkh_mpc_address: indexer
+                        .bridge_address
+                        .clone()
+                        .as_unchecked()
+                        .to_owned(),
                     verifier_p2wpkh_addresses: vec![],
                 },
             });

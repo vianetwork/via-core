@@ -8417,6 +8417,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bincode",
  "bitcoin",
  "bitcoincore-rpc",
  "hex",
@@ -8434,6 +8435,29 @@ dependencies = [
  "tracing-subscriber",
  "zksync_basic_types",
  "zksync_config",
+ "zksync_object_store",
+ "zksync_types",
+]
+
+[[package]]
+name = "via_btc_sender"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "bitcoin",
+ "chrono",
+ "hex",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "zksync_config",
+ "zksync_contracts",
+ "zksync_dal",
+ "zksync_l1_contract_interface",
+ "zksync_object_store",
  "zksync_types",
 ]
 
@@ -9771,6 +9795,7 @@ dependencies = [
  "anyhow",
  "bigdecimal",
  "bincode",
+ "bitcoin",
  "chrono",
  "hex",
  "itertools 0.10.5",
@@ -10362,6 +10387,8 @@ dependencies = [
  "tokio",
  "tracing",
  "trybuild",
+ "via_btc_client",
+ "via_btc_sender",
  "via_btc_watch",
  "via_da_dispatcher",
  "zksync_base_token_adjuster",
@@ -10930,6 +10957,7 @@ dependencies = [
  "anyhow",
  "bigdecimal",
  "bincode",
+ "bitcoin",
  "blake2 0.10.6",
  "chrono",
  "derive_more",

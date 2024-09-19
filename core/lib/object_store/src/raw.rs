@@ -20,6 +20,7 @@ pub enum Bucket {
     StorageSnapshot,
     DataAvailability,
     TeeVerifierInput,
+    ViaInscriberContext,
 }
 
 impl Bucket {
@@ -39,6 +40,7 @@ impl Bucket {
             Self::StorageSnapshot => "storage_logs_snapshots",
             Self::DataAvailability => "data_availability",
             Self::TeeVerifierInput => "tee_verifier_inputs",
+            Self::ViaInscriberContext => "via_inscriber_context",
         }
     }
 }

@@ -36,3 +36,12 @@ pub struct FinalTx {
     pub tx: Transaction,
     pub txid: Txid,
 }
+
+#[derive(Debug)]
+pub struct InscriberInfo {
+    pub final_commit_tx: FinalTx,
+    pub final_reveal_tx: FinalTx,
+    pub commit_tx_output_info: CommitTxOutputRes,
+    pub reveal_tx_output_info: RevealTxOutputRes,
+    pub commit_tx_input_info: CommitTxInputRes,
+}

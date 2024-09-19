@@ -88,6 +88,7 @@ members = [
     "core/node/via_btc_watch",
     "core/node/via_da_dispatcher",
     "core/bin/via_server",
+    "core/node/via_btc_sender",
 ]
 
 resolver = "2"
@@ -314,4 +315,4 @@ via_btc_client= { version = "0.1.0", path = "core/lib/via_btc_client" }
 via_da_clients = { version = "0.1.0", path = "core/lib/via_da_clients" }
 via_btc_watch = { version = "0.1.0", path = "core/node/via_btc_watch" }
 via_da_dispatcher = { version = "0.1.0", path = "core/node/via_da_dispatcher" }
-
+via_btc_sender = { version = "0.1.0", path = "core/node/via_btc_sender" }

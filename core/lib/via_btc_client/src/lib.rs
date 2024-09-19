@@ -1,4 +1,4 @@
-pub(crate) mod traits;
+pub mod traits;
 pub mod types;
 
 pub(crate) mod client;
