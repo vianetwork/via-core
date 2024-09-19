@@ -1,7 +1,7 @@
 use anyhow::Context;
 use zksync_config::{
     configs::{PostgresConfig, Secrets},
-    ViaBtcWatchConfig,
+    GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
 };
 use zksync_node_framework::{
     implementations::layers::{pools_layer::PoolsLayerBuilder, via_btc_watch::BtcWatchLayer},
@@ -15,10 +15,14 @@ pub struct NodeBuilder {
 }
 
 impl NodeBuilder {
-    pub fn new(postgres_config: PostgresConfig, secrets: Secrets) -> anyhow::Result<Self> {
+    pub fn new(
+        via_general_config: ViaGeneralConfig,
+        secrets: Secrets,
+        genesis_config: GenesisConfig,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             node: ZkStackServiceBuilder::new().context("Cannot create ZkStackServiceBuilder")?,
-            postgres_config,
+            postgres_config: via_general_config.postgres_config.unwrap(),
             secrets,
         })
     }

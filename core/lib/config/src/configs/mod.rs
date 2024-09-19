@@ -31,6 +31,7 @@ pub use self::{
     via_btc_sender::ViaBtcSenderConfig,
     via_btc_watch::ViaBtcWatchConfig,
     via_celestia::ViaCelestiaConfig,
+    via_general::ViaGeneralConfig,
     vm_runner::{BasicWitnessInputProducerConfig, ProtectiveReadsWriterConfig},
 };
 
@@ -70,6 +71,7 @@ pub mod utils;
 pub mod via_btc_sender;
 pub mod via_btc_watch;
 pub mod via_celestia;
+pub mod via_general;
 pub mod vm_runner;
 pub mod wallets;
 
