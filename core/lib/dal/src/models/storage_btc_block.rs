@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use bitcoin::{hashes::Hash, Txid};
-use zksync_types::{btc_block::ViaBtcL1BlockDetails, L1BatchNumber, H256};
+use zksync_types::{btc_block::ViaBtcL1BlockDetails, L1BatchNumber};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ViaBtcStorageL1BlockDetails {
@@ -18,7 +18,7 @@ impl From<ViaBtcStorageL1BlockDetails> for ViaBtcL1BlockDetails {
         ViaBtcL1BlockDetails {
             number: L1BatchNumber::from(details.number as u32),
             timestamp: details.timestamp,
-            hash: H256::from_slice(&details.hash.expect("Parse block hash")),
+            hash: details.hash,
             commit_tx_id: Txid::from_str(&details.commit_tx_id.clone().unwrap_or_default())
                 .unwrap_or(Txid::all_zeros()),
             reveal_tx_id: Txid::from_str(&details.commit_tx_id.clone().unwrap_or_default())

@@ -1,11 +1,11 @@
 use bitcoin::Txid;
-use zksync_basic_types::{L1BatchNumber, H256};
+use zksync_basic_types::L1BatchNumber;
 
 #[derive(Clone)]
 pub struct ViaBtcL1BlockDetails {
     pub number: L1BatchNumber,
     pub timestamp: i64,
-    pub hash: H256,
+    pub hash: Option<Vec<u8>>,
     pub commit_tx_id: Txid,
     pub reveal_tx_id: Txid,
     pub blob_id: String,

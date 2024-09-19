@@ -1,8 +1,12 @@
+use anyhow::anyhow;
 use via_btc_client::types::{InscriptionMessage, L1BatchDAReferenceInput, ProofDAReferenceInput};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_types::{btc_block::ViaBtcL1BlockDetails, L1BatchNumber, ProtocolVersionId};
+use zksync_types::{
+    btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType,
+    L1BatchNumber, ProtocolVersionId, H256,
+};
 
 use crate::{
     aggregated_operations::ViaAggregatedOperation,
@@ -51,14 +55,13 @@ impl ViaAggregator {
         if let Some(op) = self.get_commit_proof_operation(storage).await? {
             Ok(Some(op))
         } else {
-            let commit_l1_batch = self
+            Ok(self
                 .get_commit_l1_batch_operation(
                     storage,
                     base_system_contracts_hashes,
                     protocol_version_id,
                 )
-                .await?;
-            Ok(commit_l1_batch)
+                .await?)
         }
     }
 
@@ -78,7 +81,7 @@ impl ViaAggregator {
             )
             .await?;
 
-        validate_l1_batch_sequence(ready_for_commit_l1_batches.clone());
+        validate_l1_batch_sequence(&ready_for_commit_l1_batches);
 
         if let Some(l1_batches) = extract_ready_subrange(
             &mut self.commit_l1_block_criteria,
@@ -86,20 +89,8 @@ impl ViaAggregator {
         )
         .await
         {
-            let mut inscription_messages = Vec::with_capacity(l1_batches.len());
-            for batch in l1_batches.clone() {
-                let input = L1BatchDAReferenceInput {
-                    l1_batch_hash: batch.hash,
-                    l1_batch_index: batch.number,
-                    da_identifier: self.config.da_identifier().to_string(),
-                    blob_id: batch.blob_id,
-                };
-                inscription_messages.push(InscriptionMessage::L1BatchDAReference(input));
-            }
-
             return Ok(Some(ViaAggregatedOperation::CommitL1BatchOnchain(
                 l1_batches,
-                inscription_messages,
             )));
         }
         Ok(None)
@@ -116,7 +107,7 @@ impl ViaAggregator {
             )
             .await?;
 
-        validate_l1_batch_sequence(ready_for_commit_proof_l1_batches.clone());
+        validate_l1_batch_sequence(&ready_for_commit_proof_l1_batches);
 
         if let Some(l1_batches) = extract_ready_subrange(
             &mut self.commit_proof_criteria,
@@ -124,22 +115,40 @@ impl ViaAggregator {
         )
         .await
         {
-            let mut inscription_messages = Vec::with_capacity(l1_batches.len());
-            for batch in l1_batches.clone() {
+            return Ok(Some(ViaAggregatedOperation::CommitProofOnchain(l1_batches)));
+        }
+        Ok(None)
+    }
+
+    pub fn construct_inscription_message(
+        &self,
+        inscription_request_type: &ViaBtcInscriptionRequestType,
+        batch: &ViaBtcL1BlockDetails,
+    ) -> anyhow::Result<InscriptionMessage> {
+        match inscription_request_type {
+            ViaBtcInscriptionRequestType::CommitL1BatchOnchain => {
+                let input = L1BatchDAReferenceInput {
+                    l1_batch_hash: H256::from_slice(
+                        batch
+                            .hash
+                            .as_ref()
+                            .ok_or_else(|| anyhow!("Via l1 batch hash is None"))?,
+                    ),
+                    l1_batch_index: batch.number,
+                    da_identifier: self.config.da_identifier().to_string(),
+                    blob_id: batch.blob_id.clone(),
+                };
+                Ok(InscriptionMessage::L1BatchDAReference(input))
+            }
+            ViaBtcInscriptionRequestType::CommitProofOnchain => {
                 let input = ProofDAReferenceInput {
                     l1_batch_reveal_txid: batch.reveal_tx_id,
                     da_identifier: self.config.da_identifier().to_string(),
-                    blob_id: batch.blob_id,
+                    blob_id: batch.blob_id.clone(),
                 };
-                inscription_messages.push(InscriptionMessage::ProofDAReference(input));
+                Ok(InscriptionMessage::ProofDAReference(input))
             }
-
-            return Ok(Some(ViaAggregatedOperation::CommitProofOnchain(
-                l1_batches,
-                inscription_messages,
-            )));
         }
-        Ok(None)
     }
 }
 
@@ -166,7 +175,7 @@ async fn extract_ready_subrange(
     )
 }
 
-fn validate_l1_batch_sequence(ready_for_commit_l1_batches: Vec<ViaBtcL1BlockDetails>) {
+fn validate_l1_batch_sequence(ready_for_commit_l1_batches: &[ViaBtcL1BlockDetails]) {
     ready_for_commit_l1_batches
         .iter()
         .reduce(|last_batch, next_batch| {

@@ -64,10 +64,14 @@ impl ViaBtcL1BatchCommitCriterion for TimestampDeadlineCriterion {
         consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber> {
         let current_timestamp = Utc::now().timestamp() as u64;
-        let block_timestamp = consecutive_l1_batches[0].timestamp as u64;
-        if block_timestamp + self.deadline_seconds as u64 <= current_timestamp {
-            return Some(consecutive_l1_batches[0].number);
+        let mut block_number: Option<L1BatchNumber> = None;
+        for block in consecutive_l1_batches {
+            if block.timestamp as u64 + self.deadline_seconds as u64 <= current_timestamp {
+                block_number = Some(block.number);
+                continue;
+            }
+            break;
         }
-        None
+        block_number
     }
 }
