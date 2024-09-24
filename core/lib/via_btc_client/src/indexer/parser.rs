@@ -1,10 +1,12 @@
 use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
+    key::UntweakedPublicKey,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, KnownHrp, Network, ScriptBuf, Transaction, Txid,
+    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, Txid,
 };
+use secp256k1::{Parity, PublicKey};
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
@@ -56,7 +58,6 @@ impl MessageParser {
     ) -> Option<Message> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
-            debug!("Witness length is less than minimum required");
             return None;
         }
 
@@ -142,9 +143,17 @@ impl MessageParser {
                 debug!("Parsing L1 to L2 message");
                 self.parse_l1_to_l2_message(tx, instructions, common_fields)
             }
-            _ => {
-                // do we need warning here?
+            Instruction::PushBytes(bytes) => {
                 warn!("Unknown message type");
+                warn!(
+                    "first instruction: {:?}",
+                    String::from_utf8(bytes.as_bytes().to_vec())
+                );
+                None
+            }
+            Instruction::Op(_) => {
+                warn!("Invalid message type");
+                warn!("Instructions: {:?}", instructions);
                 None
             }
         }
@@ -177,9 +186,8 @@ impl MessageParser {
             height
         };
 
-        let verifier_addresses = instructions[3..]
+        let verifier_addresses = instructions[3..instructions.len() - 2]
             .iter()
-            .take_while(|instr| matches!(instr, Instruction::PushBytes(_)))
             .filter_map(|instr| {
                 if let Instruction::PushBytes(bytes) = instr {
                     std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
@@ -196,7 +204,7 @@ impl MessageParser {
 
         debug!("Parsed {} verifier addresses", verifier_addresses.len());
 
-        let bridge_address = instructions.last().and_then(|instr| {
+        let bridge_address = instructions.get(instructions.len() - 2).and_then(|instr| {
             if let Instruction::PushBytes(bytes) = instr {
                 std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
                     s.parse::<Address<NetworkUnchecked>>()
@@ -290,12 +298,25 @@ impl MessageParser {
             }
         };
 
-        let attestation = match instructions.get(3)?.push_bytes()?.as_bytes() {
-            b"OP_1" => Vote::Ok,
-            b"OP_0" => Vote::NotOk,
-            _ => {
-                warn!("Invalid attestation value");
-                return None;
+        let attestation = match instructions.get(3)? {
+            Instruction::PushBytes(bytes) => match bytes.as_bytes() {
+                b"OP_1" => Vote::Ok,
+                b"OP_0" => Vote::NotOk,
+                _ => {
+                    warn!("Invalid attestation value");
+                    return None;
+                }
+            },
+            Instruction::Op(op) => {
+                if op.to_u8() == 0x51 {
+                    Vote::Ok
+                } else if op.to_u8() == 0x50 {
+                    // TODO: check this variant
+                    Vote::NotOk
+                } else {
+                    warn!("Invalid attestation value");
+                    return None;
+                }
             }
         };
 
@@ -467,16 +488,14 @@ fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> 
 }
 
 pub fn get_btc_address(common_fields: &CommonFields, network: Network) -> Option<Address> {
-    secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
-        .ok()
-        .map(|public_key| {
-            Address::p2tr(
-                &bitcoin::secp256k1::Secp256k1::new(),
-                public_key,
-                None,
-                KnownHrp::from(network),
-            )
-        })
+    let internal_pubkey =
+        UntweakedPublicKey::from_slice(&common_fields.encoded_public_key.as_bytes()).ok()?;
+    let internal_pubkey = PublicKey::from_x_only_public_key(internal_pubkey, Parity::Even);
+    let compressed_pubkey = CompressedPublicKey::from_slice(&internal_pubkey.serialize()).unwrap();
+
+    let address = Address::p2wpkh(&compressed_pubkey, network);
+
+    Some(address)
 }
 
 pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {

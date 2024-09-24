@@ -9,7 +9,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot::{ControlBlock, LeafVersion},
     transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence, TapLeafHash,
-    TapSighashType, Transaction, TxIn, TxOut, Witness,
+    TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoincore_rpc::{Auth, RawTx};
 use secp256k1::Message;
@@ -689,7 +689,7 @@ impl Inscriber {
     }
 
     #[instrument(skip(self, commit, reveal), target = "bitcoin_inscriber")]
-    async fn broadcast_inscription(&self, commit: &FinalTx, reveal: &FinalTx) -> Result<()> {
+    async fn broadcast_inscription(&self, commit: &FinalTx, reveal: &FinalTx) -> Result<Txid> {
         info!("Broadcasting inscription transactions");
         let commit_tx_hex = commit.tx.raw_hex().to_string();
         let reveal_tx_hex = reveal.tx.raw_hex().to_string();
@@ -705,7 +705,7 @@ impl Inscriber {
 
         info!("Both transactions broadcasted successfully with ids: commit: {commit_tx_id}, reveal: {reveal_tx_id}");
 
-        Ok(())
+        Ok(reveal_tx_id)
     }
 
     #[instrument(skip(self, req, inscriber_info,), target = "bitcoin_inscriber")]

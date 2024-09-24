@@ -48,6 +48,7 @@ impl std::fmt::Debug for dyn BitcoinOps + 'static {
 #[async_trait]
 pub trait BitcoinRpc: Send + Sync {
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64>;
+    async fn get_balance_scan(&self, address: &Address) -> BitcoinRpcResult<u64>;
     async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinRpcResult<Txid>;
     async fn list_unspent_based_on_node_wallet(
         &self,

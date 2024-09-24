@@ -13,6 +13,8 @@ services:
       - -fallbackfee=0.0002
       - -txindex
       - -printtoconsole
+      - -dustrelayfee=0.0
+      - -minrelaytxfee=0
     ports:
       - '18443:18443'  # RPC port
       - '18444:18444'  # P2P port
@@ -35,28 +37,41 @@ services:
     command:
       - -c
       - |
-        # Wait for bitcoind to be ready
-        until bitcoin-cli -chain=regtest -rpcwait -rpcconnect=bitcoind -rpcuser=rpcuser -rpcpassword=rpcpassword getblockchaininfo; do
-          echo "Waiting for bitcoind..."
-          sleep 1
-        done
-        
-        bitcoin-cli -chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword createwallet Alice
-        ALICE_ADDRESS=$(bitcoin-cli -chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword -rpcwallet=Alice getnewaddress)
-        bitcoin-cli -chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword generatetoaddress 201 $${ALICE_ADDRESS}
+        set -e
+        apt-get update && apt-get install -y jq
+
+        bitcoin-cli $${RPC_ARGS} createwallet Alice
+        ALICE_ADDRESS=$(bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice getnewaddress)
         echo "Alice's address: $${ALICE_ADDRESS}"
+
+        bitcoin-cli $${RPC_ARGS} generatetoaddress 201 $${ALICE_ADDRESS}
+
+        echo "TEST_ADDRESS: $${TEST_ADDRESS}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${TEST_ADDRESS} 300
+        echo "Sent 300 BTC to TEST_ADDRESS: $${TEST_ADDRESS}"
+
+        bitcoin-cli $${RPC_ARGS} generatetoaddress 6 $${ALICE_ADDRESS}
+
+        RAW_DESCRIPTOR=$$(bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice getdescriptorinfo "addr($${TEST_ADDRESS})")
+        DESCRIPTOR=$$(echo "$${RAW_DESCRIPTOR}" | jq -r ".descriptor")
+        echo "Descriptor: $${DESCRIPTOR}"
         
-        # Generate initial blocks to fund 'Alice'
-        bitcoin-cli -chain=regtest -rpcwait -rpcconnect=bitcoind -rpcuser=rpcuser -rpcpassword=rpcpassword generatetoaddress 201 $ALICE_ADDRESS
-        
-        # Start generating blocks every 10 seconds
+        bitcoin-cli $${RPC_ARGS} createwallet Watcher true true "" false true
+        IMPORT_DESCRIPTOR="[ { \"desc\": \"$${DESCRIPTOR}\", \"timestamp\": \"now\", \"watchonly\": true } ]"
+        echo "Importing descriptor into Watcher wallet: $${IMPORT_DESCRIPTOR}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "$${IMPORT_DESCRIPTOR}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher rescanblockchain
+
         while true; do
-            bitcoin-cli -regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword generatetoaddress 1 $${ALICE_ADDRESS}
-            sleep 10 &
+            bitcoin-cli $${RPC_ARGS} generatetoaddress 1 $${ALICE_ADDRESS}
+            sleep $${SLEEP_SECONDS} &
             wait $!
         done
     environment:
       - BITCOIN_DATA=/home/bitcoin/.bitcoin
+      - TEST_ADDRESS=bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
+      - RPC_ARGS=-chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
+      - SLEEP_SECONDS=5
 
   postgres:
     image: 'postgres:14'

@@ -220,7 +220,8 @@ impl InscriptionData {
         let start_block_height_encoded =
             Self::encode_push_bytes(&input.start_block_height.to_be_bytes());
 
-        let mut script = basic_script.push_slice(start_block_height_encoded);
+        let mut script = basic_script.push_slice(&*types::SYSTEM_BOOTSTRAPPING_MSG);
+        script = script.push_slice(start_block_height_encoded);
 
         for verifier_p2wpkh_address in &input.verifier_p2wpkh_addresses {
             let network_checked_address =

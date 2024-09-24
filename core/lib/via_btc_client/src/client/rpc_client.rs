@@ -59,6 +59,20 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
+    async fn get_balance_scan(&self, address: &Address) -> BitcoinRpcResult<u64> {
+        debug!("Getting balance by scanning");
+        let result = self.list_unspent(address).await?;
+        let mut sum = 0u64;
+        for unspent in &result {
+            sum += self.get_transaction(&unspent.txid).await?.output[unspent.vout as usize]
+                .value
+                .to_sat();
+        }
+
+        Ok(sum)
+    }
+
     #[instrument(skip(self, tx_hex), target = "bitcoin_client::rpc_client")]
     async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinRpcResult<Txid> {
         Self::retry_rpc(|| {

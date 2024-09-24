@@ -8,7 +8,7 @@ use tokio::sync::watch;
 pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinAddress, BitcoinTxid},
+    types::{BitcoinAddress, BitcoinTxid, NodeAuth},
 };
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::PriorityOpId;
@@ -38,11 +38,13 @@ impl BtcWatch {
     pub async fn new(
         rpc_url: &str,
         network: BitcoinNetwork,
+        node_auth: NodeAuth,
         bootstrap_txids: Vec<BitcoinTxid>,
         pool: ConnectionPool<Core>,
         poll_interval: Duration,
     ) -> anyhow::Result<Self> {
-        let indexer = BitcoinInscriptionIndexer::new(rpc_url, network, bootstrap_txids).await?;
+        let indexer =
+            BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
         let mut storage = pool.connection_tagged("via_btc_watch").await?;
         let state = Self::initialize_state(&indexer, &mut storage).await?;
         tracing::info!("initialized state: {state:?}");
