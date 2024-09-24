@@ -33,6 +33,7 @@ use crate::{
 mod fee;
 mod internal_type;
 mod script_builder;
+pub mod test_utils;
 
 const CTX_REQUIRED_CONFIRMATIONS: u32 = 1;
 const FEE_RATE_CONF_TARGET: u16 = 1;
