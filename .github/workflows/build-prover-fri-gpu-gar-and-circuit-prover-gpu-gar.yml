@@ -19,7 +19,7 @@ on:
 jobs:
   build:
     name: Build prover FRI GPU GAR
-    runs-on: [matterlabs-ci-runner]
+    runs-on: [matterlabs-ci-runner-high-performance]
     steps:
       - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4
         with:
@@ -34,15 +34,11 @@ jobs:
           gcloud auth print-access-token --lifetime=7200 --impersonate-service-account=gha-ci-runners@matterlabs-infra.iam.gserviceaccount.com | docker login -u oauth2accesstoken --password-stdin https://us-docker.pkg.dev
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@988b5a0280414f521da01fcc63a27aeeb4b104db # v3.6.1
 
-<<<<<<<< HEAD:.github/workflows/build-prover-fri-gpu-gar.yml.disabled
-      - name: Build and push
-        uses: docker/build-push-action@v4
-========
       - name: Login to Asia GAR
         run: |
           gcloud auth print-access-token --lifetime=7200 --impersonate-service-account=gha-ci-runners@matterlabs-infra.iam.gserviceaccount.com | docker login -u oauth2accesstoken --password-stdin https://asia-docker.pkg.dev
@@ -53,7 +49,6 @@ jobs:
 
       - name: Build and push prover-gpu-fri-gar
         uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85 # v6.7.0
->>>>>>>> 1095ae7bf (feat(circuit-prover): Add circuit_prover Dockerfile and build rules (#2939)):.github/workflows/build-prover-fri-gpu-gar-and-circuit-prover-gpu-gar.yml
         with:
           context: docker/prover-gpu-fri-gar
           build-args: |
