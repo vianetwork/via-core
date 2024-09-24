@@ -54,12 +54,24 @@ impl ViaBtcSenderDal<'_, '_> {
                 via_btc_inscriptions_request.*
             FROM
                 via_btc_inscriptions_request
-                LEFT JOIN via_btc_inscriptions_request_history ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
-            WHERE
-                via_btc_inscriptions_request_history.sent_at_block IS NOT NULL
-                AND via_btc_inscriptions_request_history.confirmed_at IS NULL
+                JOIN via_btc_inscriptions_request_history ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
+                AND via_btc_inscriptions_request_history.sent_at_block IS NOT NULL
+                AND via_btc_inscriptions_request.confirmed_inscriptions_request_history_id IS NULL
+                AND via_btc_inscriptions_request_history.id = (
+                    SELECT
+                        id
+                    FROM
+                        via_btc_inscriptions_request_history
+                    WHERE
+                        inscription_request_id = via_btc_inscriptions_request.id
+                        AND via_btc_inscriptions_request_history.sent_at_block IS NOT NULL
+                    ORDER BY
+                        created_at DESC
+                    LIMIT
+                        1
+                )
             ORDER BY
-                via_btc_inscriptions_request.id
+                id
             "#
         )
         .fetch_all(self.storage.conn())
