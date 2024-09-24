@@ -60,8 +60,8 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
-        self.send_new_inscription_txs(storage).await?;
         self.update_inscription_status_or_resend(storage).await?;
+        self.send_new_inscription_txs(storage).await?;
         Ok(())
     }
 

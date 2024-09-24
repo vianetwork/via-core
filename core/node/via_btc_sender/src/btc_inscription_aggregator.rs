@@ -109,7 +109,7 @@ impl ViaBtcInscriptionAggregator {
 
                 transaction
                     .via_blocks_dal()
-                    .set_inscription_request_id(
+                    .insert_l1_batch_inscription_request_id(
                         batch.number,
                         inscription_request.id,
                         operation.get_inscription_request_type(),
@@ -136,6 +136,6 @@ impl ViaBtcInscriptionAggregator {
 
     // Todo: call indexer to fetch  the data
     async fn get_protocol_version_id(&self) -> anyhow::Result<ProtocolVersionId> {
-        Ok(ProtocolVersionId::Version0)
+        Ok(ProtocolVersionId::latest())
     }
 }
