@@ -12,10 +12,10 @@ use crate::{
     FromContext, IntoContext,
 };
 
-/// Wiring layer for `inscriptions_requests` managing
+/// Wiring layer for btc_sender to manage `inscriptions_requests`
 ///
-/// Responsible for initialization and running [`ViaBtcInscriptionTxManager`] component, that manages sending
-/// of `inscriptions_requests`(such as `CommitL1Block` or `CommitProof`) to L1.
+/// Responsible for initialization and running [`ViaBtcInscriptionTxManager`] component. The layer is responsible
+/// to process inscription requests and create btc transactions.
 ///
 /// ## Requests resources
 ///

@@ -14,5 +14,4 @@ pub mod price_api_client;
 pub mod reverter;
 pub mod state_keeper;
 pub mod sync_state;
-pub mod via_inscriber;
 pub mod web3_api;
