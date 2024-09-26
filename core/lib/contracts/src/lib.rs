@@ -48,9 +48,14 @@ const DIAMOND_INIT_CONTRACT_FILE: (&str, &str) = (
 );
 const GOVERNANCE_CONTRACT_FILE: (&str, &str) = ("governance", "IGovernance.sol/IGovernance.json");
 const CHAIN_ADMIN_CONTRACT_FILE: (&str, &str) = ("governance", "IChainAdmin.sol/IChainAdmin.json");
+const GETTERS_FACET_CONTRACT_FILE: (&str, &str) = (
+    "state-transition/chain-interfaces",
+    "IGetters.sol/IGetters.json",
+);
 
 const MULTICALL3_CONTRACT_FILE: (&str, &str) = ("dev-contracts", "Multicall3.sol/Multicall3.json");
 const VERIFIER_CONTRACT_FILE: (&str, &str) = ("state-transition", "Verifier.sol/Verifier.json");
+
 const _IERC20_CONTRACT_FILE: &str =
     "contracts/l1-contracts/artifacts/contracts/common/interfaces/IERC20.sol/IERC20.json";
 const _FAIL_ON_RECEIVE_CONTRACT_FILE:  &str  =
@@ -132,6 +137,10 @@ pub fn governance_contract() -> Contract {
 
 pub fn chain_admin_contract() -> Contract {
     load_contract_for_both_compilers(CHAIN_ADMIN_CONTRACT_FILE)
+}
+
+pub fn getters_facet_contract() -> Contract {
+    load_contract_for_both_compilers(GETTERS_FACET_CONTRACT_FILE)
 }
 
 pub fn state_transition_manager_contract() -> Contract {

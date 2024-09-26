@@ -12860,6 +12860,7 @@ dependencies = [
  "anyhow",
  "async-recursion",
  "async-trait",
+ "test-log",
  "thiserror",
  "tokio",
  "tracing",
