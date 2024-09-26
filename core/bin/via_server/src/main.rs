@@ -11,7 +11,7 @@ use zksync_config::{
     ContractsConfig, GenesisConfig,
 };
 use zksync_core_leftovers::{
-    temp_config_store::{decode_yaml_repr, ViaTempConfigStore},
+    temp_config_store::{read_yaml_repr, ViaTempConfigStore},
     ViaComponent, ViaComponents,
 };
 use zksync_env_config::FromEnv;
@@ -79,18 +79,14 @@ fn main() -> anyhow::Result<()> {
     let wallets = match opt.wallets_path {
         None => ViaWallets::from_env()?,
         Some(path) => {
-            let yaml =
-                std::fs::read_to_string(&path).with_context(|| path.display().to_string())?;
-            decode_yaml_repr::<zksync_protobuf_config::proto::via_wallets::ViaWallets>(&yaml)
+            read_yaml_repr::<zksync_protobuf_config::proto::via_wallets::ViaWallets>(&path)
                 .context("failed decoding wallets YAML config")?
         }
     };
 
     let secrets: ViaSecrets = match opt.secrets_path {
         Some(path) => {
-            let yaml =
-                std::fs::read_to_string(&path).with_context(|| path.display().to_string())?;
-            decode_yaml_repr::<zksync_protobuf_config::proto::via_secrets::ViaSecrets>(&yaml)
+            read_yaml_repr::<zksync_protobuf_config::proto::via_secrets::ViaSecrets>(&path)
                 .context("failed decoding secrets YAML config")?
         }
         None => ViaSecrets {

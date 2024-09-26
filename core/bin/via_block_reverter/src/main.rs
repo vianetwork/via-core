@@ -21,7 +21,7 @@ use zksync_config::{
     ApiConfig, BaseTokenAdjusterConfig, DADispatcherConfig, DBConfig,
     ExternalProofIntegrationApiConfig, ObjectStoreConfig, PostgresConfig, SnapshotsCreatorConfig,
 };
-use zksync_core_leftovers::temp_config_store::decode_yaml_repr;
+use zksync_core_leftovers::temp_config_store::read_yaml_repr;
 use zksync_dal::{ConnectionPool, Core};
 use zksync_env_config::{object_store::SnapshotsObjectStoreConfig, FromEnv};
 use zksync_object_store::ObjectStoreFactory;
@@ -90,10 +90,8 @@ async fn main() -> anyhow::Result<()> {
         .build();
 
     let general_config: Option<GeneralConfig> = if let Some(path) = opts.config_path {
-        let yaml = std::fs::read_to_string(&path).with_context(|| path.display().to_string())?;
-        let config =
-            decode_yaml_repr::<zksync_protobuf_config::proto::general::GeneralConfig>(&yaml)
-                .context("failed decoding general YAML config")?;
+        let config = read_yaml_repr::<zksync_protobuf_config::proto::general::GeneralConfig>(&path)
+            .context("failed decoding general YAML config")?;
         Some(config)
     } else {
         Some(load_env_config()?)
@@ -126,8 +124,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let secrets_config = if let Some(path) = opts.secrets_path {
-        let yaml = std::fs::read_to_string(&path).with_context(|| path.display().to_string())?;
-        let config = decode_yaml_repr::<zksync_protobuf_config::proto::secrets::Secrets>(&yaml)
+        let config = read_yaml_repr::<zksync_protobuf_config::proto::secrets::Secrets>(&path)
             .context("failed decoding secrets YAML config")?;
         Some(config)
     } else {
