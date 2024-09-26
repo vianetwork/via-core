@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use tokio;
     use zksync_types::L1BatchNumber;
 
     use crate::{
@@ -17,10 +16,7 @@ mod tests {
         let expected_l1_batch_number = L1BatchNumber::from(1);
         let mut number_criterion = ViaNumberCriterion { limit: 1 };
 
-        let consecutive_l1_batches = vec![create_btc_l1_batch_details(
-            expected_l1_batch_number.clone(),
-            0,
-        )];
+        let consecutive_l1_batches = vec![create_btc_l1_batch_details(expected_l1_batch_number, 0)];
         let res = number_criterion
             .last_l1_batch_to_publish(&consecutive_l1_batches)
             .await;
@@ -28,7 +24,7 @@ mod tests {
 
         // When many batches and limit 1.
         let consecutive_l1_batches = vec![
-            create_btc_l1_batch_details(expected_l1_batch_number.clone(), 0),
+            create_btc_l1_batch_details(expected_l1_batch_number, 0),
             create_btc_l1_batch_details(L1BatchNumber::from(2), 0),
         ];
 
@@ -39,10 +35,7 @@ mod tests {
 
         // When one batch and limit 10.
         let mut number_criterion = ViaNumberCriterion { limit: 10 };
-        let consecutive_l1_batches = vec![create_btc_l1_batch_details(
-            expected_l1_batch_number.clone(),
-            0,
-        )];
+        let consecutive_l1_batches = vec![create_btc_l1_batch_details(expected_l1_batch_number, 0)];
 
         let res = number_criterion
             .last_l1_batch_to_publish(&consecutive_l1_batches)
@@ -53,7 +46,7 @@ mod tests {
         let total_blocks = 10;
         let expected_l1_batch_number = L1BatchNumber::from(9);
         let mut number_criterion = ViaNumberCriterion {
-            limit: total_blocks.clone(),
+            limit: total_blocks,
         };
         let mut consecutive_l1_batches = Vec::with_capacity(total_blocks as usize);
         for index in 0..total_blocks {
@@ -80,8 +73,8 @@ mod tests {
         };
 
         let consecutive_l1_batches = vec![create_btc_l1_batch_details(
-            expected_l1_batch_number.clone(),
-            timestamp.clone(),
+            expected_l1_batch_number,
+            timestamp,
         )];
         let res = timestamp_criterion
             .last_l1_batch_to_publish(&consecutive_l1_batches)
@@ -94,8 +87,8 @@ mod tests {
         };
 
         let consecutive_l1_batches = vec![create_btc_l1_batch_details(
-            expected_l1_batch_number.clone(),
-            timestamp.clone(),
+            expected_l1_batch_number,
+            timestamp,
         )];
 
         let res = timestamp_criterion

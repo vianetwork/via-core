@@ -29,7 +29,6 @@ use crate::{
     btc_inscription_manager::ViaBtcInscriptionManager,
 };
 
-#[allow(dead_code)]
 pub fn generate_random_bytes(length: usize) -> Vec<u8> {
     let mut bytes: Vec<u8> = vec![];
     for _ in 0..length {
@@ -39,7 +38,6 @@ pub fn generate_random_bytes(length: usize) -> Vec<u8> {
     bytes
 }
 
-#[allow(dead_code)]
 pub fn default_l1_batch_metadata() -> L1BatchMetadata {
     let hex_str = "0000000000000000000000000000000000000000000000000000000000000000";
     L1BatchMetadata {
@@ -64,7 +62,6 @@ pub fn default_l1_batch_metadata() -> L1BatchMetadata {
     }
 }
 
-#[allow(dead_code)]
 pub fn create_btc_l1_batch_details(number: L1BatchNumber, timestamp: i64) -> ViaBtcL1BlockDetails {
     ViaBtcL1BlockDetails {
         number,
@@ -76,7 +73,6 @@ pub fn create_btc_l1_batch_details(number: L1BatchNumber, timestamp: i64) -> Via
     }
 }
 
-#[allow(dead_code)]
 pub fn get_btc_sender_config(
     max_aggregated_blocks_to_commit: i32,
     max_aggregated_proofs_to_commit: i32,
@@ -96,7 +92,6 @@ pub fn get_btc_sender_config(
     }
 }
 
-#[allow(dead_code)]
 pub async fn get_inscription_aggregator_mock(
     pool: ConnectionPool<Core>,
     config: ViaBtcSenderConfig,
@@ -105,7 +100,6 @@ pub async fn get_inscription_aggregator_mock(
     Result::unwrap(ViaBtcInscriptionAggregator::new(inscriber, pool, config).await)
 }
 
-#[allow(dead_code)]
 pub async fn get_inscription_manager_mock(
     pool: ConnectionPool<Core>,
     config: ViaBtcSenderConfig,

@@ -117,56 +117,6 @@ pub enum InscriptionMessage {
     L1ToL2Message(L1ToL2MessageInput),
 }
 
-impl InscriptionMessage {
-    pub fn l1_batch_da_reference(&self) -> Option<&L1BatchDAReferenceInput> {
-        if let InscriptionMessage::L1BatchDAReference(ref input) = self {
-            Some(input)
-        } else {
-            None
-        }
-    }
-
-    pub fn proof_da_reference(&self) -> Option<&ProofDAReferenceInput> {
-        if let InscriptionMessage::ProofDAReference(ref input) = self {
-            Some(input)
-        } else {
-            None
-        }
-    }
-
-    pub fn validator_attestation(&self) -> Option<&ValidatorAttestationInput> {
-        if let InscriptionMessage::ValidatorAttestation(ref input) = self {
-            Some(input)
-        } else {
-            None
-        }
-    }
-
-    pub fn system_bootstrapping(&self) -> Option<&SystemBootstrappingInput> {
-        if let InscriptionMessage::SystemBootstrapping(ref input) = self {
-            Some(input)
-        } else {
-            None
-        }
-    }
-
-    pub fn propose_sequencer(&self) -> Option<&ProposeSequencerInput> {
-        if let InscriptionMessage::ProposeSequencer(ref input) = self {
-            Some(input)
-        } else {
-            None
-        }
-    }
-
-    pub fn l1_to_l2_message(&self) -> Option<&L1ToL2MessageInput> {
-        if let InscriptionMessage::L1ToL2Message(ref input) = self {
-            Some(input)
-        } else {
-            None
-        }
-    }
-}
-
 impl Serializable for InscriptionMessage {
     fn to_bytes(&self) -> Vec<u8> {
         serialize(self).expect("error serialize the InscriptionMessage")

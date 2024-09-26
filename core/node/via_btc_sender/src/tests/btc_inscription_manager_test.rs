@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-
     use std::str::FromStr;
 
     use tokio::{sync::watch, time};
@@ -267,7 +266,6 @@ mod tests {
                         break;
                     }
                     println!("Sent: {}", toggle);
-                    break;
                 }
             });
 
@@ -301,7 +299,6 @@ mod tests {
                         break;
                     }
                     println!("Sent: {}", toggle);
-                    break;
                 }
             });
 
