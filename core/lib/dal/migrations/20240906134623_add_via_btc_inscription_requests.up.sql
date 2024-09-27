@@ -22,6 +22,16 @@ CREATE TABLE "via_btc_inscriptions_request_history" (
   "updated_at" timestamp NOT NULL
 );
 
-ALTER TABLE "via_btc_inscriptions_request_history" ADD FOREIGN KEY ("inscription_request_id") REFERENCES "via_btc_inscriptions_request" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+CREATE TABLE "via_l1_batch_inscription_request" (
+  "l1_batch_number" bigint UNIQUE NOT NULL,
+  "commit_l1_batch_inscription_id" bigint UNIQUE NOT NULL,
+  "commit_proof_inscription_id" bigint UNIQUE,
+  "created_at" timestamp NOT NULL DEFAULT 'now()',
+  "updated_at" timestamp NOT NULL
+);
 
-ALTER TABLE "via_btc_inscriptions_request_history" ADD FOREIGN KEY ("id") REFERENCES "via_btc_inscriptions_request" ("confirmed_inscriptions_request_history_id");
+ALTER TABLE "via_btc_inscriptions_request_history" ADD FOREIGN KEY ("inscription_request_id") REFERENCES "via_btc_inscriptions_request" ("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "via_btc_inscriptions_request" ADD FOREIGN KEY ("confirmed_inscriptions_request_history_id") REFERENCES "via_btc_inscriptions_request_history" ("id");
+ALTER TABLE "via_l1_batch_inscription_request" ADD FOREIGN KEY ("l1_batch_number") REFERENCES "l1_batches" ("number") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "via_l1_batch_inscription_request" ADD FOREIGN KEY ("commit_l1_batch_inscription_id") REFERENCES "via_btc_inscriptions_request" ("id");
+ALTER TABLE "via_l1_batch_inscription_request" ADD FOREIGN KEY ("commit_proof_inscription_id") REFERENCES "via_btc_inscriptions_request" ("id");

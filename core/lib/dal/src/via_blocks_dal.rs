@@ -17,7 +17,7 @@ pub struct ViaBlocksDal<'a, 'c> {
 }
 
 impl ViaBlocksDal<'_, '_> {
-    pub async fn set_inscription_request_id(
+    pub async fn insert_l1_batch_inscription_request_id(
         &mut self,
         batch_number: L1BatchNumber,
         inscription_request_id: i64,
@@ -25,22 +25,20 @@ impl ViaBlocksDal<'_, '_> {
     ) -> DalResult<()> {
         match inscription_request {
             ViaBtcInscriptionRequestType::CommitL1BatchOnchain => {
-                let instrumentation = Instrumented::new("set_eth_tx_id#commit")
+                let instrumentation = Instrumented::new("set_inscription_request_tx_id#commit")
                     .with_arg("batch_number", &batch_number)
                     .with_arg("inscription_request_id", &inscription_request_id);
 
                 let query = sqlx::query!(
                     r#"
-                    UPDATE l1_batches
-                    SET
-                        eth_commit_tx_id = $1,
-                        updated_at = NOW()
-                    WHERE
-                        number = $2
-                        AND eth_commit_tx_id IS NULL
+                    INSERT INTO
+                        via_l1_batch_inscription_request (l1_batch_number, commit_l1_batch_inscription_id, created_at, updated_at)
+                    VALUES
+                        ($1, $2, NOW(), NOW())
+                    ON CONFLICT DO NOTHING
                     "#,
-                    inscription_request_id as i32,
                     i64::from(batch_number.0),
+                    inscription_request_id as i32,
                 );
                 let result = instrumentation
                     .clone()
@@ -50,25 +48,26 @@ impl ViaBlocksDal<'_, '_> {
 
                 if result.rows_affected() == 0 {
                     let err = instrumentation.constraint_error(anyhow::anyhow!(
-                        "Update eth_commit_tx_id that is is not null is not allowed"
+                        "Update commit_l1_batch_inscription_id that is is not null is not allowed"
                     ));
                     return Err(err);
                 }
                 Ok(())
             }
             ViaBtcInscriptionRequestType::CommitProofOnchain => {
-                let instrumentation = Instrumented::new("set_eth_tx_id#prove")
+                let instrumentation = Instrumented::new("set_inscription_request_tx_id#prove")
                     .with_arg("batch_number", &batch_number)
                     .with_arg("inscription_request_id", &inscription_request_id);
                 let query = sqlx::query!(
                     r#"
-                    UPDATE l1_batches
+                    UPDATE via_l1_batch_inscription_request
                     SET
-                        eth_prove_tx_id = $1,
+                        commit_proof_inscription_id = $1,
                         updated_at = NOW()
                     WHERE
-                        number = $2
-                        AND eth_prove_tx_id IS NULL
+                        l1_batch_number = $2
+                        AND commit_l1_batch_inscription_id IS NOT NULL
+                        AND commit_proof_inscription_id IS NULL
                     "#,
                     inscription_request_id as i32,
                     i64::from(batch_number.0),
@@ -82,36 +81,13 @@ impl ViaBlocksDal<'_, '_> {
 
                 if result.rows_affected() == 0 {
                     let err = instrumentation.constraint_error(anyhow::anyhow!(
-                        "Update eth_prove_tx_id that is is not null is not allowed"
+                        "Update commit_proof_inscription_id that is is not null is not allowed"
                     ));
                     return Err(err);
                 }
                 Ok(())
             }
         }
-    }
-
-    pub async fn get_inscription_commit_tx_id(
-        &mut self,
-        l1_batch_number: L1BatchNumber,
-    ) -> DalResult<Option<u64>> {
-        let row = sqlx::query!(
-            r#"
-            SELECT
-                eth_commit_tx_id
-            FROM
-                l1_batches
-            WHERE
-                number = $1
-            "#,
-            i64::from(l1_batch_number.0)
-        )
-        .instrument("get_inscription_commit_tx_id")
-        .with_arg("l1_batch_number", &l1_batch_number)
-        .fetch_optional(self.storage)
-        .await?;
-
-        Ok(row.and_then(|row| row.eth_commit_tx_id.map(|n| n as u64)))
     }
 
     pub async fn get_ready_for_commit_l1_batches(
@@ -133,11 +109,12 @@ impl ViaBlocksDal<'_, '_> {
                 via_data_availability.blob_id
             FROM
                 l1_batches
+                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
                 LEFT JOIN commitments ON commitments.l1_batch_number = l1_batches.number
                 LEFT JOIN via_data_availability ON via_data_availability.l1_batch_number = l1_batches.number
                 JOIN protocol_versions ON protocol_versions.id = l1_batches.protocol_version
             WHERE
-                eth_commit_tx_id IS NULL
+                commit_l1_batch_inscription_id IS NULL
                 AND number != 0
                 AND protocol_versions.bootloader_code_hash = $1
                 AND protocol_versions.default_account_code_hash = $2
@@ -195,13 +172,14 @@ impl ViaBlocksDal<'_, '_> {
                 l1_batches.number,
                 l1_batches.timestamp,
                 l1_batches.hash,
-                lh.commit_tx_id,
-                lh.reveal_tx_id,
+                COALESCE(lh.commit_tx_id, '') AS commit_tx_id,
+                COALESCE(lh.reveal_tx_id, '') AS reveal_tx_id,
                 via_data_availability.blob_id
             FROM
                 l1_batches
+                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
                 LEFT JOIN via_data_availability ON via_data_availability.l1_batch_number = l1_batches.number
-                LEFT JOIN via_btc_inscriptions_request ON l1_batches.eth_commit_tx_id = via_btc_inscriptions_request.id
+                LEFT JOIN via_btc_inscriptions_request ON via_l1_batch_inscription_request.commit_l1_batch_inscription_id = via_btc_inscriptions_request.id
                 LEFT JOIN (
                     SELECT
                         *
@@ -211,9 +189,10 @@ impl ViaBlocksDal<'_, '_> {
                         rn = 1
                 ) AS lh ON via_btc_inscriptions_request.id = lh.inscription_request_id
             WHERE
-                eth_commit_tx_id IS NOT NULL
-                AND eth_prove_tx_id IS NULL
-                AND via_data_availability.is_proof = TRUE
+                via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL
+                AND via_l1_batch_inscription_request.commit_proof_inscription_id IS NULL
+                AND via_btc_inscriptions_request.confirmed_inscriptions_request_history_id IS NOT NULL
+                AND via_data_availability.is_proof = FALSE
             ORDER BY
                 number
             LIMIT
@@ -221,7 +200,7 @@ impl ViaBlocksDal<'_, '_> {
             "#,
             limit as i64,
         )
-        .instrument("get_ready_for_commit_l1_batches")
+        .instrument("get_ready_for_commit_proof_l1_batches")
         .with_arg("limit", &limit)
         .fetch_all(self.storage)
         .await?;

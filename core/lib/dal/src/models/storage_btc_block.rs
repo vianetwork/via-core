@@ -10,7 +10,7 @@ pub struct ViaBtcStorageL1BlockDetails {
     pub hash: Option<Vec<u8>>,
     pub commit_tx_id: Option<String>,
     pub reveal_tx_id: Option<String>,
-    pub blob_id: String,
+    pub blob_id: Option<String>,
 }
 
 impl From<ViaBtcStorageL1BlockDetails> for ViaBtcL1BlockDetails {
@@ -23,7 +23,7 @@ impl From<ViaBtcStorageL1BlockDetails> for ViaBtcL1BlockDetails {
                 .unwrap_or(Txid::all_zeros()),
             reveal_tx_id: Txid::from_str(&details.commit_tx_id.clone().unwrap_or_default())
                 .unwrap_or(Txid::all_zeros()),
-            blob_id: details.blob_id,
+            blob_id: details.blob_id.unwrap_or_default(),
         }
     }
 }

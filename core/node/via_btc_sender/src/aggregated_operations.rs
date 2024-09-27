@@ -10,13 +10,6 @@ pub enum ViaAggregatedOperation {
 }
 
 impl ViaAggregatedOperation {
-    pub fn get_action_type(&self) -> ViaBtcInscriptionRequestType {
-        match self {
-            Self::CommitL1BatchOnchain(..) => ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
-            Self::CommitProofOnchain(..) => ViaBtcInscriptionRequestType::CommitProofOnchain,
-        }
-    }
-
     pub fn get_l1_batches_detail(&self) -> &Vec<ViaBtcL1BlockDetails> {
         match self {
             Self::CommitL1BatchOnchain(l1_batch) => l1_batch,

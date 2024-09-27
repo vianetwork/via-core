@@ -20,16 +20,16 @@ pub struct ViaBtcSenderConfig {
     pub private_key: String,
 
     // Number of blocks to commit at time, should be 'one'.
-    max_aggregated_blocks_to_commit: i32,
+    pub max_aggregated_blocks_to_commit: i32,
 
     // Number of proofs to commit at time, should be 'one'.
-    max_aggregated_proofs_to_commit: i32,
+    pub max_aggregated_proofs_to_commit: i32,
 
     // The max number of inscription in flight
-    max_txs_in_flight: i64,
+    pub max_txs_in_flight: i64,
 
     // The da identifer
-    da_identifier: String,
+    pub da_identifier: String,
 }
 
 impl ViaBtcSenderConfig {
