@@ -27,6 +27,9 @@ pub struct ViaBtcSenderConfig {
 
     // The max number of inscription in flight
     max_txs_in_flight: i64,
+
+    // The da identifer
+    da_identifier: String,
 }
 
 impl ViaBtcSenderConfig {
@@ -70,6 +73,10 @@ impl ViaBtcSenderConfig {
     pub fn max_txs_in_flight(&self) -> i64 {
         self.max_txs_in_flight
     }
+
+    pub fn da_identifier(&self) -> &str {
+        &self.da_identifier
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -86,6 +93,7 @@ impl ViaBtcSenderConfig {
             max_aggregated_blocks_to_commit: 1,
             max_aggregated_proofs_to_commit: 1,
             max_txs_in_flight: 1,
+            da_identifier: "da_identifier_celestia".to_string(),
         }
     }
 }

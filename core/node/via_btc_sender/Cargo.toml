@@ -12,6 +12,7 @@ categories.workspace = true
 
 [dependencies]
 via_btc_client.workspace = true
+via_da_dispatcher.workspace = true
 zksync_dal.workspace = true
 zksync_config.workspace = true
 zksync_object_store.workspace = true
