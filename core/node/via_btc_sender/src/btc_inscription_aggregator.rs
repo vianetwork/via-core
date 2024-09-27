@@ -53,7 +53,9 @@ impl ViaBtcInscriptionAggregator {
                 .await?;
 
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => { /* everything went fine */ }
+                Ok(()) => {
+                    tracing::info!("Inscription aggregation task finished");
+                }
                 Err(err) => {
                     tracing::error!("Failed to process btc_sender_inscription_aggregator: {err}");
                 }
@@ -79,6 +81,8 @@ impl ViaBtcInscriptionAggregator {
             .get_next_ready_operation(storage, base_system_contracts_hashes, protocol_version_id)
             .await?
         {
+            tracing::info!("New operation ready to be processed {operation}");
+
             let mut transaction = storage.start_transaction().await?;
 
             for batch in operation.get_l1_batches_detail() {

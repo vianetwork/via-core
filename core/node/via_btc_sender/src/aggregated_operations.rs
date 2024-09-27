@@ -1,3 +1,5 @@
+use std::fmt;
+
 use zksync_types::{
     btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType,
 };
@@ -22,5 +24,16 @@ impl ViaAggregatedOperation {
             Self::CommitL1BatchOnchain(..) => ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
             Self::CommitProofOnchain(..) => ViaBtcInscriptionRequestType::CommitProofOnchain,
         }
+    }
+}
+
+impl fmt::Display for ViaAggregatedOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ViaAggregatedOperation {{ type: {}, blocks: {} }}",
+            self.get_inscription_request_type(),
+            self.get_l1_batches_detail().len(),
+        )
     }
 }
