@@ -5,9 +5,15 @@ use zksync_config::{
 };
 use zksync_node_framework::{
     implementations::layers::{
-        object_store::ObjectStoreLayer, pools_layer::PoolsLayerBuilder,
-        postgres_metrics::PostgresMetricsLayer, prometheus_exporter::PrometheusExporterLayer,
-        sigint::SigintHandlerLayer, via_btc_watch::BtcWatchLayer,
+        object_store::ObjectStoreLayer,
+        pools_layer::PoolsLayerBuilder,
+        postgres_metrics::PostgresMetricsLayer,
+        prometheus_exporter::PrometheusExporterLayer,
+        sigint::SigintHandlerLayer,
+        via_btc_sender::{
+            aggregator::ViaBtcInscriptionAggregatorLayer, manager::ViaInscriptionManagerLayer,
+        },
+        via_btc_watch::BtcWatchLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -88,10 +94,21 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_btc_sender_layer(mut self) -> anyhow::Result<Self> {
+        let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
+        self.node.add_layer(ViaBtcInscriptionAggregatorLayer::new(
+            btc_sender_config.clone(),
+        ));
+        self.node
+            .add_layer(ViaInscriptionManagerLayer::new(btc_sender_config));
+        Ok(self)
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_pools_layer()?
             .add_btc_watcher_layer()?
+            .add_btc_sender_layer()?
             .node
             .build())
     }
