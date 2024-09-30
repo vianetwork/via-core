@@ -41,7 +41,6 @@ pub struct ViaBtcInscriptionAggregatorLayer {
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<MasterPool>,
-    pub inscriber: InscriberResource,
 }
 
 #[derive(Debug, IntoContext)]

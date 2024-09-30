@@ -14,7 +14,7 @@ mod node_builder;
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[derive(Debug, Parser)]
-#[command(author = "Your Name", version, about = "Via validator/sequencer node", long_about = None)]
+#[command(author = "Via Protocol", version, about = "Via validator/sequencer node", long_about = None)]
 struct Cli {
     /// Path to the YAML config. If set, it will be used instead of env vars.
     #[arg(long)]

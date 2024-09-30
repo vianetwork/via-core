@@ -34,7 +34,9 @@ impl ViaBtcL1BatchCommitCriterion for ViaNumberCriterion {
         _storage: &mut Connection<'_, Core>,
         consecutive_l1_batches: &[L1BatchWithMetadata],
     ) -> Option<L1BatchNumber> {
-        Some(consecutive_l1_batches[0].header.number)
+        consecutive_l1_batches
+            .first()
+            .map(|batch| batch.header.number)
     }
 }
 
@@ -56,7 +58,7 @@ impl ViaBtcL1BatchCommitCriterion for TimestampDeadlineCriterion {
         consecutive_l1_batches: &[L1BatchWithMetadata],
     ) -> Option<L1BatchNumber> {
         let current_timestamp = Utc::now().timestamp() as u64;
-        let block_timestamp = consecutive_l1_batches[0].header.timestamp;
+        let block_timestamp = consecutive_l1_batches.first()?.header.timestamp;
         if block_timestamp + self.deadline_seconds as u64 <= current_timestamp {
             return Some(consecutive_l1_batches[0].header.number);
         }

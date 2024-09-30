@@ -12,7 +12,7 @@ actor_role = "Sequencer"
 
 [via_btc_sender]
 poll_interval = 1
-private_key = "private_key"
+private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R"
 max_aggregated_blocks_to_commit = 10
 max_aggregated_proofs_to_commit = 10
 max_txs_in_flight = 10
@@ -20,7 +20,6 @@ rpc_url = "http://0.0.0.0:18443"
 rpc_user = "rpcuser"
 rpc_password = "rpcpassword"
 network = "regtest"
-bootstrap_txids = []
 actor_role = "Sequencer"
 
 [via_celestia_client]

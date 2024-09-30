@@ -5,6 +5,9 @@ use zksync_config::{
 };
 use zksync_node_framework::{
     implementations::layers::{
+        circuit_breaker_checker::CircuitBreakerCheckerLayer,
+        healtcheck_server::HealthCheckLayer,
+        house_keeper::HouseKeeperLayer,
         object_store::ObjectStoreLayer,
         pools_layer::PoolsLayerBuilder,
         postgres_metrics::PostgresMetricsLayer,
@@ -87,6 +90,19 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_healthcheck_layer(mut self) -> anyhow::Result<Self> {
+        let healthcheck_config = try_load_config!(self.configs.api_config).healthcheck;
+        self.node.add_layer(HealthCheckLayer(healthcheck_config));
+        Ok(self)
+    }
+
+    fn add_circuit_breaker_checker_layer(mut self) -> anyhow::Result<Self> {
+        let circuit_breaker_config = try_load_config!(self.configs.circuit_breaker_config);
+        self.node
+            .add_layer(CircuitBreakerCheckerLayer(circuit_breaker_config));
+        Ok(self)
+    }
+
     // VIA related layers
     fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
         let btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
@@ -107,6 +123,12 @@ impl ViaNodeBuilder {
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_pools_layer()?
+            .add_sigint_handler_layer()?
+            .add_object_store_layer()?
+            .add_healthcheck_layer()?
+            .add_circuit_breaker_checker_layer()?
+            .add_postgres_metrics_layer()?
+            // VIA layers
             .add_btc_watcher_layer()?
             .add_btc_sender_layer()?
             .node
