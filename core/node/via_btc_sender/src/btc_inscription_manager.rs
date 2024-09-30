@@ -45,7 +45,9 @@ impl ViaBtcInscriptionManager {
             let mut storage = pool.connection_tagged("via_btc_sender").await?;
 
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => { /* everything went fine */ }
+                Ok(()) => {
+                    tracing::info!("Inscription manager task finished");
+                }
                 Err(err) => {
                     tracing::error!("Failed to process btc_sender_inscription_manager: {err}");
                 }
@@ -60,8 +62,8 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
-        self.send_new_inscription_txs(storage).await?;
         self.update_inscription_status_or_resend(storage).await?;
+        self.send_new_inscription_txs(storage).await?;
         Ok(())
     }
 
@@ -92,6 +94,10 @@ impl ViaBtcInscriptionManager {
                         .btc_sender_dal()
                         .confirm_inscription(inscription.id, last_inscription_history.id)
                         .await?;
+                    tracing::info!(
+                        "Inscription confirmed {reveal_tx}",
+                        reveal_tx = last_inscription_history.reveal_tx_id,
+                    );
                 } else {
                     let current_block = self
                         .inscriber
@@ -116,6 +122,11 @@ impl ViaBtcInscriptionManager {
                         fee_multiplier: number_inscription_request_history as u64 + 1,
                     };
 
+                    tracing::info!(
+                        "Inscription {reveal_tx} stuck for more than {BLOCK_RESEND} block, retry sending the inscription.",
+                        reveal_tx = last_inscription_history.reveal_tx_id
+                    );
+
                     self.send_inscription_tx(storage, &inscription, config)
                         .await?;
                 }
@@ -135,10 +146,20 @@ impl ViaBtcInscriptionManager {
             .await?
             .len();
 
+        tracing::debug!(
+            "Inflight inscriptions: {count}",
+            count = number_inflight_txs
+        );
+
         let number_of_available_slots_for_inscription_txs = self
             .config
             .max_txs_in_flight()
             .saturating_sub(number_inflight_txs as i64);
+
+        tracing::debug!(
+            "Available slots to process inscriptions: {count}",
+            count = number_of_available_slots_for_inscription_txs
+        );
 
         if number_of_available_slots_for_inscription_txs > 0 {
             let list_new_inscription_request = storage
@@ -184,6 +205,12 @@ impl ViaBtcInscriptionManager {
 
         let actual_fees = inscribe_info.reveal_tx_output_info._reveal_fee
             + inscribe_info.commit_tx_output_info._commit_tx_fee;
+
+        tracing::info!(
+            "New inscription created {commit_tx} {reveal_tx}",
+            commit_tx = inscribe_info.final_commit_tx.txid,
+            reveal_tx = inscribe_info.final_reveal_tx.txid,
+        );
 
         storage
             .btc_sender_dal()

@@ -7,6 +7,7 @@ use tracing::{debug, error, info, instrument, warn};
 mod parser;
 use parser::MessageParser;
 pub use parser::{get_btc_address, get_eth_address};
+use zksync_types::H256;
 
 use crate::{
     client::BitcoinClient,
@@ -24,6 +25,8 @@ struct BootstrapState {
     sequencer_votes: HashMap<Address, Vote>,
     bridge_address: Option<Address>,
     starting_block_number: u32,
+    bootloader_hash: Option<H256>,
+    abstract_account_hash: Option<H256>,
 }
 
 impl BootstrapState {
@@ -35,6 +38,8 @@ impl BootstrapState {
             sequencer_votes: HashMap::new(),
             bridge_address: None,
             starting_block_number: 0,
+            bootloader_hash: None,
+            abstract_account_hash: None,
         }
     }
 
@@ -44,6 +49,8 @@ impl BootstrapState {
             && self.bridge_address.is_some()
             && self.starting_block_number > 0
             && self.has_majority_votes()
+            && self.bootloader_hash.is_some()
+            && self.abstract_account_hash.is_some()
     }
 
     fn has_majority_votes(&self) -> bool {
@@ -288,6 +295,8 @@ impl BitcoinInscriptionIndexer {
                     .unwrap();
                 state.bridge_address = Some(bridge_address);
                 state.starting_block_number = sb.input.start_block_height;
+                state.bootloader_hash = Some(sb.input.bootloader_hash);
+                state.abstract_account_hash = Some(sb.input.abstract_account_hash);
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
                 debug!("Processing ProposeSequencer message");
@@ -543,6 +552,8 @@ mod tests {
                         .as_unchecked()
                         .to_owned(),
                     verifier_p2wpkh_addresses: vec![],
+                    bootloader_hash: H256::zero(),
+                    abstract_account_hash: H256::zero(),
                 },
             });
         assert!(indexer.is_valid_message(&system_bootstrapping));

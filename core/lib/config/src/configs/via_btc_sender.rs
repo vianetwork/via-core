@@ -20,13 +20,16 @@ pub struct ViaBtcSenderConfig {
     pub private_key: String,
 
     // Number of blocks to commit at time, should be 'one'.
-    max_aggregated_blocks_to_commit: i32,
+    pub max_aggregated_blocks_to_commit: i32,
 
     // Number of proofs to commit at time, should be 'one'.
-    max_aggregated_proofs_to_commit: i32,
+    pub max_aggregated_proofs_to_commit: i32,
 
     // The max number of inscription in flight
-    max_txs_in_flight: i64,
+    pub max_txs_in_flight: i64,
+
+    // The da identifer
+    pub da_identifier: String,
 }
 
 impl ViaBtcSenderConfig {
@@ -70,6 +73,10 @@ impl ViaBtcSenderConfig {
     pub fn max_txs_in_flight(&self) -> i64 {
         self.max_txs_in_flight
     }
+
+    pub fn da_identifier(&self) -> &str {
+        &self.da_identifier
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -86,6 +93,7 @@ impl ViaBtcSenderConfig {
             max_aggregated_blocks_to_commit: 1,
             max_aggregated_proofs_to_commit: 1,
             max_txs_in_flight: 1,
+            da_identifier: "da_identifier_celestia".to_string(),
         }
     }
 }

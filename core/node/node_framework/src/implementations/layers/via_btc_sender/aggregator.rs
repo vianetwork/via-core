@@ -6,17 +6,14 @@ use via_btc_sender::btc_inscription_aggregator::ViaBtcInscriptionAggregator;
 use zksync_config::ViaBtcSenderConfig;
 
 use crate::{
-    implementations::resources::{
-        pools::{MasterPool, PoolResource},
-        via_inscriber::InscriberResource,
-    },
+    implementations::resources::pools::{MasterPool, PoolResource},
     service::StopReceiver,
     task::{Task, TaskId},
     wiring_layer::{WiringError, WiringLayer},
     FromContext, IntoContext,
 };
 
-/// Wiring layer for aggregating l1 batches into 'btc_inscriptions'
+/// Wiring layer for btc_sender aggregating l1 batches into 'btc_inscriptions'
 ///
 /// Responsible for initialization and running of [`ViaBtcInscriptionAggregator`], that create inscription requests
 /// (such as `CommitL1Block` or `CommitProof`).
@@ -25,9 +22,6 @@ use crate::{
 /// ## Requests resources
 ///
 /// - `PoolResource<MasterPool>`
-/// - `PoolResource<ReplicaPool>`
-/// - `InscriberResource`
-/// - `CircuitBreakersResource` (adds a circuit breaker)
 ///
 /// ## Adds tasks
 ///

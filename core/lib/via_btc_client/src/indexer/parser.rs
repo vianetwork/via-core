@@ -23,7 +23,7 @@ use crate::{
 
 // Using constants to define the minimum number of instructions can help to make parsing more quick
 const MIN_WITNESS_LENGTH: usize = 3;
-const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 5;
+const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 7;
 const MIN_PROPOSE_SEQUENCER_INSTRUCTIONS: usize = 3;
 const MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS: usize = 4;
 const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 6;
@@ -226,12 +226,27 @@ impl MessageParser {
                 .map(|a| a.as_unchecked().clone())
                 .collect();
 
+        let bootloader_hash = H256::from_slice(
+            instructions
+                .get(instructions.len() - 2)?
+                .push_bytes()?
+                .as_bytes(),
+        );
+
+        debug!("Parsed bootloader hash");
+
+        let abstract_account_hash = H256::from_slice(instructions.last()?.push_bytes()?.as_bytes());
+
+        debug!("Parsed abstract account hash");
+
         Some(Message::SystemBootstrapping(SystemBootstrapping {
             common: common_fields.clone(),
             input: SystemBootstrappingInput {
                 start_block_height,
                 bridge_p2wpkh_mpc_address: bridge_address.as_unchecked().clone(),
                 verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
+                bootloader_hash,
+                abstract_account_hash,
             },
         }))
     }
