@@ -237,11 +237,9 @@ impl InscriptionData {
             .require_network(network)?;
         let bridge_address_encoded = Self::encode_push_bytes(bridge_address.to_string().as_bytes());
 
-        let boostloader_hash =
-            Self::encode_push_bytes(input.bootloader_hash.to_string().as_bytes());
+        let boostloader_hash = Self::encode_push_bytes(input.bootloader_hash.as_bytes());
 
-        let abstract_account_hash =
-            Self::encode_push_bytes(input.abstract_account_hash.to_string().as_bytes());
+        let abstract_account_hash = Self::encode_push_bytes(input.abstract_account_hash.as_bytes());
 
         Ok(script
             .push_slice(bridge_address_encoded)

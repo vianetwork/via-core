@@ -14,6 +14,7 @@ use via_btc_client::{
         InscriptionMessage, NodeAuth, ProposeSequencerInput, ValidatorAttestationInput, Vote,
     },
 };
+use zksync_basic_types::H256;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -50,6 +51,8 @@ async fn main() -> Result<()> {
         start_block_height: 1,
         verifier_p2wpkh_addresses: vec![addr.clone()],
         bridge_p2wpkh_mpc_address: addr.clone(),
+        bootloader_hash: H256::zero(),
+        abstract_account_hash: H256::random(),
     };
     let bootstrap_info = inscriber
         .inscribe(

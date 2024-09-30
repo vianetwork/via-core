@@ -186,7 +186,7 @@ impl MessageParser {
             height
         };
 
-        let verifier_addresses = instructions[3..instructions.len() - 2]
+        let verifier_addresses = instructions[3..instructions.len() - 4]
             .iter()
             .filter_map(|instr| {
                 if let Instruction::PushBytes(bytes) = instr {
@@ -204,7 +204,7 @@ impl MessageParser {
 
         debug!("Parsed {} verifier addresses", verifier_addresses.len());
 
-        let bridge_address = instructions.get(instructions.len() - 2).and_then(|instr| {
+        let bridge_address = instructions.get(instructions.len() - 4).and_then(|instr| {
             if let Instruction::PushBytes(bytes) = instr {
                 std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
                     s.parse::<Address<NetworkUnchecked>>()
@@ -228,14 +228,19 @@ impl MessageParser {
 
         let bootloader_hash = H256::from_slice(
             instructions
-                .get(instructions.len() - 2)?
+                .get(instructions.len() - 3)?
                 .push_bytes()?
                 .as_bytes(),
         );
 
         debug!("Parsed bootloader hash");
 
-        let abstract_account_hash = H256::from_slice(instructions.last()?.push_bytes()?.as_bytes());
+        let abstract_account_hash = H256::from_slice(
+            instructions
+                .get(instructions.len() - 2)?
+                .push_bytes()?
+                .as_bytes(),
+        );
 
         debug!("Parsed abstract account hash");
 

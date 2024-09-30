@@ -21,6 +21,7 @@ rpc_user = "rpcuser"
 rpc_password = "rpcpassword"
 network = "regtest"
 actor_role = "Sequencer"
+da_identifier = "da_identifier_celestia"
 
 [via_celestia_client]
 api_node_url = "ws://localhost:26658"
