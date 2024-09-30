@@ -4,6 +4,16 @@ import { Command } from 'commander';
 import * as utils from 'utils';
 
 const CONTAINER_NAME = 'via-core-bitcoin-cli-1';
+const RPC_USER = 'rpcuser';
+const RPC_PASSWORD = 'rpcpassword';
+const WALLET = 'Alice';
+const RPC_ARGS =
+    '-regtest -rpcconnect=bitcoind -rpcuser=' +
+    RPC_USER +
+    ' -rpcpassword=' +
+    RPC_PASSWORD +
+    ' -rpcwait -rpcwallet=' +
+    WALLET;
 
 export const generateRandomTransactions = async () => {
     console.log('Generating random transactions...');
@@ -18,12 +28,12 @@ export const generateRandomTransactions = async () => {
 
         for (let j = 0; j < numTx; j++) {
             const newAddressResult = await utils.exec(
-                `docker exec ${CONTAINER_NAME} bitcoin-cli -regtest -rpcconnect=bitcoind -rpcuser=rpcuser -rpcpassword=rpcpassword getnewaddress`
+                `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} getnewaddress`
             );
             const newAddress = newAddressResult.stdout.trim();
 
             const unfundedTxResult = await utils.exec(
-                `docker exec ${CONTAINER_NAME} bitcoin-cli -regtest -rpcconnect=bitcoind -rpcuser=rpcuser -rpcpassword=rpcpassword createrawtransaction "[]" "{\\"${newAddress}\\":0.005}"`
+                `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} createrawtransaction "[]" "{\\"${newAddress}\\":0.005}"`
             );
             const unfundedTx = unfundedTxResult.stdout.trim();
 
@@ -33,19 +43,19 @@ export const generateRandomTransactions = async () => {
             const options = `{"feeRate": ${randFee}}`;
 
             const fundTxResult = await utils.exec(
-                `docker exec ${CONTAINER_NAME} bitcoin-cli -regtest -rpcconnect=bitcoind -rpcuser=rpcuser -rpcpassword=rpcpassword -named fundrawtransaction hexstring="${unfundedTx}" options='${options}'`
+                `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} -named fundrawtransaction hexstring="${unfundedTx}" options='${options}'`
             );
             const fundTxJson = JSON.parse(fundTxResult.stdout.trim());
             const fundedTxHex = fundTxJson.hex;
 
             const signTxResult = await utils.exec(
-                `docker exec ${CONTAINER_NAME} bitcoin-cli -regtest -rpcconnect=bitcoind -rpcuser=rpcuser -rpcpassword=rpcpassword signrawtransactionwithwallet "${fundedTxHex}"`
+                `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} signrawtransactionwithwallet "${fundedTxHex}"`
             );
             const signTxJson = JSON.parse(signTxResult.stdout.trim());
             const signedTxHex = signTxJson.hex;
 
             await utils.exec(
-                `docker exec ${CONTAINER_NAME} bitcoin-cli -regtest -rpcconnect=bitcoind -rpcuser=rpcuser -rpcpassword=rpcpassword sendrawtransaction "${signedTxHex}"`
+                `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} sendrawtransaction "${signedTxHex}"`
             );
         }
 

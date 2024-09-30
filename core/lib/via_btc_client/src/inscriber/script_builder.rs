@@ -220,7 +220,8 @@ impl InscriptionData {
         let start_block_height_encoded =
             Self::encode_push_bytes(&input.start_block_height.to_be_bytes());
 
-        let mut script = basic_script.push_slice(start_block_height_encoded);
+        let mut script = basic_script.push_slice(&*types::SYSTEM_BOOTSTRAPPING_MSG);
+        script = script.push_slice(start_block_height_encoded);
 
         for verifier_p2wpkh_address in &input.verifier_p2wpkh_addresses {
             let network_checked_address =
@@ -236,11 +237,9 @@ impl InscriptionData {
             .require_network(network)?;
         let bridge_address_encoded = Self::encode_push_bytes(bridge_address.to_string().as_bytes());
 
-        let boostloader_hash =
-            Self::encode_push_bytes(input.bootloader_hash.to_string().as_bytes());
+        let boostloader_hash = Self::encode_push_bytes(input.bootloader_hash.as_bytes());
 
-        let abstract_account_hash =
-            Self::encode_push_bytes(input.abstract_account_hash.to_string().as_bytes());
+        let abstract_account_hash = Self::encode_push_bytes(input.abstract_account_hash.as_bytes());
 
         Ok(script
             .push_slice(bridge_address_encoded)

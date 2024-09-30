@@ -70,8 +70,8 @@ const initSetup = async ({
 const initDatabase = async (shouldCheck: boolean = true): Promise<void> => {
     await announced('Drop postgres db', db.drop({ core: true, prover: true }));
     await announced('Setup postgres db', db.setup({ core: true, prover: true }, shouldCheck));
-    await announced('Clean rocksdb', clean(`db/${process.env.ZKSYNC_ENV!}`));
-    await announced('Clean backups', clean(`backups/${process.env.ZKSYNC_ENV!}`));
+    await announced('Clean rocksdb', clean(`db/${process.env.VIA_ENV!}`));
+    await announced('Clean backups', clean(`backups/${process.env.VIA_ENV!}`));
 };
 
 // Deploys ERC20 and WETH tokens to localhost

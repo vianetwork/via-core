@@ -1,3 +1,4 @@
+use via_btc_client::types::NodeAuth;
 use via_btc_watch::{BitcoinNetwork, BtcWatch};
 use zksync_config::ViaBtcWatchConfig;
 
@@ -50,6 +51,10 @@ impl WiringLayer for BtcWatchLayer {
         let main_pool = input.master_pool.get().await?;
         let network = BitcoinNetwork::from_core_arg(self.btc_watch_config.network())
             .map_err(|_| WiringError::Configuration("Wrong network in config".to_string()))?;
+        let node_auth = NodeAuth::UserPass(
+            self.btc_watch_config.rpc_user().to_string(),
+            self.btc_watch_config.rpc_password().to_string(),
+        );
         let bootstrap_txids = self
             .btc_watch_config
             .bootstrap_txids()
@@ -62,6 +67,8 @@ impl WiringLayer for BtcWatchLayer {
         let btc_watch = BtcWatch::new(
             self.btc_watch_config.rpc_url(),
             network,
+            node_auth,
+            self.btc_watch_config.confirmations_for_btc_msg,
             bootstrap_txids,
             main_pool,
             self.btc_watch_config.poll_interval(),

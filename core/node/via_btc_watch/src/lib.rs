@@ -8,7 +8,7 @@ use tokio::sync::watch;
 pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinAddress, BitcoinTxid},
+    types::{BitcoinAddress, BitcoinTxid, NodeAuth},
 };
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::PriorityOpId;
@@ -29,6 +29,7 @@ struct BtcWatchState {
 pub struct BtcWatch {
     indexer: BitcoinInscriptionIndexer,
     poll_interval: Duration,
+    confirmations_for_btc_msg: u64,
     last_processed_bitcoin_block: u32,
     pool: ConnectionPool<Core>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
@@ -38,11 +39,14 @@ impl BtcWatch {
     pub async fn new(
         rpc_url: &str,
         network: BitcoinNetwork,
+        node_auth: NodeAuth,
+        confirmations_for_btc_msg: Option<u64>,
         bootstrap_txids: Vec<BitcoinTxid>,
         pool: ConnectionPool<Core>,
         poll_interval: Duration,
     ) -> anyhow::Result<Self> {
-        let indexer = BitcoinInscriptionIndexer::new(rpc_url, network, bootstrap_txids).await?;
+        let indexer =
+            BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
         let mut storage = pool.connection_tagged("via_btc_watch").await?;
         let state = Self::initialize_state(&indexer, &mut storage).await?;
         tracing::info!("initialized state: {state:?}");
@@ -58,6 +62,7 @@ impl BtcWatch {
         Ok(Self {
             indexer,
             poll_interval,
+            confirmations_for_btc_msg: confirmations_for_btc_msg.unwrap_or(0),
             last_processed_bitcoin_block: state.last_processed_bitcoin_block,
             pool,
             message_processors,
@@ -138,7 +143,7 @@ impl BtcWatch {
             .fetch_block_height()
             .await
             .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
-            as u32;
+            .saturating_sub(self.confirmations_for_btc_msg as u128) as u32;
         if to_block <= self.last_processed_bitcoin_block {
             return Ok(());
         }
