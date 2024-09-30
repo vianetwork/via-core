@@ -68,6 +68,7 @@ impl WiringLayer for BtcWatchLayer {
             self.btc_watch_config.rpc_url(),
             network,
             node_auth,
+            self.btc_watch_config.confirmations_for_btc_msg,
             bootstrap_txids,
             main_pool,
             self.btc_watch_config.poll_interval(),
