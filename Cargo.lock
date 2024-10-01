@@ -13030,6 +13030,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "vise",
+ "zk_evm 0.150.5",
  "zksync_config",
  "zksync_consensus_roles",
  "zksync_contracts",
