@@ -53,6 +53,9 @@ pub mod zk_evm_types;
 
 pub mod api;
 pub mod base_token_ratio;
+pub mod btc_block;
+pub mod btc_inscription_operations;
+pub mod btc_sender;
 pub mod eth_sender;
 pub mod helpers;
 pub mod proto;

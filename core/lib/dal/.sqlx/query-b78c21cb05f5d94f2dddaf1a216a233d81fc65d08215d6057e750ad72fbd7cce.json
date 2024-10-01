@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE via_btc_inscriptions_request_history\n            SET\n                updated_at = NOW(),\n                confirmed_at = NOW()\n            WHERE\n                id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b78c21cb05f5d94f2dddaf1a216a233d81fc65d08215d6057e750ad72fbd7cce"
+}

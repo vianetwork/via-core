@@ -1,0 +1,34 @@
+[package]
+name = "via_btc_sender"
+description = "VIA Bitcoin Sender"
+version.workspace = true
+edition.workspace = true
+authors = [ "VIA Protocol Team"]
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+via_btc_client.workspace = true
+via_da_dispatcher.workspace = true
+zksync_dal.workspace = true
+zksync_config.workspace = true
+zksync_object_store.workspace = true
+zksync_l1_contract_interface.workspace = true
+zksync_types.workspace = true
+zksync_contracts.workspace = true
+bitcoin = { version = "0.32.2", features = ["serde"] }
+bincode = "1.3"
+
+tokio.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+hex = "0.4"
+
+[dev-dependencies]
+zksync_node_test_utils.workspace = true

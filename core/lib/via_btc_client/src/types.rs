@@ -1,16 +1,20 @@
 use std::collections::VecDeque;
 
-pub use bitcoin::Network as BitcoinNetwork;
+use bincode::{deserialize, serialize};
 use bitcoin::{
-    script::PushBytesBuf, taproot::Signature as TaprootSignature, Address as BitcoinAddress,
+    address::NetworkUnchecked, script::PushBytesBuf, taproot::Signature as TaprootSignature,
     Amount, TxIn, TxOut, Txid,
 };
+pub use bitcoin::{Address as BitcoinAddress, Network as BitcoinNetwork, Txid as BitcoinTxid};
 pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zksync_basic_types::H256;
+use zksync_object_store::{serialize_using_bincode, Bucket, StoredObject};
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
+
+use crate::traits::Serializable;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {
@@ -18,7 +22,7 @@ pub enum Vote {
     NotOk,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct L1BatchDAReferenceInput {
     pub l1_batch_hash: H256,
     pub l1_batch_index: L1BatchNumber,
@@ -32,7 +36,7 @@ pub struct L1BatchDAReference {
     pub input: L1BatchDAReferenceInput,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProofDAReferenceInput {
     pub l1_batch_reveal_txid: Txid,
     pub da_identifier: String,
@@ -45,7 +49,7 @@ pub struct ProofDAReference {
     pub input: ProofDAReferenceInput,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorAttestationInput {
     pub reference_txid: Txid,
     pub attestation: Vote,
@@ -61,13 +65,16 @@ pub struct ValidatorAttestation {
 pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
+    pub block_height: u32,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SystemBootstrappingInput {
     pub start_block_height: u32,
-    pub verifier_p2wpkh_addresses: Vec<BitcoinAddress>,
-    pub bridge_p2wpkh_mpc_address: BitcoinAddress,
+    pub verifier_p2wpkh_addresses: Vec<BitcoinAddress<NetworkUnchecked>>,
+    pub bridge_p2wpkh_mpc_address: BitcoinAddress<NetworkUnchecked>,
+    pub bootloader_hash: H256,
+    pub abstract_account_hash: H256,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -76,9 +83,9 @@ pub struct SystemBootstrapping {
     pub input: SystemBootstrappingInput,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProposeSequencerInput {
-    pub sequencer_new_p2wpkh_address: BitcoinAddress,
+    pub sequencer_new_p2wpkh_address: BitcoinAddress<NetworkUnchecked>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,7 +94,7 @@ pub struct ProposeSequencer {
     pub input: ProposeSequencerInput,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct L1ToL2MessageInput {
     pub receiver_l2_address: EVMAddress,
     pub l2_contract_address: EVMAddress,
@@ -102,7 +109,7 @@ pub struct L1ToL2Message {
     pub tx_outputs: Vec<TxOut>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum InscriptionMessage {
     L1BatchDAReference(L1BatchDAReferenceInput),
     ProofDAReference(ProofDAReferenceInput),
@@ -110,6 +117,30 @@ pub enum InscriptionMessage {
     SystemBootstrapping(SystemBootstrappingInput),
     ProposeSequencer(ProposeSequencerInput),
     L1ToL2Message(L1ToL2MessageInput),
+}
+
+impl Serializable for InscriptionMessage {
+    fn to_bytes(&self) -> Vec<u8> {
+        serialize(self).expect("error serialize the InscriptionMessage")
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self
+    where
+        Self: Sized,
+    {
+        deserialize(bytes).expect("error deserialize the InscriptionMessage")
+    }
+}
+
+#[derive(Debug)]
+pub struct InscriptionConfig {
+    pub fee_multiplier: u64,
+}
+
+impl Default for InscriptionConfig {
+    fn default() -> Self {
+        InscriptionConfig { fee_multiplier: 1 }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -122,14 +153,14 @@ pub enum FullInscriptionMessage {
     L1ToL2Message(L1ToL2Message),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FeePayerCtx {
     pub fee_payer_utxo_txid: Txid,
     pub fee_payer_utxo_vout: u32,
     pub fee_payer_utxo_value: Amount,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CommitTxInput {
     pub spent_utxo: Vec<TxIn>,
 }
@@ -149,7 +180,7 @@ lazy_static! {
 }
 pub(crate) const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InscriptionRequest {
     pub message: InscriptionMessage,
     pub inscriber_output: InscriberOutput,
@@ -157,7 +188,7 @@ pub struct InscriptionRequest {
     pub commit_tx_input: CommitTxInput,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InscriberContext {
     pub fifo_queue: VecDeque<InscriptionRequest>,
 }
@@ -178,7 +209,19 @@ impl Default for InscriberContext {
     }
 }
 
-#[derive(Clone, Debug)]
+impl StoredObject for InscriberContext {
+    const BUCKET: Bucket = Bucket::ViaInscriberContext;
+
+    type Key<'a> = u32;
+
+    fn encode_key(key: Self::Key<'_>) -> String {
+        format!("inscriber_context_{key}.bin")
+    }
+
+    serialize_using_bincode!();
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InscriberOutput {
     pub commit_txid: Txid,
     pub commit_raw_tx: String,

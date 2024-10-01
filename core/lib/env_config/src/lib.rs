@@ -20,6 +20,7 @@ mod observability;
 mod proof_data_handler;
 mod snapshots_creator;
 mod utils;
+mod via_btc_sender;
 mod via_celestia;
 
 mod base_token_adjuster;
@@ -30,6 +31,7 @@ mod genesis;
 mod prover_job_monitor;
 #[cfg(test)]
 mod test_utils;
+mod via_btc_watch;
 mod vm_runner;
 mod wallets;
 

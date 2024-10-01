@@ -13,35 +13,33 @@ categories.workspace = true
 [dependencies]
 zksync_types.workspace = true
 zksync_config.workspace = true
-zksync_da_client.workspace = true
 zksync_basic_types.workspace = true
+zksync_object_store.workspace = true
+
 
 thiserror.workspace = true
 async-trait.workspace = true
-jsonrpsee = { workspace = true, features = [
-    "client",
-    "macros",
-] }
 lazy_static.workspace = true
 tokio.workspace = true
-bitcoin = "0.32.2"
+bitcoin = { version = "0.32.2", features = ["serde"] }
 bitcoincore-rpc = "0.19.0"
 rand.workspace = true
 hex.workspace = true
 secp256k1 = "0.29.0"
 reqwest = "0.12.5"
 serde_json.workspace = true
-inquire = "0.7.5"
+inquire = { version = "0.7.5", optional = true }
 anyhow.workspace = true
 serde.workspace = true
 tracing.workspace = true
-tracing-subscriber = { workspace = true, optional = true }
+tracing-subscriber.workspace = true
+bincode = "1.3"
 
 [dev-dependencies]
 mockall = "0.13.0"
 
 [features]
-regtest = ["tracing-subscriber"]
+regtest = []
 
 [[example]]
 name = "indexer"
@@ -51,7 +49,12 @@ required-features = ["regtest"]
 [[example]]
 name = "data_inscription_example"
 path = "examples/data_inscription_example.rs"
+required-features = ["inquire"]
 
 [[example]]
 name = "inscriber"
 path = "examples/inscriber.rs"
+
+[[example]]
+name = "bootstrap"
+path = "examples/bootstrap.rs"

@@ -50,6 +50,7 @@ hex.workspace = true
 strum = { workspace = true, features = ["derive"] }
 tracing.workspace = true
 chrono = { workspace = true, features = ["serde"] }
+bitcoin = { version = "0.32.2", features = ["serde"] }
 
 [dev-dependencies]
 zksync_test_account.workspace = true

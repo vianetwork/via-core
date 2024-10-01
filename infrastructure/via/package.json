@@ -1,0 +1,23 @@
+{
+  "name": "via",
+  "version": "1.0.0",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node build/index.js",
+    "watch": "tsc -w -p tsconfig.json"
+  },
+  "dependencies": {
+    "commander": "6.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^4.4.4",
+    "@types/node": "^16.11.7",
+    "eslint": "^7.32.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0"
+  },
+  "bin": {
+    "via": "./build/index.js"
+  }
+}

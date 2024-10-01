@@ -1,10 +1,12 @@
 use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
+    key::UntweakedPublicKey,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, Network, ScriptBuf, Transaction, Txid,
+    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, Txid,
 };
+use secp256k1::{Parity, PublicKey};
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
@@ -21,13 +23,14 @@ use crate::{
 
 // Using constants to define the minimum number of instructions can help to make parsing more quick
 const MIN_WITNESS_LENGTH: usize = 3;
-const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 5;
+const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 7;
 const MIN_PROPOSE_SEQUENCER_INSTRUCTIONS: usize = 3;
 const MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS: usize = 4;
 const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 6;
 const MIN_PROOF_DA_REFERENCE_INSTRUCTIONS: usize = 5;
 const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
 
+#[derive(Debug)]
 pub struct MessageParser {
     network: Network,
 }
@@ -38,19 +41,23 @@ impl MessageParser {
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
-    pub fn parse_transaction(&self, tx: &Transaction) -> Vec<Message> {
+    pub fn parse_transaction(&self, tx: &Transaction, block_height: u32) -> Vec<Message> {
         debug!("Parsing transaction");
         tx.input
             .iter()
-            .filter_map(|input| self.parse_input(input, tx))
+            .filter_map(|input| self.parse_input(input, tx, block_height))
             .collect()
     }
 
     #[instrument(skip(self, input, tx), target = "bitcoin_indexer::parser")]
-    fn parse_input(&self, input: &bitcoin::TxIn, tx: &Transaction) -> Option<Message> {
+    fn parse_input(
+        &self,
+        input: &bitcoin::TxIn,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Option<Message> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
-            debug!("Witness length is less than minimum required");
             return None;
         }
 
@@ -83,6 +90,7 @@ impl MessageParser {
         let common_fields = CommonFields {
             schnorr_signature: signature,
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
+            block_height,
         };
 
         self.parse_message(tx, &instructions[via_index..], &common_fields)
@@ -135,9 +143,17 @@ impl MessageParser {
                 debug!("Parsing L1 to L2 message");
                 self.parse_l1_to_l2_message(tx, instructions, common_fields)
             }
-            _ => {
-                // do we need warning here?
+            Instruction::PushBytes(bytes) => {
                 warn!("Unknown message type");
+                warn!(
+                    "first instruction: {:?}",
+                    String::from_utf8(bytes.as_bytes().to_vec())
+                );
+                None
+            }
+            Instruction::Op(_) => {
+                warn!("Invalid message type");
+                warn!("Instructions: {:?}", instructions);
                 None
             }
         }
@@ -157,7 +173,7 @@ impl MessageParser {
             return None;
         }
 
-        let height = u32::from_be_bytes(
+        let start_block_height = u32::from_be_bytes(
             instructions
                 .get(2)?
                 .push_bytes()?
@@ -165,51 +181,67 @@ impl MessageParser {
                 .try_into()
                 .ok()?,
         );
-        let start_block_height = {
-            debug!("Parsed start block height: {}", height);
-            height
-        };
 
-        let verifier_addresses = instructions[3..]
+        debug!("Parsed start block height: {}", start_block_height);
+
+        // network unchecked is required to enable serde serialization and deserialization on the library structs
+        let network_unchecked_verifier_addresses = instructions[3..instructions.len() - 4]
             .iter()
-            .take_while(|instr| matches!(instr, Instruction::PushBytes(_)))
             .filter_map(|instr| {
                 if let Instruction::PushBytes(bytes) = instr {
-                    std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
-                        s.parse::<Address<NetworkUnchecked>>()
-                            .ok()?
-                            .require_network(self.network)
-                            .ok()
-                    })
+                    std::str::from_utf8(bytes.as_bytes())
+                        .ok()
+                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
                 } else {
                     None
                 }
             })
             .collect::<Vec<_>>();
 
-        debug!("Parsed {} verifier addresses", verifier_addresses.len());
+        debug!(
+            "Parsed {} verifier addresses",
+            network_unchecked_verifier_addresses.len()
+        );
 
-        let bridge_address = instructions.last().and_then(|instr| {
-            if let Instruction::PushBytes(bytes) = instr {
-                std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
-                    s.parse::<Address<NetworkUnchecked>>()
-                        .ok()?
-                        .require_network(self.network)
+        let network_unchecked_bridge_address =
+            instructions.get(instructions.len() - 4).and_then(|instr| {
+                if let Instruction::PushBytes(bytes) = instr {
+                    std::str::from_utf8(bytes.as_bytes())
                         .ok()
-                })
-            } else {
-                None
-            }
-        })?;
+                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
+                } else {
+                    None
+                }
+            })?;
 
         debug!("Parsed bridge address");
+
+        let bootloader_hash = H256::from_slice(
+            instructions
+                .get(instructions.len() - 3)?
+                .push_bytes()?
+                .as_bytes(),
+        );
+
+        debug!("Parsed bootloader hash");
+
+        let abstract_account_hash = H256::from_slice(
+            instructions
+                .get(instructions.len() - 2)?
+                .push_bytes()?
+                .as_bytes(),
+        );
+
+        debug!("Parsed abstract account hash");
 
         Some(Message::SystemBootstrapping(SystemBootstrapping {
             common: common_fields.clone(),
             input: SystemBootstrappingInput {
                 start_block_height,
-                bridge_p2wpkh_mpc_address: bridge_address,
-                verifier_p2wpkh_addresses: verifier_addresses,
+                bridge_p2wpkh_mpc_address: network_unchecked_bridge_address,
+                verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
+                bootloader_hash,
+                abstract_account_hash,
             },
         }))
     }
@@ -246,7 +278,7 @@ impl MessageParser {
         Some(Message::ProposeSequencer(ProposeSequencer {
             common: common_fields.clone(),
             input: ProposeSequencerInput {
-                sequencer_new_p2wpkh_address: sequencer_address,
+                sequencer_new_p2wpkh_address: sequencer_address.as_unchecked().clone(),
             },
         }))
     }
@@ -276,12 +308,25 @@ impl MessageParser {
             }
         };
 
-        let attestation = match instructions.get(3)?.push_bytes()?.as_bytes() {
-            b"OP_1" => Vote::Ok,
-            b"OP_0" => Vote::NotOk,
-            _ => {
-                warn!("Invalid attestation value");
-                return None;
+        let attestation = match instructions.get(3)? {
+            Instruction::PushBytes(bytes) => match bytes.as_bytes() {
+                b"OP_1" => Vote::Ok,
+                b"OP_0" => Vote::NotOk,
+                _ => {
+                    warn!("Invalid attestation value");
+                    return None;
+                }
+            },
+            Instruction::Op(op) => {
+                if op.to_u8() == 0x51 {
+                    Vote::Ok
+                } else if op.to_u8() == 0x50 {
+                    // TODO: check this variant
+                    Vote::NotOk
+                } else {
+                    warn!("Invalid attestation value");
+                    return None;
+                }
             }
         };
 
@@ -452,6 +497,31 @@ fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> 
     position
 }
 
+pub fn get_btc_address(common_fields: &CommonFields, network: Network) -> Option<Address> {
+    let internal_pubkey =
+        UntweakedPublicKey::from_slice(common_fields.encoded_public_key.as_bytes()).ok()?;
+    let internal_pubkey = PublicKey::from_x_only_public_key(internal_pubkey, Parity::Even);
+    let compressed_pubkey = CompressedPublicKey::from_slice(&internal_pubkey.serialize()).unwrap();
+
+    let address = Address::p2wpkh(&compressed_pubkey, network);
+
+    Some(address)
+}
+
+pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {
+    secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
+        .ok()
+        .map(|public_key| {
+            let pubkey_bytes = public_key.serialize();
+
+            // Take the first 20 bytes of the public key
+            let mut address_bytes = [0u8; 20];
+            address_bytes.copy_from_slice(&pubkey_bytes[0..20]);
+
+            EVMAddress::from(address_bytes)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use bitcoin::{consensus::encode::deserialize, hashes::hex::FromHex};
@@ -471,7 +541,7 @@ mod tests {
         let parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        let messages = parser.parse_transaction(&tx);
+        let messages = parser.parse_transaction(&tx, 0);
         assert_eq!(messages.len(), 1);
     }
 
@@ -483,7 +553,7 @@ mod tests {
         let tx = setup_test_transaction();
 
         if let Some(Message::SystemBootstrapping(bootstrapping)) =
-            parser.parse_transaction(&tx).pop()
+            parser.parse_transaction(&tx, 0).pop()
         {
             assert_eq!(bootstrapping.input.start_block_height, 10);
             assert_eq!(bootstrapping.input.verifier_p2wpkh_addresses.len(), 1);

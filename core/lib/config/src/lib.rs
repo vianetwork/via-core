@@ -4,7 +4,7 @@ pub use crate::configs::{
     ApiConfig, BaseTokenAdjusterConfig, ContractVerifierConfig, ContractsConfig,
     DADispatcherConfig, DBConfig, EthConfig, EthWatchConfig, ExternalProofIntegrationApiConfig,
     GasAdjusterConfig, GenesisConfig, ObjectStoreConfig, PostgresConfig, SnapshotsCreatorConfig,
-    ViaCelestiaConfig,
+    ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig, ViaGeneralConfig,
 };
 
 pub mod configs;

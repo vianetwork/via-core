@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, TxOut, Txid};
+use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::EstimateMode;
 use tracing::{debug, error, instrument};
 
@@ -18,11 +18,7 @@ pub struct BitcoinClient {
 
 impl BitcoinClient {
     #[instrument(skip(auth), target = "bitcoin_client")]
-    pub(crate) fn new(
-        rpc_url: &str,
-        network: BitcoinNetwork,
-        auth: NodeAuth,
-    ) -> BitcoinClientResult<Self>
+    pub fn new(rpc_url: &str, network: BitcoinNetwork, auth: NodeAuth) -> BitcoinClientResult<Self>
     where
         Self: Sized,
     {
@@ -37,8 +33,16 @@ impl BitcoinOps for BitcoinClient {
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128> {
         debug!("Getting balance");
-        let balance = self.rpc.get_balance(address).await?;
-        Ok(balance as u128)
+        match self.network {
+            BitcoinNetwork::Regtest => {
+                let balance = self.rpc.get_balance_scan(address).await?;
+                Ok(balance as u128)
+            }
+            _ => {
+                let balance = self.rpc.get_balance(address).await?;
+                Ok(balance as u128)
+            }
+        }
     }
 
     #[instrument(skip(self, signed_transaction), target = "bitcoin_client")]
@@ -58,8 +62,10 @@ impl BitcoinOps for BitcoinClient {
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>> {
         debug!("Fetching UTXOs");
-        let outpoints = self.rpc.list_unspent_based_on_node_wallet(address).await?;
-
+        let outpoints = match self.network {
+            Network::Regtest => self.rpc.list_unspent(address).await?,
+            _ => self.rpc.list_unspent_based_on_node_wallet(address).await?,
+        };
         let mut utxos = Vec::with_capacity(outpoints.len());
 
         for outpoint in outpoints {
@@ -166,6 +172,7 @@ mod tests {
         #[async_trait]
         impl BitcoinRpc for BitcoinRpc {
             async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u64>;
+            async fn get_balance_scan(&self, address: &Address) -> BitcoinClientResult<u64>;
             async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinClientResult<Txid>;
             async fn list_unspent_based_on_node_wallet(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
             async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;

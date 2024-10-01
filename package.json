@@ -18,7 +18,8 @@
       "core/tests/recovery-test",
       "core/tests/upgrade-test",
       "core/tests/ts-integration",
-      "infrastructure/protocol-upgrade"
+      "infrastructure/protocol-upgrade",
+      "infrastructure/via"
     ],
     "nohoist": [
       "**/@types/jest",
@@ -34,7 +35,8 @@
     "recovery-test": "yarn workspace recovery-test",
     "ts-integration": "yarn workspace ts-integration",
     "utils": "yarn workspace utils",
-    "zk": "yarn workspace zk"
+    "zk": "yarn workspace zk",
+    "via": "yarn workspace via"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^6.7.4",

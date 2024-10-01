@@ -15,11 +15,10 @@ use types::BitcoinRpcResult;
 use crate::{types, types::BitcoinClientResult};
 
 #[async_trait]
-pub(crate) trait BitcoinOps: Send + Sync {
+pub trait BitcoinOps: Send + Sync {
     async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
     async fn broadcast_signed_transaction(
         &self,
-        // TODO: change type here
         signed_transaction: &str,
     ) -> types::BitcoinClientResult<Txid>;
     async fn fetch_utxos(
@@ -40,9 +39,16 @@ pub(crate) trait BitcoinOps: Send + Sync {
     async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
 }
 
+impl std::fmt::Debug for dyn BitcoinOps + 'static {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BitcoinOps").finish()
+    }
+}
+
 #[async_trait]
-pub(crate) trait BitcoinRpc: Send + Sync {
+pub trait BitcoinRpc: Send + Sync {
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64>;
+    async fn get_balance_scan(&self, address: &Address) -> BitcoinRpcResult<u64>;
     async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinRpcResult<Txid>;
     async fn list_unspent_based_on_node_wallet(
         &self,
@@ -81,4 +87,17 @@ pub(crate) trait BitcoinSigner: Send + Sync {
     fn get_internal_key(&self) -> types::BitcoinSignerResult<UntweakedPublicKey>;
 
     fn get_public_key(&self) -> PublicKey;
+}
+
+impl std::fmt::Debug for dyn BitcoinSigner + 'static {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BitcoinSigner").finish()
+    }
+}
+
+pub trait Serializable {
+    fn to_bytes(&self) -> Vec<u8>;
+    fn from_bytes(bytes: &[u8]) -> Self
+    where
+        Self: Sized;
 }

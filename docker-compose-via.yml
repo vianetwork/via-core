@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  bitcoind:
+    image: 'lightninglabs/bitcoin-core:27'
+    command:
+      - -regtest
+      - -server
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -rpcuser=rpcuser
+      - -rpcpassword=rpcpassword
+      - -fallbackfee=0.0002
+      - -txindex
+      - -printtoconsole
+      - -dustrelayfee=0.0
+      - -minrelaytxfee=0
+    ports:
+      - '18443:18443'  # RPC port
+      - '18444:18444'  # P2P port
+    volumes:
+      - type: bind
+        source: ./volumes/bitcoin
+        target: /home/bitcoin/.bitcoin
+    environment:
+      - BITCOIN_DATA=/home/bitcoin/.bitcoin
+
+  bitcoin-cli:
+    image: 'lightninglabs/bitcoin-core:27'
+    depends_on:
+      - bitcoind
+    volumes:
+      - type: bind
+        source: ./volumes/bitcoin
+        target: /home/bitcoin/.bitcoin
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        apt-get update && apt-get install -y jq
+
+        bitcoin-cli $${RPC_ARGS} createwallet Alice
+        ALICE_ADDRESS=$(bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice getnewaddress)
+        echo "Alice's address: $${ALICE_ADDRESS}"
+
+        bitcoin-cli $${RPC_ARGS} generatetoaddress 201 $${ALICE_ADDRESS}
+
+        echo "TEST_ADDRESS: $${TEST_ADDRESS}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${TEST_ADDRESS} 300
+        echo "Sent 300 BTC to TEST_ADDRESS: $${TEST_ADDRESS}"
+
+        bitcoin-cli $${RPC_ARGS} generatetoaddress 6 $${ALICE_ADDRESS}
+
+        RAW_DESCRIPTOR=$$(bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice getdescriptorinfo "addr($${TEST_ADDRESS})")
+        DESCRIPTOR=$$(echo "$${RAW_DESCRIPTOR}" | jq -r ".descriptor")
+        echo "Descriptor: $${DESCRIPTOR}"
+        
+        bitcoin-cli $${RPC_ARGS} createwallet Watcher true true "" false true
+        IMPORT_DESCRIPTOR="[ { \"desc\": \"$${DESCRIPTOR}\", \"timestamp\": \"now\", \"watchonly\": true } ]"
+        echo "Importing descriptor into Watcher wallet: $${IMPORT_DESCRIPTOR}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "$${IMPORT_DESCRIPTOR}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher rescanblockchain
+
+        while true; do
+            bitcoin-cli $${RPC_ARGS} generatetoaddress 1 $${ALICE_ADDRESS}
+            sleep $${SLEEP_SECONDS} &
+            wait $!
+        done
+    environment:
+      - BITCOIN_DATA=/home/bitcoin/.bitcoin
+      - TEST_ADDRESS=bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
+      - RPC_ARGS=-chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
+      - SLEEP_SECONDS=5
+
+  postgres:
+    image: 'postgres:14'
+    command: postgres -c 'max_connections=200'
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - type: bind
+        source: ./volumes/postgres
+        target: /var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=notsecurepassword
+
+volumes:
+  bitcoin_data:
