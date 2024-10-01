@@ -173,7 +173,7 @@ impl MessageParser {
             return None;
         }
 
-        let height = u32::from_be_bytes(
+        let start_block_height = u32::from_be_bytes(
             instructions
                 .get(2)?
                 .push_bytes()?
@@ -181,50 +181,40 @@ impl MessageParser {
                 .try_into()
                 .ok()?,
         );
-        let start_block_height = {
-            debug!("Parsed start block height: {}", height);
-            height
-        };
 
-        let verifier_addresses = instructions[3..instructions.len() - 4]
+        debug!("Parsed start block height: {}", start_block_height);
+
+        // network unchecked is required to enable serde serialization and deserialization on the library structs
+        let network_unchecked_verifier_addresses = instructions[3..instructions.len() - 4]
             .iter()
             .filter_map(|instr| {
                 if let Instruction::PushBytes(bytes) = instr {
-                    std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
-                        s.parse::<Address<NetworkUnchecked>>()
-                            .ok()?
-                            .require_network(self.network)
-                            .ok()
-                    })
+                    std::str::from_utf8(bytes.as_bytes())
+                        .ok()
+                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
                 } else {
                     None
                 }
             })
             .collect::<Vec<_>>();
 
-        debug!("Parsed {} verifier addresses", verifier_addresses.len());
+        debug!(
+            "Parsed {} verifier addresses",
+            network_unchecked_verifier_addresses.len()
+        );
 
-        let bridge_address = instructions.get(instructions.len() - 4).and_then(|instr| {
-            if let Instruction::PushBytes(bytes) = instr {
-                std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
-                    s.parse::<Address<NetworkUnchecked>>()
-                        .ok()?
-                        .require_network(self.network)
+        let network_unchecked_bridge_address =
+            instructions.get(instructions.len() - 4).and_then(|instr| {
+                if let Instruction::PushBytes(bytes) = instr {
+                    std::str::from_utf8(bytes.as_bytes())
                         .ok()
-                })
-            } else {
-                None
-            }
-        })?;
+                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
+                } else {
+                    None
+                }
+            })?;
 
         debug!("Parsed bridge address");
-
-        // we need this to enable serde serialization and deserialization on the library structs
-        let network_unchecked_verifier_addresses: Vec<Address<NetworkUnchecked>> =
-            verifier_addresses
-                .iter()
-                .map(|a| a.as_unchecked().clone())
-                .collect();
 
         let bootloader_hash = H256::from_slice(
             instructions
@@ -248,7 +238,7 @@ impl MessageParser {
             common: common_fields.clone(),
             input: SystemBootstrappingInput {
                 start_block_height,
-                bridge_p2wpkh_mpc_address: bridge_address.as_unchecked().clone(),
+                bridge_p2wpkh_mpc_address: network_unchecked_bridge_address,
                 verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
                 bootloader_hash,
                 abstract_account_hash,
