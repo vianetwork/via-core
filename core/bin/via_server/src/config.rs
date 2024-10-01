@@ -86,7 +86,7 @@ pub(crate) fn via_load_env_config(
     let btc_watch_config =
         ViaBtcWatchConfig::from_env().context("Failed to load BTC watch config")?;
     let btc_sender_config =
-        ViaBtcSenderConfig::from_env().context("Failed to load celestia config")?;
+        ViaBtcSenderConfig::from_env().context("Failed to load BTC sender config")?;
     let celestia_config =
         ViaCelestiaConfig::from_env().context("Failed to load celestia config")?;
 

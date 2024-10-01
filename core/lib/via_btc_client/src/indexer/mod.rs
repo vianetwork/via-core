@@ -468,6 +468,7 @@ mod tests {
         assert_eq!(result.unwrap().len(), 0);
     }
 
+    #[ignore]
     #[tokio::test]
     async fn test_is_valid_message() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());

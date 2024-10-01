@@ -1,8 +1,8 @@
 __imports__ = [ "base", "l2-inits/dev.init.env" ]
 
 [via_btc_watch]
-confirmations_for_btc_msg=3
-btc_node_poll_interval=300
+confirmations_for_btc_msg = 3
+btc_node_poll_interval = 1000
 rpc_url = "http://0.0.0.0:18443"
 rpc_user = "rpcuser"
 rpc_password = "rpcpassword"
@@ -11,11 +11,11 @@ bootstrap_txids = []
 actor_role = "Sequencer"
 
 [via_btc_sender]
-poll_interval = 1
+poll_interval = 1000
 private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R"
-max_aggregated_blocks_to_commit = 10
-max_aggregated_proofs_to_commit = 10
-max_txs_in_flight = 10
+max_aggregated_blocks_to_commit = 1
+max_aggregated_proofs_to_commit = 1
+max_txs_in_flight = 1
 rpc_url = "http://0.0.0.0:18443"
 rpc_user = "rpcuser"
 rpc_password = "rpcpassword"

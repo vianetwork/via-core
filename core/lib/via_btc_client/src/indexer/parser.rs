@@ -499,7 +499,7 @@ fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> 
 
 pub fn get_btc_address(common_fields: &CommonFields, network: Network) -> Option<Address> {
     let internal_pubkey =
-        UntweakedPublicKey::from_slice(&common_fields.encoded_public_key.as_bytes()).ok()?;
+        UntweakedPublicKey::from_slice(common_fields.encoded_public_key.as_bytes()).ok()?;
     let internal_pubkey = PublicKey::from_x_only_public_key(internal_pubkey, Parity::Even);
     let compressed_pubkey = CompressedPublicKey::from_slice(&internal_pubkey.serialize()).unwrap();
 
