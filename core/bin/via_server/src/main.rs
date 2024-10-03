@@ -86,12 +86,15 @@ fn main() -> anyhow::Result<()> {
         None => tmp_config.wallets(),
     };
 
-    let contracts_config = match opt.contracts_config_path {
+    let mut contracts_config = match opt.contracts_config_path {
         Some(_path) => {
-            todo!("Load config from file");
+            todo!("Load contracts from file")
         }
         None => ContractsConfig::from_env().context("contracts_config")?,
     };
+
+    // Disable ecosystem contracts for now
+    contracts_config.ecosystem_contracts = None;
 
     let observability_config = configs
         .observability
