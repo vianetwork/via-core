@@ -1,4 +1,4 @@
-__imports__ = [ "base", "l2-inits/dev.init.env" ]
+__imports__ = [ "base", "l2-inits/via.init.env" ]
 
 [via_btc_watch]
 confirmations_for_btc_msg = 3
