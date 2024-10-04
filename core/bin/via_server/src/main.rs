@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use clap::Parser;
 use zksync_config::{
     configs::{via_general, DatabaseSecrets, L1Secrets, Secrets},
-    GenesisConfig, ViaGeneralConfig,
+    ContractsConfig, GenesisConfig, ViaGeneralConfig,
 };
 use zksync_env_config::FromEnv;
 
@@ -23,6 +23,10 @@ struct Cli {
     /// Path to the YAML with secrets. If set, it will be used instead of env vars.
     #[arg(long)]
     secrets_path: Option<std::path::PathBuf>,
+
+    /// Path to the yaml with contracts. If set, it will be used instead of env vars.
+    #[arg(long)]
+    contracts_config_path: Option<std::path::PathBuf>,
 
     /// Path to the wallets config. If set, it will be used instead of env vars.
     #[arg(long)]
@@ -82,12 +86,20 @@ fn main() -> anyhow::Result<()> {
         None => tmp_config.wallets(),
     };
 
+    let contracts_config = match opt.contracts_config_path {
+        Some(_path) => {
+            todo!("Load config from file");
+        }
+        None => ContractsConfig::from_env().context("contracts_config")?,
+    };
+
     let observability_config = configs
         .observability
         .clone()
         .context("Observability config missing")?;
 
-    let node_builder = node_builder::ViaNodeBuilder::new(configs, wallets, secrets, genesis)?;
+    let node_builder =
+        node_builder::ViaNodeBuilder::new(configs, wallets, secrets, genesis, contracts_config)?;
 
     let observability_guard = {
         // Observability initialization should be performed within tokio context.

@@ -3,7 +3,10 @@ use zksync_config::{
     configs::{wallets::Wallets, GeneralConfig, PostgresConfig, Secrets},
     ContractsConfig, GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
 };
-use zksync_node_api_server::tx_sender::{ApiContracts, TxSenderConfig};
+use zksync_node_api_server::{
+    tx_sender::{ApiContracts, TxSenderConfig},
+    web3::{state::InternalApiConfig, Namespace},
+};
 use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
@@ -20,6 +23,9 @@ use zksync_node_framework::{
         via_btc_watch::BtcWatchLayer,
         via_l1_gas::ViaL1GasLayer,
         web3_api::{
+            caches::MempoolCacheLayer,
+            server::{Web3ServerLayer, Web3ServerOptionalConfig},
+            tree_api_client::TreeApiClientLayer,
             tx_sender::{PostgresStorageCachesConfig, TxSenderLayer},
             tx_sink::MasterPoolSinkLayer,
         },
@@ -45,7 +51,7 @@ pub struct ViaNodeBuilder {
     configs: ViaGeneralConfig,
     wallets: Wallets,
     genesis_config: GenesisConfig,
-    // contracts_config: ContractsConfig,
+    contracts_config: ContractsConfig,
     secrets: Secrets,
 }
 
@@ -55,12 +61,14 @@ impl ViaNodeBuilder {
         wallets: Wallets,
         secrets: Secrets,
         genesis_config: GenesisConfig,
+        contracts_config: ContractsConfig,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             node: ZkStackServiceBuilder::new().context("Cannot create ZkStackServiceBuilder")?,
             configs: via_general_config,
             wallets,
             genesis_config,
+            contracts_config,
             secrets,
         })
     }
@@ -162,6 +170,57 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_api_caches_layer(mut self) -> anyhow::Result<Self> {
+        let rpc_config = try_load_config!(self.configs.api_config).web3_json_rpc;
+        self.node.add_layer(MempoolCacheLayer::new(
+            rpc_config.mempool_cache_size(),
+            rpc_config.mempool_cache_update_interval(),
+        ));
+        Ok(self)
+    }
+
+    fn add_tree_api_client_layer(mut self) -> anyhow::Result<Self> {
+        let rpc_config = try_load_config!(self.configs.api_config).web3_json_rpc;
+        self.node
+            .add_layer(TreeApiClientLayer::http(rpc_config.tree_api_url));
+        Ok(self)
+    }
+
+    fn add_http_web3_api_layer(mut self) -> anyhow::Result<Self> {
+        let rpc_config = try_load_config!(self.configs.api_config).web3_json_rpc;
+        let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
+        let with_debug_namespace = state_keeper_config.save_call_traces;
+
+        let mut namespaces = if let Some(namespaces) = &rpc_config.api_namespaces {
+            namespaces
+                .iter()
+                .map(|a| a.parse())
+                .collect::<Result<_, _>>()?
+        } else {
+            Namespace::DEFAULT.to_vec()
+        };
+        if with_debug_namespace {
+            namespaces.push(Namespace::Debug)
+        }
+        namespaces.push(Namespace::Snapshots);
+
+        let optional_config = Web3ServerOptionalConfig {
+            namespaces: Some(namespaces),
+            filters_limit: Some(rpc_config.filters_limit()),
+            subscriptions_limit: Some(rpc_config.subscriptions_limit()),
+            batch_request_size_limit: Some(rpc_config.max_batch_request_size()),
+            response_body_size_limit: Some(rpc_config.max_response_body_size()),
+            ..Default::default()
+        };
+        self.node.add_layer(Web3ServerLayer::http(
+            rpc_config.http_port,
+            InternalApiConfig::new(&rpc_config, &self.contracts_config, &self.genesis_config),
+            optional_config,
+        ));
+
+        Ok(self)
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_pools_layer()?
@@ -175,6 +234,9 @@ impl ViaNodeBuilder {
             .add_btc_sender_layer()?
             .add_l1_gas_layer()?
             .add_tx_sender_layer()?
+            .add_api_caches_layer()?
+            .add_tree_api_client_layer()?
+            .add_http_web3_api_layer()?
             .node
             .build())
     }
