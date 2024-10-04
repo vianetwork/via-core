@@ -17,6 +17,7 @@ use zksync_node_framework::{
             aggregator::ViaBtcInscriptionAggregatorLayer, manager::ViaInscriptionManagerLayer,
         },
         via_btc_watch::BtcWatchLayer,
+        via_l1_gas::ViaL1GasLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -120,6 +121,13 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_l1_gas_layer(mut self) -> anyhow::Result<Self> {
+        let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
+        let l1_gas_layer = ViaL1GasLayer::new(state_keeper_config);
+        self.node.add_layer(l1_gas_layer);
+        Ok(self)
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_pools_layer()?
@@ -131,6 +139,7 @@ impl ViaNodeBuilder {
             // VIA layers
             .add_btc_watcher_layer()?
             .add_btc_sender_layer()?
+            .add_l1_gas_layer()?
             .node
             .build())
     }

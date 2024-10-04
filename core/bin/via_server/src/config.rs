@@ -1,7 +1,7 @@
 use anyhow::Context as _;
 use zksync_config::{
     configs::{
-        chain::CircuitBreakerConfig,
+        chain::{CircuitBreakerConfig, StateKeeperConfig},
         consensus::{ConsensusConfig, ConsensusSecrets},
         fri_prover_group::FriProverGroupConfig,
         house_keeper::HouseKeeperConfig,
@@ -48,7 +48,7 @@ pub(crate) fn load_env_config() -> anyhow::Result<TempConfigStore> {
         network_config: None,
         contract_verifier: None,
         operations_manager_config: None,
-        state_keeper_config: None,
+        state_keeper_config: StateKeeperConfig::from_env().ok(),
         house_keeper_config: HouseKeeperConfig::from_env().ok(),
         fri_proof_compressor_config: FriProofCompressorConfig::from_env().ok(),
         fri_prover_config: FriProverConfig::from_env().ok(),

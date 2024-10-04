@@ -8522,6 +8522,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_fee_model"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "tokio",
+ "tracing",
+ "vise",
+ "zksync_config",
+ "zksync_node_fee_model",
+ "zksync_types",
+ "zksync_utils",
+]
+
+[[package]]
 name = "via_server"
 version = "0.1.0"
 dependencies = [
@@ -10395,6 +10410,7 @@ dependencies = [
  "via_btc_sender",
  "via_btc_watch",
  "via_da_dispatcher",
+ "via_fee_model",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",
  "zksync_circuit_breaker",
