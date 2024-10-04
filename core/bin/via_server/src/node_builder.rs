@@ -3,6 +3,7 @@ use zksync_config::{
     configs::{wallets::Wallets, GeneralConfig, PostgresConfig, Secrets},
     ContractsConfig, GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
 };
+use zksync_node_api_server::tx_sender::{ApiContracts, TxSenderConfig};
 use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
@@ -18,6 +19,10 @@ use zksync_node_framework::{
         },
         via_btc_watch::BtcWatchLayer,
         via_l1_gas::ViaL1GasLayer,
+        web3_api::{
+            tx_sender::{PostgresStorageCachesConfig, TxSenderLayer},
+            tx_sink::MasterPoolSinkLayer,
+        },
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -38,7 +43,7 @@ macro_rules! try_load_config {
 pub struct ViaNodeBuilder {
     node: ZkStackServiceBuilder,
     configs: ViaGeneralConfig,
-    // wallets: Wallets,
+    wallets: Wallets,
     genesis_config: GenesisConfig,
     // contracts_config: ContractsConfig,
     secrets: Secrets,
@@ -47,12 +52,14 @@ pub struct ViaNodeBuilder {
 impl ViaNodeBuilder {
     pub fn new(
         via_general_config: ViaGeneralConfig,
+        wallets: Wallets,
         secrets: Secrets,
         genesis_config: GenesisConfig,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             node: ZkStackServiceBuilder::new().context("Cannot create ZkStackServiceBuilder")?,
             configs: via_general_config,
+            wallets,
             genesis_config,
             secrets,
         })
@@ -128,6 +135,33 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_tx_sender_layer(mut self) -> anyhow::Result<Self> {
+        let sk_config = try_load_config!(self.configs.state_keeper_config);
+        let rpc_config = try_load_config!(self.configs.api_config).web3_json_rpc;
+        let postgres_storage_caches_config = PostgresStorageCachesConfig {
+            factory_deps_cache_size: rpc_config.factory_deps_cache_size() as u64,
+            initial_writes_cache_size: rpc_config.initial_writes_cache_size() as u64,
+            latest_values_cache_size: rpc_config.latest_values_cache_size() as u64,
+        };
+
+        // On main node we always use master pool sink.
+        self.node.add_layer(MasterPoolSinkLayer);
+        self.node.add_layer(TxSenderLayer::new(
+            TxSenderConfig::new(
+                &sk_config,
+                &rpc_config,
+                try_load_config!(self.wallets.state_keeper)
+                    .fee_account
+                    .address(),
+                self.genesis_config.l2_chain_id,
+            ),
+            postgres_storage_caches_config,
+            rpc_config.vm_concurrency_limit(),
+            ApiContracts::load_from_disk_blocking(), // TODO (BFT-138): Allow to dynamically reload API contracts
+        ));
+        Ok(self)
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_pools_layer()?
@@ -140,6 +174,7 @@ impl ViaNodeBuilder {
             .add_btc_watcher_layer()?
             .add_btc_sender_layer()?
             .add_l1_gas_layer()?
+            .add_tx_sender_layer()?
             .node
             .build())
     }
