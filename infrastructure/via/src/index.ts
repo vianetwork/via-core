@@ -15,6 +15,7 @@ import { command as db } from './database';
 import * as env from './env';
 import { command as transactions } from './transactions';
 import { command as bootstrap } from './bootstrap';
+import { command as verifier } from './verifier';
 
 const COMMANDS = [
     server,
@@ -29,6 +30,7 @@ const COMMANDS = [
     env.command,
     transactions,
     bootstrap,
+    verifier,
     completion(program as Command)
 ];
 

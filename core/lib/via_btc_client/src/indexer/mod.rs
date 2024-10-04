@@ -318,16 +318,26 @@ impl BitcoinInscriptionIndexer {
                 // }
             }
             FullInscriptionMessage::ValidatorAttestation(va) => {
-                debug!("Processing ValidatorAttestation message");
-                if state.proposed_sequencer.is_some() {
-                    // warn!("sender_address : {:?}", sender_address);
-                    if let Some(proposed_txid) = state.proposed_sequencer_txid {
-                        if va.input.reference_txid == proposed_txid {
-                            state
-                                .sequencer_votes
-                                .insert(state.verifier_addresses[0].clone(), va.input.attestation);
+                if let Some(sender_address) = parser::get_btc_address(&va.common, network) {
+                    debug!(
+                        "Processing ValidatorAttestation message inscribed by {}",
+                        sender_address
+                    );
+                    // if state.verifier_addresses.contains(&sender_address) {
+                    if state.proposed_sequencer.is_some() {
+                        if let Some(proposed_txid) = state.proposed_sequencer_txid {
+                            if va.input.reference_txid == proposed_txid {
+                                state
+                                    .sequencer_votes
+                                    .insert(sender_address, va.input.attestation);
+                            }
                         }
                     }
+                    // } else {
+                    //     warn!(
+                    //         "ValidatorAttestation message does not contain a valid sender address"
+                    //     );
+                    // }
                 }
             }
             _ => {
