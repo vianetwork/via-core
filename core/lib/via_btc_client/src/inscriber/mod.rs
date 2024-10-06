@@ -27,7 +27,7 @@ use crate::{
     },
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
-    types::{BitcoinNetwork, InscriberContext, InscriptionConfig, InscriptionMessage},
+    types::{BitcoinNetwork, InscriberContext, InscriptionConfig, InscriptionMessage, Recipient},
 };
 
 mod fee;
@@ -98,6 +98,7 @@ impl Inscriber {
         &mut self,
         input: &InscriptionMessage,
         config: InscriptionConfig,
+        recipient: Option<Recipient>,
     ) -> Result<InscriberInfo> {
         self.sync_context_with_blockchain().await?;
 
@@ -126,7 +127,7 @@ impl Inscriber {
         )?;
 
         let reveal_tx_output_info = self
-            .prepare_reveal_tx_output(&reveal_tx_input_info, &inscription_data)
+            .prepare_reveal_tx_output(&reveal_tx_input_info, &inscription_data, recipient)
             .await?;
 
         let final_reveal_tx = self.sign_reveal_tx(
@@ -149,11 +150,12 @@ impl Inscriber {
         &mut self,
         input: InscriptionMessage,
         config: InscriptionConfig,
+        recipient: Option<Recipient>,
     ) -> Result<InscriberInfo> {
         info!("Starting inscription process");
 
         let inscriber_info = self
-            .prepare_inscribe(&input, config)
+            .prepare_inscribe(&input, config, recipient)
             .await
             .context("Error prepare inscriber infos")?;
 
@@ -546,6 +548,7 @@ impl Inscriber {
         &self,
         tx_input_data: &RevealTxInputRes,
         inscription_data: &InscriptionData,
+        recipient: Option<Recipient>,
     ) -> Result<RevealTxOutputRes> {
         debug!("Preparing reveal transaction output");
         let fee_rate = self.get_fee_rate().await?;
@@ -553,23 +556,26 @@ impl Inscriber {
         let fee_amount = InscriberFeeCalculator::estimate_fee(
             REVEAL_TX_P2WPKH_INPUT_COUNT,
             REVEAL_TX_P2TR_INPUT_COUNT,
-            REVEAL_TX_P2WPKH_OUTPUT_COUNT,
+            REVEAL_TX_P2WPKH_OUTPUT_COUNT + recipient.as_ref().map_or(0, |_| 1),
             REVEAL_TX_P2TR_OUTPUT_COUNT,
             vec![inscription_data.script_size],
             fee_rate,
         )?;
 
+        let recipient_amount = recipient.as_ref().map_or(Amount::ZERO, |r| r.amount);
+
         let reveal_change_amount = tx_input_data
             .unlock_value
-            .checked_sub(fee_amount)
+            .checked_sub(fee_amount + recipient_amount)
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "Required Amount:{:?} Spendable Amount: {:?} ",
-                    fee_amount,
+                    fee_amount + recipient_amount,
                     tx_input_data.unlock_value
                 )
             })?;
 
+        // Change output goes back to the inscriber
         let reveal_tx_change_output = TxOut {
             value: reveal_change_amount,
             script_pubkey: self.signer.get_p2wpkh_script_pubkey().clone(),
@@ -577,8 +583,15 @@ impl Inscriber {
 
         debug!("Reveal transaction output prepared");
 
+        // Create the recipient output if the recipient is provided
+        let recipient_tx_output = recipient.map(|r| TxOut {
+            value: r.amount,
+            script_pubkey: r.address.script_pubkey(),
+        });
+
         let res = RevealTxOutputRes {
             reveal_tx_change_output,
+            recipient_tx_output,
             reveal_fee_rate: fee_rate,
             _reveal_fee: fee_amount,
         };
@@ -597,11 +610,19 @@ impl Inscriber {
         inscription_data: &InscriptionData,
     ) -> Result<FinalTx> {
         debug!("Signing reveal transaction");
+
+        // Create the transaction outputs: change output and possibly the recipient output
+        let mut outputs = vec![output.reveal_tx_change_output.clone()];
+
+        if let Some(recipient_output) = output.recipient_tx_output.clone() {
+            outputs.push(recipient_output);
+        }
+
         let mut unsigned_reveal_tx = Transaction {
             version: transaction::Version::TWO,  // Post BIP-68.
             lock_time: absolute::LockTime::ZERO, // Ignore the locktime.
             input: input.reveal_tx_input.clone(),
-            output: vec![output.reveal_tx_change_output.clone()],
+            output: outputs, // Outputs now include change and optional recipient output
         };
 
         let mut sighasher = SighashCache::new(&mut unsigned_reveal_tx);
@@ -911,7 +932,7 @@ mod tests {
         let inscribe_message = InscriptionMessage::L1BatchDAReference(l1_da_batch_ref);
 
         let res = inscriber
-            .inscribe(inscribe_message, InscriptionConfig::default())
+            .inscribe(inscribe_message, InscriptionConfig::default(), None)
             .await
             .unwrap();
 

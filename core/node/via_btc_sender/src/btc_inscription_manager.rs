@@ -194,7 +194,7 @@ impl ViaBtcInscriptionManager {
 
         let inscribe_info = self
             .inscriber
-            .inscribe(input, config)
+            .inscribe(input, config, None)
             .await
             .context("Sent inscription tx")?;
 

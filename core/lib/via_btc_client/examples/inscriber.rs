@@ -43,6 +43,7 @@ async fn main() -> Result<()> {
         .inscribe(
             inscribe_types::InscriptionMessage::L1BatchDAReference(l1_da_batch_ref),
             InscriptionConfig::default(),
+            None,
         )
         .await
         .context("Failed to inscribe L1BatchDAReference")?;
@@ -61,6 +62,7 @@ async fn main() -> Result<()> {
         .inscribe(
             inscribe_types::InscriptionMessage::ProofDAReference(l1_da_proof_ref),
             InscriptionConfig::default(),
+            None,
         )
         .await
         .context("Failed to inscribe ProofDAReference")?;

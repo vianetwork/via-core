@@ -27,6 +27,7 @@ pub struct RevealTxInputRes {
 #[derive(Debug)]
 pub struct RevealTxOutputRes {
     pub reveal_tx_change_output: TxOut,
+    pub recipient_tx_output: Option<TxOut>,
     pub reveal_fee_rate: u64,
     pub _reveal_fee: Amount,
 }

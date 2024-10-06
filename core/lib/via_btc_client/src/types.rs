@@ -143,6 +143,18 @@ impl Default for InscriptionConfig {
     }
 }
 
+#[derive(Debug)]
+pub struct Recipient {
+    pub address: BitcoinAddress,
+    pub amount: Amount,
+}
+
+impl Recipient {
+    pub fn new(address: BitcoinAddress, amount: Amount) -> Self {
+        Recipient { address, amount }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum FullInscriptionMessage {
     L1BatchDAReference(L1BatchDAReference),
