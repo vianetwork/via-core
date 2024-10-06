@@ -18,12 +18,13 @@ use zksync_basic_types::H256;
 const RPC_URL: &str = "http://0.0.0.0:18443";
 const RPC_USERNAME: &str = "rpcuser";
 const RPC_PASSWORD: &str = "rpcpassword";
+const NETWORK: BitcoinNetwork = BitcoinNetwork::Regtest;
 const TIMEOUT: u64 = 5;
 
 async fn create_inscriber(signer_private_key: &str) -> Result<Inscriber> {
     Inscriber::new(
         RPC_URL,
-        BitcoinNetwork::Regtest,
+        NETWORK,
         NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string()),
         signer_private_key,
         None,
@@ -76,6 +77,7 @@ async fn main() -> Result<()> {
         .inscribe(
             InscriptionMessage::SystemBootstrapping(input),
             InscriptionConfig::default(),
+            None,
         )
         .await?;
     info!(
@@ -93,6 +95,7 @@ async fn main() -> Result<()> {
         .inscribe(
             InscriptionMessage::ProposeSequencer(input),
             InscriptionConfig::default(),
+            None,
         )
         .await?;
     info!(
@@ -115,6 +118,7 @@ async fn main() -> Result<()> {
             .inscribe(
                 InscriptionMessage::ValidatorAttestation(input.clone()),
                 InscriptionConfig::default(),
+                None,
             )
             .await?;
         info!(

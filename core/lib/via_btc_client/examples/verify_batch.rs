@@ -13,12 +13,13 @@ use via_btc_client::{
 const RPC_URL: &str = "http://0.0.0.0:18443";
 const RPC_USERNAME: &str = "rpcuser";
 const RPC_PASSWORD: &str = "rpcpassword";
+const NETWORK: BitcoinNetwork = BitcoinNetwork::Regtest;
 const TIMEOUT: u64 = 5;
 
 async fn create_inscriber(signer_private_key: &str) -> Result<Inscriber> {
     Inscriber::new(
         RPC_URL,
-        BitcoinNetwork::Regtest,
+        NETWORK,
         NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string()),
         signer_private_key,
         None,
@@ -53,7 +54,7 @@ async fn main() -> Result<()> {
 
     // Validator attestation messages for L1 batch
     let verifier_inscribers_len = verifier_inscribers.len();
-    let mut validators_info = Vec::with_capacity(verifier_inscribers_len);
+
     let input = ValidatorAttestationInput {
         reference_txid: l1_batch_da_ref_final_reveal_txid,
         attestation: Vote::Ok,
@@ -64,6 +65,7 @@ async fn main() -> Result<()> {
             .inscribe(
                 InscriptionMessage::ValidatorAttestation(input.clone()),
                 InscriptionConfig::default(),
+                None,
             )
             .await?;
         info!(
@@ -71,8 +73,6 @@ async fn main() -> Result<()> {
             i + 1,
             validator_info.final_reveal_tx.txid
         );
-
-        validators_info.push(validator_info);
 
         if i < verifier_inscribers_len - 1 {
             tokio::time::sleep(std::time::Duration::from_secs(TIMEOUT)).await;
