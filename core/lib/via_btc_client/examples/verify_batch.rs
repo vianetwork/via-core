@@ -1,6 +1,7 @@
+use std::{env, str::FromStr};
+
 use anyhow::{Context, Result};
 use bitcoin::Txid;
-use std::{env, str::FromStr};
 use tracing::info;
 use via_btc_client::{
     inscriber::Inscriber,

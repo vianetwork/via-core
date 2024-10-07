@@ -1,6 +1,7 @@
+use std::env;
+
 use anyhow::{Context, Result};
 use bitcoin::{address::NetworkUnchecked, Amount, Txid};
-use std::env;
 use tracing::info;
 use via_btc_client::{
     inscriber::Inscriber,

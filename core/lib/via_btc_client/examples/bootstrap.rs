@@ -1,9 +1,10 @@
-use anyhow::{Context, Result};
-use bitcoin::address::NetworkUnchecked;
 use std::{
     fs::{remove_file, OpenOptions},
     io::Write,
 };
+
+use anyhow::{Context, Result};
+use bitcoin::address::NetworkUnchecked;
 use tracing::info;
 use tracing_subscriber;
 use via_btc_client::{
