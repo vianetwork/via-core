@@ -24,6 +24,10 @@ struct Cli {
     #[arg(long)]
     secrets_path: Option<std::path::PathBuf>,
 
+    /// Path to the wallets config. If set, it will be used instead of env vars.
+    #[arg(long)]
+    wallets_path: Option<std::path::PathBuf>,
+
     /// Path to the YAML with genesis configuration. If set, it will be used instead of env vars.
     #[arg(long)]
     genesis_path: Option<std::path::PathBuf>,
@@ -71,12 +75,19 @@ fn main() -> anyhow::Result<()> {
         None => GenesisConfig::from_env().context("Failed to load genesis from env")?,
     };
 
+    let wallets = match opt.wallets_path {
+        Some(_path) => {
+            todo!("Load config from file");
+        }
+        None => tmp_config.wallets(),
+    };
+
     let observability_config = configs
         .observability
         .clone()
         .context("Observability config missing")?;
 
-    let node_builder = node_builder::ViaNodeBuilder::new(configs, secrets, genesis)?;
+    let node_builder = node_builder::ViaNodeBuilder::new(configs, wallets, secrets, genesis)?;
 
     let observability_guard = {
         // Observability initialization should be performed within tokio context.
