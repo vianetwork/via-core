@@ -1,7 +1,7 @@
-use std::env;
+use std::{env, str::FromStr};
 
 use anyhow::{Context, Result};
-use bitcoin::{address::NetworkUnchecked, Amount, Txid};
+use bitcoin::{address::NetworkUnchecked, Amount};
 use tracing::info;
 use via_btc_client::{
     inscriber::Inscriber,
@@ -24,6 +24,8 @@ async fn main() -> Result<()> {
         .init();
 
     let depositor_private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R".to_string();
+
+    let receiver_l2_address = EVMAddress::from_str("0x36615Cf349d7F6344891B1e7CA7C72883F5dc049")?;
 
     let bridge_p2wpkh_mpc_address = "bcrt1qdrzjq2mwlhrnhan94em5sl032zd95m73ud8ddw"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
@@ -51,7 +53,6 @@ async fn main() -> Result<()> {
             .context("Failed to get balance")?
     );
 
-    let receiver_l2_address = EVMAddress::random();
     info!("Receiver L2 address: {}", receiver_l2_address);
 
     let input = L1ToL2MessageInput {
