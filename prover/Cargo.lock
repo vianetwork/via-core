@@ -7785,7 +7785,8 @@ dependencies = [
  "async-trait",
  "rlp",
  "thiserror",
- "zksync_types",
+ "zksync_basic_types",
+ "zksync_crypto_primitives",
 ]
 
 [[package]]
