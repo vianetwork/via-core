@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
     };
 
     let deposit_info = inscriber
-        .inscribe(
+        .inscribe_with_recipient(
             InscriptionMessage::L1ToL2Message(input),
             InscriptionConfig::default(),
             Some(Recipient {

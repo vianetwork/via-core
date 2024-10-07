@@ -65,7 +65,6 @@ async fn main() -> Result<()> {
             .inscribe(
                 InscriptionMessage::ValidatorAttestation(input.clone()),
                 InscriptionConfig::default(),
-                None,
             )
             .await?;
         info!(

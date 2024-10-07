@@ -146,7 +146,7 @@ impl Inscriber {
     }
 
     #[instrument(skip(self, input), target = "bitcoin_inscriber")]
-    pub async fn inscribe(
+    pub async fn inscribe_with_recipient(
         &mut self,
         input: InscriptionMessage,
         config: InscriptionConfig,
@@ -169,6 +169,15 @@ impl Inscriber {
 
         info!("Inscription process completed successfully");
         Ok(inscriber_info)
+    }
+
+    #[instrument(skip(self, input), target = "bitcoin_inscriber")]
+    pub async fn inscribe(
+        &mut self,
+        input: InscriptionMessage,
+        config: InscriptionConfig,
+    ) -> Result<InscriberInfo> {
+        self.inscribe_with_recipient(input, config, None).await
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
@@ -932,7 +941,7 @@ mod tests {
         let inscribe_message = InscriptionMessage::L1BatchDAReference(l1_da_batch_ref);
 
         let res = inscriber
-            .inscribe(inscribe_message, InscriptionConfig::default(), None)
+            .inscribe(inscribe_message, InscriptionConfig::default())
             .await
             .unwrap();
 

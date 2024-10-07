@@ -77,7 +77,6 @@ async fn main() -> Result<()> {
         .inscribe(
             InscriptionMessage::SystemBootstrapping(input),
             InscriptionConfig::default(),
-            None,
         )
         .await?;
     info!(
@@ -95,7 +94,6 @@ async fn main() -> Result<()> {
         .inscribe(
             InscriptionMessage::ProposeSequencer(input),
             InscriptionConfig::default(),
-            None,
         )
         .await?;
     info!(
@@ -118,7 +116,6 @@ async fn main() -> Result<()> {
             .inscribe(
                 InscriptionMessage::ValidatorAttestation(input.clone()),
                 InscriptionConfig::default(),
-                None,
             )
             .await?;
         info!(
