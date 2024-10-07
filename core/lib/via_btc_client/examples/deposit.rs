@@ -25,8 +25,6 @@ async fn main() -> Result<()> {
 
     let depositor_private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R".to_string();
 
-    let receiver_l2_address = EVMAddress::from_str("0x36615Cf349d7F6344891B1e7CA7C72883F5dc049")?;
-
     let bridge_p2wpkh_mpc_address = "bcrt1qdrzjq2mwlhrnhan94em5sl032zd95m73ud8ddw"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
         .require_network(NETWORK)?;
@@ -53,6 +51,7 @@ async fn main() -> Result<()> {
             .context("Failed to get balance")?
     );
 
+    let receiver_l2_address = EVMAddress::from_str(&args[2])?;
     info!("Receiver L2 address: {}", receiver_l2_address);
 
     let input = L1ToL2MessageInput {

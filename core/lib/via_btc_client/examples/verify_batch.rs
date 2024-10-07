@@ -47,17 +47,17 @@ async fn main() -> Result<()> {
     ];
 
     let args: Vec<String> = env::args().collect();
-    let l1_batch_da_ref_final_reveal_txid = Txid::from_str(&args[1]).unwrap();
+    let l1_batch_proof_ref_final_reveal_txid = Txid::from_str(&args[1]).unwrap();
     info!(
-        "Verifying L1 batch with DA reference reveal tx id: {}...",
-        l1_batch_da_ref_final_reveal_txid
+        "Verifying L1 batch with proof reveal tx id: {}...",
+        l1_batch_proof_ref_final_reveal_txid
     );
 
     // Validator attestation messages for L1 batch
     let verifier_inscribers_len = verifier_inscribers.len();
 
     let input = ValidatorAttestationInput {
-        reference_txid: l1_batch_da_ref_final_reveal_txid,
+        reference_txid: l1_batch_proof_ref_final_reveal_txid,
         attestation: Vote::Ok,
     };
 
