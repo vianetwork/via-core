@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use via_node_sync::{ActionQueue, ExternalIO, SyncState};
 use via_state_keeper::seal_criteria::NoopSealer;
-use zksync_node_sync::{ActionQueue, ExternalIO, SyncState};
 use zksync_types::L2ChainId;
 
 use crate::{
