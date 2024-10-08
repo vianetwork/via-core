@@ -325,9 +325,10 @@ impl ViaDataAvailabilityDal<'_, '_> {
             FROM
                 l1_batches
                 LEFT JOIN via_data_availability ON via_data_availability.l1_batch_number = l1_batches.number
+                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
                 AND via_data_availability.is_proof = FALSE
             WHERE
-                eth_commit_tx_id IS NULL
+                via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NULL
                 AND number != 0
                 AND via_data_availability.blob_id IS NULL
                 AND pubdata_input IS NOT NULL
