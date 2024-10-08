@@ -12,10 +12,14 @@ use zksync_node_framework::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
         healtcheck_server::HealthCheckLayer,
         house_keeper::HouseKeeperLayer,
+        node_storage_init::{
+            main_node_strategy::MainNodeInitStrategyLayer, NodeStorageInitializerLayer,
+        },
         object_store::ObjectStoreLayer,
         pools_layer::PoolsLayerBuilder,
         postgres_metrics::PostgresMetricsLayer,
         prometheus_exporter::PrometheusExporterLayer,
+        query_eth_client::QueryEthClientLayer,
         sigint::SigintHandlerLayer,
         via_btc_sender::{
             aggregator::ViaBtcInscriptionAggregatorLayer, manager::ViaInscriptionManagerLayer,
@@ -32,6 +36,7 @@ use zksync_node_framework::{
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
+use zksync_types::settlement::SettlementMode;
 use zksync_vlog::prometheus::PrometheusExporterConfig;
 
 /// Macro that looks into a path to fetch an optional config,
@@ -116,6 +121,36 @@ impl ViaNodeBuilder {
         let circuit_breaker_config = try_load_config!(self.configs.circuit_breaker_config);
         self.node
             .add_layer(CircuitBreakerCheckerLayer(circuit_breaker_config));
+        Ok(self)
+    }
+
+    // QueryEthClientLayer is mock, it's not used in the current implementation
+    fn add_query_eth_client_layer(mut self) -> anyhow::Result<Self> {
+        let genesis = self.genesis_config.clone();
+        let eth_config = try_load_config!(self.secrets.l1);
+        let query_eth_client_layer = QueryEthClientLayer::new(
+            genesis.settlement_layer_id(),
+            eth_config.l1_rpc_url,
+            self.configs
+                .eth
+                .as_ref()
+                .and_then(|x| Some(x.gas_adjuster?.settlement_mode))
+                .unwrap_or(SettlementMode::SettlesToL1),
+        );
+        self.node.add_layer(query_eth_client_layer);
+        Ok(self)
+    }
+
+    fn add_storage_initialization_layer(mut self, kind: LayerKind) -> anyhow::Result<Self> {
+        self.node.add_layer(MainNodeInitStrategyLayer {
+            genesis: self.genesis_config.clone(),
+            contracts: self.contracts_config.clone(),
+        });
+        let mut layer = NodeStorageInitializerLayer::new();
+        if matches!(kind, LayerKind::Precondition) {
+            layer = layer.as_precondition();
+        }
+        self.node.add_layer(layer);
         Ok(self)
     }
 
@@ -229,6 +264,8 @@ impl ViaNodeBuilder {
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
             .add_postgres_metrics_layer()?
+            .add_query_eth_client_layer()?
+            .add_storage_initialization_layer(LayerKind::Task)?
             // VIA layers
             .add_btc_watcher_layer()?
             .add_btc_sender_layer()?
@@ -240,4 +277,10 @@ impl ViaNodeBuilder {
             .node
             .build())
     }
+}
+
+#[derive(Debug)]
+enum LayerKind {
+    Task,
+    Precondition,
 }
