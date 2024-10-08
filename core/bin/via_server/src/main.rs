@@ -24,17 +24,16 @@ struct Cli {
     #[arg(long)]
     secrets_path: Option<std::path::PathBuf>,
 
-    /// Path to the yaml with contracts. If set, it will be used instead of env vars.
-    #[arg(long)]
-    contracts_config_path: Option<std::path::PathBuf>,
-
-    /// Path to the wallets config. If set, it will be used instead of env vars.
-    #[arg(long)]
-    wallets_path: Option<std::path::PathBuf>,
-
     /// Path to the YAML with genesis configuration. If set, it will be used instead of env vars.
     #[arg(long)]
     genesis_path: Option<std::path::PathBuf>,
+
+    /// Path to the yaml with contracts. If set, it will be used instead of env vars.
+    #[arg(long)]
+    contracts_config_path: Option<std::path::PathBuf>,
+    /// Path to the wallets config. If set, it will be used instead of env vars.
+    #[arg(long)]
+    wallets_path: Option<std::path::PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -79,22 +78,19 @@ fn main() -> anyhow::Result<()> {
         None => GenesisConfig::from_env().context("Failed to load genesis from env")?,
     };
 
-    let wallets = match opt.wallets_path {
-        Some(_path) => {
-            todo!("Load config from file");
-        }
-        None => tmp_config.wallets(),
-    };
-
-    let mut contracts_config = match opt.contracts_config_path {
-        Some(_path) => {
-            todo!("Load contracts from file")
-        }
+    let contracts_config = match opt.contracts_config_path {
         None => ContractsConfig::from_env().context("contracts_config")?,
+        Some(_path) => {
+            todo!("Load contracts config from file")
+        }
     };
 
-    // Disable ecosystem contracts for now
-    contracts_config.ecosystem_contracts = None;
+    let wallets = match opt.wallets_path {
+        None => tmp_config.wallets(),
+        Some(_path) => {
+            todo!("Load wallets config from file")
+        }
+    };
 
     let observability_config = configs
         .observability
