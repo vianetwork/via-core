@@ -33,6 +33,10 @@ use zksync_node_framework::{
             tx_sender::{PostgresStorageCachesConfig, TxSenderLayer},
             tx_sink::MasterPoolSinkLayer,
         },
+        via_state_keeper::{
+            main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
+            output_handler::OutputHandlerLayer, RocksdbStorageOptions, StateKeeperLayer,
+        },
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -221,6 +225,7 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+
     fn add_http_web3_api_layer(mut self) -> anyhow::Result<Self> {
         let rpc_config = try_load_config!(self.configs.api_config).web3_json_rpc;
         let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
@@ -256,6 +261,51 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_state_keeper_layer(mut self) -> anyhow::Result<Self> {
+        // Bytecode compression is currently mandatory for the transactions processed by the sequencer.
+        const OPTIONAL_BYTECODE_COMPRESSION: bool = false;
+
+        let wallets = self.wallets.clone();
+        let sk_config = try_load_config!(self.configs.state_keeper_config);
+        let persistence_layer = OutputHandlerLayer::new(
+            self.contracts_config
+                .l2_shared_bridge_addr
+                .context("L2 shared bridge address")?,
+            sk_config.l2_block_seal_queue_capacity,
+        )
+        .with_protective_reads_persistence_enabled(sk_config.protective_reads_persistence_enabled);
+        let mempool_io_layer = MempoolIOLayer::new(
+            self.genesis_config.l2_chain_id,
+            sk_config.clone(),
+            try_load_config!(self.configs.mempool_config),
+            try_load_config!(wallets.state_keeper),
+        );
+        let db_config = try_load_config!(self.configs.db_config);
+        let experimental_vm_config = self
+            .configs
+            .experimental_vm_config
+            .clone()
+            .unwrap_or_default();
+        let main_node_batch_executor_builder_layer =
+            MainBatchExecutorLayer::new(sk_config.save_call_traces, OPTIONAL_BYTECODE_COMPRESSION)
+                .with_fast_vm_mode(experimental_vm_config.state_keeper_fast_vm_mode);
+
+        let rocksdb_options = RocksdbStorageOptions {
+            block_cache_capacity: db_config
+                .experimental
+                .state_keeper_db_block_cache_capacity(),
+            max_open_files: db_config.experimental.state_keeper_db_max_open_files,
+        };
+        let state_keeper_layer =
+            StateKeeperLayer::new(db_config.state_keeper_db_path, rocksdb_options);
+        self.node
+            .add_layer(persistence_layer)
+            .add_layer(mempool_io_layer)
+            .add_layer(main_node_batch_executor_builder_layer)
+            .add_layer(state_keeper_layer);
+        Ok(self)
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_pools_layer()?
@@ -274,6 +324,7 @@ impl ViaNodeBuilder {
             .add_api_caches_layer()?
             .add_tree_api_client_layer()?
             .add_http_web3_api_layer()?
+            .add_state_keeper_layer()?
             .node
             .build())
     }
