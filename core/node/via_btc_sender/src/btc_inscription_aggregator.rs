@@ -94,7 +94,7 @@ impl ViaBtcInscriptionAggregator {
                 // Estimate the tx fee to execute the inscription request.
                 let inscribe_info = self
                     .inscriber
-                    .prepare_inscribe(&inscription_message, InscriptionConfig::default())
+                    .prepare_inscribe(&inscription_message, InscriptionConfig::default(), None)
                     .await
                     .context("Via get inscriber info")?;
 
