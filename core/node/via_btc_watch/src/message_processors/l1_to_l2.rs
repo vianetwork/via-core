@@ -81,6 +81,11 @@ impl MessageProcessor for L1ToL2MessageProcessor {
 
         for new_op in &new_ops {
             let eth_block = new_op.eth_block();
+            tracing::debug!(
+                "Inserting new priority operation with serial id {:?} (block {})",
+                new_op,
+                eth_block
+            );
             storage
                 .via_transactions_dal()
                 .insert_transaction_l1(new_op, eth_block)
@@ -109,13 +114,13 @@ impl L1ToL2MessageProcessor {
 
         Ok(L1Tx {
             execute: Execute {
-                contract_address: eth_address_l2,
+                contract_address: Default::default(),
                 calldata,
-                value: U256::from(amount),
+                value: Default::default(),
                 factory_deps: vec![],
             },
             common_data: L1TxCommonData {
-                sender: eth_address_sender,
+                sender: eth_address_l2,
                 serial_id: self.next_expected_priority_id,
                 layer_2_tip_fee: Default::default(),
                 full_fee: Default::default(),
@@ -125,7 +130,7 @@ impl L1ToL2MessageProcessor {
                 op_processing_type: Default::default(),
                 priority_queue_type: Default::default(),
                 canonical_tx_hash: Default::default(),
-                to_mint: Default::default(),
+                to_mint: U256::from(amount),
                 refund_recipient: Default::default(),
                 eth_block: msg.common.block_height as u64,
             },
