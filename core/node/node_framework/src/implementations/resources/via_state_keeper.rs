@@ -3,6 +3,7 @@ use std::sync::Arc;
 use via_state_keeper::{
     seal_criteria::ConditionalSealer, BatchExecutor, OutputHandler, StateKeeperIO,
 };
+use zksync_node_sync::ExternalIO;
 
 use crate::resource::{Resource, Unique};
 
