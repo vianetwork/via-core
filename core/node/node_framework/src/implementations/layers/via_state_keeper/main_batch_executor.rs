@@ -1,8 +1,8 @@
-use zksync_state_keeper::MainBatchExecutor;
+use via_state_keeper::MainBatchExecutor;
 use zksync_types::vm::FastVmMode;
 
 use crate::{
-    implementations::resources::state_keeper::BatchExecutorResource,
+    implementations::resources::via_state_keeper::BatchExecutorResource,
     wiring_layer::{WiringError, WiringLayer},
 };
 
