@@ -26,16 +26,16 @@ use zksync_node_framework::{
         },
         via_btc_watch::BtcWatchLayer,
         via_l1_gas::ViaL1GasLayer,
+        via_state_keeper::{
+            main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
+            output_handler::OutputHandlerLayer, RocksdbStorageOptions, StateKeeperLayer,
+        },
         web3_api::{
             caches::MempoolCacheLayer,
             server::{Web3ServerLayer, Web3ServerOptionalConfig},
             tree_api_client::TreeApiClientLayer,
             tx_sender::{PostgresStorageCachesConfig, TxSenderLayer},
             tx_sink::MasterPoolSinkLayer,
-        },
-        via_state_keeper::{
-            main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
-            output_handler::OutputHandlerLayer, RocksdbStorageOptions, StateKeeperLayer,
         },
     },
     service::{ZkStackService, ZkStackServiceBuilder},
@@ -224,7 +224,6 @@ impl ViaNodeBuilder {
             .add_layer(TreeApiClientLayer::http(rpc_config.tree_api_url));
         Ok(self)
     }
-
 
     fn add_http_web3_api_layer(mut self) -> anyhow::Result<Self> {
         let rpc_config = try_load_config!(self.configs.api_config).web3_json_rpc;
