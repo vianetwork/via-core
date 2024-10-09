@@ -33,15 +33,19 @@ const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
 #[derive(Debug)]
 pub struct MessageParser {
     network: Network,
+    bridge_address: Option<Address>,
 }
 
 impl MessageParser {
     pub fn new(network: Network) -> Self {
-        Self { network }
+        Self {
+            network,
+            bridge_address: None,
+        }
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
-    pub fn parse_transaction(&self, tx: &Transaction, block_height: u32) -> Vec<Message> {
+    pub fn parse_transaction(&mut self, tx: &Transaction, block_height: u32) -> Vec<Message> {
         debug!("Parsing transaction");
         tx.input
             .iter()
@@ -51,7 +55,7 @@ impl MessageParser {
 
     #[instrument(skip(self, input, tx), target = "bitcoin_indexer::parser")]
     fn parse_input(
-        &self,
+        &mut self,
         input: &bitcoin::TxIn,
         tx: &Transaction,
         block_height: u32,
@@ -101,7 +105,7 @@ impl MessageParser {
         target = "bitcoin_indexer::parser"
     )]
     fn parse_message(
-        &self,
+        &mut self,
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
@@ -164,7 +168,7 @@ impl MessageParser {
         target = "bitcoin_indexer::parser"
     )]
     fn parse_system_bootstrapping(
-        &self,
+        &mut self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
     ) -> Option<Message> {
@@ -215,6 +219,14 @@ impl MessageParser {
             })?;
 
         debug!("Parsed bridge address");
+
+        // Save the bridge address for later use
+        self.bridge_address = Some(
+            network_unchecked_bridge_address
+                .clone()
+                .require_network(self.network)
+                .ok()?,
+        );
 
         let bootloader_hash = H256::from_slice(
             instructions
@@ -464,7 +476,15 @@ impl MessageParser {
         let amount = tx
             .output
             .iter()
-            .find(|output| output.script_pubkey.is_p2wpkh())
+            .find(|output| {
+                if let Some(address) = self.bridge_address.as_ref() {
+                    output.script_pubkey.is_p2wpkh()
+                        && output.script_pubkey == address.script_pubkey()
+                } else {
+                    tracing::error!("Bridge address not found");
+                    false
+                }
+            })
             .map(|output| output.value)
             .unwrap_or(Amount::ZERO);
         debug!("Parsed amount: {}", amount);
@@ -538,7 +558,7 @@ mod tests {
     #[test]
     fn test_parse_transaction() {
         let network = Network::Bitcoin;
-        let parser = MessageParser::new(network);
+        let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
         let messages = parser.parse_transaction(&tx, 0);
@@ -549,7 +569,7 @@ mod tests {
     #[test]
     fn test_parse_system_bootstrapping() {
         let network = Network::Bitcoin;
-        let parser = MessageParser::new(network);
+        let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
         if let Some(Message::SystemBootstrapping(bootstrapping)) =
