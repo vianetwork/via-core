@@ -1,7 +1,9 @@
 use via_btc_client::types::{BitcoinAddress, FullInscriptionMessage, L1ToL2Message};
 use zksync_dal::{Connection, Core, CoreDal};
 use zksync_types::{
-    helpers::unix_timestamp_ms, l1::L1Tx, Execute, L1TxCommonData, PriorityOpId, U256,
+    helpers::unix_timestamp_ms,
+    l1::{L1Tx, OpProcessingType, PriorityQueueType},
+    Address, Execute, L1TxCommonData, PriorityOpId, H256, U256,
 };
 
 use crate::message_processors::{MessageProcessor, MessageProcessorError};
@@ -106,32 +108,37 @@ impl L1ToL2MessageProcessor {
         &self,
         msg: &L1ToL2Message,
     ) -> Result<L1Tx, MessageProcessorError> {
-        let amount = msg.amount.to_sat();
+        let amount = msg.amount.to_sat() * 1000000000000;
+        tracing::error!("Amount: {}", amount);
         let eth_address_sender = via_btc_client::indexer::get_eth_address(&msg.common)
             .ok_or_else(|| MessageProcessorError::EthAddressParsingError)?;
         let eth_address_l2 = msg.input.receiver_l2_address;
         let calldata = msg.input.call_data.clone();
 
+        let max_fee_per_gas = U256::from(100_000u64);
+        let gas_limit = U256::from(5_000_000u64);
+        let full_fee = max_fee_per_gas * gas_limit;
+
         Ok(L1Tx {
             execute: Execute {
-                contract_address: Default::default(),
+                contract_address: Address::zero(),
                 calldata,
-                value: Default::default(),
+                value: U256::zero(),
                 factory_deps: vec![],
             },
             common_data: L1TxCommonData {
                 sender: eth_address_l2,
                 serial_id: self.next_expected_priority_id,
-                layer_2_tip_fee: Default::default(),
-                full_fee: Default::default(),
-                max_fee_per_gas: Default::default(),
-                gas_limit: Default::default(),
-                gas_per_pubdata_limit: Default::default(),
-                op_processing_type: Default::default(),
-                priority_queue_type: Default::default(),
-                canonical_tx_hash: Default::default(),
-                to_mint: U256::from(amount),
-                refund_recipient: Default::default(),
+                layer_2_tip_fee: U256::zero(),
+                full_fee,
+                max_fee_per_gas,
+                gas_limit,
+                gas_per_pubdata_limit: U256::from(500u64),
+                op_processing_type: OpProcessingType::Common,
+                priority_queue_type: PriorityQueueType::Deque,
+                canonical_tx_hash: H256::random(),
+                to_mint: U256::zero(),
+                refund_recipient: eth_address_l2,
                 eth_block: msg.common.block_height as u64,
             },
             received_timestamp_ms: unix_timestamp_ms(),

@@ -182,6 +182,12 @@ impl CommandReceiver {
 
         // Execute the transaction.
         let latency = KEEPER_METRICS.tx_execution_time[&TxExecutionStage::Execution].start();
+        tracing::error!("the transaction is {:?}", tx);
+        tracing::error!(
+            "is optional bytecode compression: {:?}",
+            self.optional_bytecode_compression
+        );
+
         let output = if self.optional_bytecode_compression {
             self.execute_tx_in_vm_with_optional_compression(tx, vm)?
         } else {
@@ -332,6 +338,10 @@ impl CommandReceiver {
 
         let (published_bytecodes, mut tx_result) =
             vm.inspect_transaction_with_bytecode_compression(tracer.into(), tx.clone(), true);
+
+        tracing::error!("published_bytecodes is {:?}", published_bytecodes);
+        tracing::error!("tx_result is {:?}", tx_result);
+
         if published_bytecodes.is_ok() {
             let compressed_bytecodes = vm.get_last_tx_compressed_bytecodes();
             let calls = Arc::try_unwrap(call_tracer_result)
