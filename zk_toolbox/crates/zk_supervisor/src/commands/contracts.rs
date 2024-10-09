@@ -145,4 +145,3 @@ pub fn run(shell: &Shell, args: ContractsArgs) -> anyhow::Result<()> {
 
     Ok(())
 }
-
