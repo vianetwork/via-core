@@ -358,6 +358,16 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    /// Builds the node with the genesis initialization task only.
+    pub fn only_genesis(mut self) -> anyhow::Result<ZkStackService> {
+        self = self
+            .add_pools_layer()?
+            .add_query_eth_client_layer()?
+            .add_storage_initialization_layer(LayerKind::Task)?;
+
+        Ok(self.node.build())
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_pools_layer()?
@@ -367,7 +377,7 @@ impl ViaNodeBuilder {
             .add_circuit_breaker_checker_layer()?
             .add_postgres_metrics_layer()?
             .add_query_eth_client_layer()?
-            .add_storage_initialization_layer(LayerKind::Task)?
+            .add_storage_initialization_layer(LayerKind::Precondition)?
             // VIA layers
             .add_btc_watcher_layer()?
             .add_btc_sender_layer()?
@@ -378,6 +388,7 @@ impl ViaNodeBuilder {
             .add_http_web3_api_layer()?
             .add_vm_runner_protective_reads_layer()?
             .add_vm_runner_bwip_layer()?
+            .add_storage_initialization_layer(LayerKind::Task)?
             .add_state_keeper_layer()?
             .add_logs_bloom_backfill_layer()?
             .add_metadata_calculator_layer(true)?

@@ -16,6 +16,9 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[derive(Debug, Parser)]
 #[command(author = "Via Protocol", version, about = "Via validator/sequencer node", long_about = None)]
 struct Cli {
+    /// Generate genesis block for the first contract deployment using temporary DB.
+    #[arg(long)]
+    genesis: bool,
     /// Path to the YAML config. If set, it will be used instead of env vars.
     #[arg(long)]
     config_path: Option<std::path::PathBuf>,
@@ -111,6 +114,12 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Build the node
+
+    if opt.genesis {
+        let node = node_builder.only_genesis()?;
+        node.run(observability_guard)?;
+        return Ok(());
+    }
 
     let node = node_builder.build()?;
     node.run(observability_guard)?;
