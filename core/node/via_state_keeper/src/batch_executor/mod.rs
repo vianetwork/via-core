@@ -158,7 +158,6 @@ impl BatchExecutorHandle {
                 .failed_tx_gas_limit_per_nanosecond
                 .observe(tx_gas_limit as f64 / elapsed.as_nanos() as f64);
         }
-        tracing::error!("the result of execution is {:?}", res);
         Ok(res)
     }
 

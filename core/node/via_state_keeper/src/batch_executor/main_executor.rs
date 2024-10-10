@@ -182,11 +182,6 @@ impl CommandReceiver {
 
         // Execute the transaction.
         let latency = KEEPER_METRICS.tx_execution_time[&TxExecutionStage::Execution].start();
-        tracing::error!("the transaction is {:?}", tx);
-        tracing::error!(
-            "is optional bytecode compression: {:?}",
-            self.optional_bytecode_compression
-        );
 
         let output = if self.optional_bytecode_compression {
             self.execute_tx_in_vm_with_optional_compression(tx, vm)?
@@ -212,6 +207,8 @@ impl CommandReceiver {
 
         let tx_metrics = ExecutionMetricsForCriteria::new(Some(tx), &tx_result);
         let gas_remaining = vm.gas_remaining();
+
+        tracing::debug!("tx execution result {:?}", tx_result);
 
         Ok(TxExecutionResult::Success {
             tx_result: Box::new(tx_result),
@@ -338,9 +335,6 @@ impl CommandReceiver {
 
         let (published_bytecodes, mut tx_result) =
             vm.inspect_transaction_with_bytecode_compression(tracer.into(), tx.clone(), true);
-
-        tracing::error!("published_bytecodes is {:?}", published_bytecodes);
-        tracing::error!("tx_result is {:?}", tx_result);
 
         if published_bytecodes.is_ok() {
             let compressed_bytecodes = vm.get_last_tx_compressed_bytecodes();
