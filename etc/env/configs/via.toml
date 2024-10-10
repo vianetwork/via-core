@@ -61,5 +61,5 @@ zksync_external_node=info,\
 zksync_snapshots_applier=debug,\
 via_btc_watch=debug,\
 via_state_keeper=debug,\
-metadata_calculator=debug,\
+via_btc_sender=debug,\
 """
