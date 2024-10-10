@@ -3,6 +3,7 @@ use zksync_config::{
     configs::{wallets::Wallets, GeneralConfig, PostgresConfig, Secrets},
     ContractsConfig, GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
 };
+use zksync_metadata_calculator::MetadataCalculatorConfig;
 use zksync_node_api_server::{
     tx_sender::{ApiContracts, TxSenderConfig},
     web3::{state::InternalApiConfig, Namespace},
@@ -12,6 +13,8 @@ use zksync_node_framework::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
         healtcheck_server::HealthCheckLayer,
         house_keeper::HouseKeeperLayer,
+        logs_bloom_backfill::LogsBloomBackfillLayer,
+        metadata_calculator::MetadataCalculatorLayer,
         node_storage_init::{
             main_node_strategy::MainNodeInitStrategyLayer, NodeStorageInitializerLayer,
         },
@@ -330,6 +333,31 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_metadata_calculator_layer(mut self, with_tree_api: bool) -> anyhow::Result<Self> {
+        let merkle_tree_env_config = try_load_config!(self.configs.db_config).merkle_tree;
+        let operations_manager_env_config =
+            try_load_config!(self.configs.operations_manager_config);
+        let state_keeper_env_config = try_load_config!(self.configs.state_keeper_config);
+        let metadata_calculator_config = MetadataCalculatorConfig::for_main_node(
+            &merkle_tree_env_config,
+            &operations_manager_env_config,
+            &state_keeper_env_config,
+        );
+        let mut layer = MetadataCalculatorLayer::new(metadata_calculator_config);
+        if with_tree_api {
+            let merkle_tree_api_config = try_load_config!(self.configs.api_config).merkle_tree;
+            layer = layer.with_tree_api_config(merkle_tree_api_config);
+        }
+        self.node.add_layer(layer);
+        Ok(self)
+    }
+
+    fn add_logs_bloom_backfill_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(LogsBloomBackfillLayer);
+
+        Ok(self)
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_pools_layer()?
@@ -351,6 +379,8 @@ impl ViaNodeBuilder {
             .add_vm_runner_protective_reads_layer()?
             .add_vm_runner_bwip_layer()?
             .add_state_keeper_layer()?
+            .add_logs_bloom_backfill_layer()?
+            .add_metadata_calculator_layer(true)?
             .node
             .build())
     }

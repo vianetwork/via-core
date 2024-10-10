@@ -1,7 +1,8 @@
 use anyhow::Context as _;
 use zksync_config::{
     configs::{
-        chain::{CircuitBreakerConfig, MempoolConfig, StateKeeperConfig},
+        api::MerkleTreeApiConfig,
+        chain::{CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig},
         consensus::{ConsensusConfig, ConsensusSecrets},
         fri_prover_group::FriProverGroupConfig,
         house_keeper::HouseKeeperConfig,
@@ -42,13 +43,13 @@ pub(crate) fn load_env_config() -> anyhow::Result<TempConfigStore> {
     Ok(TempConfigStore {
         postgres_config: PostgresConfig::from_env().ok(),
         health_check_config: None,
-        merkle_tree_api_config: None,
+        merkle_tree_api_config: MerkleTreeApiConfig::from_env().ok(),
         web3_json_rpc_config: None,
         circuit_breaker_config: CircuitBreakerConfig::from_env().ok(),
         mempool_config: MempoolConfig::from_env().ok(),
         network_config: None,
         contract_verifier: None,
-        operations_manager_config: None,
+        operations_manager_config: OperationsManagerConfig::from_env().ok(),
         state_keeper_config: StateKeeperConfig::from_env().ok(),
         house_keeper_config: HouseKeeperConfig::from_env().ok(),
         fri_proof_compressor_config: FriProofCompressorConfig::from_env().ok(),
