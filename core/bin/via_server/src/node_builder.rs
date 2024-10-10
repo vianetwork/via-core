@@ -11,6 +11,7 @@ use zksync_node_api_server::{
 use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
+        commitment_generator::CommitmentGeneratorLayer,
         healtcheck_server::HealthCheckLayer,
         house_keeper::HouseKeeperLayer,
         logs_bloom_backfill::LogsBloomBackfillLayer,
@@ -358,6 +359,32 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_commitment_generator_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(CommitmentGeneratorLayer::new(
+            self.genesis_config.l1_batch_commit_data_generator_mode,
+        ));
+
+        Ok(self)
+    }
+
+    fn add_da_dispatcher_layer(mut self) -> anyhow::Result<Self> {
+        let eth_sender_config = try_load_config!(self.configs.eth);
+        if let Some(sender_config) = eth_sender_config.sender {
+            if sender_config.pubdata_sending_mode != PubdataSendingMode::Custom {
+                tracing::warn!("DA dispatcher is enabled, but the pubdata sending mode is not `Custom`. DA dispatcher will not be started.");
+                return Ok(self);
+            }
+        }
+
+        let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
+        let da_config = try_load_config!(self.configs.da_dispatcher_config);
+        self.node.add_layer(DataAvailabilityDispatcherLayer::new(
+            state_keeper_config,
+            da_config,
+        ));
+
+        Ok(self)
+    }
     /// Builds the node with the genesis initialization task only.
     pub fn only_genesis(mut self) -> anyhow::Result<ZkStackService> {
         self = self
@@ -392,6 +419,7 @@ impl ViaNodeBuilder {
             .add_state_keeper_layer()?
             .add_logs_bloom_backfill_layer()?
             .add_metadata_calculator_layer(true)?
+            .add_commitment_generator_layer()?
             .node
             .build())
     }
