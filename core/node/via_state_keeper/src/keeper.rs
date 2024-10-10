@@ -131,7 +131,6 @@ impl ZkSyncStateKeeper {
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        tracing::error!("******* Starting state keeper Task *******");
         match self.run_inner().await {
             Ok(_) => unreachable!(),
             Err(Error::Fatal(err)) => Err(err).context("state_keeper failed"),
@@ -144,13 +143,7 @@ impl ZkSyncStateKeeper {
 
     /// Fallible version of `run` routine that allows to easily exit upon cancellation.
     async fn run_inner(&mut self) -> Result<Infallible, Error> {
-        tracing::error!("******* inner method of state keeper *******");
         let (cursor, pending_batch_params) = self.io.initialize().await?;
-        tracing::error!(
-            "******* cursor: {:?}, pending_batch_params: {:?} *******",
-            cursor,
-            pending_batch_params
-        );
         self.output_handler.initialize(&cursor).await?;
         tracing::info!(
             "Starting state keeper. Next l1 batch to seal: {}, next L2 block to seal: {}",
@@ -196,10 +189,6 @@ impl ZkSyncStateKeeper {
             .load_protocol_upgrade_tx(&pending_l2_blocks, protocol_version, l1_batch_env.number)
             .await?;
 
-        tracing::error!(
-            "******* protocol_upgrade_tx: {:?} *******",
-            protocol_upgrade_tx
-        );
         let mut batch_executor = self
             .batch_executor
             .init_batch(
@@ -208,24 +197,13 @@ impl ZkSyncStateKeeper {
                 &self.stop_receiver,
             )
             .await?;
-        tracing::error!("******* batch_executor: {:?} *******", batch_executor);
         self.restore_state(&mut batch_executor, &mut updates_manager, pending_l2_blocks)
             .await?;
-
-        tracing::error!("******* updates_manager: {:?} *******", updates_manager);
 
         let mut l1_batch_seal_delta: Option<Instant> = None;
         let mut iteration_counter = 0;
 
-        tracing::error!(
-            "******* first run inner loop iteration_counter: {} *******",
-            iteration_counter
-        );
         while !self.is_canceled() {
-            tracing::error!(
-                "******* run inner loop iteration_counter: {} *******",
-                iteration_counter
-            );
             // This function will run until the batch can be sealed.
             self.process_l1_batch(
                 &mut batch_executor,
@@ -265,16 +243,7 @@ impl ZkSyncStateKeeper {
 
             // Start the new batch.
             next_cursor.l1_batch += 1;
-            tracing::error!(
-                "******* waiting for new batch params on iteration_counter: {} *******",
-                iteration_counter
-            );
             (system_env, l1_batch_env) = self.wait_for_new_batch_env(&next_cursor).await?;
-            tracing::error!(
-                "******* new batch params: {:?}, {:?} *******",
-                system_env,
-                l1_batch_env
-            );
             updates_manager = UpdatesManager::new(&l1_batch_env, &system_env);
             batch_executor = self
                 .batch_executor
@@ -312,38 +281,18 @@ impl ZkSyncStateKeeper {
         // The setChainId upgrade does not bump the protocol version, but attaches an upgrade
         // transaction to the genesis protocol version.
 
-        tracing::error!("******* I'm here in the load protocol upgrade tx *******");
         let first_batch_in_shared_bridge =
             l1_batch_number == L1BatchNumber(1) && !protocol_version.is_pre_shared_bridge();
 
-        tracing::error!(
-            "******* first_batch_in_shared_bridge: {} *******",
-            first_batch_in_shared_bridge
-        );
         let previous_batch_protocol_version =
             self.io.load_batch_version_id(l1_batch_number - 1).await?;
 
-        tracing::error!(
-            "******* previous_batch_protocol_version: {} *******",
-            previous_batch_protocol_version
-        );
-
         let version_changed = protocol_version != previous_batch_protocol_version;
-
-        tracing::error!("******* version_changed: {} *******", version_changed);
         let mut protocol_upgrade_tx = if version_changed || first_batch_in_shared_bridge {
-            tracing::error!(
-                "******* I'm here in the version_changed or first_batch_in_shared_bridge *******"
-            );
             self.io.load_upgrade_tx(protocol_version).await?
         } else {
             None
         };
-
-        tracing::error!(
-            "******* protocol_upgrade_tx: {:?} *******",
-            protocol_upgrade_tx
-        );
 
         // Sanity check: if `txs_to_reexecute` is not empty and upgrade tx is present for this block
         // then it must be the first one in `txs_to_reexecute`.
@@ -416,9 +365,7 @@ impl ZkSyncStateKeeper {
     ) -> Result<(SystemEnv, L1BatchEnv), Error> {
         // `io.wait_for_new_batch_params(..)` is not cancel-safe; once we get new batch params, we must hold onto them
         // until we get the rest of parameters from I/O or receive a stop signal.
-        tracing::error!("******* I'm here in the wait_for_new_batch_env *******");
         let params = self.wait_for_new_batch_params(cursor).await?;
-        tracing::error!("******* params: {:?} *******", params);
         let contracts = self
             .io
             .load_base_system_contracts(params.protocol_version, cursor)
@@ -430,7 +377,6 @@ impl ZkSyncStateKeeper {
                 )
             })?;
 
-        tracing::error!("******* I'm here in the at the pain point of state keeper *******");
         // `select!` is safe to use here; `io.load_batch_state_hash(..)` is cancel-safe by contract
         tokio::select! {
             hash_result = self.io.load_batch_state_hash(cursor.l1_batch - 1) => {

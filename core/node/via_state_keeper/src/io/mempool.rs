@@ -354,11 +354,6 @@ impl StateKeeperIO for MempoolIO {
     }
 
     async fn load_batch_state_hash(&self, l1_batch_number: L1BatchNumber) -> anyhow::Result<H256> {
-        tracing::error!(
-            "******* I'm here in the load_batch_state_hash  for l1_batch_number: {} *******",
-            l1_batch_number
-        );
-
         tracing::trace!("Getting L1 batch hash for L1 batch #{l1_batch_number}");
         let wait_latency = KEEPER_METRICS.wait_for_prev_hash_time.start();
 
