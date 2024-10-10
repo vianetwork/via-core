@@ -48,7 +48,7 @@ export const generateRandomTransactions = async () => {
 
     let fundTxLock = Promise.resolve();
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 2; i++) {
         const numTx = randomBetween(50, 150);
         console.log(`Iteration ${i + 1}: Generating ${numTx} transactions.`);
 

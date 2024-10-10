@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use zksync_state::{AsyncCatchupTask, ReadStorageFactory};
-use zksync_state_keeper::{
+use via_state_keeper::{
     seal_criteria::ConditionalSealer, AsyncRocksdbCache, BatchExecutor, OutputHandler,
     StateKeeperIO, ZkSyncStateKeeper,
 };
+use zksync_state::{AsyncCatchupTask, ReadStorageFactory};
 use zksync_storage::RocksDB;
 
-pub mod external_io;
 pub mod main_batch_executor;
 pub mod mempool_io;
 pub mod output_handler;
@@ -19,13 +18,13 @@ pub use zksync_state::RocksdbStorageOptions;
 use crate::{
     implementations::resources::{
         pools::{MasterPool, PoolResource},
-        state_keeper::{
+        via_state_keeper::{
             BatchExecutorResource, ConditionalSealerResource, OutputHandlerResource,
             StateKeeperIOResource,
         },
     },
     service::{ShutdownHook, StopReceiver},
-    task::{Task, TaskId},
+    task::{Task, TaskId, TaskKind},
     wiring_layer::{WiringError, WiringLayer},
     FromContext, IntoContext,
 };
@@ -72,7 +71,7 @@ impl WiringLayer for StateKeeperLayer {
     type Output = Output;
 
     fn layer_name(&self) -> &'static str {
-        "state_keeper_layer"
+        "via_state_keeper_layer"
     }
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
@@ -150,17 +149,17 @@ impl Task for StateKeeperTask {
     }
 }
 
-// #[async_trait::async_trait]
-// impl Task for AsyncCatchupTask {
-//     fn kind(&self) -> TaskKind {
-//         TaskKind::OneshotTask
-//     }
+#[async_trait::async_trait]
+impl Task for AsyncCatchupTask {
+    fn kind(&self) -> TaskKind {
+        TaskKind::OneshotTask
+    }
 
-//     fn id(&self) -> TaskId {
-//         "state_keeper/rocksdb_catchup_task".into()
-//     }
+    fn id(&self) -> TaskId {
+        "via_state_keeper/rocksdb_catchup_task".into()
+    }
 
-//     async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
-//         (*self).run(stop_receiver.0).await
-//     }
-// }
+    async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
+        (*self).run(stop_receiver.0).await
+    }
+}

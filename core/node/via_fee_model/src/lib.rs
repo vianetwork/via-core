@@ -1,7 +1,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
-use zksync_node_fee_model::BatchFeeModelInputProvider;
+pub use zksync_node_fee_model::BatchFeeModelInputProvider;
 use zksync_types::fee_model::{
     BaseTokenConversionRatio, BatchFeeInput, FeeModelConfig, FeeModelConfigV2, FeeParams,
     FeeParamsV2,
@@ -75,5 +75,23 @@ impl BatchFeeModelInputProvider for ViaApiFeeInputProvider {
 
     fn get_fee_model_params(&self) -> FeeParams {
         self.inner.get_fee_model_params()
+    }
+}
+
+/// Mock [`BatchFeeModelInputProvider`] implementation that returns a constant value.
+/// Intended to be used in tests only.
+#[derive(Debug)]
+pub struct MockBatchFeeParamsProvider(pub FeeParams);
+
+impl Default for MockBatchFeeParamsProvider {
+    fn default() -> Self {
+        Self(FeeParams::sensible_v1_default())
+    }
+}
+
+#[async_trait]
+impl BatchFeeModelInputProvider for MockBatchFeeParamsProvider {
+    fn get_fee_model_params(&self) -> FeeParams {
+        self.0
     }
 }

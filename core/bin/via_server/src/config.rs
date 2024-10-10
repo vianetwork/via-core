@@ -1,14 +1,14 @@
 use anyhow::Context as _;
 use zksync_config::{
     configs::{
-        chain::{CircuitBreakerConfig, StateKeeperConfig},
+        chain::{CircuitBreakerConfig, MempoolConfig, StateKeeperConfig},
         consensus::{ConsensusConfig, ConsensusSecrets},
         fri_prover_group::FriProverGroupConfig,
         house_keeper::HouseKeeperConfig,
         BasicWitnessInputProducerConfig, FriProofCompressorConfig, FriProverConfig,
         FriWitnessGeneratorConfig, ObservabilityConfig, ProtectiveReadsWriterConfig,
     },
-    ApiConfig, ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig,
+    ApiConfig, DBConfig, ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig,
     ViaCelestiaConfig,
 };
 use zksync_core_leftovers::temp_config_store::{decode_yaml_repr, TempConfigStore};
@@ -45,7 +45,7 @@ pub(crate) fn load_env_config() -> anyhow::Result<TempConfigStore> {
         merkle_tree_api_config: None,
         web3_json_rpc_config: None,
         circuit_breaker_config: CircuitBreakerConfig::from_env().ok(),
-        mempool_config: None,
+        mempool_config: MempoolConfig::from_env().ok(),
         network_config: None,
         contract_verifier: None,
         operations_manager_config: None,
@@ -60,7 +60,7 @@ pub(crate) fn load_env_config() -> anyhow::Result<TempConfigStore> {
         prometheus_config: None,
         proof_data_handler_config: None,
         api_config: ApiConfig::from_env().ok(),
-        db_config: None,
+        db_config: DBConfig::from_env().ok(),
         eth_sender_config: None,
         eth_watch_config: None,
         gas_adjuster_config: None,
