@@ -430,6 +430,7 @@ impl ZkSyncStateKeeper {
                 )
             })?;
 
+        tracing::error!("******* I'm here in the at the pain point of state keeper *******");
         // `select!` is safe to use here; `io.load_batch_state_hash(..)` is cancel-safe by contract
         tokio::select! {
             hash_result = self.io.load_batch_state_hash(cursor.l1_batch - 1) => {
