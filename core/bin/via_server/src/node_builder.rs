@@ -26,6 +26,9 @@ use zksync_node_framework::{
         },
         via_btc_watch::BtcWatchLayer,
         via_l1_gas::ViaL1GasLayer,
+        vm_runner::{
+            bwip::BasicWitnessInputProducerLayer, protective_reads::ProtectiveReadsWriterLayer,
+        }
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
             output_handler::OutputHandlerLayer, RocksdbStorageOptions, StateKeeperLayer,
@@ -260,7 +263,29 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
-    fn add_state_keeper_layer(mut self) -> anyhow::Result<Self> {
+    fn add_vm_runner_protective_reads_layer(mut self) -> anyhow::Result<Self> {
+        let protective_reads_writer_config: zksync_config::configs::ProtectiveReadsWriterConfig =
+            try_load_config!(self.configs.protective_reads_writer_config);
+        self.node.add_layer(ProtectiveReadsWriterLayer::new(
+            protective_reads_writer_config,
+            self.genesis_config.l2_chain_id,
+        ));
+
+        Ok(self)
+    }
+
+    fn add_vm_runner_bwip_layer(mut self) -> anyhow::Result<Self> {
+        let basic_witness_input_producer_config =
+            try_load_config!(self.configs.basic_witness_input_producer_config);
+        self.node.add_layer(BasicWitnessInputProducerLayer::new(
+            basic_witness_input_producer_config,
+            self.genesis_config.l2_chain_id,
+        ));
+      
+        Ok(self)
+    }
+
+  fn add_state_keeper_layer(mut self) -> anyhow::Result<Self> {
         // Bytecode compression is currently mandatory for the transactions processed by the sequencer.
         const OPTIONAL_BYTECODE_COMPRESSION: bool = false;
 
@@ -323,6 +348,8 @@ impl ViaNodeBuilder {
             .add_api_caches_layer()?
             .add_tree_api_client_layer()?
             .add_http_web3_api_layer()?
+            .add_vm_runner_protective_reads_layer()?
+            .add_vm_runner_bwip_layer()?
             .add_state_keeper_layer()?
             .node
             .build())
