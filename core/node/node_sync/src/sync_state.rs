@@ -3,6 +3,10 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use serde::Serialize;
 use tokio::sync::watch;
+use via_state_keeper::{
+    io::IoCursor as ViaIoCursor, updates::UpdatesManager as ViaUpdatesManager,
+    StateKeeperOutputHandler as ViaStateKeeperOutputHandler,
+};
 use zksync_concurrency::{ctx, sync};
 use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_health_check::{CheckHealth, Health, HealthStatus};
@@ -124,6 +128,30 @@ impl StateKeeperOutputHandler for SyncState {
     async fn handle_l1_batch(
         &mut self,
         updates_manager: Arc<UpdatesManager>,
+    ) -> anyhow::Result<()> {
+        let sealed_block_number = updates_manager.l2_block.number;
+        self.set_local_block(sealed_block_number);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ViaStateKeeperOutputHandler for SyncState {
+    async fn initialize(&mut self, cursor: &ViaIoCursor) -> anyhow::Result<()> {
+        let sealed_block_number = cursor.next_l2_block.saturating_sub(1);
+        self.set_local_block(L2BlockNumber(sealed_block_number));
+        Ok(())
+    }
+
+    async fn handle_l2_block(&mut self, updates_manager: &ViaUpdatesManager) -> anyhow::Result<()> {
+        let sealed_block_number = updates_manager.l2_block.number;
+        self.set_local_block(sealed_block_number);
+        Ok(())
+    }
+
+    async fn handle_l1_batch(
+        &mut self,
+        updates_manager: Arc<ViaUpdatesManager>,
     ) -> anyhow::Result<()> {
         let sealed_block_number = updates_manager.l2_block.number;
         self.set_local_block(sealed_block_number);

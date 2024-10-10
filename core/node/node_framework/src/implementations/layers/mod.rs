@@ -39,5 +39,6 @@ pub mod via_btc_sender;
 pub mod via_btc_watch;
 pub mod via_da_dispatcher;
 pub mod via_l1_gas;
+pub mod via_state_keeper;
 pub mod vm_runner;
 pub mod web3_api;

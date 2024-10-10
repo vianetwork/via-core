@@ -3,6 +3,7 @@ use zksync_config::{
     configs::{wallets::Wallets, GeneralConfig, PostgresConfig, Secrets},
     ContractsConfig, GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
 };
+use zksync_metadata_calculator::MetadataCalculatorConfig;
 use zksync_node_api_server::{
     tx_sender::{ApiContracts, TxSenderConfig},
     web3::{state::InternalApiConfig, Namespace},
@@ -12,6 +13,8 @@ use zksync_node_framework::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
         healtcheck_server::HealthCheckLayer,
         house_keeper::HouseKeeperLayer,
+        logs_bloom_backfill::LogsBloomBackfillLayer,
+        metadata_calculator::MetadataCalculatorLayer,
         node_storage_init::{
             main_node_strategy::MainNodeInitStrategyLayer, NodeStorageInitializerLayer,
         },
@@ -26,6 +29,13 @@ use zksync_node_framework::{
         },
         via_btc_watch::BtcWatchLayer,
         via_l1_gas::ViaL1GasLayer,
+        via_state_keeper::{
+            main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
+            output_handler::OutputHandlerLayer, RocksdbStorageOptions, StateKeeperLayer,
+        },
+        vm_runner::{
+            bwip::BasicWitnessInputProducerLayer, protective_reads::ProtectiveReadsWriterLayer,
+        },
         web3_api::{
             caches::MempoolCacheLayer,
             server::{Web3ServerLayer, Web3ServerOptionalConfig},
@@ -256,6 +266,98 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_vm_runner_protective_reads_layer(mut self) -> anyhow::Result<Self> {
+        let protective_reads_writer_config: zksync_config::configs::ProtectiveReadsWriterConfig =
+            try_load_config!(self.configs.protective_reads_writer_config);
+        self.node.add_layer(ProtectiveReadsWriterLayer::new(
+            protective_reads_writer_config,
+            self.genesis_config.l2_chain_id,
+        ));
+
+        Ok(self)
+    }
+
+    fn add_vm_runner_bwip_layer(mut self) -> anyhow::Result<Self> {
+        let basic_witness_input_producer_config =
+            try_load_config!(self.configs.basic_witness_input_producer_config);
+        self.node.add_layer(BasicWitnessInputProducerLayer::new(
+            basic_witness_input_producer_config,
+            self.genesis_config.l2_chain_id,
+        ));
+
+        Ok(self)
+    }
+
+    fn add_state_keeper_layer(mut self) -> anyhow::Result<Self> {
+        // Bytecode compression is currently mandatory for the transactions processed by the sequencer.
+        const OPTIONAL_BYTECODE_COMPRESSION: bool = false;
+
+        let wallets = self.wallets.clone();
+        let sk_config = try_load_config!(self.configs.state_keeper_config);
+        let persistence_layer = OutputHandlerLayer::new(
+            self.contracts_config
+                .l2_shared_bridge_addr
+                .context("L2 shared bridge address")?,
+            sk_config.l2_block_seal_queue_capacity,
+        )
+        .with_protective_reads_persistence_enabled(sk_config.protective_reads_persistence_enabled);
+        let mempool_io_layer = MempoolIOLayer::new(
+            self.genesis_config.l2_chain_id,
+            sk_config.clone(),
+            try_load_config!(self.configs.mempool_config),
+            try_load_config!(wallets.state_keeper),
+        );
+        let db_config = try_load_config!(self.configs.db_config);
+        let experimental_vm_config = self
+            .configs
+            .experimental_vm_config
+            .clone()
+            .unwrap_or_default();
+        let main_node_batch_executor_builder_layer =
+            MainBatchExecutorLayer::new(sk_config.save_call_traces, OPTIONAL_BYTECODE_COMPRESSION)
+                .with_fast_vm_mode(experimental_vm_config.state_keeper_fast_vm_mode);
+
+        let rocksdb_options = RocksdbStorageOptions {
+            block_cache_capacity: db_config
+                .experimental
+                .state_keeper_db_block_cache_capacity(),
+            max_open_files: db_config.experimental.state_keeper_db_max_open_files,
+        };
+        let state_keeper_layer =
+            StateKeeperLayer::new(db_config.state_keeper_db_path, rocksdb_options);
+        self.node
+            .add_layer(persistence_layer)
+            .add_layer(mempool_io_layer)
+            .add_layer(main_node_batch_executor_builder_layer)
+            .add_layer(state_keeper_layer);
+        Ok(self)
+    }
+
+    fn add_metadata_calculator_layer(mut self, with_tree_api: bool) -> anyhow::Result<Self> {
+        let merkle_tree_env_config = try_load_config!(self.configs.db_config).merkle_tree;
+        let operations_manager_env_config =
+            try_load_config!(self.configs.operations_manager_config);
+        let state_keeper_env_config = try_load_config!(self.configs.state_keeper_config);
+        let metadata_calculator_config = MetadataCalculatorConfig::for_main_node(
+            &merkle_tree_env_config,
+            &operations_manager_env_config,
+            &state_keeper_env_config,
+        );
+        let mut layer = MetadataCalculatorLayer::new(metadata_calculator_config);
+        if with_tree_api {
+            let merkle_tree_api_config = try_load_config!(self.configs.api_config).merkle_tree;
+            layer = layer.with_tree_api_config(merkle_tree_api_config);
+        }
+        self.node.add_layer(layer);
+        Ok(self)
+    }
+
+    fn add_logs_bloom_backfill_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(LogsBloomBackfillLayer);
+
+        Ok(self)
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_pools_layer()?
@@ -274,6 +376,11 @@ impl ViaNodeBuilder {
             .add_api_caches_layer()?
             .add_tree_api_client_layer()?
             .add_http_web3_api_layer()?
+            .add_vm_runner_protective_reads_layer()?
+            .add_vm_runner_bwip_layer()?
+            .add_state_keeper_layer()?
+            .add_logs_bloom_backfill_layer()?
+            .add_metadata_calculator_layer(true)?
             .node
             .build())
     }
