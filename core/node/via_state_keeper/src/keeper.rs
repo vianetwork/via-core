@@ -201,7 +201,6 @@ impl ZkSyncStateKeeper {
             .await?;
 
         let mut l1_batch_seal_delta: Option<Instant> = None;
-        let mut iteration_counter = 0;
 
         while !self.is_canceled() {
             // This function will run until the batch can be sealed.
@@ -260,8 +259,6 @@ impl ZkSyncStateKeeper {
             } else {
                 None
             };
-
-            iteration_counter += 1;
         }
         Err(Error::Canceled)
     }
