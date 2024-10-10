@@ -26,12 +26,12 @@ use zksync_node_framework::{
         },
         via_btc_watch::BtcWatchLayer,
         via_l1_gas::ViaL1GasLayer,
-        vm_runner::{
-            bwip::BasicWitnessInputProducerLayer, protective_reads::ProtectiveReadsWriterLayer,
-        }
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
             output_handler::OutputHandlerLayer, RocksdbStorageOptions, StateKeeperLayer,
+        },
+        vm_runner::{
+            bwip::BasicWitnessInputProducerLayer, protective_reads::ProtectiveReadsWriterLayer,
         },
         web3_api::{
             caches::MempoolCacheLayer,
@@ -281,11 +281,11 @@ impl ViaNodeBuilder {
             basic_witness_input_producer_config,
             self.genesis_config.l2_chain_id,
         ));
-      
+
         Ok(self)
     }
 
-  fn add_state_keeper_layer(mut self) -> anyhow::Result<Self> {
+    fn add_state_keeper_layer(mut self) -> anyhow::Result<Self> {
         // Bytecode compression is currently mandatory for the transactions processed by the sequencer.
         const OPTIONAL_BYTECODE_COMPRESSION: bool = false;
 
