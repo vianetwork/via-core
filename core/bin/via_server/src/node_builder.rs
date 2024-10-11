@@ -381,6 +381,14 @@ impl ViaNodeBuilder {
 
         Ok(self)
     }
+
+    fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
+        let celestia_config = try_load_config!(self.configs.via_celestia_config);
+        self.node
+            .add_layer(ViaCelestiaClientWiringLayer::new(celestia_config));
+        Ok(self)
+    }
+
     /// Builds the node with the genesis initialization task only.
     pub fn only_genesis(mut self) -> anyhow::Result<ZkStackService> {
         self = self
@@ -416,6 +424,8 @@ impl ViaNodeBuilder {
             .add_logs_bloom_backfill_layer()?
             .add_metadata_calculator_layer(true)?
             .add_commitment_generator_layer()?
+            .add_via_celestia_da_client_layer()?
+            .add_da_dispatcher_layer()?
             .node
             .build())
     }
