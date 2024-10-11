@@ -62,4 +62,5 @@ zksync_snapshots_applier=debug,\
 via_btc_watch=debug,\
 via_state_keeper=debug,\
 via_btc_sender=debug,\
+via_da_dispatcher=debug,\
 """
