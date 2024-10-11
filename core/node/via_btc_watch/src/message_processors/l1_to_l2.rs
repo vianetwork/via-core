@@ -115,7 +115,7 @@ impl L1ToL2MessageProcessor {
         let eth_address_l2 = msg.input.receiver_l2_address;
         let calldata = msg.input.call_data.clone();
 
-        let value = U256::zero();
+        let value = U256::from(amount);
         let max_fee_per_gas = U256::from(100_000_000_000u64);
         let gas_limit = U256::from(1_000_000u64);
         let gas_per_pubdata_limit = U256::from(800u64);
@@ -139,8 +139,8 @@ impl L1ToL2MessageProcessor {
                 op_processing_type: OpProcessingType::Common,
                 priority_queue_type: PriorityQueueType::Deque,
                 canonical_tx_hash: H256::zero(),
-                to_mint: U256::from(amount) + max_fee_per_gas * gas_limit,
-                refund_recipient: eth_address_l2,
+                to_mint: value + max_fee_per_gas * gas_limit,
+                refund_recipient: eth_address_sender,
                 eth_block: msg.common.block_height as u64,
             },
             received_timestamp_ms: unix_timestamp_ms(),
