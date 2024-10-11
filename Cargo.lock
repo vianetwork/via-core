@@ -8545,6 +8545,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tracing",
+ "via_da_clients",
  "zksync_config",
  "zksync_core_leftovers",
  "zksync_env_config",

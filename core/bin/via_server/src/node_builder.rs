@@ -1,6 +1,11 @@
 use anyhow::Context;
+use via_da_clients::celestia::{
+    config::ViaCelestiaConf, wiring_layer::ViaCelestiaClientWiringLayer,
+};
 use zksync_config::{
-    configs::{wallets::Wallets, GeneralConfig, PostgresConfig, Secrets},
+    configs::{
+        eth_sender::PubdataSendingMode, wallets::Wallets, GeneralConfig, PostgresConfig, Secrets,
+    },
     ContractsConfig, GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
 };
 use zksync_metadata_calculator::MetadataCalculatorConfig;
@@ -29,6 +34,7 @@ use zksync_node_framework::{
             aggregator::ViaBtcInscriptionAggregatorLayer, manager::ViaInscriptionManagerLayer,
         },
         via_btc_watch::BtcWatchLayer,
+        via_da_dispatcher::DataAvailabilityDispatcherLayer,
         via_l1_gas::ViaL1GasLayer,
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
