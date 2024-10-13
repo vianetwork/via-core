@@ -95,6 +95,7 @@ impl MessageParser {
             schnorr_signature: signature,
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
             block_height,
+            tx_id: tx.compute_ntxid().into(),
         };
 
         self.parse_message(tx, &instructions[via_index..], &common_fields)

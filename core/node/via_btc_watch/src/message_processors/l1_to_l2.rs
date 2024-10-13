@@ -39,8 +39,26 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                     .iter()
                     .any(|output| output.script_pubkey == self.bridge_address.script_pubkey())
                 {
-                    let l1_tx = self.create_l1_tx_from_message(&l1_to_l2_msg)?;
-                    priority_ops.push(l1_tx);
+                    let mut tx_id_bytes = l1_to_l2_msg.common.tx_id.as_raw_hash()[..].to_vec();
+                    tx_id_bytes.reverse();
+                    let tx_id = H256::from_slice(&tx_id_bytes);
+
+                    if storage
+                        .via_transactions_dal()
+                        .transaction_exists_with_txid(&tx_id)
+                        .await
+                        .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
+                    {
+                        tracing::debug!(
+                            "Transaction with tx_id {} already processed, skipping",
+                            tx_id
+                        );
+                        continue;
+                    }
+                    let serial_id = self.next_expected_priority_id;
+                    let l1_tx = self.create_l1_tx_from_message(&l1_to_l2_msg, serial_id)?;
+                    priority_ops.push((l1_tx, tx_id));
+                    self.next_expected_priority_id = self.next_expected_priority_id.next();
                 }
             }
         }
@@ -49,55 +67,12 @@ impl MessageProcessor for L1ToL2MessageProcessor {
             return Ok(());
         }
 
-        priority_ops.sort_by_key(|op| op.common_data.serial_id);
-
-        let first = &priority_ops[0];
-        let last = &priority_ops[priority_ops.len() - 1];
-        tracing::debug!(
-            "Received priority requests with serial ids: {} (block {}) - {} (block {})",
-            first.serial_id(),
-            first.eth_block(),
-            last.serial_id(),
-            last.eth_block(),
-        );
-
-        if last.serial_id().0 - first.serial_id().0 + 1 != priority_ops.len() as u64 {
-            return Err(MessageProcessorError::PriorityOpsGap);
-        }
-
-        let new_ops: Vec<_> = priority_ops
-            .into_iter()
-            .skip_while(|tx| tx.serial_id() < self.next_expected_priority_id)
-            .collect();
-
-        if new_ops.is_empty() {
-            return Ok(());
-        }
-
-        let first_new = new_ops.first().unwrap();
-        if first_new.serial_id() != self.next_expected_priority_id {
-            return Err(MessageProcessorError::PriorityIdMismatch {
-                expected: self.next_expected_priority_id,
-                actual: first_new.serial_id(),
-            });
-        }
-
-        for new_op in &new_ops {
-            let eth_block = new_op.eth_block();
-            tracing::debug!(
-                "Inserting new priority operation with serial id {:?} (block {})",
-                new_op,
-                eth_block
-            );
+        for (new_op, txid) in priority_ops {
             storage
                 .via_transactions_dal()
-                .insert_transaction_l1(new_op, eth_block)
+                .insert_transaction_l1(&new_op, new_op.eth_block(), txid)
                 .await
                 .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
-        }
-
-        if let Some(last_new) = new_ops.last() {
-            self.next_expected_priority_id = last_new.serial_id().next();
         }
 
         Ok(())
@@ -108,6 +83,7 @@ impl L1ToL2MessageProcessor {
     fn create_l1_tx_from_message(
         &self,
         msg: &L1ToL2Message,
+        serial_id: PriorityOpId,
     ) -> Result<L1Tx, MessageProcessorError> {
         let amount = msg.amount.to_sat();
         let eth_address_sender = via_btc_client::indexer::get_eth_address(&msg.common)
@@ -119,7 +95,6 @@ impl L1ToL2MessageProcessor {
         let max_fee_per_gas = U256::from(100_000_000_000u64);
         let gas_limit = U256::from(1_000_000u64);
         let gas_per_pubdata_limit = U256::from(800u64);
-        let serial_id = self.next_expected_priority_id;
 
         let mut l1_tx = L1Tx {
             execute: Execute {
@@ -130,7 +105,7 @@ impl L1ToL2MessageProcessor {
             },
             common_data: L1TxCommonData {
                 sender: eth_address_sender,
-                serial_id: serial_id,
+                serial_id,
                 layer_2_tip_fee: U256::zero(),
                 full_fee: U256::zero(),
                 max_fee_per_gas,
