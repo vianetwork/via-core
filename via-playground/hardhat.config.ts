@@ -1,6 +1,7 @@
 import { HardhatUserConfig } from 'hardhat/config';
 import '@matterlabs/hardhat-zksync';
 import '@nomicfoundation/hardhat-toolbox';
+import './scripts/tasks';
 
 const config: HardhatUserConfig = {
     solidity: '0.8.27',
