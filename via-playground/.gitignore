@@ -7,7 +7,7 @@ node_modules
 
 # TypeChain files
 /typechain
-/typechain-types
+# /typechain-types
 
 # solidity-coverage files
 /coverage

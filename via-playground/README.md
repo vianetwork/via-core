@@ -5,7 +5,7 @@ Hardhat Ignition module that deploys that contract.
 
 Try running some of the following tasks:
 
-0. Install package using `yarn`
+0. Install package using `yarn && npx hardhat compile`
 1. Duplicate the `example.env` and create a `.env` file
 2. Install web3 cli https://github.com/mm-zk/web3
 3. Run the following command to bridge BTC to L2

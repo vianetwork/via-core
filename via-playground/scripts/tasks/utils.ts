@@ -3,14 +3,13 @@ import { Deployer } from '@matterlabs/hardhat-zksync-deploy';
 import dotenv from 'dotenv';
 import * as fs from 'fs';
 import { ethers } from 'ethers';
+import { Provider } from 'zksync-ethers';
 
 import '@matterlabs/hardhat-zksync-node/dist/type-extensions';
 import '@matterlabs/hardhat-zksync-verify/dist/src/type-extensions';
 
 // Load env file
 dotenv.config();
-
-import { Provider } from 'zksync-ethers';
 
 export const getProvider = (rpcUrl: string, name: string) => {
     if (!rpcUrl)
