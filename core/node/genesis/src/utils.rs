@@ -26,9 +26,9 @@ pub(super) async fn add_eth_token(transaction: &mut Connection<'_, Core>) -> any
         l1_address: ETHEREUM_ADDRESS,
         l2_address: ETHEREUM_ADDRESS,
         metadata: TokenMetadata {
-            name: "Ether".to_string(),
-            symbol: "ETH".to_string(),
-            decimals: 18,
+            name: "Bitcoin".to_string(),
+            symbol: "BTC".to_string(),
+            decimals: 8,
         },
     };
 
