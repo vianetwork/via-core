@@ -29,7 +29,7 @@ impl BatchFeeModelInputProvider for ViaMainNodeFeeInputProvider {
         _l1_pubdata_price_scale_factor: f64,
     ) -> anyhow::Result<BatchFeeInput> {
         Ok(BatchFeeInput::pubdata_independent(
-            self.fee_model_config.minimal_l2_gas_price * 100,
+            self.fee_model_config.minimal_l2_gas_price,
             self.fee_model_config.minimal_l2_gas_price,
             self.fee_model_config.max_pubdata_per_batch,
         ))
@@ -38,7 +38,7 @@ impl BatchFeeModelInputProvider for ViaMainNodeFeeInputProvider {
     fn get_fee_model_params(&self) -> FeeParams {
         FeeParams::V2(FeeParamsV2::new(
             self.fee_model_config,
-            self.fee_model_config.minimal_l2_gas_price * 100,
+            self.fee_model_config.minimal_l2_gas_price,
             self.fee_model_config.max_pubdata_per_batch,
             BaseTokenConversionRatio::default(),
         ))
