@@ -127,6 +127,13 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_prometheus_exporter_layer(mut self) -> anyhow::Result<Self> {
+        let prom_config = try_load_config!(self.configs.prometheus_config);
+        let prom_config = PrometheusExporterConfig::pull(prom_config.listener_port);
+        self.node.add_layer(PrometheusExporterLayer(prom_config));
+        Ok(self)
+    }
+
     fn add_circuit_breaker_checker_layer(mut self) -> anyhow::Result<Self> {
         let circuit_breaker_config = try_load_config!(self.configs.circuit_breaker_config);
         self.node
@@ -377,6 +384,7 @@ impl ViaNodeBuilder {
             .add_circuit_breaker_checker_layer()?
             .add_postgres_metrics_layer()?
             .add_query_eth_client_layer()?
+            .add_prometheus_exporter_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?
             // VIA layers
             .add_btc_watcher_layer()?

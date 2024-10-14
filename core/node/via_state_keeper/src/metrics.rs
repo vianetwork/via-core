@@ -62,7 +62,7 @@ const INCLUSION_DELAY_BUCKETS: Buckets = Buckets::values(&[
 
 /// General-purpose state keeper metrics.
 #[derive(Debug, Metrics)]
-#[metrics(prefix = "server_state_keeper")]
+#[metrics(prefix = "via_server_state_keeper")]
 pub struct StateKeeperMetrics {
     /// Latency to synchronize the mempool with Postgres.
     #[metrics(buckets = Buckets::LATENCIES)]
@@ -151,7 +151,7 @@ pub static KEEPER_METRICS: vise::Global<StateKeeperMetrics> = vise::Global::new(
 
 /// State keeper-related gauges exposed via a collector.
 #[derive(Debug, Metrics)]
-#[metrics(prefix = "server_state_keeper")]
+#[metrics(prefix = "via_server_state_keeper")]
 pub(super) struct StateKeeperGauges {
     /// Current number of L1 transactions in the mempool.
     mempool_l1_size: Gauge<usize>,
@@ -222,7 +222,7 @@ struct TxAggregationLabels {
 }
 
 #[derive(Debug, Metrics)]
-#[metrics(prefix = "server_tx_aggregation")]
+#[metrics(prefix = "via_server_tx_aggregation")]
 pub(super) struct TxAggregationMetrics {
     reason: Family<TxAggregationLabels, Counter>,
     l2_block_reason: Family<L2BlockSealReason, Counter>,
@@ -280,7 +280,7 @@ const L1_BATCH_SEAL_DELTA_BUCKETS: Buckets = Buckets::values(&[
 
 /// Metrics related to L1 batch sealing.
 #[derive(Debug, Metrics)]
-#[metrics(prefix = "server_state_keeper_l1_batch")]
+#[metrics(prefix = "via_server_state_keeper_l1_batch")]
 pub(crate) struct L1BatchMetrics {
     /// Delta between sealing consecutive L1 batches.
     #[metrics(buckets = L1_BATCH_SEAL_DELTA_BUCKETS)]
@@ -358,7 +358,7 @@ struct L2BlockSealLabels {
 }
 
 #[derive(Debug, Metrics)]
-#[metrics(prefix = "server_state_keeper_miniblock")]
+#[metrics(prefix = "via_server_state_keeper_miniblock")]
 pub(super) struct L2BlockMetrics {
     /// Delta between sealing consecutive L2 blocks.
     #[metrics(buckets = Buckets::LATENCIES)]
@@ -456,7 +456,7 @@ const GAS_PER_NANOSECOND_BUCKETS: Buckets = Buckets::values(&[
 
 /// Executor-related state keeper metrics.
 #[derive(Debug, Metrics)]
-#[metrics(prefix = "state_keeper")]
+#[metrics(prefix = "via_state_keeper")]
 pub(super) struct ExecutorMetrics {
     /// Latency to process a single command sent to the batch executor.
     #[metrics(buckets = Buckets::LATENCIES)]
@@ -475,7 +475,7 @@ pub(super) struct ExecutorMetrics {
 pub(super) static EXECUTOR_METRICS: vise::Global<ExecutorMetrics> = vise::Global::new();
 
 #[derive(Debug, Metrics)]
-#[metrics(prefix = "batch_tip")]
+#[metrics(prefix = "via_batch_tip")]
 pub(crate) struct BatchTipMetrics {
     #[metrics(buckets = Buckets::exponential(60000.0..=80000000.0, 2.0))]
     gas_used: Histogram<usize>,
@@ -526,7 +526,7 @@ impl BatchTipMetrics {
 pub(crate) static BATCH_TIP_METRICS: vise::Global<BatchTipMetrics> = vise::Global::new();
 
 #[derive(Debug, Metrics)]
-#[metrics(prefix = "server_state_keeper_updates_manager")]
+#[metrics(prefix = "via_server_state_keeper_updates_manager")]
 pub struct UpdatesManagerMetrics {
     #[metrics(buckets = Buckets::LATENCIES)]
     pub finish_batch: Histogram<Duration>,
