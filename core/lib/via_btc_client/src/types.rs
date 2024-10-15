@@ -66,6 +66,7 @@ pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
     pub block_height: u32,
+    pub tx_id: Txid,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

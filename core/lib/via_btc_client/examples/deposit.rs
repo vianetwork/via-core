@@ -1,4 +1,9 @@
-use std::{env, str::FromStr};
+use std::{
+    env,
+    fs::File,
+    io::{Read, Write},
+    str::FromStr,
+};
 
 use anyhow::{Context, Result};
 use bitcoin::{address::NetworkUnchecked, Amount};
@@ -6,8 +11,8 @@ use tracing::info;
 use via_btc_client::{
     inscriber::Inscriber,
     types::{
-        BitcoinAddress, BitcoinNetwork, InscriptionConfig, InscriptionMessage, L1ToL2MessageInput,
-        NodeAuth, Recipient,
+        BitcoinAddress, BitcoinNetwork, InscriberContext, InscriptionConfig, InscriptionMessage,
+        L1ToL2MessageInput, NodeAuth, Recipient,
     },
 };
 use zksync_types::Address as EVMAddress;
@@ -16,6 +21,10 @@ const RPC_URL: &str = "http://0.0.0.0:18443";
 const RPC_USERNAME: &str = "rpcuser";
 const RPC_PASSWORD: &str = "rpcpassword";
 const NETWORK: BitcoinNetwork = BitcoinNetwork::Regtest;
+const CONTEXT_FILE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/depositor_inscriber_context.json"
+);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,25 +32,38 @@ async fn main() -> Result<()> {
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    let depositor_private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R".to_string();
+    let args: Vec<String> = env::args().collect();
+    let amount = args[1].parse::<f64>()?;
+
+    let receiver_l2_address = EVMAddress::from_str(&args[2])?;
+    info!(
+        "Depositing {} BTC to receiver L2 address {}",
+        amount, receiver_l2_address
+    );
+
+    let depositor_private_key = args[3].clone();
+    info!(
+        "Depositor L1 private key: {}...{}",
+        &depositor_private_key[..4],
+        &depositor_private_key[depositor_private_key.len() - 4..]
+    );
 
     let bridge_p2wpkh_mpc_address = "bcrt1qdrzjq2mwlhrnhan94em5sl032zd95m73ud8ddw"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
         .require_network(NETWORK)?;
+
+    // Load the previous context from the file if it exists
+    let context = load_context_from_file(CONTEXT_FILE)?;
 
     let mut inscriber = Inscriber::new(
         RPC_URL,
         NETWORK,
         NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string()),
         &depositor_private_key,
-        None,
+        context,
     )
     .await
     .context("Failed to create Depositor Inscriber")?;
-
-    let args: Vec<String> = env::args().collect();
-    let amount = args[1].parse::<f64>()?;
-    info!("Depositing {} BTC to L2", amount);
 
     info!(
         "Depositor L1 balance: {}",
@@ -50,9 +72,6 @@ async fn main() -> Result<()> {
             .await
             .context("Failed to get balance")?
     );
-
-    let receiver_l2_address = EVMAddress::from_str(&args[2])?;
-    info!("Receiver L2 address: {}", receiver_l2_address);
 
     let input = L1ToL2MessageInput {
         receiver_l2_address,
@@ -84,5 +103,28 @@ async fn main() -> Result<()> {
             .unwrap()
     );
 
+    // Save the updated context to the file after the inscription
+    save_context_to_file(&inscriber.get_context_snapshot()?, CONTEXT_FILE)?;
+
     Ok(())
+}
+
+// Utility function to save the context to a file
+fn save_context_to_file(context: &InscriberContext, file_path: &str) -> Result<()> {
+    let serialized_context = serde_json::to_string(context)?;
+    let mut file = File::create(file_path)?;
+    file.write_all(serialized_context.as_bytes())?;
+    Ok(())
+}
+
+// Utility function to load the context from a file
+fn load_context_from_file(file_path: &str) -> Result<Option<InscriberContext>> {
+    if let Ok(mut file) = File::open(file_path) {
+        let mut data = String::new();
+        file.read_to_string(&mut data)?;
+        let context: InscriberContext = serde_json::from_str(&data)?;
+        Ok(Some(context))
+    } else {
+        Ok(None)
+    }
 }

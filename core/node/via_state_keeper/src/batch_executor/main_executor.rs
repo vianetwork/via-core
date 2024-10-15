@@ -208,8 +208,6 @@ impl CommandReceiver {
         let tx_metrics = ExecutionMetricsForCriteria::new(Some(tx), &tx_result);
         let gas_remaining = vm.gas_remaining();
 
-        tracing::debug!("tx execution result {:?}", tx_result);
-
         Ok(TxExecutionResult::Success {
             tx_result: Box::new(tx_result),
             tx_metrics: Box::new(tx_metrics),
