@@ -3,7 +3,9 @@ use via_da_clients::celestia::{
     config::ViaCelestiaConf, wiring_layer::ViaCelestiaClientWiringLayer,
 };
 use zksync_config::{
-    configs::{wallets::Wallets, GeneralConfig, PostgresConfig, Secrets},
+    configs::{
+        via_btc_sender::ProofSendingMode, wallets::Wallets, GeneralConfig, PostgresConfig, Secrets,
+    },
     ContractsConfig, GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
 };
 use zksync_metadata_calculator::MetadataCalculatorConfig;
@@ -374,9 +376,14 @@ impl ViaNodeBuilder {
     fn add_da_dispatcher_layer(mut self) -> anyhow::Result<Self> {
         let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
         let da_config = try_load_config!(self.configs.da_dispatcher_config);
+        let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
+
+        let dispatch_real_proof =
+            btc_sender_config.proof_sending_mode != ProofSendingMode::SkipEveryProof;
         self.node.add_layer(DataAvailabilityDispatcherLayer::new(
             state_keeper_config,
             da_config,
+            dispatch_real_proof,
         ));
 
         Ok(self)

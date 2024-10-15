@@ -23,6 +23,7 @@ pub struct ViaDataAvailabilityDispatcher {
     pool: ConnectionPool<Core>,
     config: DADispatcherConfig,
     blob_store: Arc<dyn ObjectStore>,
+    dispatch_real_proof: bool,
 }
 
 impl ViaDataAvailabilityDispatcher {
@@ -31,12 +32,14 @@ impl ViaDataAvailabilityDispatcher {
         config: DADispatcherConfig,
         client: Box<dyn DataAvailabilityClient>,
         blob_store: Arc<dyn ObjectStore>,
+        dispatch_real_proof: bool,
     ) -> Self {
         Self {
             pool,
             config,
             client,
             blob_store,
+            dispatch_real_proof,
         }
     }
 
@@ -136,8 +139,20 @@ impl ViaDataAvailabilityDispatcher {
         Ok(())
     }
 
-    /// Dispatches proofs to the data availability layer, and saves the blob_id in the database.
     async fn dispatch_proofs(&self) -> anyhow::Result<()> {
+        match self.dispatch_real_proof {
+            true => self.dispatch_real_proofs().await?,
+            false => self.dispatch_dummy_proofs().await?,
+        }
+        Ok(())
+    }
+
+    async fn dispatch_dummy_proofs(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Dispatches proofs to the data availability layer, and saves the blob_id in the database.
+    async fn dispatch_real_proofs(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 
         let proofs = conn
