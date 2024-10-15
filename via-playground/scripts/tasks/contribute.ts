@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import { Wallet } from 'zksync-ethers';
 import { getProvider } from './utils';
 
-task('contribute', 'Contrinbute to the crowdfunding')
+task('contribute', 'Contribute to the crowdfunding')
     .addParam('amount', 'The amount of BTC to send')
     .setAction(async (taskArgs, hre) => {
         const provider = getProvider(hre.network.config.url, hre.network.name);

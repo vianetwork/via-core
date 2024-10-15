@@ -13,7 +13,7 @@ task('withdraw', 'Withdraw funds from the crowdfunding').setAction(async (taskAr
     const contract = factory.connect(wallet).attach(config.contract) as CrowdfundingCampaign;
     const tx = await contract.withdrawFunds();
     await tx.wait();
-    console.log('Withdrawen');
+    console.log(`Funds withdrawn to the owner (${wallet.address})`);
 });
 
 export default {};
