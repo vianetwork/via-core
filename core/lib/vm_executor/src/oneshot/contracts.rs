@@ -22,6 +22,8 @@ pub(super) struct MultiVMBaseSystemContracts {
     vm_1_5_0_small_memory: BaseSystemContracts,
     /// Contracts to be used after the 1.5.0 upgrade
     vm_1_5_0_increased_memory: BaseSystemContracts,
+    /// Contracts to be used after the protocol defense upgrade
+    vm_protocol_defense: BaseSystemContracts,
     /// Contracts to be used after the bitcoin upgrade
     pub(crate) vm_bitcoin: BaseSystemContracts,
     /// Contracts to be used after the bitcoin upgrade
@@ -59,8 +61,9 @@ impl MultiVMBaseSystemContracts {
             ProtocolVersionId::Version20 => &self.post_1_4_1,
             ProtocolVersionId::Version21 | ProtocolVersionId::Version22 => &self.post_1_4_2,
             ProtocolVersionId::Version23 => &self.vm_1_5_0_small_memory,
-            ProtocolVersionId::Version24 | ProtocolVersionId::Version25 => {
-                &self.vm_1_5_0_increased_memory
+            ProtocolVersionId::Version24 => &self.vm_1_5_0_increased_memory,
+            ProtocolVersionId::Version25 | ProtocolVersionId::Version26 => {
+                &self.vm_protocol_defense
             }
             ProtocolVersionId::Version26 => &self.vm_bitcoin,
             ProtocolVersionId::Version27 => &self.vm_bitcoin_1_0_1,
@@ -88,6 +91,7 @@ impl MultiVMBaseSystemContracts {
             vm_1_5_0_small_memory: BaseSystemContracts::estimate_gas_1_5_0_small_memory(),
             vm_1_5_0_increased_memory:
                 BaseSystemContracts::estimate_gas_post_1_5_0_increased_memory(),
+            vm_protocol_defense: BaseSystemContracts::estimate_gas_post_protocol_defense(),
             vm_bitcoin: BaseSystemContracts::estimate_gas_bitcoin_1_0_0(),
             vm_bitcoin_1_0_1: BaseSystemContracts::estimate_gas_bitcoin_1_0_1(),
         }
@@ -106,6 +110,7 @@ impl MultiVMBaseSystemContracts {
             vm_1_5_0_small_memory: BaseSystemContracts::playground_1_5_0_small_memory(),
             vm_1_5_0_increased_memory: BaseSystemContracts::playground_post_1_5_0_increased_memory(
             ),
+            vm_protocol_defense: BaseSystemContracts::playground_post_protocol_defense(),
             vm_bitcoin: BaseSystemContracts::playground_bitcoin_1_0_0(),
             vm_bitcoin_1_0_1: BaseSystemContracts::playground_bitcoin_1_0_1(),
         }
