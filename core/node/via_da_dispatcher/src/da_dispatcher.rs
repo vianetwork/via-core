@@ -363,6 +363,74 @@ impl ViaDataAvailabilityDispatcher {
         })
     }
 
+    async fn prepare_dummy_proof_operation(
+        &self,
+        batch_to_prove: L1BatchNumber,
+    ) -> Option<ProveBatches> {
+        let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
+
+        let previous_proven_batch_number =
+            match storage.blocks_dal().get_last_l1_batch_with_prove_tx().await {
+                Ok(batch_number) => batch_number,
+                Err(e) => {
+                    tracing::error!("Failed to retrieve the last L1 batch with proof tx: {}", e);
+                    return None;
+                }
+            };
+
+        let previous_proven_batch_metadata = match storage
+            .blocks_dal()
+            .get_l1_batch_metadata(previous_proven_batch_number)
+            .await
+        {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                tracing::error!(
+                    "L1 batch #{} with submitted proof is not complete in the DB",
+                    previous_proven_batch_number
+                );
+                return None;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to retrieve L1 batch #{} metadata: {}",
+                    previous_proven_batch_number,
+                    e
+                );
+                return None;
+            }
+        };
+
+        let metadata_for_batch_being_proved = match storage
+            .blocks_dal()
+            .get_l1_batch_metadata(batch_to_prove)
+            .await
+        {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                tracing::error!(
+                    "L1 batch #{} with generated proof is not complete in the DB",
+                    batch_to_prove
+                );
+                return None;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to retrieve L1 batch #{} metadata: {}",
+                    batch_to_prove,
+                    e
+                );
+                return None;
+            }
+        };
+
+        Some(ProveBatches {
+            prev_l1_batch: previous_proven_batch_metadata,
+            l1_batches: vec![metadata_for_batch_being_proved],
+            proofs: vec![],
+            should_verify: false,
+        })
+    }
     /// Loads wrapped FRI proofs for a given L1 batch number and allowed protocol versions.
     pub async fn load_wrapped_fri_proofs_for_range(
         &self,
