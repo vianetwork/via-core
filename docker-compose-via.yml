@@ -109,6 +109,8 @@ services:
         source: ./volumes/celestia
         target: /home/celestia
     command: celestia light start --core.ip validator-4.celestia-arabica-11.com --p2p.network arabica
+    ports:
+      - '127.0.0.1:26658:26658'
     environment:
       - NODE_TYPE=light
       - P2P_NETWORK=arabica
