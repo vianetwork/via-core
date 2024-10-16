@@ -148,9 +148,67 @@ impl ViaDataAvailabilityDispatcher {
     }
 
     async fn dispatch_dummy_proofs(&self) -> anyhow::Result<()> {
+        let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
+
+        let batches = conn
+            .via_data_availability_dal()
+            .get_ready_for_dummy_proof_dispatch_l1_batches(
+                self.config.max_rows_to_dispatch() as usize
+            )
+            .await?;
+
+        drop(conn);
+
+        for batch in batches {
+            let dispatch_latency = METRICS.blob_dispatch_latency.start();
+
+            let dummy_proof = self
+                .prepare_dummy_proof_operation(batch)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to prepare a dummy proof for batch_number: {}",
+                        batch
+                    )
+                })?;
+
+            let serelize_proof = dummy_proof.into_tokens();
+            // iterate over tokens and convert them to bytes
+            let mut proof_bytes = Vec::new();
+
+            for token in serelize_proof {
+                proof_bytes.extend(token.into_bytes());
+            }
+
+            let final_proof = proof_bytes.into_iter().flatten().collect::<Vec<u8>>();
+
+            let dispatch_response = retry(self.config.max_retries(), batch, || {
+                self.client.dispatch_blob(batch.0, final_proof.clone())
+            })
+            .await?;
+
+            let dispatch_latency_duration = dispatch_latency.observe();
+
+            let sent_at = Utc::now().naive_utc();
+
+            let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
+            conn.via_data_availability_dal()
+                .insert_proof_da(batch, dispatch_response.blob_id.as_str(), sent_at)
+                .await?;
+
+            METRICS.last_dispatched_proof_batch.set(batch.0 as usize);
+            METRICS.blob_size.observe(final_proof.len());
+            tracing::info!(
+                "Dispatched a dummy proof for batch_number: {}, proof_size: {}, dispatch_latency: {dispatch_latency_duration:?}",
+                batch,
+                final_proof.len(),
+            );
+        }
+
         Ok(())
     }
 
+    // TODO: fix dal logic for loading real proofs
     /// Dispatches proofs to the data availability layer, and saves the blob_id in the database.
     async fn dispatch_real_proofs(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
