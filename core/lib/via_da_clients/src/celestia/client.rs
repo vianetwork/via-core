@@ -32,7 +32,9 @@ impl CelestiaClient {
 
         // NOTE: during refactoring move namespace to the config
         // Name Space: "Via Protocol"
-        let namespace = Namespace::from_raw(b"Via Protocol").map_err(|error| types::DAError {
+        let namespace_bytes = [b'V', b'I', b'A', 0, 0, 0, 0, 0]; // Pad with zeros to reach 8 bytes
+        let namespace_bytes: &[u8] = &namespace_bytes;
+        let namespace = Namespace::new_v0(namespace_bytes).map_err(|error| types::DAError {
             error: error.into(),
             is_retriable: false,
         })?;
