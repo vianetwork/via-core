@@ -100,5 +100,18 @@ services:
     environment:
       - POSTGRES_PASSWORD=notsecurepassword
 
+  celestia-node:
+    image: "ghcr.io/celestiaorg/celestia-node:v0.18.1-arabica"
+    network_mode: "host"
+    container_name: celestia-node
+    volumes:
+      - type: bind
+        source: ./volumes/celestia
+        target: /home/celestia
+    command: celestia light start --core.ip validator-4.celestia-arabica-11.com --p2p.network arabica
+    environment:
+      - NODE_TYPE=light
+      - P2P_NETWORK=arabica
+
 volumes:
   bitcoin_data:

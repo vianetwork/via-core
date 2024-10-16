@@ -10,6 +10,9 @@ export function createVolumes() {
     fs.mkdirSync(`${process.env.VIA_HOME}/volumes/bitcoin`, {
         recursive: true
     });
+    fs.mkdirSync(`${process.env.VIA_HOME}/volumes/celestia`, {
+        recursive: true
+    });
 }
 
 export async function up(composeFile?: string) {

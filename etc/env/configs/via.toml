@@ -25,7 +25,7 @@ da_identifier = "da_identifier_celestia"
 proof_sending_mode= "SkipEveryProof"
 
 [via_celestia_client]
-api_node_url = "https://celestia.stage0.onvia.dev:26658"
+api_node_url = "ws://localhost:26658"
 auth_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJwdWJsaWMiLCJyZWFkIiwid3JpdGUiXX0.780ufTrnVT58ZV6UBuDAysZk0QekLJ5-fkXlkAjpve0"
 blob_size_limit = 1973786
 
