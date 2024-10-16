@@ -16,7 +16,7 @@ import * as env from './env';
 import { command as transactions } from './transactions';
 import { command as bootstrap } from './bootstrap';
 import { command as verifier } from './verifier';
-import { command as celestia} from './celestia';
+import { command as celestia } from './celestia';
 
 const COMMANDS = [
     server,
