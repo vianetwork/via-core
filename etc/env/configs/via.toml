@@ -26,7 +26,7 @@ proof_sending_mode= "SkipEveryProof"
 
 [via_celestia_client]
 api_node_url = "http://0.0.0.0:26658"
-auth_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJwdWJsaWMiLCJyZWFkIiwid3JpdGUiXX0.780ufTrnVT58ZV6UBuDAysZk0QekLJ5-fkXlkAjpve0"
+auth_token = ""
 blob_size_limit = 1973786
 
 [rust]
@@ -64,4 +64,5 @@ via_btc_watch=debug,\
 via_state_keeper=debug,\
 via_btc_sender=debug,\
 via_da_dispatcher=debug,\
+via_da_clients=debug,\
 """

@@ -74,6 +74,55 @@ async function get_celestia_faucet_token(node_address: string) {
     return data.token;
 }
 
+async function fix_celestia_config() {
+    const configFilePath = path.join(process.env.VIA_HOME!, 'volumes/celestia/config.toml');
+    const configFileContent = await fs.readFile(configFilePath, 'utf-8');
+
+    // Split the file into lines
+    const lines = configFileContent.split('\n');
+
+    // Flags to track if we are in the [RPC] section
+    let inRpcSection = false;
+
+    // Iterate over each line to find and modify the [RPC] section
+    const updatedLines = lines.map((line) => {
+        const trimmedLine = line.trim();
+
+        // Check if we are entering the [RPC] section
+        if (trimmedLine === '[RPC]') {
+            inRpcSection = true;
+            return line; // Keep the section header as is
+        }
+
+        // If we are in the [RPC] section, modify the relevant lines
+        if (inRpcSection) {
+            if (trimmedLine.startsWith('Address')) {
+                return '  Address = "0.0.0.0"';
+            }
+            if (trimmedLine.startsWith('Port')) {
+                return '  Port = "26658"';
+            }
+            if (trimmedLine.startsWith('SkipAuth')) {
+                return '  SkipAuth = false';
+            }
+
+            // Check if we are leaving the [RPC] section
+            if (trimmedLine.startsWith('[') && trimmedLine !== '[RPC]') {
+                inRpcSection = false;
+            }
+        }
+
+        // Return the line unchanged if no modifications are needed
+        return line;
+    });
+
+    // Join the updated lines back into a single string
+    const updatedConfigFileContent = updatedLines.join('\n');
+
+    // Write the updated content back to the file
+    await fs.writeFile(configFilePath, updatedConfigFileContent, 'utf-8');
+}
+
 export async function via_celestia() {
     process.chdir(`${process.env.VIA_HOME}`);
     let auth_token = '';
@@ -87,6 +136,8 @@ export async function via_celestia() {
     }
 
     await updateEnvironment(auth_token);
+
+    await fix_celestia_config();
 
     try {
         await get_celestia_faucet_token(node_address);

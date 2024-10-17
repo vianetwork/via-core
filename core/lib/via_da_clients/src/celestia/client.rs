@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use celestia_rpc::{BlobClient, Client};
+use celestia_rpc::{BlobClient, Client, P2PClient};
 use celestia_types::{nmt::Namespace, Blob, Commitment, TxConfig};
 use hex;
 pub use zksync_config::ViaCelestiaConfig;
@@ -30,8 +30,9 @@ impl CelestiaClient {
             .await
             .map_err(|error| anyhow!("Failed to create a client: {}", error))?;
 
-        // NOTE: during refactoring move namespace to the config
-        // Name Space: "Via Protocol"
+        // connection test
+        let _info = client.p2p_info().await?;
+
         let namespace_bytes = [b'V', b'I', b'A', 0, 0, 0, 0, 0]; // Pad with zeros to reach 8 bytes
         let namespace_bytes: &[u8] = &namespace_bytes;
         let namespace = Namespace::new_v0(namespace_bytes).map_err(|error| types::DAError {
