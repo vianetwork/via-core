@@ -424,6 +424,12 @@ impl ViaDataAvailabilityDal<'_, '_> {
                 vda.is_proof = FALSE
                 AND vda.blob_id IS NOT NULL
                 AND lb.commitment IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM via_data_availability vda2
+                    WHERE vda2.is_proof = TRUE
+                    AND vda2.blob_id IS NOT NULL
+                )
             LIMIT
                 $1
             "#,
