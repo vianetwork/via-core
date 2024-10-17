@@ -416,12 +416,14 @@ impl ViaDataAvailabilityDal<'_, '_> {
         let rows = sqlx::query!(
             r#"
             SELECT
-                l1_batch_number
+                vda.l1_batch_number
             FROM
-                via_data_availability
+                via_data_availability vda
+                JOIN l1_batches lb ON vda.l1_batch_number = lb.number
             WHERE
-                is_proof = FALSE
-                AND blob_id IS NOT NULL
+                vda.is_proof = FALSE
+                AND vda.blob_id IS NOT NULL
+                AND lb.commitment IS NOT NULL
             LIMIT
                 $1
             "#,
@@ -435,8 +437,9 @@ impl ViaDataAvailabilityDal<'_, '_> {
         Ok(rows
             .into_iter()
             .map(|row| {
-                let batch_number = L1BatchNumber(row.l1_batch_number as u32);
-                L1BatchNumber::from(batch_number) // Ensure this conversion is defined
+                // check if commitment exist or not
+
+                L1BatchNumber(row.l1_batch_number as u32) // Ensure this conversion is defined
             })
             .collect())
     }

@@ -24,6 +24,7 @@ const get_node_address_command =
     "docker exec $(docker ps -q -f name=celestia-node) celestia state account-address | jq -r '.result'";
 const get_auth_node_command =
     'docker exec $(docker ps -q -f name=celestia-node) celestia light auth admin --p2p.network arabica';
+const restart_celestia_container_command = 'docker restart celestia-node';
 
 async function updateEnvVariable(envFilePath: string, variableName: string, newValue: string) {
     const envFileContent = await fs.readFile(envFilePath, 'utf-8');
@@ -138,6 +139,12 @@ export async function via_celestia() {
     await updateEnvironment(auth_token);
 
     await fix_celestia_config();
+
+    try {
+        await runCommand(restart_celestia_container_command);
+    } catch (error) {
+        console.error('Error executing command:', error);
+    }
 
     try {
         await get_celestia_faucet_token(node_address);
