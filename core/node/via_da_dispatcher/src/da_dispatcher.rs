@@ -172,18 +172,8 @@ impl ViaDataAvailabilityDispatcher {
                     )
                 })?;
 
-            let serelize_proof = dummy_proof.into_tokens();
-            // iterate over tokens and convert them to bytes
-            let mut proof_bytes = Vec::new();
-
-            for token in serelize_proof {
-                proof_bytes.extend(token.into_bytes());
-            }
-
-            let final_proof = proof_bytes.into_iter().flatten().collect::<Vec<u8>>();
-
             let dispatch_response = retry(self.config.max_retries(), batch, || {
-                self.client.dispatch_blob(batch.0, final_proof.clone())
+                self.client.dispatch_blob(batch.0, dummy_proof.clone())
             })
             .await?;
 
@@ -197,11 +187,11 @@ impl ViaDataAvailabilityDispatcher {
                 .await?;
 
             METRICS.last_dispatched_proof_batch.set(batch.0 as usize);
-            METRICS.blob_size.observe(final_proof.len());
+            METRICS.blob_size.observe(dummy_proof.len());
             tracing::info!(
                 "Dispatched a dummy proof for batch_number: {}, proof_size: {}, dispatch_latency: {dispatch_latency_duration:?}",
                 batch,
-                final_proof.len(),
+                dummy_proof.len(),
             );
         }
 
@@ -424,7 +414,7 @@ impl ViaDataAvailabilityDispatcher {
     async fn prepare_dummy_proof_operation(
         &self,
         batch_to_prove: L1BatchNumber,
-    ) -> Option<ProveBatches> {
+    ) -> Option<Vec<u8>> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
         let previous_proven_batch_number =
@@ -482,12 +472,47 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
-        Some(ProveBatches {
+        let res = ProveBatches {
             prev_l1_batch: previous_proven_batch_metadata,
             l1_batches: vec![metadata_for_batch_being_proved],
             proofs: vec![],
             should_verify: false,
-        })
+        };
+
+        let prev_l1_batch_bytes = bincode::serialize(&res.prev_l1_batch)
+            .map_err(|e| {
+                tracing::error!("Failed to serialize prev_l1_batch: {}", e);
+                None::<Vec<u8>>
+            })
+            .ok()?;
+        let l1_batches_bytes = bincode::serialize(&res.l1_batches)
+            .map_err(|e| {
+                tracing::error!("Failed to serialize l1_batches: {}", e);
+                None::<Vec<u8>>
+            })
+            .ok()?;
+        let proofs_bytes = bincode::serialize(&res.proofs)
+            .map_err(|e| {
+                tracing::error!("Failed to serialize proofs: {}", e);
+                None::<Vec<u8>>
+            })
+            .ok()?;
+        let should_verify = bincode::serialize(&res.should_verify)
+            .map_err(|e| {
+                tracing::error!("Failed to serialize should_verify: {}", e);
+                None::<Vec<u8>>
+            })
+            .ok()?;
+
+        let final_proof = [
+            prev_l1_batch_bytes,
+            l1_batches_bytes,
+            proofs_bytes,
+            should_verify,
+        ]
+        .concat();
+
+        Some(final_proof)
     }
     /// Loads wrapped FRI proofs for a given L1 batch number and allowed protocol versions.
     pub async fn load_wrapped_fri_proofs_for_range(
