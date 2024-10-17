@@ -63,5 +63,6 @@ export const command = new Command('clean')
             await down.down();
             clean('volumes');
             clean('contracts/ethereum/.openzeppelin');
+            clean('core/lib/via_btc_client/depositor_inscriber_context.json');
         }
     });
