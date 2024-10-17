@@ -489,6 +489,7 @@ mod tests {
                 schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                 encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                 block_height: 0,
+                tx_id: Txid::all_zeros(),
             },
             input: types::ProposeSequencerInput {
                 sequencer_new_p2wpkh_address: indexer
@@ -506,6 +507,7 @@ mod tests {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                     block_height: 0,
+                    tx_id: Txid::all_zeros(),
                 },
                 input: types::ValidatorAttestationInput {
                     reference_txid: Txid::all_zeros(),
@@ -520,6 +522,7 @@ mod tests {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                     block_height: 0,
+                    tx_id: Txid::all_zeros(),
                 },
                 input: types::L1BatchDAReferenceInput {
                     l1_batch_hash: zksync_basic_types::H256::zero(),
@@ -535,6 +538,7 @@ mod tests {
                 schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                 encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                 block_height: 0,
+                tx_id: Txid::all_zeros(),
             },
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
@@ -555,6 +559,7 @@ mod tests {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                     block_height: 0,
+                    tx_id: Txid::all_zeros(),
                 },
                 input: types::SystemBootstrappingInput {
                     start_block_height: 0,
@@ -585,6 +590,7 @@ mod tests {
                 x_only_public_key.0.serialize(),
             ),
             block_height: 0,
+            tx_id: Txid::all_zeros(),
         };
 
         let sender_address = parser::get_btc_address(&common_fields, network);
@@ -604,6 +610,7 @@ mod tests {
                 schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                 encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                 block_height: 0,
+                tx_id: Txid::all_zeros(),
             },
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
@@ -623,6 +630,7 @@ mod tests {
                 schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                 encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                 block_height: 0,
+                tx_id: Txid::all_zeros(),
             },
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
