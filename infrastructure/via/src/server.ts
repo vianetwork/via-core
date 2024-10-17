@@ -17,7 +17,7 @@ export async function server(rebuildTree: boolean, uring: boolean, components?: 
     if (components) {
         options += ` --components=${components}`;
     }
-    await utils.spawn(`cargo run --bin via_server ${options}`);
+    await utils.spawn(`cargo run --bin via_server ${options} --release`);
 }
 
 async function create_genesis(cmd: string) {

@@ -416,21 +416,21 @@ impl ViaNodeBuilder {
             .add_postgres_metrics_layer()?
             .add_query_eth_client_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?
-            // // VIA layers
-            // .add_btc_watcher_layer()?
-            // .add_btc_sender_layer()?
-            // .add_l1_gas_layer()?
-            // .add_tx_sender_layer()?
-            // .add_api_caches_layer()?
-            // .add_tree_api_client_layer()?
-            // .add_http_web3_api_layer()?
-            // .add_vm_runner_protective_reads_layer()?
-            // .add_vm_runner_bwip_layer()?
-            // .add_storage_initialization_layer(LayerKind::Task)?
-            // .add_state_keeper_layer()?
-            // .add_logs_bloom_backfill_layer()?
-            // .add_metadata_calculator_layer(true)?
-            // .add_commitment_generator_layer()?
+            // VIA layers
+            .add_btc_watcher_layer()?
+            .add_btc_sender_layer()?
+            .add_l1_gas_layer()?
+            .add_tx_sender_layer()?
+            .add_api_caches_layer()?
+            .add_tree_api_client_layer()?
+            .add_http_web3_api_layer()?
+            .add_vm_runner_protective_reads_layer()?
+            .add_vm_runner_bwip_layer()?
+            .add_storage_initialization_layer(LayerKind::Task)?
+            .add_state_keeper_layer()?
+            .add_logs_bloom_backfill_layer()?
+            .add_metadata_calculator_layer(true)?
+            .add_commitment_generator_layer()?
             .add_via_celestia_da_client_layer()?
             .add_da_dispatcher_layer()?
             .node
