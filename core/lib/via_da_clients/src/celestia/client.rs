@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use celestia_rpc::{BlobClient, Client};
+use celestia_rpc::{BlobClient, Client, P2PClient};
 use celestia_types::{nmt::Namespace, Blob, Commitment, TxConfig};
 use hex;
 pub use zksync_config::ViaCelestiaConfig;
@@ -21,6 +21,7 @@ pub struct CelestiaClient {
     light_node_url: String,
     inner: Arc<Client>,
     blob_size_limit: usize,
+    namespace: Namespace,
 }
 
 impl CelestiaClient {
@@ -29,10 +30,21 @@ impl CelestiaClient {
             .await
             .map_err(|error| anyhow!("Failed to create a client: {}", error))?;
 
+        // connection test
+        let _info = client.p2p_info().await?;
+
+        let namespace_bytes = [b'V', b'I', b'A', 0, 0, 0, 0, 0]; // Pad with zeros to reach 8 bytes
+        let namespace_bytes: &[u8] = &namespace_bytes;
+        let namespace = Namespace::new_v0(namespace_bytes).map_err(|error| types::DAError {
+            error: error.into(),
+            is_retriable: false,
+        })?;
+
         Ok(Self {
             light_node_url: celestia_conf.api_node_url,
             inner: Arc::new(client),
             blob_size_limit: celestia_conf.blob_size_limit,
+            namespace,
         })
     }
 }
@@ -44,21 +56,14 @@ impl DataAvailabilityClient for CelestiaClient {
         _batch_number: u32,
         data: Vec<u8>,
     ) -> Result<types::DispatchResponse, types::DAError> {
-        // NOTE: during refactoring move namespace to the config
-        let my_namespace =
-            Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).map_err(|error| types::DAError {
-                error: error.into(),
-                is_retriable: false,
-            })?;
-
         let share_version = celestia_types::consts::appconsts::SHARE_VERSION_ZERO;
 
-        let blob = Blob::new(my_namespace, data.clone()).map_err(|error| types::DAError {
+        let blob = Blob::new(self.namespace, data.clone()).map_err(|error| types::DAError {
             error: error.into(),
             is_retriable: false,
         })?;
 
-        let commitment_result = match Commitment::from_blob(my_namespace, share_version, &data) {
+        let commitment_result = match Commitment::from_blob(self.namespace, share_version, &data) {
             Ok(commit) => commit,
             Err(error) => {
                 return Err(types::DAError {
@@ -101,12 +106,6 @@ impl DataAvailabilityClient for CelestiaClient {
         &self,
         blob_id: &str,
     ) -> Result<Option<types::InclusionData>, types::DAError> {
-        let my_namespace =
-            Namespace::new_v0(&[0xDA, 0xAD, 0xBE, 0xEF]).map_err(|error| types::DAError {
-                error: error.into(),
-                is_retriable: false,
-            })?;
-
         // [8]byte block height ++ [32]byte commitment
         let blob_id_bytes = hex::decode(blob_id).map_err(|error| types::DAError {
             error: error.into(),
@@ -130,7 +129,7 @@ impl DataAvailabilityClient for CelestiaClient {
 
         let blob = self
             .inner
-            .blob_get(block_height, my_namespace, commitment)
+            .blob_get(block_height, self.namespace, commitment)
             .await
             .map_err(|error| types::DAError {
                 error: error.into(),

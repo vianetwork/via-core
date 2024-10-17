@@ -11,7 +11,7 @@ use via_btc_client::{
     traits::Serializable,
     types::InscriptionMessage,
 };
-use zksync_config::ViaBtcSenderConfig;
+use zksync_config::{configs::via_btc_sender::ProofSendingMode, ViaBtcSenderConfig};
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::{
@@ -89,6 +89,7 @@ pub fn get_btc_sender_config(
         max_aggregated_blocks_to_commit,
         max_aggregated_proofs_to_commit,
         max_txs_in_flight: 1,
+        proof_sending_mode: ProofSendingMode::SkipEveryProof,
     }
 }
 

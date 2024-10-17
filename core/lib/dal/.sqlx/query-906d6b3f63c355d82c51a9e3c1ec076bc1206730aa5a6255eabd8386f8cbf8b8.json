@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                vda.l1_batch_number\n            FROM\n                via_data_availability vda\n                JOIN l1_batches lb ON vda.l1_batch_number = lb.number\n            WHERE\n                vda.is_proof = FALSE\n                AND vda.blob_id IS NOT NULL\n                AND lb.commitment IS NOT NULL\n                AND NOT EXISTS (\n                    SELECT 1\n                    FROM via_data_availability vda2\n                    WHERE vda2.is_proof = TRUE\n                    AND vda2.blob_id IS NOT NULL\n                )\n            LIMIT\n                $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "906d6b3f63c355d82c51a9e3c1ec076bc1206730aa5a6255eabd8386f8cbf8b8"
+}

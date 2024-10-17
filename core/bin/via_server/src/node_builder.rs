@@ -1,6 +1,11 @@
 use anyhow::Context;
+use via_da_clients::celestia::{
+    config::ViaCelestiaConf, wiring_layer::ViaCelestiaClientWiringLayer,
+};
 use zksync_config::{
-    configs::{wallets::Wallets, GeneralConfig, PostgresConfig, Secrets},
+    configs::{
+        via_btc_sender::ProofSendingMode, wallets::Wallets, GeneralConfig, PostgresConfig, Secrets,
+    },
     ContractsConfig, GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
 };
 use zksync_metadata_calculator::MetadataCalculatorConfig;
@@ -11,6 +16,7 @@ use zksync_node_api_server::{
 use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
+        commitment_generator::CommitmentGeneratorLayer,
         healtcheck_server::HealthCheckLayer,
         house_keeper::HouseKeeperLayer,
         logs_bloom_backfill::LogsBloomBackfillLayer,
@@ -28,6 +34,7 @@ use zksync_node_framework::{
             aggregator::ViaBtcInscriptionAggregatorLayer, manager::ViaInscriptionManagerLayer,
         },
         via_btc_watch::BtcWatchLayer,
+        via_da_dispatcher::DataAvailabilityDispatcherLayer,
         via_l1_gas::ViaL1GasLayer,
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
@@ -365,6 +372,37 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_commitment_generator_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(CommitmentGeneratorLayer::new(
+            self.genesis_config.l1_batch_commit_data_generator_mode,
+        ));
+
+        Ok(self)
+    }
+
+    fn add_da_dispatcher_layer(mut self) -> anyhow::Result<Self> {
+        let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
+        let da_config = try_load_config!(self.configs.da_dispatcher_config);
+        let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
+
+        let dispatch_real_proof =
+            btc_sender_config.proof_sending_mode != ProofSendingMode::SkipEveryProof;
+        self.node.add_layer(DataAvailabilityDispatcherLayer::new(
+            state_keeper_config,
+            da_config,
+            dispatch_real_proof,
+        ));
+
+        Ok(self)
+    }
+
+    fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
+        let celestia_config = try_load_config!(self.configs.via_celestia_config);
+        self.node
+            .add_layer(ViaCelestiaClientWiringLayer::new(celestia_config));
+        Ok(self)
+    }
+
     /// Builds the node with the genesis initialization task only.
     pub fn only_genesis(mut self) -> anyhow::Result<ZkStackService> {
         self = self
@@ -400,6 +438,9 @@ impl ViaNodeBuilder {
             .add_state_keeper_layer()?
             .add_logs_bloom_backfill_layer()?
             .add_metadata_calculator_layer(true)?
+            .add_commitment_generator_layer()?
+            .add_via_celestia_da_client_layer()?
+            .add_da_dispatcher_layer()?
             .node
             .build())
     }

@@ -10,8 +10,8 @@ use zksync_config::{
         FriWitnessGeneratorConfig, ObservabilityConfig, PrometheusConfig,
         ProtectiveReadsWriterConfig,
     },
-    ApiConfig, DBConfig, ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig,
-    ViaCelestiaConfig,
+    ApiConfig, DADispatcherConfig, DBConfig, ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig,
+    ViaBtcWatchConfig, ViaCelestiaConfig,
 };
 use zksync_core_leftovers::temp_config_store::{decode_yaml_repr, TempConfigStore};
 use zksync_env_config::FromEnv;
@@ -68,7 +68,7 @@ pub(crate) fn load_env_config() -> anyhow::Result<TempConfigStore> {
         gas_adjuster_config: None,
         observability: ObservabilityConfig::from_env().ok(),
         snapshot_creator: None,
-        da_dispatcher_config: None,
+        da_dispatcher_config: DADispatcherConfig::from_env().ok(),
         protective_reads_writer_config: ProtectiveReadsWriterConfig::from_env().ok(),
         basic_witness_input_producer_config: BasicWitnessInputProducerConfig::from_env().ok(),
         core_object_store: ObjectStoreConfig::from_env().ok(),

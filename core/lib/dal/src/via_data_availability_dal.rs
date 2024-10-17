@@ -408,4 +408,48 @@ impl ViaDataAvailabilityDal<'_, '_> {
             })
             .collect())
     }
+
+    pub async fn get_ready_for_dummy_proof_dispatch_l1_batches(
+        &mut self,
+        limit: usize,
+    ) -> DalResult<Vec<L1BatchNumber>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                vda.l1_batch_number
+            FROM
+                via_data_availability vda
+                JOIN l1_batches lb ON vda.l1_batch_number = lb.number
+            WHERE
+                vda.is_proof = FALSE
+                AND vda.blob_id IS NOT NULL
+                AND lb.commitment IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT
+                        1
+                    FROM
+                        via_data_availability vda2
+                    WHERE
+                        vda2.is_proof = TRUE
+                        AND vda2.blob_id IS NOT NULL
+                )
+            LIMIT
+                $1
+            "#,
+            limit as i64,
+        )
+        .instrument("get_ready_for_dummy_proof_dispatch_l1_batches")
+        .with_arg("limit", &limit)
+        .fetch_all(self.storage)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                // check if commitment exist or not
+
+                L1BatchNumber(row.l1_batch_number as u32) // Ensure this conversion is defined
+            })
+            .collect())
+    }
 }

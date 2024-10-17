@@ -23,6 +23,7 @@ pub struct ViaDataAvailabilityDispatcher {
     pool: ConnectionPool<Core>,
     config: DADispatcherConfig,
     blob_store: Arc<dyn ObjectStore>,
+    dispatch_real_proof: bool,
 }
 
 impl ViaDataAvailabilityDispatcher {
@@ -31,12 +32,14 @@ impl ViaDataAvailabilityDispatcher {
         config: DADispatcherConfig,
         client: Box<dyn DataAvailabilityClient>,
         blob_store: Arc<dyn ObjectStore>,
+        dispatch_real_proof: bool,
     ) -> Self {
         Self {
             pool,
             config,
             client,
             blob_store,
+            dispatch_real_proof,
         }
     }
 
@@ -136,8 +139,68 @@ impl ViaDataAvailabilityDispatcher {
         Ok(())
     }
 
-    /// Dispatches proofs to the data availability layer, and saves the blob_id in the database.
     async fn dispatch_proofs(&self) -> anyhow::Result<()> {
+        match self.dispatch_real_proof {
+            true => self.dispatch_real_proofs().await?,
+            false => self.dispatch_dummy_proofs().await?,
+        }
+        Ok(())
+    }
+
+    async fn dispatch_dummy_proofs(&self) -> anyhow::Result<()> {
+        let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
+
+        let batches = conn
+            .via_data_availability_dal()
+            .get_ready_for_dummy_proof_dispatch_l1_batches(
+                self.config.max_rows_to_dispatch() as usize
+            )
+            .await?;
+
+        drop(conn);
+
+        for batch in batches {
+            let dispatch_latency = METRICS.blob_dispatch_latency.start();
+
+            let dummy_proof = self
+                .prepare_dummy_proof_operation(batch)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to prepare a dummy proof for batch_number: {}",
+                        batch
+                    )
+                })?;
+
+            let dispatch_response = retry(self.config.max_retries(), batch, || {
+                self.client.dispatch_blob(batch.0, dummy_proof.clone())
+            })
+            .await?;
+
+            let dispatch_latency_duration = dispatch_latency.observe();
+
+            let sent_at = Utc::now().naive_utc();
+
+            let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
+            conn.via_data_availability_dal()
+                .insert_proof_da(batch, dispatch_response.blob_id.as_str(), sent_at)
+                .await?;
+
+            METRICS.last_dispatched_proof_batch.set(batch.0 as usize);
+            METRICS.blob_size.observe(dummy_proof.len());
+            tracing::info!(
+                "Dispatched a dummy proof for batch_number: {}, proof_size: {}, dispatch_latency: {dispatch_latency_duration:?}",
+                batch,
+                dummy_proof.len(),
+            );
+        }
+
+        Ok(())
+    }
+
+    // TODO: fix dal logic for loading real proofs
+    /// Dispatches proofs to the data availability layer, and saves the blob_id in the database.
+    async fn dispatch_real_proofs(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 
         let proofs = conn
@@ -348,6 +411,109 @@ impl ViaDataAvailabilityDispatcher {
         })
     }
 
+    async fn prepare_dummy_proof_operation(
+        &self,
+        batch_to_prove: L1BatchNumber,
+    ) -> Option<Vec<u8>> {
+        let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
+
+        let previous_proven_batch_number =
+            match storage.blocks_dal().get_last_l1_batch_with_prove_tx().await {
+                Ok(batch_number) => batch_number,
+                Err(e) => {
+                    tracing::error!("Failed to retrieve the last L1 batch with proof tx: {}", e);
+                    return None;
+                }
+            };
+
+        let previous_proven_batch_metadata = match storage
+            .blocks_dal()
+            .get_l1_batch_metadata(previous_proven_batch_number)
+            .await
+        {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                tracing::error!(
+                    "L1 batch #{} with submitted proof is not complete in the DB",
+                    previous_proven_batch_number
+                );
+                return None;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to retrieve L1 batch #{} metadata: {}",
+                    previous_proven_batch_number,
+                    e
+                );
+                return None;
+            }
+        };
+
+        let metadata_for_batch_being_proved = match storage
+            .blocks_dal()
+            .get_l1_batch_metadata(batch_to_prove)
+            .await
+        {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                tracing::error!(
+                    "L1 batch #{} with generated proof is not complete in the DB",
+                    batch_to_prove
+                );
+                return None;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to retrieve L1 batch #{} metadata: {}",
+                    batch_to_prove,
+                    e
+                );
+                return None;
+            }
+        };
+
+        let res = ProveBatches {
+            prev_l1_batch: previous_proven_batch_metadata,
+            l1_batches: vec![metadata_for_batch_being_proved],
+            proofs: vec![],
+            should_verify: false,
+        };
+
+        let prev_l1_batch_bytes = bincode::serialize(&res.prev_l1_batch)
+            .map_err(|e| {
+                tracing::error!("Failed to serialize prev_l1_batch: {}", e);
+                None::<Vec<u8>>
+            })
+            .ok()?;
+        let l1_batches_bytes = bincode::serialize(&res.l1_batches)
+            .map_err(|e| {
+                tracing::error!("Failed to serialize l1_batches: {}", e);
+                None::<Vec<u8>>
+            })
+            .ok()?;
+        let proofs_bytes = bincode::serialize(&res.proofs)
+            .map_err(|e| {
+                tracing::error!("Failed to serialize proofs: {}", e);
+                None::<Vec<u8>>
+            })
+            .ok()?;
+        let should_verify = bincode::serialize(&res.should_verify)
+            .map_err(|e| {
+                tracing::error!("Failed to serialize should_verify: {}", e);
+                None::<Vec<u8>>
+            })
+            .ok()?;
+
+        let final_proof = [
+            prev_l1_batch_bytes,
+            l1_batches_bytes,
+            proofs_bytes,
+            should_verify,
+        ]
+        .concat();
+
+        Some(final_proof)
+    }
     /// Loads wrapped FRI proofs for a given L1 batch number and allowed protocol versions.
     pub async fn load_wrapped_fri_proofs_for_range(
         &self,

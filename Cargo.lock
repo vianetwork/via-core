@@ -8505,6 +8505,7 @@ name = "via_da_dispatcher"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "chrono",
  "futures 0.3.30",
  "rand 0.8.5",
@@ -8545,6 +8546,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tracing",
+ "via_da_clients",
  "zksync_config",
  "zksync_core_leftovers",
  "zksync_env_config",
