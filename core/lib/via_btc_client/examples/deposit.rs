@@ -33,7 +33,9 @@ async fn main() -> Result<()> {
         .init();
 
     let args: Vec<String> = env::args().collect();
-    let amount = args[1].parse::<f64>()?;
+    let mut amount = args[1].parse::<f64>()?;
+    let fees: f64 = 0.03;
+    amount += fees;
 
     let receiver_l2_address = EVMAddress::from_str(&args[2])?;
     info!(
