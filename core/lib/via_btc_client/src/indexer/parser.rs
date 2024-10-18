@@ -4,7 +4,7 @@ use bitcoin::{
     key::UntweakedPublicKey,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, Txid,
+    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, Txid, Witness,
 };
 use secp256k1::{Parity, PublicKey};
 use tracing::{debug, instrument, warn};
@@ -46,11 +46,27 @@ impl MessageParser {
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
     pub fn parse_transaction(&mut self, tx: &Transaction, block_height: u32) -> Vec<Message> {
-        debug!("Parsing transaction");
-        tx.input
-            .iter()
-            .filter_map(|input| self.parse_input(input, tx, block_height))
-            .collect()
+        // parsing btc address
+        let mut sender_addresses: Option<Address> = None;
+        for input in tx.input.iter() {
+            let witness = &input.witness;
+            if let Some(btc_address) = self.parse_p2wpkh(&witness) {
+                sender_addresses = Some(btc_address);
+            }
+        }
+
+        match sender_addresses {
+            Some(address) => {
+                // parsing messages
+                tx.input
+                    .iter()
+                    .filter_map(|input| self.parse_input(input, tx, block_height, address.clone()))
+                    .collect()
+            }
+            None => {
+                vec![]
+            }
+        }
     }
 
     #[instrument(skip(self, input, tx), target = "bitcoin_indexer::parser")]
@@ -59,6 +75,7 @@ impl MessageParser {
         input: &bitcoin::TxIn,
         tx: &Transaction,
         block_height: u32,
+        address: Address,
     ) -> Option<Message> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
@@ -96,9 +113,22 @@ impl MessageParser {
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
             block_height,
             tx_id: tx.compute_ntxid().into(),
+            p2wpkh_address: address,
         };
 
         self.parse_message(tx, &instructions[via_index..], &common_fields)
+    }
+
+    #[instrument(skip(self), target = "bitcoin_indexer::parser")]
+    fn parse_p2wpkh(&mut self, witness: &Witness) -> Option<Address> {
+        if witness.len() == 2 {
+            let public_key = bitcoin::PublicKey::from_slice(&witness[1]).ok()?;
+            let cm_pk = CompressedPublicKey::try_from(public_key).ok()?;
+
+            Some(Address::p2wpkh(&cm_pk, self.network))
+        } else {
+            None
+        }
     }
 
     #[instrument(

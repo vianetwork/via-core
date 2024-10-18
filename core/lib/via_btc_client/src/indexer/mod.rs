@@ -73,7 +73,6 @@ pub struct BitcoinInscriptionIndexer {
     sequencer_address: Address,
     verifier_addresses: Vec<Address>,
     starting_block_number: u32,
-    network: Network,
 }
 
 impl BitcoinInscriptionIndexer {
@@ -107,7 +106,7 @@ impl BitcoinInscriptionIndexer {
             }
         }
 
-        Self::create_indexer(bootstrap_state, client, parser, network)
+        Self::create_indexer(bootstrap_state, client, parser)
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
@@ -192,7 +191,6 @@ impl BitcoinInscriptionIndexer {
         bootstrap_state: BootstrapState,
         client: Box<dyn BitcoinOps>,
         parser: MessageParser,
-        network: Network,
     ) -> BitcoinIndexerResult<Self> {
         if bootstrap_state.is_complete() {
             if let (Some(bridge), Some(sequencer)) = (
@@ -207,7 +205,6 @@ impl BitcoinInscriptionIndexer {
                     sequencer_address: sequencer,
                     verifier_addresses: bootstrap_state.verifier_addresses,
                     starting_block_number: bootstrap_state.starting_block_number,
-                    network,
                 })
             } else {
                 error!("Incomplete bootstrap process despite state being marked as complete");
@@ -230,30 +227,19 @@ impl BitcoinInscriptionIndexer {
     fn is_valid_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
             FullInscriptionMessage::ProposeSequencer(m) => {
-                // let is_valid = parser::get_btc_address(&m.common, self.network)
-                //     .map_or(false, |addr| self.verifier_addresses.contains(&addr));
-                debug!("ProposeSequencer message validity: {}", true);
-                true
+                self.verifier_addresses.contains(&m.common.p2wpkh_address)
             }
             FullInscriptionMessage::ValidatorAttestation(m) => {
-                // let is_valid = parser::get_btc_address(&m.common, self.network)
-                //     .map_or(false, |addr| self.verifier_addresses.contains(&addr));
-                debug!("ValidatorAttestation message validity: {}", true);
-                true
+                self.verifier_addresses.contains(&m.common.p2wpkh_address)
             }
             FullInscriptionMessage::L1BatchDAReference(m) => {
-                // let is_valid = parser::get_btc_address(&m.common, self.network)
-                //     .map_or(false, |addr| addr == self.sequencer_address);
-                debug!("L1BatchDAReference message validity: {}", true);
-                true
+                m.common.p2wpkh_address == self.sequencer_address
             }
             FullInscriptionMessage::ProofDAReference(m) => {
-                // let is_valid = parser::get_btc_address(&m.common, self.network)
-                //     .map_or(false, |addr| addr == self.sequencer_address);
-                debug!("ProofDAReference message validity: {}", true);
-                true
+                m.common.p2wpkh_address == self.sequencer_address
             }
             FullInscriptionMessage::L1ToL2Message(m) => {
+                // TODO: also check sender address
                 let is_valid =
                     m.amount > bitcoin::Amount::ZERO && self.is_valid_l1_to_l2_transfer(m);
                 debug!("L1ToL2Message validity: {}", is_valid);
@@ -301,44 +287,27 @@ impl BitcoinInscriptionIndexer {
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
                 debug!("Processing ProposeSequencer message");
-                // if let Some(sender_address) = parser::get_btc_address(&ps.common, network)
-                // {
-                //     debug!("Sender address: {}", sender_address);
-                //     debug!("verifier_addresses: {:?}", state.verifier_addresses);
-                //     if state.verifier_addresses.contains(&sender_address) {
-                let sequencer_address = ps
-                    .input
-                    .sequencer_new_p2wpkh_address
-                    .require_network(network)
-                    .unwrap();
-                state.proposed_sequencer = Some(sequencer_address);
-                state.proposed_sequencer_txid = Some(txid);
-                //     }
-                // } else {
-                //     warn!("ProposeSequencer message does not contain a valid sender address");
-                // }
+                if state.verifier_addresses.contains(&ps.common.p2wpkh_address) {
+                    let sequencer_address = ps
+                        .input
+                        .sequencer_new_p2wpkh_address
+                        .require_network(network)
+                        .unwrap();
+                    state.proposed_sequencer = Some(sequencer_address);
+                    state.proposed_sequencer_txid = Some(txid);
+                }
             }
             FullInscriptionMessage::ValidatorAttestation(va) => {
-                if let Some(sender_address) = parser::get_btc_address(&va.common, network) {
-                    debug!(
-                        "Processing ValidatorAttestation message inscribed by {}",
-                        sender_address
-                    );
-                    // if state.verifier_addresses.contains(&sender_address) {
+                if state.verifier_addresses.contains(&va.common.p2wpkh_address) {
                     if state.proposed_sequencer.is_some() {
                         if let Some(proposed_txid) = state.proposed_sequencer_txid {
                             if va.input.reference_txid == proposed_txid {
                                 state
                                     .sequencer_votes
-                                    .insert(sender_address, va.input.attestation);
+                                    .insert(va.common.p2wpkh_address, va.input.attestation);
                             }
                         }
                     }
-                    // } else {
-                    //     warn!(
-                    //         "ValidatorAttestation message does not contain a valid sender address"
-                    //     );
-                    // }
                 }
             }
             _ => {
@@ -390,17 +359,27 @@ mod tests {
         }
     }
 
-    fn get_indexer_with_mock(mock_client: MockBitcoinOps) -> BitcoinInscriptionIndexer {
-        let parser = MessageParser::new(Network::Testnet);
-        let bridge_address = Address::from_str("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
+    fn get_test_addr() -> Address {
+        Address::from_str("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
             .unwrap()
             .require_network(Network::Testnet)
-            .unwrap();
-        let sequencer_address =
-            Address::from_str("tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7")
-                .unwrap()
-                .require_network(Network::Testnet)
-                .unwrap();
+            .unwrap()
+    }
+
+    fn get_test_common_fields() -> CommonFields {
+        CommonFields {
+            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
+            encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
+            block_height: 0,
+            tx_id: Txid::all_zeros(),
+            p2wpkh_address: get_test_addr(),
+        }
+    }
+
+    fn get_indexer_with_mock(mock_client: MockBitcoinOps) -> BitcoinInscriptionIndexer {
+        let parser = MessageParser::new(Network::Testnet);
+        let bridge_address = get_test_addr();
+        let sequencer_address = get_test_addr();
 
         BitcoinInscriptionIndexer {
             client: Box::new(mock_client),
@@ -409,7 +388,6 @@ mod tests {
             sequencer_address,
             verifier_addresses: vec![],
             starting_block_number: 0,
-            network: Network::Testnet,
         }
     }
 
@@ -485,12 +463,7 @@ mod tests {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
         let propose_sequencer = FullInscriptionMessage::ProposeSequencer(types::ProposeSequencer {
-            common: CommonFields {
-                schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-                encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
-                block_height: 0,
-                tx_id: Txid::all_zeros(),
-            },
+            common: get_test_common_fields(),
             input: types::ProposeSequencerInput {
                 sequencer_new_p2wpkh_address: indexer
                     .sequencer_address
@@ -503,12 +476,7 @@ mod tests {
 
         let validator_attestation =
             FullInscriptionMessage::ValidatorAttestation(types::ValidatorAttestation {
-                common: CommonFields {
-                    schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-                    encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
-                    block_height: 0,
-                    tx_id: Txid::all_zeros(),
-                },
+                common: get_test_common_fields(),
                 input: types::ValidatorAttestationInput {
                     reference_txid: Txid::all_zeros(),
                     attestation: Vote::Ok,
@@ -523,6 +491,7 @@ mod tests {
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                     block_height: 0,
                     tx_id: Txid::all_zeros(),
+                    p2wpkh_address: get_test_addr(),
                 },
                 input: types::L1BatchDAReferenceInput {
                     l1_batch_hash: zksync_basic_types::H256::zero(),
@@ -534,12 +503,7 @@ mod tests {
         assert!(!indexer.is_valid_message(&l1_batch_da_reference));
 
         let l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
-            common: CommonFields {
-                schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-                encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
-                block_height: 0,
-                tx_id: Txid::all_zeros(),
-            },
+            common: get_test_common_fields(),
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
                 receiver_l2_address: zksync_types::Address::zero(),
@@ -555,12 +519,7 @@ mod tests {
 
         let system_bootstrapping =
             FullInscriptionMessage::SystemBootstrapping(types::SystemBootstrapping {
-                common: CommonFields {
-                    schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-                    encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
-                    block_height: 0,
-                    tx_id: Txid::all_zeros(),
-                },
+                common: get_test_common_fields(),
                 input: types::SystemBootstrappingInput {
                     start_block_height: 0,
                     bridge_p2wpkh_mpc_address: indexer
@@ -591,6 +550,7 @@ mod tests {
             ),
             block_height: 0,
             tx_id: Txid::all_zeros(),
+            p2wpkh_address: get_test_addr(),
         };
 
         let sender_address = parser::get_btc_address(&common_fields, network);
@@ -606,12 +566,7 @@ mod tests {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
         let valid_message = L1ToL2Message {
-            common: CommonFields {
-                schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-                encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
-                block_height: 0,
-                tx_id: Txid::all_zeros(),
-            },
+            common: get_test_common_fields(),
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
                 receiver_l2_address: zksync_types::Address::zero(),
@@ -626,12 +581,7 @@ mod tests {
         assert!(indexer.is_valid_l1_to_l2_transfer(&valid_message));
 
         let invalid_message = L1ToL2Message {
-            common: CommonFields {
-                schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-                encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
-                block_height: 0,
-                tx_id: Txid::all_zeros(),
-            },
+            common: get_test_common_fields(),
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
                 receiver_l2_address: zksync_types::Address::zero(),
