@@ -5,8 +5,8 @@ use bitcoincore_rpc::Auth;
 use tracing::{debug, error, info, instrument, warn};
 
 mod parser;
+pub use parser::get_eth_address;
 use parser::MessageParser;
-pub use parser::{get_btc_address, get_eth_address};
 use zksync_types::H256;
 
 use crate::{
@@ -333,11 +333,10 @@ mod tests {
 
     use async_trait::async_trait;
     use bitcoin::{
-        block::Header, hashes::Hash, Amount, Block, KnownHrp, OutPoint, ScriptBuf, Transaction,
-        TxMerkleNode, TxOut,
+        block::Header, hashes::Hash, Amount, Block, OutPoint, ScriptBuf, Transaction, TxMerkleNode,
+        TxOut,
     };
     use mockall::{mock, predicate::*};
-    use secp256k1::Secp256k1;
 
     use super::*;
     use crate::types::{BitcoinClientResult, CommonFields};
@@ -457,7 +456,6 @@ mod tests {
         assert_eq!(result.unwrap().len(), 0);
     }
 
-    #[ignore]
     #[tokio::test]
     async fn test_is_valid_message() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
@@ -500,7 +498,8 @@ mod tests {
                     blob_id: "test".to_string(),
                 },
             });
-        assert!(!indexer.is_valid_message(&l1_batch_da_reference));
+        // We didn't vote for the sequencer yet, so this message is invalid
+        assert!(indexer.is_valid_message(&l1_batch_da_reference));
 
         let l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
             common: get_test_common_fields(),
@@ -533,32 +532,6 @@ mod tests {
                 },
             });
         assert!(indexer.is_valid_message(&system_bootstrapping));
-    }
-
-    #[ignore]
-    #[test]
-    fn test_get_sender_address() {
-        let network = Network::Testnet;
-        let secp = Secp256k1::new();
-        let (_secret_key, p) = secp.generate_keypair(&mut rand::thread_rng());
-        let x_only_public_key = p.x_only_public_key();
-
-        let common_fields = CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-            encoded_public_key: bitcoin::script::PushBytesBuf::from(
-                x_only_public_key.0.serialize(),
-            ),
-            block_height: 0,
-            tx_id: Txid::all_zeros(),
-            p2wpkh_address: get_test_addr(),
-        };
-
-        let sender_address = parser::get_btc_address(&common_fields, network);
-        assert!(sender_address.is_some());
-
-        let expected_address =
-            Address::p2tr(&secp, x_only_public_key.0, None, KnownHrp::from(network));
-        assert_eq!(sender_address.unwrap(), expected_address);
     }
 
     #[tokio::test]

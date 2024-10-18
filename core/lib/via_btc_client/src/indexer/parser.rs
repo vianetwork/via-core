@@ -1,12 +1,10 @@
 use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
-    key::UntweakedPublicKey,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
     Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, Txid, Witness,
 };
-use secp256k1::{Parity, PublicKey};
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
@@ -546,17 +544,6 @@ fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> 
     }
 
     position
-}
-
-pub fn get_btc_address(common_fields: &CommonFields, network: Network) -> Option<Address> {
-    let internal_pubkey =
-        UntweakedPublicKey::from_slice(common_fields.encoded_public_key.as_bytes()).ok()?;
-    let internal_pubkey = PublicKey::from_x_only_public_key(internal_pubkey, Parity::Even);
-    let compressed_pubkey = CompressedPublicKey::from_slice(&internal_pubkey.serialize()).unwrap();
-
-    let address = Address::p2wpkh(&compressed_pubkey, network);
-
-    Some(address)
 }
 
 pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {
