@@ -3,7 +3,7 @@ use zksync_config::{
     configs::{
         api::MerkleTreeApiConfig,
         chain::{CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig},
-        consensus::{ConsensusConfig, ConsensusSecrets},
+        consensus::ConsensusSecrets,
         fri_prover_group::FriProverGroupConfig,
         house_keeper::HouseKeeperConfig,
         BasicWitnessInputProducerConfig, FriProofCompressorConfig, FriProverConfig,

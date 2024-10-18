@@ -298,14 +298,14 @@ impl BitcoinInscriptionIndexer {
                 }
             }
             FullInscriptionMessage::ValidatorAttestation(va) => {
-                if state.verifier_addresses.contains(&va.common.p2wpkh_address) {
-                    if state.proposed_sequencer.is_some() {
-                        if let Some(proposed_txid) = state.proposed_sequencer_txid {
-                            if va.input.reference_txid == proposed_txid {
-                                state
-                                    .sequencer_votes
-                                    .insert(va.common.p2wpkh_address, va.input.attestation);
-                            }
+                if state.verifier_addresses.contains(&va.common.p2wpkh_address)
+                    && state.proposed_sequencer.is_some()
+                {
+                    if let Some(proposed_txid) = state.proposed_sequencer_txid {
+                        if va.input.reference_txid == proposed_txid {
+                            state
+                                .sequencer_votes
+                                .insert(va.common.p2wpkh_address, va.input.attestation);
                         }
                     }
                 }

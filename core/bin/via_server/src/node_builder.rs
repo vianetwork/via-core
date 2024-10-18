@@ -1,12 +1,8 @@
 use anyhow::Context;
-use via_da_clients::celestia::{
-    config::ViaCelestiaConf, wiring_layer::ViaCelestiaClientWiringLayer,
-};
+use via_da_clients::celestia::wiring_layer::ViaCelestiaClientWiringLayer;
 use zksync_config::{
-    configs::{
-        via_btc_sender::ProofSendingMode, wallets::Wallets, GeneralConfig, PostgresConfig, Secrets,
-    },
-    ContractsConfig, GenesisConfig, ViaBtcWatchConfig, ViaGeneralConfig,
+    configs::{via_btc_sender::ProofSendingMode, wallets::Wallets, Secrets},
+    ContractsConfig, GenesisConfig, ViaGeneralConfig,
 };
 use zksync_metadata_calculator::MetadataCalculatorConfig;
 use zksync_node_api_server::{
@@ -18,7 +14,6 @@ use zksync_node_framework::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
         commitment_generator::CommitmentGeneratorLayer,
         healtcheck_server::HealthCheckLayer,
-        house_keeper::HouseKeeperLayer,
         logs_bloom_backfill::LogsBloomBackfillLayer,
         metadata_calculator::MetadataCalculatorLayer,
         node_storage_init::{

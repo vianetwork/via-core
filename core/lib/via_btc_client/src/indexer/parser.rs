@@ -48,7 +48,7 @@ impl MessageParser {
         let mut sender_addresses: Option<Address> = None;
         for input in tx.input.iter() {
             let witness = &input.witness;
-            if let Some(btc_address) = self.parse_p2wpkh(&witness) {
+            if let Some(btc_address) = self.parse_p2wpkh(witness) {
                 sender_addresses = Some(btc_address);
             }
         }
