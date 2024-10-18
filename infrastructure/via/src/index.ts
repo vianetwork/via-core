@@ -17,6 +17,7 @@ import { command as transactions } from './transactions';
 import { command as bootstrap } from './bootstrap';
 import { command as verifier } from './verifier';
 import { command as celestia } from './celestia';
+import { command as btc_explorer } from './btc_explorer';
 
 const COMMANDS = [
     server,
@@ -33,6 +34,7 @@ const COMMANDS = [
     bootstrap,
     verifier,
     celestia,
+    btc_explorer,
     completion(program as Command)
 ];
 

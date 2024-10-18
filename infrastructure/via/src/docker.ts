@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import * as utils from 'utils';
 
 export const VIA_DOCKER_COMPOSE = 'docker-compose-via.yml';
+export const BTC_EXPLORER_DOCKER_COMPOSE = 'docker-compose-via-btc-explorer.yml';
 
 const IMAGES = [
     'server-v2',
