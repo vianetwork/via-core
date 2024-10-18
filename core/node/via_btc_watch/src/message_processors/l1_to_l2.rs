@@ -86,13 +86,12 @@ impl L1ToL2MessageProcessor {
         serial_id: PriorityOpId,
     ) -> Result<L1Tx, MessageProcessorError> {
         let amount = msg.amount.to_sat();
-        let eth_address_sender = via_btc_client::indexer::get_eth_address(&msg.common)
-            .ok_or_else(|| MessageProcessorError::EthAddressParsingError)?;
         let eth_address_l2 = msg.input.receiver_l2_address;
         let calldata = msg.input.call_data.clone();
 
         let value = U256::from(amount);
-        let max_fee_per_gas = U256::from(100_000_000_000u64);
+        let mantissa = U256::from(10_000_000_000u64); // scale down the cost Eth 18 decimals - BTC 8 decimals
+        let max_fee_per_gas = U256::from(100_000_000_000u64) / mantissa;
         let gas_limit = U256::from(1_000_000u64);
         let gas_per_pubdata_limit = U256::from(800u64);
 
@@ -100,11 +99,11 @@ impl L1ToL2MessageProcessor {
             execute: Execute {
                 contract_address: eth_address_l2,
                 calldata: calldata.clone(),
-                value,
+                value: U256::zero(),
                 factory_deps: vec![],
             },
             common_data: L1TxCommonData {
-                sender: eth_address_sender,
+                sender: eth_address_l2,
                 serial_id,
                 layer_2_tip_fee: U256::zero(),
                 full_fee: U256::zero(),
@@ -114,8 +113,8 @@ impl L1ToL2MessageProcessor {
                 op_processing_type: OpProcessingType::Common,
                 priority_queue_type: PriorityQueueType::Deque,
                 canonical_tx_hash: H256::zero(),
-                to_mint: value + max_fee_per_gas * gas_limit,
-                refund_recipient: eth_address_sender,
+                to_mint: value,
+                refund_recipient: eth_address_l2,
                 eth_block: msg.common.block_height as u64,
             },
             received_timestamp_ms: unix_timestamp_ms(),
