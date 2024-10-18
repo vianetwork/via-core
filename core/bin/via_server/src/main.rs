@@ -1,7 +1,7 @@
 use anyhow::Context as _;
 use clap::Parser;
 use zksync_config::{
-    configs::{via_general, DatabaseSecrets, L1Secrets, Secrets},
+    configs::{DatabaseSecrets, L1Secrets, Secrets},
     ContractsConfig, GenesisConfig, ViaGeneralConfig,
 };
 use zksync_env_config::FromEnv;

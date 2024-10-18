@@ -67,6 +67,7 @@ pub struct CommonFields {
     pub encoded_public_key: PushBytesBuf,
     pub block_height: u32,
     pub tx_id: Txid,
+    pub p2wpkh_address: BitcoinAddress,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
