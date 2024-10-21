@@ -1827,11 +1827,11 @@ dependencies = [
 
 [[package]]
 name = "circuit_definitions"
-version = "0.150.5"
+version = "0.150.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b532214f063e5e0ee5c0fc1d3afd56dec541efa68b8985f14cc55cc324f4c48"
+checksum = "492404ea63c934d8e894325f0a741723bf91cd035cb34a92fddd8617c4a00fd3"
 dependencies = [
- "circuit_encodings 0.150.5",
+ "circuit_encodings 0.150.6",
  "crossbeam",
  "derivative",
  "seq-macro",
@@ -13420,7 +13420,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "bigdecimal",
  "test-casing",
  "tokio",
  "tracing",
@@ -13429,7 +13428,6 @@ dependencies = [
  "zksync_dal",
  "zksync_eth_client",
  "zksync_types",
- "zksync_utils",
  "zksync_web3_decl",
 ]
 
@@ -14032,7 +14030,6 @@ dependencies = [
  "once_cell",
  "prost 0.12.6",
  "rlp",
- "secp256k1 0.27.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -14041,7 +14038,6 @@ dependencies = [
  "tokio",
  "tracing",
  "zksync_basic_types",
- "zksync_config",
  "zksync_contracts",
  "zksync_crypto_primitives",
  "zksync_mini_merkle_tree",
