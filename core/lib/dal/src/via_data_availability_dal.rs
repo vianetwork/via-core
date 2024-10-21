@@ -432,8 +432,7 @@ impl ViaDataAvailabilityDal<'_, '_> {
                     WHERE
                         vda2.is_proof = TRUE
                         AND vda2.blob_id IS NOT NULL
-                        AND vda2.l1_batch_number = vda.l1_batch_number  -- Add this line
-
+                        AND vda2.l1_batch_number = vda.l1_batch_number
                 )
             LIMIT
                 $1
