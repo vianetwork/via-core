@@ -72,6 +72,7 @@ async function get_celestia_faucet_token(node_address: string) {
     });
 
     const data = await response.json();
+    console.log('Faucet Response:', data);
     return data.token;
 }
 
@@ -147,9 +148,9 @@ export async function via_celestia() {
     }
 
     try {
-        await get_celestia_faucet_token(node_address);
-        await get_celestia_faucet_token(node_address);
         console.log('Request Sent to Faucet');
+        await get_celestia_faucet_token(node_address);
+        await get_celestia_faucet_token(node_address);
         console.log(`Check your balance at https://arabica.celenium.io/address/${node_address}?tab=transactions`);
     } catch (error) {
         console.error('Error getting faucet token:', error);
