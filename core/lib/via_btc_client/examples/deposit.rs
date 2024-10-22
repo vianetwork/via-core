@@ -17,10 +17,6 @@ use via_btc_client::{
 };
 use zksync_types::Address as EVMAddress;
 
-const RPC_URL: &str = "http://0.0.0.0:18443";
-const RPC_USERNAME: &str = "rpcuser";
-const RPC_PASSWORD: &str = "rpcpassword";
-const NETWORK: BitcoinNetwork = BitcoinNetwork::Regtest;
 const CONTEXT_FILE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/depositor_inscriber_context.json"
@@ -50,17 +46,22 @@ async fn main() -> Result<()> {
         &depositor_private_key[depositor_private_key.len() - 4..]
     );
 
+    let network: BitcoinNetwork = args[4].parse().expect("Invalid network value");
+    let rpc_url = args[5].clone();
+    let rpc_username = args[6].clone();
+    let rpc_password = args[7].clone();
+
     let bridge_p2wpkh_mpc_address = "bcrt1qdrzjq2mwlhrnhan94em5sl032zd95m73ud8ddw"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
-        .require_network(NETWORK)?;
+        .require_network(network)?;
 
     // Load the previous context from the file if it exists
     let context = load_context_from_file(CONTEXT_FILE)?;
 
     let mut inscriber = Inscriber::new(
-        RPC_URL,
-        NETWORK,
-        NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string()),
+        &rpc_url,
+        network,
+        NodeAuth::UserPass(rpc_username, rpc_password),
         &depositor_private_key,
         context,
     )
