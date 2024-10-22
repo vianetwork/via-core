@@ -1,4 +1,5 @@
 mod message_processors;
+mod metrics;
 
 use std::time::Duration;
 
@@ -13,7 +14,10 @@ use via_btc_client::{
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::PriorityOpId;
 
-use self::message_processors::{L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError};
+use self::{
+    message_processors::{L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError},
+    metrics::METRICS,
+};
 
 // Number of blocks that we should wait before processing the new blocks.
 pub(crate) const BTC_BLOCKS_LAG: u32 = 1000;
@@ -112,6 +116,7 @@ impl BtcWatch {
                 _ = timer.tick() => { /* continue iterations */ }
                 _ = stop_receiver.changed() => break,
             }
+            METRICS.btc_poll.inc();
 
             let mut storage = pool.connection_tagged("via_btc_watch").await?;
             match self.loop_iteration(&mut storage).await {

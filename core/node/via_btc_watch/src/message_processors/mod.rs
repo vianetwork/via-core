@@ -10,8 +10,6 @@ pub(super) enum MessageProcessorError {
     Internal(#[from] anyhow::Error),
     #[error("database error: {0}")]
     DatabaseError(String),
-    #[error("ethereum address parsing error")]
-    EthAddressParsingError,
 }
 
 #[async_trait::async_trait]
