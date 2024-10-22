@@ -1,5 +1,5 @@
 import * as utils from 'utils';
-import { Command, option } from 'commander';
+import { Command } from 'commander';
 
 const DEFAULT_DEPOSITOR_PRIVATE_KEY = 'cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R';
 const DEFAULT_NETWORK = 'regtest';
