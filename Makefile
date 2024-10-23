@@ -15,7 +15,8 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Available Targets:"
-	@echo "  via                - Run the full VIA setup workflow."
+	@echo "  via                - Run the basic VIA setup workflow (without Bitcoin explorer)."
+	@echo "  all                - Run the full VIA setup workflow (with Bitcoin explorer)."
 	@echo "  env                - Set the correct environment for VIA protocol."
 	@echo "  config             - Create the basic configuration files for VIA."
 	@echo "  init               - Initialize the project by pulling Docker images and running migrations."
@@ -37,9 +38,13 @@ help:
 # Default target: Redirect to help
 .DEFAULT_GOAL := help
 
-# Run the full setup workflow in sequence
+# Run the basic setup workflow in sequence
 .PHONY: via
-via: env config init transactions celestia btc-explorer bootstrap server-genesis server
+via: env config init transactions celestia bootstrap server-genesis server
+
+# Run the full setup workflow in sequence
+.PHONY: all
+all: env config init transactions celestia btc-explorer bootstrap server-genesis server
 
 # Run 'via env via'
 .PHONY: env
