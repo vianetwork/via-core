@@ -122,10 +122,12 @@ impl BtcWatch {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(MessageProcessorError::Internal(err)) => {
+                    METRICS.errors.inc();
                     tracing::error!("Internal error processing new blocks: {err:?}");
                     return Err(err);
                 }
                 Err(err) => {
+                    METRICS.errors.inc();
                     tracing::error!("Failed to process new blocks: {err}");
                     self.last_processed_bitcoin_block =
                         Self::initialize_state(&self.indexer, &mut storage)

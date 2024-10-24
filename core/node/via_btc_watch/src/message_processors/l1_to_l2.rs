@@ -7,7 +7,10 @@ use zksync_types::{
     Address, Execute, L1TxCommonData, PriorityOpId, H256, PRIORITY_OPERATION_L2_TX_TYPE, U256,
 };
 
-use crate::message_processors::{MessageProcessor, MessageProcessorError};
+use crate::{
+    message_processors::{MessageProcessor, MessageProcessorError},
+    metrics::METRICS,
+};
 
 #[derive(Debug)]
 pub struct L1ToL2MessageProcessor {
@@ -68,11 +71,15 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         }
 
         for (new_op, txid) in priority_ops {
+            METRICS.inscriptions_processed.inc();
             storage
                 .via_transactions_dal()
                 .insert_transaction_l1(&new_op, new_op.eth_block(), txid)
                 .await
-                .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+                .map_err(|e| {
+                    METRICS.errors.inc();
+                    MessageProcessorError::DatabaseError(e.to_string())
+                })?;
         }
 
         Ok(())

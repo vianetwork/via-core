@@ -7,6 +7,12 @@ use vise::{Counter, Metrics};
 pub(super) struct ViaBtcWatcherMetrics {
     /// Number of times Bitcoin was polled.
     pub btc_poll: Counter,
+
+    /// Number of inscriptions processed.
+    pub inscriptions_processed: Counter,
+
+    /// Number of errors encountered (e.g., network failures, internal issues).
+    pub errors: Counter,
 }
 
 #[vise::register]
