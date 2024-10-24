@@ -7,7 +7,7 @@ const DISPATCH_LATENCIES: Buckets =
     Buckets::values(&[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0]);
 
 #[derive(Debug, Metrics)]
-#[metrics(prefix = "server_da_dispatcher")]
+#[metrics(prefix = "via_server_da_dispatcher")]
 pub(super) struct DataAvailabilityDispatcherMetrics {
     /// Latency of the dispatch of the blob.
     #[metrics(buckets = DISPATCH_LATENCIES, unit = Unit::Seconds)]

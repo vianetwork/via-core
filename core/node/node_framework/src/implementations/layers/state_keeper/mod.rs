@@ -25,7 +25,7 @@ use crate::{
         },
     },
     service::{ShutdownHook, StopReceiver},
-    task::{Task, TaskId, TaskKind},
+    task::{Task, TaskId},
     wiring_layer::{WiringError, WiringLayer},
     FromContext, IntoContext,
 };
@@ -150,17 +150,17 @@ impl Task for StateKeeperTask {
     }
 }
 
-#[async_trait::async_trait]
-impl Task for AsyncCatchupTask {
-    fn kind(&self) -> TaskKind {
-        TaskKind::OneshotTask
-    }
+// #[async_trait::async_trait]
+// impl Task for AsyncCatchupTask {
+//     fn kind(&self) -> TaskKind {
+//         TaskKind::OneshotTask
+//     }
 
-    fn id(&self) -> TaskId {
-        "state_keeper/rocksdb_catchup_task".into()
-    }
+//     fn id(&self) -> TaskId {
+//         "state_keeper/rocksdb_catchup_task".into()
+//     }
 
-    async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
-        (*self).run(stop_receiver.0).await
-    }
-}
+//     async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
+//         (*self).run(stop_receiver.0).await
+//     }
+// }

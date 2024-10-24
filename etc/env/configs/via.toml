@@ -22,10 +22,11 @@ rpc_password = "rpcpassword"
 network = "regtest"
 actor_role = "Sequencer"
 da_identifier = "da_identifier_celestia"
+proof_sending_mode= "SkipEveryProof"
 
 [via_celestia_client]
-api_node_url = "ws://localhost:26658"
-auth_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJwdWJsaWMiLCJyZWFkIiwid3JpdGUiLCJhZG1pbiJdfQ.ut1X4u9XG5cbV0yaRAKfGp9xWVrz3NoEPGGRch13dFU"
+api_node_url = "http://0.0.0.0:26658"
+auth_token = ""
 blob_size_limit = 1973786
 
 [rust]
@@ -60,4 +61,8 @@ vm=info,\
 zksync_external_node=info,\
 zksync_snapshots_applier=debug,\
 via_btc_watch=debug,\
+via_state_keeper=debug,\
+via_btc_sender=debug,\
+via_da_dispatcher=debug,\
+via_da_clients=debug,\
 """

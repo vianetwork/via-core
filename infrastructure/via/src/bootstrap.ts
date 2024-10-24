@@ -22,7 +22,8 @@ async function updateBootstrapTxidsEnv() {
     const txidsFilePath = path.join(process.env.VIA_HOME!, 'txids.via');
 
     const txidsContent = await fs.readFile(txidsFilePath, 'utf8');
-    const txidsLines = txidsContent.split('\n').slice(0, 3);
+    const txidsLines = txidsContent.split('\n');
+    txidsLines.pop(); // Remove last empty line
 
     const newTxids = txidsLines.join(',');
 
@@ -47,6 +48,4 @@ export async function via_bootstrap() {
     await updateBootstrapTxidsEnv();
 }
 
-export const command = new Command('bootstrap').description('VIA bootstrap').action(async () => {
-    await via_bootstrap();
-});
+export const command = new Command('bootstrap').description('VIA bootstrap').action(via_bootstrap);

@@ -1,6 +1,6 @@
 use sqlx::types::chrono::NaiveDateTime;
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
-use zksync_types::{l1::L1Tx, Address, L1BlockNumber, PriorityOpId};
+use zksync_types::{l1::L1Tx, Address, L1BlockNumber, PriorityOpId, H256};
 use zksync_utils::u256_to_big_decimal;
 
 use crate::Core;
@@ -15,6 +15,7 @@ impl ViaTransactionsDal<'_, '_> {
         &mut self,
         tx: &L1Tx,
         l1_block_number: L1BlockNumber,
+        tx_id: H256,
     ) -> DalResult<()> {
         let contract_address = tx.execute.contract_address.as_bytes();
         let tx_hash = tx.hash();
@@ -40,6 +41,9 @@ impl ViaTransactionsDal<'_, '_> {
         #[allow(deprecated)]
         let received_at = NaiveDateTime::from_timestamp_opt(secs, nanosecs).unwrap();
 
+        // we keep the signature in the database as a bitcoin tx_id
+        let signature = tx_id.as_bytes();
+
         sqlx::query!(
             r#"
             INSERT INTO
@@ -63,6 +67,7 @@ impl ViaTransactionsDal<'_, '_> {
                     l1_tx_mint,
                     l1_tx_refund_recipient,
                     received_at,
+                    signature,
                     created_at,
                     updated_at
                 )
@@ -87,6 +92,7 @@ impl ViaTransactionsDal<'_, '_> {
                     $16,
                     $17,
                     $18,
+                    $19,
                     NOW(),
                     NOW()
                 )
@@ -110,6 +116,7 @@ impl ViaTransactionsDal<'_, '_> {
             to_mint,
             refund_recipient,
             received_at,
+            signature,
         )
         .instrument("insert_transaction_l1")
         .with_arg("tx_hash", &tx_hash)
@@ -160,5 +167,26 @@ impl ViaTransactionsDal<'_, '_> {
         Ok(maybe_row
             .and_then(|row| row.op_id)
             .map(|op_id| PriorityOpId(op_id as u64)))
+    }
+
+    pub async fn transaction_exists_with_txid(&mut self, tx_id: &H256) -> DalResult<bool> {
+        let maybe_row = sqlx::query!(
+            r#"
+            SELECT
+                1 AS cnt
+            FROM
+                transactions
+            WHERE
+                signature = $1
+            LIMIT
+                1
+            "#,
+            tx_id.as_bytes(),
+        )
+        .instrument("transaction_exists_with_txid")
+        .fetch_optional(self.storage)
+        .await?;
+
+        Ok(maybe_row.is_some())
     }
 }

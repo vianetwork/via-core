@@ -2,6 +2,13 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
+pub enum ProofSendingMode {
+    OnlyRealProofs,
+    OnlySampledProofs,
+    SkipEveryProof,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ViaBtcSenderConfig {
     pub rpc_url: String,
@@ -30,6 +37,9 @@ pub struct ViaBtcSenderConfig {
 
     // The da identifer
     pub da_identifier: String,
+
+    /// The mode in which proofs are sent.
+    pub proof_sending_mode: ProofSendingMode,
 }
 
 impl ViaBtcSenderConfig {
@@ -94,6 +104,7 @@ impl ViaBtcSenderConfig {
             max_aggregated_proofs_to_commit: 1,
             max_txs_in_flight: 1,
             da_identifier: "da_identifier_celestia".to_string(),
+            proof_sending_mode: ProofSendingMode::SkipEveryProof,
         }
     }
 }

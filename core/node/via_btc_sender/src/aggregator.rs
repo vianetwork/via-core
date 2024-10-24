@@ -81,14 +81,21 @@ impl ViaAggregator {
             )
             .await?;
 
+        tracing::debug!(
+            "Found {} l1 batches ready for commit",
+            ready_for_commit_l1_batches.len()
+        );
+
         validate_l1_batch_sequence(&ready_for_commit_l1_batches);
 
+        tracing::debug!("Extracting ready subrange");
         if let Some(l1_batches) = extract_ready_subrange(
             &mut self.commit_l1_block_criteria,
             ready_for_commit_l1_batches,
         )
         .await
         {
+            tracing::debug!("Extracted ready subrange");
             return Ok(Some(ViaAggregatedOperation::CommitL1BatchOnchain(
                 l1_batches,
             )));

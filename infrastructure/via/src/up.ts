@@ -10,6 +10,17 @@ export function createVolumes() {
     fs.mkdirSync(`${process.env.VIA_HOME}/volumes/bitcoin`, {
         recursive: true
     });
+    fs.mkdirSync(`${process.env.VIA_HOME}/volumes/celestia`, {
+        recursive: true
+    });
+
+    fs.mkdirSync(`${process.env.VIA_HOME}/volumes/btc-explorer/data`, {
+        recursive: true
+    });
+
+    fs.mkdirSync(`${process.env.VIA_HOME}/volumes/btc-explorer/mysql`, {
+        recursive: true
+    });
 }
 
 export async function up(composeFile?: string) {

@@ -58,3 +58,7 @@ path = "examples/inscriber.rs"
 [[example]]
 name = "bootstrap"
 path = "examples/bootstrap.rs"
+
+[[example]]
+name = "verify_batch"
+path = "examples/verify_batch.rs"

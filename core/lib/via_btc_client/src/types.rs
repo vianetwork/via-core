@@ -66,6 +66,8 @@ pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
     pub block_height: u32,
+    pub tx_id: Txid,
+    pub p2wpkh_address: BitcoinAddress,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -140,6 +142,18 @@ pub struct InscriptionConfig {
 impl Default for InscriptionConfig {
     fn default() -> Self {
         InscriptionConfig { fee_multiplier: 1 }
+    }
+}
+
+#[derive(Debug)]
+pub struct Recipient {
+    pub address: BitcoinAddress,
+    pub amount: Amount,
+}
+
+impl Recipient {
+    pub fn new(address: BitcoinAddress, amount: Amount) -> Self {
+        Recipient { address, amount }
     }
 }
 

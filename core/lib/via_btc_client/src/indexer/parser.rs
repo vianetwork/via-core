@@ -1,12 +1,10 @@
 use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
-    key::UntweakedPublicKey,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, Txid,
+    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, Txid, Witness,
 };
-use secp256k1::{Parity, PublicKey};
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
 use zksync_types::{Address as EVMAddress, L1BatchNumber};
@@ -33,28 +31,49 @@ const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
 #[derive(Debug)]
 pub struct MessageParser {
     network: Network,
+    bridge_address: Option<Address>,
 }
 
 impl MessageParser {
     pub fn new(network: Network) -> Self {
-        Self { network }
+        Self {
+            network,
+            bridge_address: None,
+        }
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
-    pub fn parse_transaction(&self, tx: &Transaction, block_height: u32) -> Vec<Message> {
-        debug!("Parsing transaction");
-        tx.input
-            .iter()
-            .filter_map(|input| self.parse_input(input, tx, block_height))
-            .collect()
+    pub fn parse_transaction(&mut self, tx: &Transaction, block_height: u32) -> Vec<Message> {
+        // parsing btc address
+        let mut sender_addresses: Option<Address> = None;
+        for input in tx.input.iter() {
+            let witness = &input.witness;
+            if let Some(btc_address) = self.parse_p2wpkh(witness) {
+                sender_addresses = Some(btc_address);
+            }
+        }
+
+        match sender_addresses {
+            Some(address) => {
+                // parsing messages
+                tx.input
+                    .iter()
+                    .filter_map(|input| self.parse_input(input, tx, block_height, address.clone()))
+                    .collect()
+            }
+            None => {
+                vec![]
+            }
+        }
     }
 
     #[instrument(skip(self, input, tx), target = "bitcoin_indexer::parser")]
     fn parse_input(
-        &self,
+        &mut self,
         input: &bitcoin::TxIn,
         tx: &Transaction,
         block_height: u32,
+        address: Address,
     ) -> Option<Message> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
@@ -91,9 +110,23 @@ impl MessageParser {
             schnorr_signature: signature,
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
             block_height,
+            tx_id: tx.compute_ntxid().into(),
+            p2wpkh_address: address,
         };
 
         self.parse_message(tx, &instructions[via_index..], &common_fields)
+    }
+
+    #[instrument(skip(self), target = "bitcoin_indexer::parser")]
+    fn parse_p2wpkh(&mut self, witness: &Witness) -> Option<Address> {
+        if witness.len() == 2 {
+            let public_key = bitcoin::PublicKey::from_slice(&witness[1]).ok()?;
+            let cm_pk = CompressedPublicKey::try_from(public_key).ok()?;
+
+            Some(Address::p2wpkh(&cm_pk, self.network))
+        } else {
+            None
+        }
     }
 
     #[instrument(
@@ -101,7 +134,7 @@ impl MessageParser {
         target = "bitcoin_indexer::parser"
     )]
     fn parse_message(
-        &self,
+        &mut self,
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
@@ -164,7 +197,7 @@ impl MessageParser {
         target = "bitcoin_indexer::parser"
     )]
     fn parse_system_bootstrapping(
-        &self,
+        &mut self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
     ) -> Option<Message> {
@@ -215,6 +248,14 @@ impl MessageParser {
             })?;
 
         debug!("Parsed bridge address");
+
+        // Save the bridge address for later use
+        self.bridge_address = Some(
+            network_unchecked_bridge_address
+                .clone()
+                .require_network(self.network)
+                .ok()?,
+        );
 
         let bootloader_hash = H256::from_slice(
             instructions
@@ -464,7 +505,15 @@ impl MessageParser {
         let amount = tx
             .output
             .iter()
-            .find(|output| output.script_pubkey.is_p2wpkh())
+            .find(|output| {
+                if let Some(address) = self.bridge_address.as_ref() {
+                    output.script_pubkey.is_p2wpkh()
+                        && output.script_pubkey == address.script_pubkey()
+                } else {
+                    tracing::error!("Bridge address not found");
+                    false
+                }
+            })
             .map(|output| output.value)
             .unwrap_or(Amount::ZERO);
         debug!("Parsed amount: {}", amount);
@@ -497,17 +546,6 @@ fn find_via_inscription_protocol(instructions: &[Instruction]) -> Option<usize> 
     position
 }
 
-pub fn get_btc_address(common_fields: &CommonFields, network: Network) -> Option<Address> {
-    let internal_pubkey =
-        UntweakedPublicKey::from_slice(common_fields.encoded_public_key.as_bytes()).ok()?;
-    let internal_pubkey = PublicKey::from_x_only_public_key(internal_pubkey, Parity::Even);
-    let compressed_pubkey = CompressedPublicKey::from_slice(&internal_pubkey.serialize()).unwrap();
-
-    let address = Address::p2wpkh(&compressed_pubkey, network);
-
-    Some(address)
-}
-
 pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {
     secp256k1::XOnlyPublicKey::from_slice(common_fields.encoded_public_key.as_bytes())
         .ok()
@@ -538,7 +576,7 @@ mod tests {
     #[test]
     fn test_parse_transaction() {
         let network = Network::Bitcoin;
-        let parser = MessageParser::new(network);
+        let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
         let messages = parser.parse_transaction(&tx, 0);
@@ -549,7 +587,7 @@ mod tests {
     #[test]
     fn test_parse_system_bootstrapping() {
         let network = Network::Bitcoin;
-        let parser = MessageParser::new(network);
+        let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
         if let Some(Message::SystemBootstrapping(bootstrapping)) =
