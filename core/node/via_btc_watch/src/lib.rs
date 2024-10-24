@@ -18,6 +18,7 @@ use self::{
     message_processors::{L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError},
     metrics::METRICS,
 };
+use crate::metrics::ErrorType;
 
 // Number of blocks that we should wait before processing the new blocks.
 pub(crate) const BTC_BLOCKS_LAG: u32 = 1000;
@@ -122,12 +123,11 @@ impl BtcWatch {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(MessageProcessorError::Internal(err)) => {
-                    METRICS.errors.inc();
+                    METRICS.errors[&ErrorType::InternalError].inc();
                     tracing::error!("Internal error processing new blocks: {err:?}");
                     return Err(err);
                 }
                 Err(err) => {
-                    METRICS.errors.inc();
                     tracing::error!("Failed to process new blocks: {err}");
                     self.last_processed_bitcoin_block =
                         Self::initialize_state(&self.indexer, &mut storage)

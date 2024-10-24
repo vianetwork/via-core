@@ -9,7 +9,7 @@ use zksync_types::{
 
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
-    metrics::METRICS,
+    metrics::{ErrorType, InscriptionStage, METRICS},
 };
 
 #[derive(Debug)]
@@ -71,13 +71,13 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         }
 
         for (new_op, txid) in priority_ops {
-            METRICS.inscriptions_processed.inc();
+            METRICS.inscriptions_processed[&InscriptionStage::Deposit].inc();
             storage
                 .via_transactions_dal()
                 .insert_transaction_l1(&new_op, new_op.eth_block(), txid)
                 .await
                 .map_err(|e| {
-                    METRICS.errors.inc();
+                    METRICS.errors[&ErrorType::DatabaseError].inc();
                     MessageProcessorError::DatabaseError(e.to_string())
                 })?;
         }
