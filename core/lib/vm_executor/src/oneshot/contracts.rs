@@ -67,6 +67,8 @@ pub struct MultiVMBaseSystemContracts<C> {
     vm_1_5_0_increased_memory: BaseSystemContracts,
     /// Contracts to be used after the protocol defense upgrade
     vm_protocol_defense: BaseSystemContracts,
+    /// Contracts to be used after the gateway upgrade
+    gateway: BaseSystemContracts,
     // We use `fn() -> C` marker so that the `MultiVMBaseSystemContracts` unconditionally implements `Send + Sync`.
     _contracts_kind: PhantomData<fn() -> C>,
     /// Contracts to be used after the bitcoin upgrade
@@ -109,6 +111,7 @@ impl<C: ContractsKind> MultiVMBaseSystemContracts<C> {
             ProtocolVersionId::Version25 | ProtocolVersionId::Version26 => {
                 &self.vm_protocol_defense
             }
+            // ProtocolVersionId::Version27 => &self.gateway,
             // ProtocolVersionId::Version26 => &self.vm_bitcoin,
             ProtocolVersionId::Version27 => &self.vm_bitcoin_1_0_1,
         };
@@ -139,6 +142,7 @@ impl MultiVMBaseSystemContracts<EstimateGas> {
             vm_1_5_0_increased_memory:
                 BaseSystemContracts::estimate_gas_post_1_5_0_increased_memory(),
             vm_protocol_defense: BaseSystemContracts::estimate_gas_post_protocol_defense(),
+            gateway: BaseSystemContracts::estimate_gas_gateway(),
             _contracts_kind: PhantomData,
             vm_bitcoin: BaseSystemContracts::estimate_gas_bitcoin_1_0_0(),
             vm_bitcoin_1_0_1: BaseSystemContracts::estimate_gas_bitcoin_1_0_1(),
@@ -162,6 +166,7 @@ impl MultiVMBaseSystemContracts<CallOrExecute> {
             vm_1_5_0_increased_memory: BaseSystemContracts::playground_post_1_5_0_increased_memory(
             ),
             vm_protocol_defense: BaseSystemContracts::playground_post_protocol_defense(),
+            gateway: BaseSystemContracts::playground_gateway(),
             _contracts_kind: PhantomData,
             vm_bitcoin: BaseSystemContracts::playground_bitcoin_1_0_0(),
             vm_bitcoin_1_0_1: BaseSystemContracts::playground_bitcoin_1_0_1(),
