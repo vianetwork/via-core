@@ -110,6 +110,22 @@ impl BitcoinOps for MockBitcoinOps {
     async fn fetch_block_by_hash(&self, _block_hash: &BlockHash) -> BitcoinClientResult<Block> {
         BitcoinClientResult::Ok(self.block.clone().expect("No block found"))
     }
+
+    async fn get_fee_history(
+        &self,
+        from_block_height: usize,
+        to_block_height: usize,
+    ) -> BitcoinClientResult<Vec<u64>> {
+        BitcoinClientResult::Ok(Vec::new())
+    }
+
+    async fn calculate_tx_fee(
+        &self,
+        block_height: u128,
+        tx: Transaction,
+    ) -> BitcoinClientResult<(u128, u64)> {
+        BitcoinClientResult::Ok((0, 0))
+    }
 }
 
 #[derive(Debug, Clone)]

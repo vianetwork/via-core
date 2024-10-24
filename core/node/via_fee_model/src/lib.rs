@@ -6,6 +6,7 @@ use zksync_types::fee_model::{
     BaseTokenConversionRatio, BatchFeeInput, FeeModelConfig, FeeModelConfigV2, FeeParams,
     FeeParamsV2,
 };
+mod l1_gas_price;
 
 #[derive(Debug)]
 pub struct ViaMainNodeFeeInputProvider {

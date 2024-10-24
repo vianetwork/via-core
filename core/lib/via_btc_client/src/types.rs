@@ -246,7 +246,7 @@ pub struct InscriberOutput {
     pub is_broadcasted: bool,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum BitcoinError {
     #[error("RPC error: {0}")]
     Rpc(String),
