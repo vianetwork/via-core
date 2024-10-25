@@ -65,7 +65,7 @@ compute_overhead_part = 0.0
 # If it is 1, the pubdata limit per batch will have to cover the entire cost of closing the batch.
 pubdata_overhead_part = 1.0
 
-# The constant L1 gas unit in vbyte required to finilize the L1 Batch. This cost includes the Pubdata, proof and verification inscriptions.
+# The constant amount of L1 gas that is used as the overhead for the batch. It includes the price for batch verification, etc.
 batch_overhead_l1_gas = 5000
 
 # The maximum amount of gas that can be used by the batch. This value is derived from the circuits limitation per batch.
