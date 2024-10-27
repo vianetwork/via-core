@@ -11,102 +11,108 @@ const RPC_ARGS = `-regtest -rpcconnect=bitcoind -rpcuser=${RPC_USER} -rpcpasswor
 
 const DESTINATION_ADDRESS = 'mqdofsXHpePPGBFXuwwypAqCcXi48Xhb2f';
 
-export const generateRandomTransactions = async () => {
-    console.log('Generating random transactions...');
+export const generateRandomTransactions = async (loop: boolean, sleep: number) => {
+    while (true) {
+        console.log('Generating random transactions...');
 
-    const randomBetween = (min: number, max: number): number => {
-        return Math.floor(Math.random() * (max - min + 1)) + min;
-    };
+        const randomBetween = (min: number, max: number): number => {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        };
 
-    const MAX_CONCURRENT_RPC_CALLS = 10; // Adjust based on your system's capacity
-    let activeRpcCalls = 0;
-    const rpcQueue: (() => Promise<void>)[] = [];
+        const MAX_CONCURRENT_RPC_CALLS = 10; // Adjust based on your system's capacity
+        let activeRpcCalls = 0;
+        const rpcQueue: (() => Promise<void>)[] = [];
 
-    const runRpcCall = async (fn: () => Promise<void>) => {
-        if (activeRpcCalls >= MAX_CONCURRENT_RPC_CALLS) {
-            await new Promise<void>((resolve) => {
-                rpcQueue.push(async () => {
-                    await fn();
-                    resolve();
+        const runRpcCall = async (fn: () => Promise<void>) => {
+            if (activeRpcCalls >= MAX_CONCURRENT_RPC_CALLS) {
+                await new Promise<void>((resolve) => {
+                    rpcQueue.push(async () => {
+                        await fn();
+                        resolve();
+                    });
                 });
-            });
-        } else {
-            activeRpcCalls++;
-            try {
-                await fn();
-            } finally {
-                activeRpcCalls--;
-                if (rpcQueue.length > 0) {
-                    const nextCall = rpcQueue.shift();
-                    if (nextCall) {
-                        runRpcCall(nextCall);
+            } else {
+                activeRpcCalls++;
+                try {
+                    await fn();
+                } finally {
+                    activeRpcCalls--;
+                    if (rpcQueue.length > 0) {
+                        const nextCall = rpcQueue.shift();
+                        if (nextCall) {
+                            runRpcCall(nextCall);
+                        }
                     }
                 }
             }
-        }
-    };
+        };
 
-    let fundTxLock = Promise.resolve();
+        let fundTxLock = Promise.resolve();
 
-    for (let i = 0; i < 2; i++) {
-        const numTx = randomBetween(50, 150);
-        console.log(`Iteration ${i + 1}: Generating ${numTx} transactions.`);
+        for (let i = 0; i < 2; i++) {
+            const numTx = randomBetween(50, 150);
+            console.log(`Iteration ${i + 1}: Generating ${numTx} transactions.`);
 
-        const txPromises = [];
-        for (let j = 0; j < numTx; j++) {
-            const txPromise = (async () => {
-                try {
-                    let unfundedTx = '';
-                    await runRpcCall(async () => {
-                        const unfundedTxResult = await utils.exec(
-                            `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} createrawtransaction "[]" "{\\"${DESTINATION_ADDRESS}\\":0.005}"`
-                        );
-                        unfundedTx = unfundedTxResult.stdout.trim();
-                    });
-
-                    const feeFactor = randomBetween(0, 28);
-                    const randFee = (0.00001 * Math.pow(1.1892, feeFactor)).toFixed(8);
-                    const options = `{"feeRate": ${randFee}}`;
-
-                    fundTxLock = fundTxLock.then(async () => {
+            const txPromises = [];
+            for (let j = 0; j < numTx; j++) {
+                const txPromise = (async () => {
+                    try {
+                        let unfundedTx = '';
                         await runRpcCall(async () => {
-                            const fundTxResult = await utils.exec(
-                                `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} -named fundrawtransaction hexstring="${unfundedTx}" options='${options}'`
+                            const unfundedTxResult = await utils.exec(
+                                `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} createrawtransaction "[]" "{\\"${DESTINATION_ADDRESS}\\":0.005}"`
                             );
-                            const fundTxJson = JSON.parse(fundTxResult.stdout.trim());
-                            const fundedTxHex = fundTxJson.hex;
-
-                            const signTxResult = await utils.exec(
-                                `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} signrawtransactionwithwallet "${fundedTxHex}"`
-                            );
-                            const signTxJson = JSON.parse(signTxResult.stdout.trim());
-                            const signedTxHex = signTxJson.hex;
-
-                            await utils.exec(
-                                `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} sendrawtransaction "${signedTxHex}"`
-                            );
+                            unfundedTx = unfundedTxResult.stdout.trim();
                         });
-                    });
 
-                    await fundTxLock;
-                } catch (error) {
-                    console.error('Error processing transaction:', error);
-                }
-            })();
+                        const feeFactor = randomBetween(0, 28);
+                        const randFee = (0.00001 * Math.pow(1.1892, feeFactor)).toFixed(8);
+                        const options = `{"feeRate": ${randFee}}`;
 
-            txPromises.push(txPromise);
+                        fundTxLock = fundTxLock.then(async () => {
+                            await runRpcCall(async () => {
+                                const fundTxResult = await utils.exec(
+                                    `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} -named fundrawtransaction hexstring="${unfundedTx}" options='${options}'`
+                                );
+                                const fundTxJson = JSON.parse(fundTxResult.stdout.trim());
+                                const fundedTxHex = fundTxJson.hex;
+
+                                const signTxResult = await utils.exec(
+                                    `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} signrawtransactionwithwallet "${fundedTxHex}"`
+                                );
+                                const signTxJson = JSON.parse(signTxResult.stdout.trim());
+                                const signedTxHex = signTxJson.hex;
+
+                                await utils.exec(
+                                    `docker exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} sendrawtransaction "${signedTxHex}"`
+                                );
+                            });
+                        });
+
+                        await fundTxLock;
+                    } catch (error) {
+                        console.error('Error processing transaction:', error);
+                    }
+                })();
+
+                txPromises.push(txPromise);
+            }
+
+            await Promise.all(txPromises);
+
+            console.log(`Iteration ${i + 1} completed.`);
         }
 
-        await Promise.all(txPromises);
-
-        console.log(`Iteration ${i + 1} completed.`);
+        console.log('Random transactions generation completed.');
+        if (!loop) return;
+        await utils.sleep(sleep);
     }
-
-    console.log('Random transactions generation completed.');
 };
 
 export const command = new Command('transactions')
     .description('Generate random transactions on the Bitcoin regtest network.')
-    .action(async () => {
-        await generateRandomTransactions();
+    .option('--loop <loop>', 'Create a while loop that create random transactions each X seconds', false)
+    .option('--sleep <sleep>', 'Seconds sleep between each transaction batch', '3')
+    .action(async (cmd: Command) => {
+        await generateRandomTransactions(cmd.loop, Number(cmd.sleep));
     });

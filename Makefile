@@ -78,6 +78,12 @@ transactions:
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) transactions
 
+loop-transactions:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW) [Loop] Sending random transactions on the regtest network...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) transactions --loop true --sleep 3
+
 # Run 'via celestia'
 .PHONY: celestia
 celestia:
