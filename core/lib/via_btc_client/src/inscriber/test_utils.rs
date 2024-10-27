@@ -25,6 +25,7 @@ pub struct MockBitcoinOpsConfig {
     pub tx_confirmation: bool,
     pub transaction: Option<Transaction>,
     pub block: Option<Block>,
+    pub fee_history: Vec<u64>,
 }
 
 impl MockBitcoinOpsConfig {
@@ -35,9 +36,13 @@ impl MockBitcoinOpsConfig {
     pub fn set_tx_confirmation(&mut self, tx_confirmation: bool) {
         self.tx_confirmation = tx_confirmation;
     }
+
+    pub fn set_fee_history(&mut self, fees: Vec<u64>) {
+        self.fee_history = fees;
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MockBitcoinOps {
     pub balance: u128,
     pub utxos: Vec<(OutPoint, TxOut)>,
@@ -46,6 +51,7 @@ pub struct MockBitcoinOps {
     pub tx_confirmation: bool,
     pub transaction: Option<Transaction>,
     pub block: Option<Block>,
+    pub fee_history: Vec<u64>,
 }
 
 impl MockBitcoinOps {
@@ -58,6 +64,7 @@ impl MockBitcoinOps {
             tx_confirmation: config.tx_confirmation,
             transaction: config.transaction,
             block: config.block,
+            fee_history: config.fee_history,
         }
     }
 }
@@ -109,6 +116,18 @@ impl BitcoinOps for MockBitcoinOps {
 
     async fn fetch_block_by_hash(&self, _block_hash: &BlockHash) -> BitcoinClientResult<Block> {
         BitcoinClientResult::Ok(self.block.clone().expect("No block found"))
+    }
+
+    async fn get_fee_history(&self, _: usize, _: usize) -> BitcoinClientResult<Vec<u64>> {
+        BitcoinClientResult::Ok(self.fee_history.clone())
+    }
+
+    async fn calculate_tx_fee_per_byte(
+        &self,
+        _: u128,
+        _: Transaction,
+    ) -> BitcoinClientResult<(u128, u64)> {
+        BitcoinClientResult::Ok((0, 0))
     }
 }
 
