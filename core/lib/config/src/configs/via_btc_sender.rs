@@ -108,3 +108,41 @@ impl ViaBtcSenderConfig {
         }
     }
 }
+
+#[derive(Debug, Deserialize, Copy, Clone, PartialEq, Default)]
+pub struct ViaGasAdjusterConfig {
+    /// Priority Fee to be used by GasAdjuster
+    pub default_priority_fee_per_gas: u64,
+    /// Number of blocks collected by GasAdjuster from which base_fee median is taken
+    pub max_base_fee_samples: usize,
+    /// Parameter by which the base fee will be multiplied for internal purposes
+    pub internal_l1_pricing_multiplier: f64,
+    /// If equal to Some(x), then it will always provide `x` as the L1 gas price
+    pub internal_enforced_l1_gas_price: Option<u64>,
+    /// If equal to Some(x), then it will always provide `x` as the pubdata price
+    pub internal_enforced_pubdata_price: Option<u64>,
+    /// Node polling period in seconds
+    pub poll_period: Duration,
+    /// Max number of l1 gas price that is allowed to be used.
+    pub max_l1_gas_price: Option<u64>,
+}
+
+impl ViaGasAdjusterConfig {
+    pub fn max_l1_gas_price(&self) -> u64 {
+        self.max_l1_gas_price.unwrap_or(u64::MAX)
+    }
+
+    // Creates a config object suitable for use in unit tests.
+    pub fn for_tests() -> Self {
+        Self {
+            default_priority_fee_per_gas: 1,
+            max_base_fee_samples: 3,
+            internal_l1_pricing_multiplier: 1.0,
+            internal_enforced_l1_gas_price: None,
+            internal_enforced_pubdata_price: None,
+            poll_period: Duration::from_millis(300000),
+            // https://bitinfocharts.com/comparison/bitcoin-transactionfees.html#3y
+            max_l1_gas_price: Some(100),
+        }
+    }
+}
