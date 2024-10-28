@@ -192,7 +192,7 @@ impl ViaBlocksDal<'_, '_> {
                 via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL
                 AND via_l1_batch_inscription_request.commit_proof_inscription_id IS NULL
                 AND via_btc_inscriptions_request.confirmed_inscriptions_request_history_id IS NOT NULL
-                AND via_data_availability.is_proof = FALSE
+                AND via_data_availability.is_proof = TRUE
             ORDER BY
                 number
             LIMIT

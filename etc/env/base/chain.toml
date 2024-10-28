@@ -53,7 +53,7 @@ reject_tx_at_gas_percentage = 0.95
 
 # The minimal acceptable L2 gas price, i.e. the price that should include the cost of computation/proving as well
 # as potentially premium for congestion.
-minimal_l2_gas_price = 100000000
+minimal_l2_gas_price = 100
 
 # The constant that represents the possibility that a batch can be sealed because of overuse of computation resources.
 # It has range from 0 to 1. If it is 0, the compute will not depend on the cost for closing the batch.

@@ -116,7 +116,7 @@ export async function generateMigration(dbType: DbType, name: string) {
     } else if (dbType === DbType.Prover) {
         await generateMigrationForDal(DalPath.ProverDal, process.env.DATABASE_PROVER_URL!, name);
     }
-    process.chdir(process.env.ZKSYNC_HOME as string);
+    process.chdir(process.env.VIA_HOME as string);
 }
 
 export async function setupForDal(dalPath: DalPath, dbUrl: string, shouldCheck: boolean = false) {
@@ -130,7 +130,7 @@ export async function setupForDal(dalPath: DalPath, dbUrl: string, shouldCheck: 
     }
     await utils.spawn(`cargo sqlx database create --database-url ${dbUrl}`);
     await utils.spawn(`cargo sqlx migrate run --database-url ${dbUrl}`);
-    const isLocalSetup = process.env.ZKSYNC_LOCAL_SETUP;
+    const isLocalSetup = process.env.VIA_LOCAL_SETUP;
 
     shouldCheck = shouldCheck && dbUrl.startsWith(localDbUrl) && !isLocalSetup;
     if (shouldCheck) {
@@ -140,7 +140,7 @@ export async function setupForDal(dalPath: DalPath, dbUrl: string, shouldCheck: 
         );
     }
 
-    process.chdir(process.env.ZKSYNC_HOME as string);
+    process.chdir(process.env.VIA_HOME as string);
 }
 
 export async function setup(opts: DbOpts, shouldCheck: boolean = true) {
@@ -174,7 +174,7 @@ async function prepareSqlxDataForDal(dalPath: DalPath, dbUrl: string, check: boo
         check_string = '--check';
     }
     await utils.spawn(`cargo sqlx prepare ${check_string} --database-url ${dbUrl} -- --tests`);
-    process.chdir(process.env.ZKSYNC_HOME as string);
+    process.chdir(process.env.VIA_HOME as string);
 }
 
 export async function prepareSqlxData(opts: DbOpts, check: boolean) {

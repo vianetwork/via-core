@@ -1,8 +1,8 @@
 use anyhow::Context as _;
 use clap::Parser;
 use zksync_config::{
-    configs::{via_general, DatabaseSecrets, L1Secrets, Secrets},
-    GenesisConfig, ViaGeneralConfig,
+    configs::{DatabaseSecrets, L1Secrets, Secrets},
+    ContractsConfig, GenesisConfig, ViaGeneralConfig,
 };
 use zksync_env_config::FromEnv;
 
@@ -16,6 +16,9 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[derive(Debug, Parser)]
 #[command(author = "Via Protocol", version, about = "Via validator/sequencer node", long_about = None)]
 struct Cli {
+    /// Generate genesis block for the first contract deployment using temporary DB.
+    #[arg(long)]
+    genesis: bool,
     /// Path to the YAML config. If set, it will be used instead of env vars.
     #[arg(long)]
     config_path: Option<std::path::PathBuf>,
@@ -23,6 +26,14 @@ struct Cli {
     /// Path to the YAML with secrets. If set, it will be used instead of env vars.
     #[arg(long)]
     secrets_path: Option<std::path::PathBuf>,
+
+    /// Path to the yaml with contracts. If set, it will be used instead of env vars.
+    #[arg(long)]
+    contracts_config_path: Option<std::path::PathBuf>,
+
+    /// Path to the wallets config. If set, it will be used instead of env vars.
+    #[arg(long)]
+    wallets_path: Option<std::path::PathBuf>,
 
     /// Path to the YAML with genesis configuration. If set, it will be used instead of env vars.
     #[arg(long)]
@@ -71,12 +82,30 @@ fn main() -> anyhow::Result<()> {
         None => GenesisConfig::from_env().context("Failed to load genesis from env")?,
     };
 
+    let wallets = match opt.wallets_path {
+        Some(_path) => {
+            todo!("Load config from file");
+        }
+        None => tmp_config.wallets(),
+    };
+
+    let mut contracts_config = match opt.contracts_config_path {
+        Some(_path) => {
+            todo!("Load contracts from file")
+        }
+        None => ContractsConfig::from_env().context("contracts_config")?,
+    };
+
+    // Disable ecosystem contracts for now
+    contracts_config.ecosystem_contracts = None;
+
     let observability_config = configs
         .observability
         .clone()
         .context("Observability config missing")?;
 
-    let node_builder = node_builder::ViaNodeBuilder::new(configs, secrets, genesis)?;
+    let node_builder =
+        node_builder::ViaNodeBuilder::new(configs, wallets, secrets, genesis, contracts_config)?;
 
     let observability_guard = {
         // Observability initialization should be performed within tokio context.
@@ -85,6 +114,12 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Build the node
+
+    if opt.genesis {
+        let node = node_builder.only_genesis()?;
+        node.run(observability_guard)?;
+        return Ok(());
+    }
 
     let node = node_builder.build()?;
     node.run(observability_guard)?;

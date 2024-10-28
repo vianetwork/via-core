@@ -94,7 +94,7 @@ impl ViaBtcInscriptionAggregator {
                 // Estimate the tx fee to execute the inscription request.
                 let inscribe_info = self
                     .inscriber
-                    .prepare_inscribe(&inscription_message, InscriptionConfig::default())
+                    .prepare_inscribe(&inscription_message, InscriptionConfig::default(), None)
                     .await
                     .context("Via get inscriber info")?;
 
@@ -128,13 +128,13 @@ impl ViaBtcInscriptionAggregator {
 
     // Todo: call indexer to fetch  the data
     async fn get_bootloader_code_hash(&self) -> anyhow::Result<H256> {
-        let hex_str = "0000000000000000000000000000000000000000000000000000000000000000";
+        let hex_str = "010008e742608b21bf7eb23c1a9d0602047e3618b464c9b59c0fba3b3d7ab66e";
         Ok(H256::from_str(hex_str).unwrap())
     }
 
     // Todo: call indexer to fetch  the data
     async fn get_aa_code_hash(&self) -> anyhow::Result<H256> {
-        let hex_str = "0000000000000000000000000000000000000000000000000000000000000000";
+        let hex_str = "01000563374c277a2c1e34659a2a1e87371bb6d852ce142022d497bfb50b9e32";
         Ok(H256::from_str(hex_str).unwrap())
     }
 

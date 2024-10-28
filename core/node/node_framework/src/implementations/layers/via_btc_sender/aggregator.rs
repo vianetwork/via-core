@@ -69,7 +69,10 @@ impl WiringLayer for ViaBtcInscriptionAggregatorLayer {
         let inscriber = Inscriber::new(
             self.config.rpc_url(),
             network,
-            NodeAuth::None,
+            NodeAuth::UserPass(
+                self.config.rpc_user().to_string(),
+                self.config.rpc_password().to_string(),
+            ),
             self.config.private_key(),
             None,
         )
