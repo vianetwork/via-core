@@ -155,12 +155,32 @@ impl BitcoinOps for BitcoinClient {
         self.rpc.get_block_by_hash(block_hash).await
     }
 
+    /*
+    Retrieve the "fee_history" for the Bitcoin blockchain between the specified 'from_block_height' and 'to_block_height'.
+    Transaction fees are calculated on a per-transaction basis using the following formula:
+
+    **fee_per_tx = (total_amount_in - total_amount_out) / vbyte**.
+
+    The "base_fee" represents the minimum fee (in satoshis per vbyte) that users must pay to ensure their transactions are included
+    in a block. The "fee_history" list contains the calculated base_fee for each block, reflecting the minimum fee paid per vbyte.
+
+    Example:
+
+    Input:
+    - Block1 [tx1 (5 sat/vbyte), tx2 (10 sat/vbyte)]
+    - Block2 [tx1 (6 sat/vbyte), tx2 (3 sat/vbyte)]
+
+    Output:
+    fee_history = [5, 3]
+     */
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn get_fee_history(
         &self,
         from_block_height: usize,
         to_block_height: usize,
     ) -> BitcoinClientResult<Vec<u64>> {
+        debug!("Fetching blocks fee history");
+
         let mut fetch_blocks_futures = Vec::new();
 
         for block_height in from_block_height..to_block_height {
@@ -169,34 +189,35 @@ impl BitcoinOps for BitcoinClient {
 
         let blocks = join_all(fetch_blocks_futures).await;
 
-        let mut fetch_fee_futures = Vec::new();
+        let mut fees_per_block: HashMap<u128, u64> = HashMap::new();
 
+        // To minimize the number of asynchronous calls, we will process each block sequentially, as a single Bitcoin block can contain up to 2,000 transactions.
         for (index, block_result) in blocks.iter().enumerate() {
             match block_result {
                 Ok(block) => {
                     let current_block = from_block_height as u128 + index as u128;
 
+                    let mut fetch_fee_futures = Vec::new();
                     for tx in block.txdata.clone() {
                         fetch_fee_futures
                             .push(self.calculate_tx_fee_per_byte(current_block, tx.clone()));
                     }
-                }
-                Err(err) => {
-                    return BitcoinClientResult::Err(err.clone());
-                }
-            }
-        }
 
-        let txs_fee_result = join_all(fetch_fee_futures).await;
+                    let txs_fee_result = join_all(fetch_fee_futures).await;
 
-        let mut fees_per_block: HashMap<u128, u64> = HashMap::new();
-
-        for tx_fee in txs_fee_result {
-            match tx_fee {
-                Ok((block_height, fees)) => {
-                    let base_fee = *fees_per_block.get(&block_height).unwrap_or(&u64::MAX);
-                    if base_fee > fees && fees != 0 {
-                        fees_per_block.insert(block_height, fees);
+                    for tx_fee in txs_fee_result {
+                        match tx_fee {
+                            Ok((block_height, fees)) => {
+                                let base_fee =
+                                    *fees_per_block.get(&block_height).unwrap_or(&u64::MAX);
+                                if base_fee > fees && fees != 0 {
+                                    fees_per_block.insert(block_height, fees);
+                                }
+                            }
+                            Err(err) => {
+                                return BitcoinClientResult::Err(err.clone());
+                            }
+                        }
                     }
                 }
                 Err(err) => {
