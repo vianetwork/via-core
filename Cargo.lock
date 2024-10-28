@@ -8420,6 +8420,7 @@ dependencies = [
  "bincode",
  "bitcoin",
  "bitcoincore-rpc",
+ "futures 0.3.30",
  "hex",
  "inquire",
  "lazy_static",

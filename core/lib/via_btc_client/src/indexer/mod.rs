@@ -355,6 +355,16 @@ mod tests {
             async fn fetch_block_height(&self) -> BitcoinClientResult<u128>;
             async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
             fn get_network(&self) -> Network;
+            async fn get_fee_history(
+                &self,
+                from_block_height: usize,
+                to_block_height: usize,
+            ) -> BitcoinClientResult<Vec<u64>>;
+            async fn calculate_tx_fee_per_byte(
+                &self,
+                block_height: u128,
+                tx: Transaction,
+            ) -> BitcoinClientResult<(u128, u64)>;
         }
     }
 

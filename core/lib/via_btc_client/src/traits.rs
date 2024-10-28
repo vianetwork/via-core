@@ -37,6 +37,16 @@ pub trait BitcoinOps: Send + Sync {
 
     async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
     async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
+    async fn get_fee_history(
+        &self,
+        from_block_height: usize,
+        to_block_height: usize,
+    ) -> BitcoinClientResult<Vec<u64>>;
+    async fn calculate_tx_fee_per_byte(
+        &self,
+        block_height: u128,
+        tx: Transaction,
+    ) -> BitcoinClientResult<(u128, u64)>;
 }
 
 impl std::fmt::Debug for dyn BitcoinOps + 'static {
