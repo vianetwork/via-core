@@ -13696,7 +13696,6 @@ dependencies = [
  "chrono",
  "ethabi",
  "hex",
- "lazy_static",
  "regex",
  "semver 1.0.23",
  "serde",
@@ -13706,12 +13705,13 @@ dependencies = [
  "tokio",
  "tracing",
  "vise",
- "zksync_config",
  "zksync_contracts",
  "zksync_dal",
+ "zksync_node_test_utils",
  "zksync_queued_job_processor",
  "zksync_types",
  "zksync_utils",
+ "zksync_vm_interface",
 ]
 
 [[package]]
@@ -14628,11 +14628,10 @@ dependencies = [
  "zksync_contracts",
  "zksync_dal",
  "zksync_merkle_tree",
- "zksync_multivm",
- "zksync_node_genesis",
  "zksync_system_constants",
  "zksync_types",
  "zksync_utils",
+ "zksync_vm_interface",
 ]
 
 [[package]]
@@ -14769,9 +14768,9 @@ dependencies = [
  "serde_with",
  "strum 0.26.3",
  "tokio",
- "zksync_multivm",
  "zksync_object_store",
  "zksync_types",
+ "zksync_vm_interface",
 ]
 
 [[package]]
