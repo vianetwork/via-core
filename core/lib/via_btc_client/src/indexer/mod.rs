@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-
 use bitcoin::{Address, BlockHash, Network, Txid};
 use bitcoincore_rpc::Auth;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
 mod parser;
@@ -65,9 +65,9 @@ impl BootstrapState {
 }
 
 /// The main indexer struct for processing Bitcoin inscriptions
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BitcoinInscriptionIndexer {
-    client: Box<dyn BitcoinOps>,
+    client: Arc<dyn BitcoinOps>,
     parser: MessageParser,
     bridge_address: Address,
     sequencer_address: Address,
@@ -87,7 +87,7 @@ impl BitcoinInscriptionIndexer {
         Self: Sized,
     {
         info!("Creating new BitcoinInscriptionIndexer");
-        let client = Box::new(BitcoinClient::new(rpc_url, network, auth)?);
+        let client = Arc::new(BitcoinClient::new(rpc_url, network, auth)?);
         let mut parser = MessageParser::new(network);
         let mut bootstrap_state = BootstrapState::new();
 
@@ -189,7 +189,7 @@ impl BitcoinInscriptionIndexer {
 impl BitcoinInscriptionIndexer {
     fn create_indexer(
         bootstrap_state: BootstrapState,
-        client: Box<dyn BitcoinOps>,
+        client: Arc<dyn BitcoinOps>,
         parser: MessageParser,
     ) -> BitcoinIndexerResult<Self> {
         if bootstrap_state.is_complete() {
@@ -381,7 +381,7 @@ mod tests {
         let sequencer_address = get_test_addr();
 
         BitcoinInscriptionIndexer {
-            client: Box::new(mock_client),
+            client: Arc::new(mock_client),
             parser,
             bridge_address,
             sequencer_address,
