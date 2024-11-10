@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::{borrow::Borrow, collections::HashMap, sync::Arc};
+
 use anyhow::{Context, Result};
 use bitcoin::{
     absolute,
@@ -11,8 +13,6 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{Auth, RawTx};
 use secp256k1::Message;
-use std::sync::Arc;
-use std::{borrow::Borrow, collections::HashMap};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{

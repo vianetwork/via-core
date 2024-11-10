@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use bitcoin::{
     hashes::Hash,
@@ -9,7 +11,6 @@ use bitcoin::{
     Address, Block, BlockHash, CompressedPublicKey, Network, OutPoint, PrivateKey, ScriptBuf,
     Transaction, TxOut, Txid,
 };
-use std::sync::Arc;
 
 use super::Inscriber;
 use crate::{

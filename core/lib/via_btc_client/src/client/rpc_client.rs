@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::{
@@ -5,7 +7,6 @@ use bitcoincore_rpc::{
     json::{EstimateSmartFeeResult, GetBlockchainInfoResult, ScanTxOutRequest},
     Client, RpcApi,
 };
-use std::sync::Arc;
 use tracing::{debug, instrument};
 
 use crate::{
