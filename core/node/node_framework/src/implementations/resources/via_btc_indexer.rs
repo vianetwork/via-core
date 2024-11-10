@@ -1,6 +1,8 @@
-use crate::Resource;
 use std::sync::Arc;
+
 use via_btc_client::indexer::BitcoinInscriptionIndexer;
+
+use crate::Resource;
 
 #[derive(Debug, Clone)]
 pub struct BtcIndexerResource(pub Arc<BitcoinInscriptionIndexer>);

@@ -1,7 +1,7 @@
+use std::{collections::HashMap, sync::Arc};
+
 use bitcoin::{Address, BlockHash, Network, Txid};
 use bitcoincore_rpc::Auth;
-use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
 mod parser;

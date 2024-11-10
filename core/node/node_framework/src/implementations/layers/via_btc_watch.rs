@@ -1,11 +1,12 @@
-use via_btc_client::indexer::BitcoinInscriptionIndexer;
-use via_btc_client::types::NodeAuth;
+use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::NodeAuth};
 use via_btc_watch::{BitcoinNetwork, BtcWatch};
 use zksync_config::ViaBtcWatchConfig;
 
-use crate::implementations::resources::via_btc_indexer::BtcIndexerResource;
 use crate::{
-    implementations::resources::pools::{MasterPool, PoolResource},
+    implementations::resources::{
+        pools::{MasterPool, PoolResource},
+        via_btc_indexer::BtcIndexerResource,
+    },
     service::StopReceiver,
     task::{Task, TaskId},
     wiring_layer::{WiringError, WiringLayer},

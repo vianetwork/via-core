@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::EstimateMode;
-use std::sync::Arc;
 use tracing::{debug, error, instrument};
 
 mod rpc_client;
