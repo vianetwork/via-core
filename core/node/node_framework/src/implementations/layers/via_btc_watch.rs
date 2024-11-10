@@ -1,7 +1,9 @@
+use via_btc_client::indexer::BitcoinInscriptionIndexer;
 use via_btc_client::types::NodeAuth;
 use via_btc_watch::{BitcoinNetwork, BtcWatch};
 use zksync_config::ViaBtcWatchConfig;
 
+use crate::implementations::resources::via_btc_indexer::BtcIndexerResource;
 use crate::{
     implementations::resources::pools::{MasterPool, PoolResource},
     service::StopReceiver,
@@ -28,6 +30,7 @@ pub struct Input {
 #[derive(Debug, IntoContext)]
 #[context(crate = crate)]
 pub struct Output {
+    pub btc_indexer_resource: BtcIndexerResource,
     #[context(task)]
     pub btc_watch: BtcWatch,
 }
@@ -64,6 +67,16 @@ impl WiringLayer for BtcWatchLayer {
                     .map_err(|_| WiringError::Configuration("Wrong txid in config".to_string()))
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let indexer = BtcIndexerResource::from(
+            BitcoinInscriptionIndexer::new(
+                self.btc_watch_config.rpc_url(),
+                network,
+                node_auth.clone(),
+                bootstrap_txids.clone(),
+            )
+            .await
+            .map_err(|e| WiringError::Internal(e.into()))?,
+        );
         let btc_watch = BtcWatch::new(
             self.btc_watch_config.rpc_url(),
             network,
@@ -75,7 +88,10 @@ impl WiringLayer for BtcWatchLayer {
         )
         .await?;
 
-        Ok(Output { btc_watch })
+        Ok(Output {
+            btc_indexer_resource: indexer,
+            btc_watch,
+        })
     }
 }
 
