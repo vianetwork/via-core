@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{borrow::Borrow, collections::HashMap};
+use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use bitcoin::{
@@ -58,8 +58,8 @@ const BROADCAST_RETRY_COUNT: u32 = 3;
 
 #[derive(Debug)]
 pub struct Inscriber {
-    client: Box<dyn BitcoinOps>,
-    signer: Box<dyn BitcoinSigner>,
+    client: Arc<dyn BitcoinOps>,
+    signer: Arc<dyn BitcoinSigner>,
     context: InscriberContext,
 }
 
@@ -73,8 +73,8 @@ impl Inscriber {
         persisted_ctx: Option<InscriberContext>,
     ) -> Result<Self> {
         info!("Creating new Inscriber");
-        let client = Box::new(BitcoinClient::new(rpc_url, network, auth)?);
-        let signer = Box::new(KeyManager::new(signer_private_key, network)?);
+        let client = Arc::new(BitcoinClient::new(rpc_url, network, auth)?);
+        let signer = Arc::new(KeyManager::new(signer_private_key, network)?);
         let context = persisted_ctx.unwrap_or_default();
 
         Ok(Self {
@@ -921,8 +921,8 @@ mod tests {
             .returning(|_| Ok(Txid::all_zeros()));
 
         Inscriber {
-            client: Box::new(client),
-            signer: Box::new(signer),
+            client: Arc::new(client),
+            signer: Arc::new(signer),
             context,
         }
     }

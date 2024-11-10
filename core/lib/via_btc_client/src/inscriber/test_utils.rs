@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use bitcoin::{
     hashes::Hash,
@@ -206,8 +208,8 @@ pub fn get_mock_inscriber_and_conditions(config: MockBitcoinOpsConfig) -> Inscri
     let context = InscriberContext::default();
 
     Inscriber {
-        client: Box::new(client),
-        signer: Box::new(signer),
+        client: Arc::new(client),
+        signer: Arc::new(signer),
         context,
     }
 }

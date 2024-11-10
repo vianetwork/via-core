@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::{
@@ -17,14 +19,16 @@ const RPC_MAX_RETRIES: u8 = 3;
 const RPC_RETRY_DELAY_MS: u64 = 500;
 
 pub struct BitcoinRpcClient {
-    client: Client,
+    client: Arc<Client>,
 }
 
 impl BitcoinRpcClient {
     #[instrument(skip(auth), target = "bitcoin_client::rpc_client")]
     pub fn new(url: &str, auth: NodeAuth) -> Result<Self, bitcoincore_rpc::Error> {
-        let client = Client::new(url, auth)?;
-        Ok(Self { client })
+        let client = Client::new(url, auth.clone())?;
+        Ok(Self {
+            client: Arc::new(client),
+        })
     }
 
     async fn retry_rpc<F, T>(f: F) -> BitcoinRpcResult<T>
@@ -216,5 +220,13 @@ impl BitcoinRpc for BitcoinRpcClient {
             self.client.get_blockchain_info().map_err(|e| e.into())
         })
         .await
+    }
+}
+
+impl Clone for BitcoinRpcClient {
+    fn clone(&self) -> Self {
+        Self {
+            client: Arc::clone(&self.client),
+        }
     }
 }

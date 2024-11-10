@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::EstimateMode;
@@ -12,7 +14,7 @@ use crate::{
 };
 
 pub struct BitcoinClient {
-    rpc: Box<dyn BitcoinRpc>,
+    rpc: Arc<dyn BitcoinRpc>,
     network: BitcoinNetwork,
 }
 
@@ -23,8 +25,11 @@ impl BitcoinClient {
         Self: Sized,
     {
         debug!("Creating new BitcoinClient");
-        let rpc = Box::new(BitcoinRpcClient::new(rpc_url, auth)?);
-        Ok(Self { rpc, network })
+        let rpc = BitcoinRpcClient::new(rpc_url, auth)?;
+        Ok(Self {
+            rpc: Arc::new(rpc),
+            network,
+        })
     }
 }
 
@@ -153,6 +158,15 @@ impl BitcoinOps for BitcoinClient {
     }
 }
 
+impl Clone for BitcoinClient {
+    fn clone(&self) -> Self {
+        Self {
+            rpc: Arc::clone(&self.rpc),
+            network: self.network,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -189,7 +203,7 @@ mod tests {
 
     fn get_client_with_mock(mock_bitcoin_rpc: MockBitcoinRpc) -> BitcoinClient {
         BitcoinClient {
-            rpc: Box::new(mock_bitcoin_rpc),
+            rpc: Arc::new(mock_bitcoin_rpc),
             network: BitcoinNetwork::Bitcoin,
         }
     }
