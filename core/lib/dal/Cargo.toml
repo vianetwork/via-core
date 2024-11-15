@@ -56,7 +56,7 @@ chrono = { workspace = true, features = ["serde"] }
 bitcoin.workspace = true
 
 [dev-dependencies]
-zksync_test_account.workspace = true
+zksync_test_contracts.workspace = true
 zksync_concurrency.workspace = true
 
 [build-dependencies]
