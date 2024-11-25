@@ -75,7 +75,14 @@ services:
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher rescanblockchain
 
         while true; do
-            bitcoin-cli $${RPC_ARGS} generatetoaddress 1 $${ALICE_ADDRESS}
+            MEMPOOL_COUNT=$(bitcoin-cli $${RPC_ARGS} getmempoolinfo | jq -r '.size')
+            echo "Mempool transaction count: $${MEMPOOL_COUNT}"
+            if [ "$${MEMPOOL_COUNT}" -gt 0 ]; then
+                echo "Transactions found in mempool: $${MEMPOOL_COUNT}. Generating a block..."
+                bitcoin-cli $${RPC_ARGS} generatetoaddress 1 $${ALICE_ADDRESS}
+            else
+                echo "No transactions in mempool. Skipping block generation..."
+            fi
             sleep $${SLEEP_SECONDS} &
             wait $!
         done
