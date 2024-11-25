@@ -5,9 +5,9 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 
 const DEFAULT_NETWORK = 'regtest';
-const DEFAULT_RPC_URL = "http://0.0.0.0:18443";
-const DEFAULT_RPC_USERNAME = "rpcuser";
-const DEFAULT_RPC_PASSWORD = "rpcpassword";
+const DEFAULT_RPC_URL = 'http://0.0.0.0:18443';
+const DEFAULT_RPC_USERNAME = 'rpcuser';
+const DEFAULT_RPC_PASSWORD = 'rpcpassword';
 
 async function updateEnvVariable(envFilePath: string, variableName: string, newValue: string) {
     const envFileContent = await fs.readFile(envFilePath, 'utf-8');
@@ -46,12 +46,7 @@ async function updateBootstrapTxidsEnv() {
     }
 }
 
-export async function via_bootstrap(
-    network: string,
-    rpcUrl: string,
-    rpcUsername: string,
-    rpcPassword: string
-) {
+export async function via_bootstrap(network: string, rpcUrl: string, rpcUsername: string, rpcPassword: string) {
     process.chdir(`${process.env.VIA_HOME}`);
     await utils.spawn(`cargo run --example bootstrap -- ${network} ${rpcUrl} ${rpcUsername} ${rpcPassword}`);
 
@@ -64,11 +59,4 @@ export const command = new Command('bootstrap')
     .option('--rpc-url <rpcUrl>', 'RPC URL', DEFAULT_RPC_URL)
     .option('--rpc-username <rpcUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
-    .action((cmd: Command) =>
-        via_bootstrap(
-            cmd.network,
-            cmd.rpcUrl,
-            cmd.rpcUsername,
-            cmd.rpcPassword
-        )
-    );
+    .action((cmd: Command) => via_bootstrap(cmd.network, cmd.rpcUrl, cmd.rpcUsername, cmd.rpcPassword));
