@@ -1,4 +1,5 @@
 use std::{
+    env,
     fs::{remove_file, OpenOptions},
     io::Write,
 };
@@ -6,7 +7,6 @@ use std::{
 use anyhow::{Context, Result};
 use bitcoin::address::NetworkUnchecked;
 use tracing::info;
-use tracing_subscriber;
 use via_btc_client::{
     inscriber::Inscriber,
     types::{
@@ -16,17 +16,19 @@ use via_btc_client::{
 };
 use zksync_basic_types::H256;
 
-const RPC_URL: &str = "http://0.0.0.0:18443";
-const RPC_USERNAME: &str = "rpcuser";
-const RPC_PASSWORD: &str = "rpcpassword";
-const NETWORK: BitcoinNetwork = BitcoinNetwork::Regtest;
 const TIMEOUT: u64 = 5;
 
-async fn create_inscriber(signer_private_key: &str) -> Result<Inscriber> {
+async fn create_inscriber(
+    signer_private_key: &str,
+    rpc_url: &str,
+    rpc_username: &str,
+    rpc_password: &str,
+    network: BitcoinNetwork,
+) -> Result<Inscriber> {
     Inscriber::new(
-        RPC_URL,
-        NETWORK,
-        NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string()),
+        rpc_url,
+        network,
+        NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string()),
         signer_private_key,
         None,
     )
@@ -39,6 +41,12 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
+
+    let args: Vec<String> = env::args().collect();
+    let network: BitcoinNetwork = args[1].parse().expect("Invalid network value");
+    let rpc_url = args[2].clone();
+    let rpc_username = args[3].clone();
+    let rpc_password = args[4].clone();
 
     // Regtest verifier keys
     let verifier_1_private_key = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm".to_string();
@@ -57,9 +65,30 @@ async fn main() -> Result<()> {
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
 
     let mut verifier_inscribers: Vec<Inscriber> = vec![
-        create_inscriber(&verifier_1_private_key).await?,
-        create_inscriber(&verifier_2_private_key).await?,
-        create_inscriber(&verifier_3_private_key).await?,
+        create_inscriber(
+            &verifier_1_private_key,
+            &rpc_url,
+            &rpc_username,
+            &rpc_password,
+            network,
+        )
+        .await?,
+        create_inscriber(
+            &verifier_2_private_key,
+            &rpc_url,
+            &rpc_username,
+            &rpc_password,
+            network,
+        )
+        .await?,
+        create_inscriber(
+            &verifier_3_private_key,
+            &rpc_url,
+            &rpc_username,
+            &rpc_password,
+            network,
+        )
+        .await?,
     ];
 
     // Bootstrapping message
