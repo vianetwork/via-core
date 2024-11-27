@@ -127,3 +127,6 @@ core/tests/ts-integration/deployments-zk
 celestia-keys/*
 etc/env/via/genesis/regtest
 transactions/
+
+# foundry-zksync
+install
