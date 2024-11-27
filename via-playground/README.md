@@ -19,7 +19,15 @@ and replace it in `hardhat.config.ts`.
 
 3. Run the following command to bridge BTC to L2:
    ```shell
-   via verifier deposit --amount 100 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049
+   via verifier deposit \
+    --amount 100 \
+    --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 \
+    --sender-private-key <sender_private_key> \
+    --rpc-url <regtest_url> \
+    --rpc-username <rcp_username> \
+    --rpc-password <rpc_password>
+
+   # if you are using local setup you don't need provide rpc related options and private key.
    ```
 4. Deploy a Crowdfunding contract with the desired funding goal:
    ```shell
