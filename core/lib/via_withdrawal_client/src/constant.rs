@@ -1,9 +1,13 @@
+/// The function selector used in L2 to compute the message.
 pub const WITHDRAW_FUNC_SIG: &str = "finalizeEthWithdrawal(uint256,uint256,uint16,bytes,bytes32[])";
 
+/// The L2 system message address.
 pub const L2_TO_L1_MESSENGER_SYSTEM_CONTRACT_ADDR: &str =
     "0000000000000000000000000000000000008008";
 
+/// The L2 system bridge address.
 pub const L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR: &str = "000000000000000000000000000000000000800a";
 
+/// The default log tree.
 pub const L2_L1_LOGS_TREE_DEFAULT_LEAF_HASH: &str =
     "0x72abee45b59e344af8a6e520241c4744aff26ed411f4c4b00f8af09adada43ba";

@@ -13,38 +13,42 @@ use crate::constant::{
 
 #[derive(Clone, Debug)]
 pub struct WithdrawalRequest {
+    /// The receiver l1 address.
     pub address: BitcoinAddress<NetworkUnchecked>,
+    /// The amount user will receive.
     pub amount: U256,
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct MessageParams {
-    pub l2_message_index: u64,
-    pub l2_tx_number_in_batch: u64,
-}
-
-#[derive(Clone, Debug, Default)]
-struct L2Message {
-    tx_number_in_batch: u64,
-    sender: H160,
-    data: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Default)]
 pub struct VerifyParams {
+    /// The L2 log root hash.
     pub root_hash: H256,
-    pub message_params: MessageParams,
+    /// The position in the L2 logs Merkle tree of the l2Log that was sent with the message.
+    pub l2_message_index: u64,
+    /// The L2 transaction number in the batch, in which the log was sent.
+    pub l2_tx_number_in_batch: u64,
+    /// The L2 withdraw data, stored in an L2 -> L1 message
     pub message: Vec<u8>,
-    pub merkel_proof: Vec<H256>,
+    /// The Merkle proof of the inclusion L2 -> L1 message about withdrawal initialization
+    pub merkel_proof_hashes: Vec<H256>,
 }
 
+/// The log passed from L2
 #[derive(Clone, Debug, Default)]
 struct L2Log {
+    /// l2ShardId The shard identifier, 0 - rollup, 1 - porter
+    /// All other values are not used but are reserved for the future
     l2_shard_id: u8,
+    /// isService A boolean flag that is part of the log along with `key`, `value`, and `sender` address.
+    /// This field is required formally but does not have any special meaning
     is_service: bool,
+    /// txNumberInBatch The L2 transaction number in a Batch, in which the log was sent
     tx_number_in_batch: u64,
+    /// sender The L2 address which sent the log
     sender: H160,
+    /// key The 32 bytes of information that was sent in the log
     key: H256,
+    /// value The 32 bytes of information that was sent in the log
     value: H256,
 }
 
@@ -59,7 +63,7 @@ impl WithdrawalValidation {
         if !self._prove_l2_message_inclusion(verify_params.clone()) {
             return Err(anyhow::format_err!(format!(
                 "Withdrawal not included in the l1 batch {}",
-                verify_params.message_params.l2_tx_number_in_batch
+                verify_params.l2_tx_number_in_batch
             )));
         }
         return self._parse_l2_withdrawal_message(verify_params.message);
@@ -97,11 +101,11 @@ impl WithdrawalValidation {
         return Ok(WithdrawalRequest { address, amount });
     }
 
-    /// Prove that a specific L2 log was sent in a specific L2 batch number
+    /// Prove that a specific L2 log was sent in a specific L2 batch number.
     fn _prove_l2_message_inclusion(&self, verify_params: VerifyParams) -> bool {
         let hashed_log: H256 = self._calculate_log_hash(
             verify_params.message.clone(),
-            verify_params.message_params.l2_tx_number_in_batch,
+            verify_params.l2_tx_number_in_batch,
         );
 
         // Check that hashed log is not the default one,
@@ -111,21 +115,23 @@ impl WithdrawalValidation {
         }
 
         let calculated_root_hash = self._calculate_root(
-            verify_params.merkel_proof,
-            verify_params.message_params.l2_message_index,
+            verify_params.merkel_proof_hashes,
+            verify_params.l2_message_index,
             hashed_log,
         );
         calculated_root_hash == verify_params.root_hash
     }
 
+    /// Calculate the log hash.
     fn _calculate_log_hash(&self, message: Vec<u8>, l2_tx_number_in_batch: u64) -> H256 {
-        let l2_message = L2Message {
+        let log = L2Log {
+            l2_shard_id: 0,
+            is_service: true,
             tx_number_in_batch: l2_tx_number_in_batch,
-            sender: H160::from_str(L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR).unwrap(),
-            data: message,
+            sender: H160::from_str(L2_TO_L1_MESSENGER_SYSTEM_CONTRACT_ADDR).unwrap(),
+            key: H256::from(H160::from_str(L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR).unwrap()),
+            value: H256::from(keccak256(hex::encode(&message).as_bytes())),
         };
-
-        let log = self._l2_message_to_log(l2_message);
 
         let dt = DynSolValue::Tuple(vec![
             DynSolValue::Uint(primitives::U256::from(log.l2_shard_id), 256),
@@ -145,22 +151,13 @@ impl WithdrawalValidation {
         H256::from(keccak256(&dt.abi_encode_packed()))
     }
 
-    fn _l2_message_to_log(&self, l2_message: L2Message) -> L2Log {
-        L2Log {
-            l2_shard_id: 0,
-            is_service: true,
-            tx_number_in_batch: l2_message.tx_number_in_batch,
-            sender: H160::from_str(L2_TO_L1_MESSENGER_SYSTEM_CONTRACT_ADDR).unwrap(),
-            key: H256::from(l2_message.sender),
-            value: H256::from(keccak256(hex::encode(&l2_message.data).as_bytes())),
-        }
-    }
-
+    /// Get the withdrawal function selector.
     fn _get_withdraw_function_selector(&self) -> Vec<u8> {
         let hash = keccak256(WITHDRAW_FUNC_SIG.as_bytes());
         hash[0..4].to_vec()
     }
 
+    /// Calculate the merkel root hash from list proof.
     fn _calculate_root(&self, path: Vec<H256>, index: u64, item_hash: H256) -> H256 {
         if path.len() == 0 || path.len() >= 256 {
             H256::zero();
