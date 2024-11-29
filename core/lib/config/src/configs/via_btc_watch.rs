@@ -35,6 +35,9 @@ pub struct ViaBtcWatchConfig {
 
     /// Role of the actor. SEQUENCER or VERIFIER.
     pub actor_role: ActorRole,
+
+    /// Number of blocks that we should wait before processing the new blocks.
+    pub btc_blocks_lag: u32,
 }
 
 impl ViaBtcWatchConfig {
@@ -51,6 +54,11 @@ impl ViaBtcWatchConfig {
     /// Returns the role of the actor.
     pub fn actor_role(&self) -> &ActorRole {
         &self.actor_role
+    }
+
+    /// Returns the number of blocks that we should wait before processing the new blocks.
+    pub fn btc_blocks_lag(&self) -> u32 {
+        self.btc_blocks_lag
     }
 
     /// Returns the RPC URL of the Bitcoin node.
@@ -92,6 +100,7 @@ impl ViaBtcWatchConfig {
             network: "regtest".to_string(),
             bootstrap_txids: vec![],
             actor_role: ActorRole::Sequencer,
+            btc_blocks_lag: 1,
         }
     }
 }
