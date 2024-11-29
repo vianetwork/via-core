@@ -1,9 +1,9 @@
 # Building solidity from sources so binary is available for any architecture
-FROM debian:bookworm as solidity-builder
+FROM debian:bookworm AS solidity-builder
 
 # Link Docker Image with repository
 # https://docs.github.com/en/packages/learn-github-packages/connecting-a-repository-to-a-package#connecting-a-repository-to-a-container-image-using-the-command-line
-LABEL org.opencontainers.image.source=https://github.com/matter-labs/zksync-era
+LABEL org.opencontainers.image.source=https://github.com/vianetwork/via-core
 LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
 
 # Install prerequisites
@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     git \
-    libboost-all-dev
+    libboost-all-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Clone Solidity repository
 RUN git clone https://github.com/ethereum/solidity.git
@@ -28,12 +29,12 @@ WORKDIR /solidity/build
 RUN cmake ..
 RUN make
 
-FROM debian:bookworm as rust-lightweight
+FROM debian:bookworm AS rust-lightweight
 
 ARG ARCH=amd64
 
-WORKDIR /usr/src/zksync
-ENV DEBIAN_FRONTEND noninteractive
+WORKDIR /usr/src/via
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install required dependencies
 RUN apt-get update && apt-get install -y \
@@ -58,7 +59,9 @@ RUN apt-get update && apt-get install -y \
     wget \
     bzip2 \
     hub \
-    unzip
+    unzip \
+    protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install dependencies for RocksDB.
 RUN apt-get update && \
@@ -69,7 +72,8 @@ RUN apt-get update && \
     lldb-15 \
     lld-15 \
     liburing-dev \
-    libclang-dev
+    libclang-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install Docker
 RUN apt-get update && \
@@ -81,7 +85,8 @@ RUN apt-get update && \
     "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
     "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
     tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-    apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install Node and yarn
 ENV NODE_MAJOR=18
@@ -136,15 +141,20 @@ RUN wget -c https://sourceware.org/pub/valgrind/valgrind-3.20.0.tar.bz2 && \
     cd valgrind-3.20.0 && ./configure && make && make install && \
     cd ../ && rm -rf valgrind-3.20.0.tar.bz2 && rm -rf valgrind-3.20.0
 
+# Install bitcoin core
+RUN wget -c https://bitcoin.org/bin/bitcoin-core-27.0/bitcoin-27.0-x86_64-linux-gnu.tar.gz && \
+    tar -xf bitcoin-27.0-x86_64-linux-gnu.tar.gz && \
+    mv bitcoin-27.0/bin/* /usr/local/bin/ && \
+    rm -rf bitcoin-27.0 && rm -rf bitcoin-27.0-x86_64-linux-gnu.tar.gz
 
 # Setup the environment
-ENV ZKSYNC_HOME=/usr/src/zksync
-ENV PATH="${ZKSYNC_HOME}/bin:${PATH}"
+ENV VIA_HOME=/usr/src/via
+ENV PATH="${VIA_HOME}/bin:${PATH}"
 ENV CI=1
 RUN cargo install sccache
 ENV RUSTC_WRAPPER=/usr/local/cargo/bin/sccache
 
-FROM rust-lightweight as rust-lightweight-nightly
+FROM rust-lightweight AS rust-lightweight-nightly
 
 RUN rustup install nightly-2024-08-01 && \
     rustup default nightly-2024-08-01
