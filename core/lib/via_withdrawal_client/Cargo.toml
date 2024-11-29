@@ -1,0 +1,19 @@
+[package]
+name = "via_withdrawal_client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+hex.workspace = true
+anyhow.workspace = true
+zksync_basic_types.workspace = true
+
+alloy-primitives = { version = "0.6.4" }
+alloy-dyn-abi = { version = "0.6.4" }
+bitcoin = { version = "0.32.2", features = ["serde"] }
