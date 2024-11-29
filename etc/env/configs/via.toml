@@ -1,7 +1,7 @@
 __imports__ = [ "base", "l2-inits/via.init.env" ]
 
 [via_btc_watch]
-confirmations_for_btc_msg = 3
+confirmations_for_btc_msg = 0
 btc_node_poll_interval = 1000
 rpc_url = "http://0.0.0.0:18443"
 rpc_user = "rpcuser"
