@@ -10,7 +10,7 @@ use zksync_config::ViaBtcSenderConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::btc_sender::ViaBtcInscriptionRequest;
 
-use crate::config::{BLOCK_CONFIRMATIONS, BLOCK_RESEND};
+use crate::config::BLOCK_RESEND;
 
 #[derive(Debug)]
 pub struct ViaBtcInscriptionManager {
@@ -85,7 +85,7 @@ impl ViaBtcInscriptionManager {
                     .await
                     .check_tx_confirmation(
                         &last_inscription_history.reveal_tx_id,
-                        BLOCK_CONFIRMATIONS,
+                        self.config.block_confirmations(),
                     )
                     .await?;
 

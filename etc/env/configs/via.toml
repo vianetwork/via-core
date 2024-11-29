@@ -27,6 +27,7 @@ network = "regtest"
 actor_role = "Sequencer"
 da_identifier = "da_identifier_celestia"
 proof_sending_mode= "SkipEveryProof"
+block_confirmations = 0
 
 [via_celestia_client]
 api_node_url = "http://0.0.0.0:26658"
