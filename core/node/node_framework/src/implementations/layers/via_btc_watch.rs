@@ -68,6 +68,8 @@ impl WiringLayer for BtcWatchLayer {
                     .map_err(|_| WiringError::Configuration("Wrong txid in config".to_string()))
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let btc_blocks_lag = self.btc_watch_config.btc_blocks_lag();
+
         let indexer = BtcIndexerResource::from(
             BitcoinInscriptionIndexer::new(
                 self.btc_watch_config.rpc_url(),
@@ -86,6 +88,7 @@ impl WiringLayer for BtcWatchLayer {
             bootstrap_txids,
             main_pool,
             self.btc_watch_config.poll_interval(),
+            btc_blocks_lag,
         )
         .await?;
 

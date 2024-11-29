@@ -20,9 +20,6 @@ use self::{
 };
 use crate::metrics::ErrorType;
 
-// Number of blocks that we should wait before processing the new blocks.
-pub(crate) const BTC_BLOCKS_LAG: u32 = 1000;
-
 #[derive(Debug)]
 struct BtcWatchState {
     last_processed_bitcoin_block: u32,
@@ -38,9 +35,11 @@ pub struct BtcWatch {
     last_processed_bitcoin_block: u32,
     pool: ConnectionPool<Core>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
+    btc_blocks_lag: u32,
 }
 
 impl BtcWatch {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         rpc_url: &str,
         network: BitcoinNetwork,
@@ -49,11 +48,12 @@ impl BtcWatch {
         bootstrap_txids: Vec<BitcoinTxid>,
         pool: ConnectionPool<Core>,
         poll_interval: Duration,
+        btc_blocks_lag: u32,
     ) -> anyhow::Result<Self> {
         let indexer =
             BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
         let mut storage = pool.connection_tagged("via_btc_watch").await?;
-        let state = Self::initialize_state(&indexer, &mut storage).await?;
+        let state = Self::initialize_state(&indexer, &mut storage, btc_blocks_lag).await?;
         tracing::info!("initialized state: {state:?}");
         drop(storage);
 
@@ -64,19 +64,31 @@ impl BtcWatch {
                 state.next_expected_priority_id,
             ))];
 
+        let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);
+
+        // We should not set confirmations_for_btc_msg to 0 for mainnet,
+        // because we need to wait for some confirmations to be sure that the transaction is included in a block.
+        if network == BitcoinNetwork::Bitcoin && confirmations_for_btc_msg == 0 {
+            return Err(anyhow::anyhow!(
+                "confirmations_for_btc_msg cannot be 0 for mainnet"
+            ));
+        }
+
         Ok(Self {
             indexer,
             poll_interval,
-            confirmations_for_btc_msg: confirmations_for_btc_msg.unwrap_or(0),
+            confirmations_for_btc_msg,
             last_processed_bitcoin_block: state.last_processed_bitcoin_block,
             pool,
             message_processors,
+            btc_blocks_lag,
         })
     }
 
     async fn initialize_state(
         indexer: &BitcoinInscriptionIndexer,
         storage: &mut Connection<'_, Core>,
+        btc_blocks_lag: u32,
     ) -> anyhow::Result<BtcWatchState> {
         let last_processed_bitcoin_block = match storage
             .via_transactions_dal()
@@ -88,7 +100,7 @@ impl BtcWatch {
                 .fetch_block_height()
                 .await
                 .context("cannot get current Bitcoin block")?
-                .saturating_sub(BTC_BLOCKS_LAG as u128) as u32, // TODO: remove cast
+                .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
         };
 
         // TODO: get the bridge address from the database?
@@ -130,7 +142,7 @@ impl BtcWatch {
                 Err(err) => {
                     tracing::error!("Failed to process new blocks: {err}");
                     self.last_processed_bitcoin_block =
-                        Self::initialize_state(&self.indexer, &mut storage)
+                        Self::initialize_state(&self.indexer, &mut storage, self.btc_blocks_lag)
                             .await?
                             .last_processed_bitcoin_block;
                 }

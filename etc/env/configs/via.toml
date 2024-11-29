@@ -1,7 +1,7 @@
 __imports__ = [ "base", "l2-inits/via.init.env" ]
 
 [via_btc_watch]
-confirmations_for_btc_msg = 3
+confirmations_for_btc_msg = 0
 btc_node_poll_interval = 1000
 rpc_url = "http://0.0.0.0:18443"
 rpc_user = "rpcuser"
@@ -9,6 +9,10 @@ rpc_password = "rpcpassword"
 network = "regtest"
 bootstrap_txids = []
 actor_role = "Sequencer"
+# Number of blocks that we should wait before processing the new blocks.
+# For local regtest we should wait for 0 blocks. 
+# But for mainnet we should wait for 3 blocks.
+btc_blocks_lag = 0
 
 [via_btc_sender]
 poll_interval = 1000
@@ -23,6 +27,7 @@ network = "regtest"
 actor_role = "Sequencer"
 da_identifier = "da_identifier_celestia"
 proof_sending_mode= "SkipEveryProof"
+block_confirmations = 0
 
 [via_celestia_client]
 api_node_url = "http://0.0.0.0:26658"

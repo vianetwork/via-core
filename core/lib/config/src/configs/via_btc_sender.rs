@@ -40,6 +40,9 @@ pub struct ViaBtcSenderConfig {
 
     /// The mode in which proofs are sent.
     pub proof_sending_mode: ProofSendingMode,
+
+    /// Number of block confirmations required to mark the inscription request as confirmed.
+    pub block_confirmations: u32,
 }
 
 impl ViaBtcSenderConfig {
@@ -87,6 +90,10 @@ impl ViaBtcSenderConfig {
     pub fn da_identifier(&self) -> &str {
         &self.da_identifier
     }
+
+    pub fn block_confirmations(&self) -> u32 {
+        self.block_confirmations
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -105,6 +112,7 @@ impl ViaBtcSenderConfig {
             max_txs_in_flight: 1,
             da_identifier: "da_identifier_celestia".to_string(),
             proof_sending_mode: ProofSendingMode::SkipEveryProof,
+            block_confirmations: 0,
         }
     }
 }

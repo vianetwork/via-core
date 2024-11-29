@@ -90,6 +90,7 @@ pub fn get_btc_sender_config(
         max_aggregated_proofs_to_commit,
         max_txs_in_flight: 1,
         proof_sending_mode: ProofSendingMode::SkipEveryProof,
+        block_confirmations: 0,
     }
 }
 
