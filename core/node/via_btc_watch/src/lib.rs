@@ -64,10 +64,20 @@ impl BtcWatch {
                 state.next_expected_priority_id,
             ))];
 
+        let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);
+
+        // We should not set confirmations_for_btc_msg to 0 for mainnet,
+        // because we need to wait for some confirmations to be sure that the transaction is included in a block.
+        if network == BitcoinNetwork::Bitcoin && confirmations_for_btc_msg == 0 {
+            return Err(anyhow::anyhow!(
+                "confirmations_for_btc_msg cannot be 0 for mainnet"
+            ));
+        }
+
         Ok(Self {
             indexer,
             poll_interval,
-            confirmations_for_btc_msg: confirmations_for_btc_msg.unwrap_or(0),
+            confirmations_for_btc_msg,
             last_processed_bitcoin_block: state.last_processed_bitcoin_block,
             pool,
             message_processors,
