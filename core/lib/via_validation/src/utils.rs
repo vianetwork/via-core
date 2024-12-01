@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, path::PathBuf};
 
 use crate::errors::VerificationError;
 
@@ -8,8 +8,10 @@ pub async fn check_verification_key(protocol_version: u16) -> Result<(), Verific
         "keys/protocol_version/{}/scheduler_key.json",
         protocol_version
     );
-    let current_dir = env::current_dir().map_err(|e| VerificationError::Other(e.to_string()))?;
-    let file = current_dir.join(file_path);
+    let base_dir =
+        env::var("CARGO_MANIFEST_DIR").map_err(|e| VerificationError::Other(e.to_string()))?;
+    let base_path = PathBuf::from(base_dir);
+    let file = base_path.join(file_path);
     let file_exists = file.exists();
 
     if !file_exists {

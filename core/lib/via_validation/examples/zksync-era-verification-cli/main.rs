@@ -4,7 +4,7 @@ mod types;
 
 use clap::Parser;
 use tracing::{error, info};
-use via_validator::{
+use via_proof_verfication::{
     errors::VerificationError, l1_data_fetcher::L1DataFetcher, verification::verify_snark,
 };
 
@@ -50,7 +50,7 @@ async fn main() -> Result<(), VerificationError> {
         info!("Public input: {}", input);
         info!("Computed VK hash: {}", computed_vk_hash);
     } else {
-        error!("Failed to verify proof due to an error.");
+        error!("Failed to verify proof due to an error : {:?}", verify_resp);
     }
 
     Ok(())

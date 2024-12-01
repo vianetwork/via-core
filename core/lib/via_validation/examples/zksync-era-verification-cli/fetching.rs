@@ -13,7 +13,7 @@ use ethers::{
 use once_cell::sync::Lazy;
 use primitive_types::{H256, U256};
 use reqwest::StatusCode;
-use via_validator::{
+use via_proof_verfication::{
     crypto::deserialize_proof, errors::VerificationError, proof::ViaZKProof, types::BatchL1Data,
 };
 

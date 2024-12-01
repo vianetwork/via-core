@@ -1,4 +1,4 @@
-use std::fs;
+use std::{env, fs, path::PathBuf};
 
 use circuit_definitions::{
     boojum::pairing::{ff::PrimeFieldRepr, Engine},
@@ -33,14 +33,18 @@ pub async fn verify_snark(
         snark_vk_scheduler_key_file
     );
 
+    let base_dir =
+        env::var("CARGO_MANIFEST_DIR").map_err(|e| VerificationError::Other(e.to_string()))?;
+    let base_path = PathBuf::from(base_dir);
+    let file = base_path.join(snark_vk_scheduler_key_file.clone());
+
     // Load the verification key from the specified file.
-    let verification_key_content = fs::read_to_string(snark_vk_scheduler_key_file.clone())
-        .map_err(|e| {
-            VerificationError::Other(format!(
-                "Failed to read verification key from {}: {}",
-                snark_vk_scheduler_key_file, e
-            ))
-        })?;
+    let verification_key_content = fs::read_to_string(file).map_err(|e| {
+        VerificationError::Other(format!(
+            "Failed to read verification key from {}: {}",
+            snark_vk_scheduler_key_file, e
+        ))
+    })?;
 
     // Deserialize the verification key.
     let vk_inner: VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit> =
