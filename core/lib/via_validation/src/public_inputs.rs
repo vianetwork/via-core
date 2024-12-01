@@ -8,7 +8,7 @@ use crate::{types::BatchL1Data, utils::to_fixed_bytes};
 
 /// Computes the public inputs for a given batch.
 /// Public inputs require us to fetch multiple data from L1 (like state hash etc).
-pub fn generate_inputs(batch_l1_data: BatchL1Data) -> Vec<Fr> {
+pub fn generate_inputs(batch_l1_data: &BatchL1Data) -> Vec<Fr> {
     // Prepare the input fields
     let input_fields = [
         batch_l1_data.prev_batch_commitment.to_fixed_bytes(),

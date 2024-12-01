@@ -14,7 +14,7 @@ use circuit_definitions::{
 use crate::{errors::VerificationError, types::Fr};
 
 /// Trait for a proof that can be verified.
-pub trait Proof {
+pub trait ProofTrait {
     /// Verifies the proof with the given verification key and public inputs.
     fn verify(
         &self,
@@ -27,19 +27,17 @@ pub trait Proof {
 
 /// A struct representing an L1 batch proof.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct L1BatchProof {
-    pub aggregation_result_coords: [[u8; 32]; 4],
-    pub scheduler_proof: ZkSyncProof<Bn256, ZkSyncSnarkWrapperCircuit>,
-    pub inputs: Vec<Fr>,
+pub struct ViaZKProof {
+    pub proof: ZkSyncProof<Bn256, ZkSyncSnarkWrapperCircuit>,
 }
 
-impl Proof for L1BatchProof {
+impl ProofTrait for ViaZKProof {
     fn verify(
         &self,
         vk: VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit>,
     ) -> Result<bool, VerificationError> {
         // Ensure the proof's 'n' matches the verification key's 'n'.
-        let mut scheduler_proof = self.scheduler_proof.clone();
+        let mut scheduler_proof = self.proof.clone();
         scheduler_proof.n = vk.n;
 
         tracing::debug!("Verifying proof with n = {}", scheduler_proof.n);
@@ -50,16 +48,14 @@ impl Proof for L1BatchProof {
     }
 
     fn get_public_inputs(&self) -> &[Fr] {
-        &self.inputs
+        &self.proof.inputs
     }
 }
 
-impl Default for L1BatchProof {
+impl Default for ViaZKProof {
     fn default() -> Self {
         Self {
-            aggregation_result_coords: [[0u8; 32]; 4],
-            scheduler_proof: ZkSyncProof::empty(),
-            inputs: vec![],
+            proof: ZkSyncProof::empty(),
         }
     }
 }

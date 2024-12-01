@@ -5,7 +5,7 @@ use circuit_definitions::{
     snark_wrapper::franklin_crypto::bellman::bn256::Bn256,
 };
 use ethers::{
-    abi::{ethabi, ethereum_types, Abi, Address, Function, Token},
+    abi::{ethabi, ethereum_types, Abi, Function, Token},
     contract::BaseContract,
     providers::{Http, Middleware, Provider},
     types::TxHash,
@@ -14,17 +14,12 @@ use once_cell::sync::Lazy;
 use primitive_types::{H256, U256};
 use reqwest::StatusCode;
 use via_validator::{
-    block_header,
-    block_header::{BlockAuxilaryOutput, VerifierParams},
-    crypto::deserialize_proof,
-    errors::VerificationError,
-    proof::L1BatchProof,
-    types::{BatchL1Data, L1BatchAndProofData},
+    crypto::deserialize_proof, errors::VerificationError, proof::ViaZKProof, types::BatchL1Data,
 };
 
 use crate::types::{JSONL2RPCResponse, JSONL2SyncRPCResponse, L1BatchRangeJson};
 
-pub static BLOCK_COMMIT_EVENT_SIGNATURE: Lazy<H256> = Lazy::new(|| {
+static BLOCK_COMMIT_EVENT_SIGNATURE: Lazy<H256> = Lazy::new(|| {
     ethabi::long_signature(
         "BlockCommit",
         &[
@@ -143,43 +138,14 @@ pub async fn fetch_batch_commit_tx(
     }
 }
 
-pub async fn fetch_l1_data(
-    batch_number: u64,
-    protocol_version: u16,
-    rpc_url: &str,
-) -> Result<L1BatchAndProofData, VerificationError> {
-    let commit_data = fetch_l1_commit_data(batch_number, protocol_version, rpc_url).await?;
-
-    let (batch_l1_data, aux_output) = commit_data;
-
-    let proof_info = fetch_proof_from_l1(batch_number, rpc_url, protocol_version).await?;
-
-    let (proof_data, block_number) = proof_info;
-
-    let verifier_params = fetch_verifier_param_from_l1(block_number, rpc_url).await;
-
-    Ok(L1BatchAndProofData {
-        batch_l1_data,
-        aux_output,
-        scheduler_proof: proof_data.scheduler_proof,
-        verifier_params,
-        block_number,
-    })
-}
-
 pub async fn fetch_l1_commit_data(
     batch_number: u64,
-    protocol_version: u16,
     rpc_url: &str,
-) -> Result<(BatchL1Data, BlockAuxilaryOutput), VerificationError> {
+) -> Result<BatchL1Data, VerificationError> {
     let client = Provider::<Http>::try_from(rpc_url).expect("Failed to connect to provider");
 
     let contract_abi: Abi = Abi::load(&include_bytes!("abis/IZkSync.json")[..]).unwrap();
-    let (function_name, fallback_fn_name) = if protocol_version < 23 {
-        ("commitBatches", None)
-    } else {
-        ("commitBatchesSharedBridge", Some("commitBatches"))
-    };
+    let (function_name, fallback_fn_name) = ("commitBatchesSharedBridge", Some("commitBatches"));
 
     let function = contract_abi.functions_by_name(function_name).unwrap()[0].clone();
     let fallback_function =
@@ -191,7 +157,6 @@ pub async fn fetch_l1_commit_data(
 
     let mut roots = vec![];
     let mut l1_block_number = 0;
-    let mut calldata = vec![];
     let mut prev_batch_commitment = H256::default();
     let mut curr_batch_commitment = H256::default();
     for b_number in [previous_batch_number, batch_number] {
@@ -203,7 +168,7 @@ pub async fn fetch_l1_commit_data(
 
         let tx = tx.unwrap();
         l1_block_number = tx.block_number.unwrap().as_u64();
-        calldata = tx.input.to_vec();
+        let calldata = tx.input.to_vec();
 
         let found_data =
             find_state_data_from_log(b_number, &function, fallback_function.clone(), &calldata)?;
@@ -239,8 +204,6 @@ pub async fn fetch_l1_commit_data(
         roots.push(found_data);
     }
 
-    let aux_output = block_header::parse_aux_data(&function, &calldata)?;
-
     assert_eq!(roots.len(), 2);
 
     let (previous_enumeration_counter, previous_root) = roots[0].clone();
@@ -274,7 +237,6 @@ pub async fn fetch_l1_commit_data(
         format!("0x{}", hex::encode(bootloader_code_hash.as_bytes())),
         format!("0x{}", hex::encode(default_aa_code_hash.as_bytes()))
     );
-    println!("\n");
     let result = BatchL1Data {
         previous_enumeration_counter,
         previous_root,
@@ -286,7 +248,7 @@ pub async fn fetch_l1_commit_data(
         curr_batch_commitment,
     };
 
-    Ok((result, aux_output))
+    Ok(result)
 }
 
 fn find_state_data_from_log(
@@ -381,11 +343,11 @@ fn find_state_data_from_log(
     Ok(found_params)
 }
 
-pub async fn fetch_proof_from_l1(
+pub(crate) async fn fetch_proof_from_l1(
     batch_number: u64,
     rpc_url: &str,
     protocol_version: u16,
-) -> Result<(L1BatchProof, u64), VerificationError> {
+) -> Result<(ViaZKProof, u64), VerificationError> {
     let client = Provider::<Http>::try_from(rpc_url).expect("Failed to connect to provider");
 
     let contract_abi: Abi = Abi::load(&include_bytes!("abis/IZkSync.json")[..]).unwrap();
@@ -456,38 +418,6 @@ pub async fn fetch_proof_from_l1(
     }
 
     let x: circuit_definitions::snark_wrapper::franklin_crypto::bellman::plonk::better_better_cs::proof::Proof<Bn256, ZkSyncSnarkWrapperCircuit> = deserialize_proof(proof);
-    Ok((
-        L1BatchProof {
-            aggregation_result_coords: [[0u8; 32]; 4],
-            scheduler_proof: x,
-            inputs: vec![], // TODO
-        },
-        l1_block_number,
-    ))
-}
 
-pub async fn fetch_verifier_param_from_l1(block_number: u64, rpc_url: &str) -> VerifierParams {
-    let client = Provider::<Http>::try_from(rpc_url).expect("Failed to connect to provider");
-    let contract_abi: Abi = Abi::load(&include_bytes!("abis/IZkSync.json")[..]).unwrap();
-
-    let base_contract: BaseContract = contract_abi.into();
-    let address = Address::from_str("32400084c286cf3e17e7b677ea9583e60a000324").unwrap();
-    let contract_instance = base_contract.into_contract::<Provider<Http>>(address, client);
-    let (
-        recursion_node_level_vk_hash,
-        recursion_leaf_level_vk_hash,
-        recursion_circuits_set_vk_hash,
-    ) = contract_instance
-        .method::<_, (H256, H256, H256)>("getVerifierParams", ())
-        .unwrap()
-        .block(block_number)
-        .call()
-        .await
-        .unwrap();
-
-    VerifierParams {
-        recursion_node_level_vk_hash: recursion_node_level_vk_hash.to_fixed_bytes(),
-        recursion_leaf_level_vk_hash: recursion_leaf_level_vk_hash.to_fixed_bytes(),
-        recursion_circuits_set_vk_hash: recursion_circuits_set_vk_hash.to_fixed_bytes(),
-    }
+    Ok((ViaZKProof { proof: x }, l1_block_number))
 }

@@ -22,7 +22,7 @@ pub async fn check_verification_key(protocol_version: u16) -> Result<(), Verific
     }
 }
 
-pub fn to_fixed_bytes(ins: &[u8]) -> [u8; 32] {
+pub(crate) fn to_fixed_bytes(ins: &[u8]) -> [u8; 32] {
     let mut result = [0u8; 32];
     result.copy_from_slice(ins);
 

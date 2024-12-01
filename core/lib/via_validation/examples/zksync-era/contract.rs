@@ -7,18 +7,13 @@ use ethers::{
     prelude::{Address, Http, Provider},
     types::H256,
 };
+use tracing::debug;
 use via_validator::{
-    block_header::{BlockAuxilaryOutput, VerifierParams},
-    errors::VerificationError,
-    l1_data_fetcher::L1DataFetcher,
-    proof::L1BatchProof,
-    types::BatchL1Data,
+    errors::VerificationError, l1_data_fetcher::L1DataFetcher, proof::ViaZKProof,
+    public_inputs::generate_inputs, utils::check_verification_key,
 };
 
-use crate::fetching::{
-    fetch_batch_commit_tx, fetch_batch_protocol_version, fetch_l1_commit_data, fetch_proof_from_l1,
-    fetch_verifier_param_from_l1,
-};
+use crate::fetching::{fetch_batch_protocol_version, fetch_l1_commit_data, fetch_proof_from_l1};
 
 pub struct ContractConfig {
     pub provider: Provider<Http>,
@@ -86,49 +81,31 @@ impl L1DataFetcher for ContractConfig {
         fetch_batch_protocol_version(batch_number).await
     }
 
-    async fn get_batch_commit_tx_hash(
-        &self,
-        batch_number: u64,
-    ) -> Result<(String, Option<String>), VerificationError> {
-        fetch_batch_commit_tx(batch_number).await
-    }
-
-    async fn get_l1_commit_data(
-        &self,
-        batch_number: u64,
-    ) -> Result<(BatchL1Data, BlockAuxilaryOutput), VerificationError> {
-        let protocol_version = self.get_protocol_version(batch_number).await?;
-        let protocol_version_id = protocol_version.parse::<u16>().map_err(|_| {
-            VerificationError::FetchError("Failed to parse protocol version".to_string())
-        })?;
-        fetch_l1_commit_data(
-            batch_number,
-            protocol_version_id,
-            &self.provider.url().to_string(),
-        )
-        .await
-    }
-
     async fn get_proof_from_l1(
         &self,
         batch_number: u64,
-    ) -> Result<(L1BatchProof, u64), VerificationError> {
+    ) -> Result<(ViaZKProof, u64), VerificationError> {
         let protocol_version = self.get_protocol_version(batch_number).await?;
         let protocol_version_id = protocol_version.parse::<u16>().map_err(|_| {
             VerificationError::FetchError("Failed to parse protocol version".to_string())
         })?;
-        fetch_proof_from_l1(
+        debug!(
+            "Protocol version: {} for batch # {}",
+            protocol_version, batch_number
+        );
+        check_verification_key(protocol_version_id).await?;
+
+        let (mut proof, block_number) = fetch_proof_from_l1(
             batch_number,
             &self.provider.url().to_string(),
             protocol_version_id,
         )
-        .await
-    }
+        .await?;
+        let batch_l1_data =
+            fetch_l1_commit_data(batch_number, &self.provider.url().to_string()).await?;
+        let inputs = generate_inputs(&batch_l1_data);
+        proof.proof.inputs = inputs.clone();
 
-    async fn get_verifier_params(
-        &self,
-        block_number: u64,
-    ) -> Result<VerifierParams, VerificationError> {
-        Ok(fetch_verifier_param_from_l1(block_number, &self.provider.url().to_string()).await)
+        Ok((proof, block_number))
     }
 }

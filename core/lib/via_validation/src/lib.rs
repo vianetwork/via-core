@@ -1,4 +1,3 @@
-pub mod block_header;
 pub mod crypto;
 pub mod errors;
 pub mod l1_data_fetcher;
