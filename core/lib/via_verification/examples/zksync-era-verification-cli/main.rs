@@ -4,7 +4,7 @@ mod types;
 
 use clap::Parser;
 use tracing::{error, info};
-use via_proof_verfication::{
+use via_verification::{
     errors::VerificationError, l1_data_fetcher::L1DataFetcher, verification::verify_snark,
 };
 

@@ -8,7 +8,7 @@ use ethers::{
     types::H256,
 };
 use tracing::debug;
-use via_proof_verfication::{
+use via_verification::{
     errors::VerificationError, l1_data_fetcher::L1DataFetcher, proof::ViaZKProof,
     public_inputs::generate_inputs, utils::check_verification_key,
 };

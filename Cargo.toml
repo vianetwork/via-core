@@ -85,7 +85,7 @@ members = [
     # VIA Protocol Related Crates
     "core/lib/via_btc_client",
     "core/lib/via_da_clients",
-    "core/lib/via_validation",
+    "core/lib/via_verification",
     "core/node/via_btc_watch",
     "core/node/via_da_dispatcher",
     "core/bin/via_server",

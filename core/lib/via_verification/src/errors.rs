@@ -39,7 +39,7 @@ impl From<reqwest::Error> for VerificationError {
 
 impl From<ethers::providers::ProviderError> for VerificationError {
     fn from(e: ethers::providers::ProviderError) -> Self {
-        VerificationError::FetchError(e.to_string())
+        VerificationError::ProviderError(e.to_string())
     }
 }
 
