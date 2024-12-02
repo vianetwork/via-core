@@ -10,7 +10,7 @@ use ethers::{
 use tracing::debug;
 use via_verification::{
     errors::VerificationError, l1_data_fetcher::L1DataFetcher, proof::ViaZKProof,
-    public_inputs::generate_inputs, utils::check_verification_key,
+    public_inputs::generate_inputs,
 };
 
 use crate::fetching::{fetch_batch_protocol_version, fetch_l1_commit_data, fetch_proof_from_l1};
@@ -93,7 +93,6 @@ impl L1DataFetcher for ContractConfig {
             "Protocol version: {} for batch # {}",
             protocol_version, batch_number
         );
-        check_verification_key(protocol_version_id).await?;
 
         let (mut proof, block_number) = fetch_proof_from_l1(
             batch_number,

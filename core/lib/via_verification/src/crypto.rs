@@ -1,11 +1,17 @@
 use circuit_definitions::{
+    boojum::pairing::bn256::Fq,
     ethereum_types::U256,
     snark_wrapper::franklin_crypto::bellman::{
         bn256::{Bn256, Fr},
-        plonk::better_better_cs::{cs::Circuit, proof::Proof},
+        plonk::better_better_cs::{
+            cs::{Circuit, VerificationKey},
+            proof::Proof,
+        },
         CurveAffine, Engine, PrimeField, PrimeFieldRepr,
     },
 };
+use primitive_types::H256;
+use sha3::{Digest, Keccak256};
 
 /// Transforms a U256 element into a prime field element.
 fn u256_to_scalar<F: PrimeField>(el: &U256) -> F
@@ -213,4 +219,90 @@ pub fn deserialize_proof<T: Circuit<Bn256>>(mut proof: Vec<U256>) -> Proof<Bn256
     proof_obj.opening_proof_at_z_omega = opening_proof_at_z_omega;
 
     proof_obj
+}
+
+/// Calculates the hash of a verification key.
+pub(crate) fn calculate_verification_key_hash<E: Engine, C: Circuit<E>>(
+    verification_key: &VerificationKey<E, C>,
+) -> H256 {
+    let mut res = Vec::new();
+
+    // Serialize gate setup commitments.
+    for gate_setup in &verification_key.gate_setup_commitments {
+        let (x, y) = gate_setup.as_xy();
+        x.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write x coordinate");
+        y.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write y coordinate");
+    }
+
+    // Serialize gate selectors commitments.
+    for gate_selector in &verification_key.gate_selectors_commitments {
+        let (x, y) = gate_selector.as_xy();
+        x.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write x coordinate");
+        y.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write y coordinate");
+    }
+
+    // Serialize permutation commitments.
+    for permutation in &verification_key.permutation_commitments {
+        let (x, y) = permutation.as_xy();
+        x.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write x coordinate");
+        y.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write y coordinate");
+    }
+
+    // Serialize lookup selector commitment if present.
+    if let Some(lookup_selector) = &verification_key.lookup_selector_commitment {
+        let (x, y) = lookup_selector.as_xy();
+        x.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write x coordinate");
+        y.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write y coordinate");
+    }
+
+    // Serialize lookup tables commitments.
+    for table_commit in &verification_key.lookup_tables_commitments {
+        let (x, y) = table_commit.as_xy();
+        x.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write x coordinate");
+        y.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write y coordinate");
+    }
+
+    // Serialize table type commitment if present.
+    if let Some(lookup_table) = &verification_key.lookup_table_type_commitment {
+        let (x, y) = lookup_table.as_xy();
+        x.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write x coordinate");
+        y.into_repr()
+            .write_be(&mut res)
+            .expect("Failed to write y coordinate");
+    }
+
+    // Serialize flag for using recursive part.
+    Fq::default()
+        .into_repr()
+        .write_be(&mut res)
+        .expect("Failed to write recursive flag");
+
+    // Compute Keccak256 hash of the serialized data.
+    let mut hasher = Keccak256::new();
+    hasher.update(&res);
+    let computed_vk_hash = hasher.finalize();
+
+    H256::from_slice(&computed_vk_hash)
 }

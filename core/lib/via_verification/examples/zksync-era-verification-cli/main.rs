@@ -38,17 +38,12 @@ async fn main() -> Result<(), VerificationError> {
 
     let (proof, block_number) = contract.get_proof_from_l1(batch_number).await?;
 
-    let vk_hash = contract.get_verification_key_hash(block_number).await?;
-
-    let protocol_version = contract.get_protocol_version(batch_number).await?;
-
     // Verify the proof
-    let verify_resp = verify_snark(&protocol_version, proof, Some(vk_hash)).await;
+    let verify_resp = verify_snark(&contract, proof, batch_number, block_number).await;
 
-    if let Ok((input, computed_vk_hash)) = verify_resp {
+    if let Ok(input) = verify_resp {
         info!("VERIFIED");
         info!("Public input: {}", input);
-        info!("Computed VK hash: {}", computed_vk_hash);
     } else {
         error!("Failed to verify proof due to an error : {:?}", verify_resp);
     }
