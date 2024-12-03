@@ -8,18 +8,12 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bitcoin::{
-    absolute,
-    transaction,
-    Address, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid,
-    Witness,
+    absolute, transaction, Address, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn,
+    TxOut, Txid, Witness,
 };
 use tracing::{debug, info, instrument};
 
-use crate::{
-    client::BitcoinClient,
-    traits::BitcoinOps,
-    types::BitcoinNetwork,
-};
+use crate::{client::BitcoinClient, traits::BitcoinOps, types::BitcoinNetwork};
 
 #[derive(Debug)]
 pub struct WithdrawalBuilder {
@@ -52,7 +46,7 @@ impl WithdrawalBuilder {
         info!("Creating new WithdrawalBuilder");
         let client = Arc::new(BitcoinClient::new(rpc_url, network, auth)?);
 
-        Ok(Self { 
+        Ok(Self {
             client,
             bridge_address,
         })
@@ -64,7 +58,7 @@ impl WithdrawalBuilder {
         withdrawals: Vec<WithdrawalRequest>,
     ) -> Result<UnsignedWithdrawalTx> {
         debug!("Creating unsigned withdrawal transaction");
-        
+
         // Calculate total amount needed
         let total_amount: Amount = withdrawals
             .iter()
@@ -73,27 +67,29 @@ impl WithdrawalBuilder {
 
         // Get available UTXOs from bridge address
         let utxos = self.get_available_utxos().await?;
-        
+
         // Select UTXOs for the withdrawal
         let selected_utxos = self.select_utxos(&utxos, total_amount).await?;
-        
+
         // Calculate total input amount
         let total_input_amount: Amount = selected_utxos
             .iter()
-            .try_fold(Amount::ZERO, |acc, (_, txout)| {
-                acc.checked_add(txout.value)
-            })
+            .try_fold(Amount::ZERO, |acc, (_, txout)| acc.checked_add(txout.value))
             .ok_or_else(|| anyhow::anyhow!("Input amount overflow"))?;
 
         // Estimate fee
         let fee_rate = self.client.get_fee_rate(1).await?;
-        let fee_amount = self.estimate_fee(selected_utxos.len() as u32, withdrawals.len() as u32, fee_rate)?;
+        let fee_amount = self.estimate_fee(
+            selected_utxos.len() as u32,
+            withdrawals.len() as u32,
+            fee_rate,
+        )?;
 
         // Verify we have enough funds
         let total_needed = total_amount
             .checked_add(fee_amount)
             .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
-        
+
         if total_input_amount < total_needed {
             return Err(anyhow::anyhow!(
                 "Insufficient funds: have {}, need {}",
@@ -145,7 +141,7 @@ impl WithdrawalBuilder {
         let txid = unsigned_tx.compute_txid();
 
         debug!("Unsigned withdrawal transaction created successfully");
-        
+
         Ok(UnsignedWithdrawalTx {
             tx: unsigned_tx,
             txid,
@@ -198,7 +194,7 @@ impl WithdrawalBuilder {
         let base_size = 10_u64; // version + locktime
         let input_size = 148_u64 * u64::from(input_count); // approximate size per input
         let output_size = 34_u64 * u64::from(output_count); // approximate size per output
-        
+
         let total_size = base_size + input_size + output_size;
         let fee = fee_rate * total_size;
 
@@ -208,17 +204,19 @@ impl WithdrawalBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::str::FromStr;
+
     use bitcoin::Network;
-    
+
+    use super::*;
+
     #[tokio::test]
     #[ignore] // Remove this to run against a local Bitcoin node
     async fn test_withdrawal_builder() -> Result<()> {
         let network = Network::Regtest;
         let bridge_address = Address::from_str("bcrt1q6rhpng9evgu7ul6k0kr8f8sdre3hy9ym8t7g5h")?
             .require_network(network)?;
-        
+
         let builder = WithdrawalBuilder::new(
             "http://localhost:18443",
             BitcoinNetwork::Regtest,
@@ -226,7 +224,7 @@ mod tests {
             bridge_address,
         )
         .await?;
-        
+
         let withdrawals = vec![
             WithdrawalRequest {
                 address: Address::from_str("bcrt1qg3y8889zzz0qvg3xhm4e9j8z9wp7524fn0qxya")?
