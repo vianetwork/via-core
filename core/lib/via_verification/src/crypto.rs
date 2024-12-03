@@ -221,6 +221,18 @@ pub fn deserialize_proof<T: Circuit<Bn256>>(mut proof: Vec<U256>) -> Proof<Bn256
     proof_obj
 }
 
+/// Serialize a point's coordinates into a vector
+fn serialize_point<E: Engine>(point: &E::G1Affine, mut buffer: &mut Vec<u8>) -> anyhow::Result<()> {
+    let (x, y) = point.as_xy();
+    x.into_repr()
+        .write_be(&mut buffer)
+        .expect("Failed to write x coordinate");
+    y.into_repr()
+        .write_be(&mut buffer)
+        .expect("Failed to write y coordinate");
+    Ok(())
+}
+
 /// Calculates the hash of a verification key.
 pub(crate) fn calculate_verification_key_hash<E: Engine, C: Circuit<E>>(
     verification_key: &VerificationKey<E, C>,
@@ -229,68 +241,38 @@ pub(crate) fn calculate_verification_key_hash<E: Engine, C: Circuit<E>>(
 
     // Serialize gate setup commitments.
     for gate_setup in &verification_key.gate_setup_commitments {
-        let (x, y) = gate_setup.as_xy();
-        x.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write x coordinate");
-        y.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write y coordinate");
+        serialize_point::<E>(gate_setup, &mut res)
+            .expect("Failed to serialize gate setup commitment");
     }
 
     // Serialize gate selectors commitments.
     for gate_selector in &verification_key.gate_selectors_commitments {
-        let (x, y) = gate_selector.as_xy();
-        x.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write x coordinate");
-        y.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write y coordinate");
+        serialize_point::<E>(gate_selector, &mut res)
+            .expect("Failed to serialize gate selectors commitment");
     }
 
     // Serialize permutation commitments.
     for permutation in &verification_key.permutation_commitments {
-        let (x, y) = permutation.as_xy();
-        x.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write x coordinate");
-        y.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write y coordinate");
+        serialize_point::<E>(permutation, &mut res)
+            .expect("Failed to serialize permutation commitment");
     }
 
     // Serialize lookup selector commitment if present.
     if let Some(lookup_selector) = &verification_key.lookup_selector_commitment {
-        let (x, y) = lookup_selector.as_xy();
-        x.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write x coordinate");
-        y.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write y coordinate");
+        serialize_point::<E>(lookup_selector, &mut res)
+            .expect("Failed to serialize lookup selector commitment");
     }
 
     // Serialize lookup tables commitments.
     for table_commit in &verification_key.lookup_tables_commitments {
-        let (x, y) = table_commit.as_xy();
-        x.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write x coordinate");
-        y.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write y coordinate");
+        serialize_point::<E>(table_commit, &mut res)
+            .expect("Failed to serialize lookup tables commitment");
     }
 
     // Serialize table type commitment if present.
     if let Some(lookup_table) = &verification_key.lookup_table_type_commitment {
-        let (x, y) = lookup_table.as_xy();
-        x.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write x coordinate");
-        y.into_repr()
-            .write_be(&mut res)
-            .expect("Failed to write y coordinate");
+        serialize_point::<E>(lookup_table, &mut res)
+            .expect("Failed to serialize lookup table type commitment");
     }
 
     // Serialize flag for using recursive part.
