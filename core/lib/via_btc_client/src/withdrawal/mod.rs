@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bitcoin::{
-    absolute, transaction, Address, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn,
-    TxOut, Txid, Witness,
+    absolute, hashes::Hash, script::PushBytesBuf, transaction, Address, Amount, OutPoint,
+    ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use tracing::{debug, info, instrument};
 
@@ -35,6 +35,8 @@ pub struct UnsignedWithdrawalTx {
     pub change_amount: Amount,
 }
 
+const OP_RETURN_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
+
 impl WithdrawalBuilder {
     #[instrument(skip(rpc_url, auth), target = "bitcoin_withdrawal")]
     pub async fn new(
@@ -52,10 +54,11 @@ impl WithdrawalBuilder {
         })
     }
 
-    #[instrument(skip(self, withdrawals), target = "bitcoin_withdrawal")]
+    #[instrument(skip(self, withdrawals, proof_txid), target = "bitcoin_withdrawal")]
     pub async fn create_unsigned_withdrawal_tx(
         &self,
         withdrawals: Vec<WithdrawalRequest>,
+        proof_txid: Txid,
     ) -> Result<UnsignedWithdrawalTx> {
         debug!("Creating unsigned withdrawal transaction");
 
@@ -77,11 +80,18 @@ impl WithdrawalBuilder {
             .try_fold(Amount::ZERO, |acc, (_, txout)| acc.checked_add(txout.value))
             .ok_or_else(|| anyhow::anyhow!("Input amount overflow"))?;
 
-        // Estimate fee
+        // Create OP_RETURN output with proof txid
+        let op_return_data = self.create_op_return_script(proof_txid)?;
+        let op_return_output = TxOut {
+            value: Amount::ZERO,
+            script_pubkey: op_return_data,
+        };
+
+        // Estimate fee (including OP_RETURN output)
         let fee_rate = self.client.get_fee_rate(1).await?;
         let fee_amount = self.estimate_fee(
             selected_utxos.len() as u32,
-            withdrawals.len() as u32,
+            withdrawals.len() as u32 + 1, // +1 for OP_RETURN output
             fee_rate,
         )?;
 
@@ -117,6 +127,9 @@ impl WithdrawalBuilder {
                 script_pubkey: w.address.script_pubkey(),
             })
             .collect();
+
+        // Add OP_RETURN output
+        outputs.push(op_return_output);
 
         // Add change output if needed
         let change_amount = total_input_amount
@@ -200,6 +213,18 @@ impl WithdrawalBuilder {
 
         Ok(Amount::from_sat(fee))
     }
+
+    // Helper function to create OP_RETURN script
+    fn create_op_return_script(&self, proof_txid: Txid) -> Result<ScriptBuf> {
+        let mut data = Vec::with_capacity(OP_RETURN_PREFIX.len() + 32);
+        data.extend_from_slice(OP_RETURN_PREFIX);
+        data.extend_from_slice(&proof_txid.as_raw_hash().to_byte_array());
+
+        let mut encoded_data = PushBytesBuf::with_capacity(data.len());
+        encoded_data.extend_from_slice(&data).ok();
+
+        Ok(ScriptBuf::new_op_return(encoded_data))
+    }
 }
 
 #[cfg(test)]
@@ -238,8 +263,27 @@ mod tests {
             },
         ];
 
-        let withdrawal_tx = builder.create_unsigned_withdrawal_tx(withdrawals).await?;
+        let proof_txid =
+            Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")?;
+
+        let withdrawal_tx = builder
+            .create_unsigned_withdrawal_tx(withdrawals, proof_txid)
+            .await?;
         assert!(!withdrawal_tx.utxos.is_empty());
+
+        // Verify OP_RETURN output exists and contains our data
+        let op_return_output = withdrawal_tx
+            .tx
+            .output
+            .iter()
+            .find(|output| output.script_pubkey.is_op_return())
+            .expect("OP_RETURN output not found");
+
+        assert!(op_return_output
+            .script_pubkey
+            .as_bytes()
+            .windows(OP_RETURN_PREFIX.len())
+            .any(|window| window == OP_RETURN_PREFIX));
 
         Ok(())
     }
