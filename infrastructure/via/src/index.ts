@@ -18,6 +18,7 @@ import { command as bootstrap } from './bootstrap';
 import { command as verifier } from './verifier';
 import { command as celestia } from './celestia';
 import { command as btc_explorer } from './btc_explorer';
+import { command as withdraw } from './withdraw';
 
 const COMMANDS = [
     server,
@@ -35,6 +36,7 @@ const COMMANDS = [
     verifier,
     celestia,
     btc_explorer,
+    withdraw,
     completion(program as Command)
 ];
 
