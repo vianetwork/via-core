@@ -55,9 +55,6 @@ impl WithdrawalClient {
                 continue;
             };
 
-            if log.key != l2_bridges_hash {
-                continue;
-            };
             withdrawals.push(L2BridgeLogMetadata {
                 message: l2_to_l1_messages_hashmap[&log.value].clone(),
                 log,
