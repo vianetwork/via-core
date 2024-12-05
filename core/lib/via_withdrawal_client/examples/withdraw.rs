@@ -15,6 +15,9 @@ const DEFAULT_CELESTIA: &str = "http://0.0.0.0:26658";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
     let home = env::var("VIA_HOME").context("VIA HOME not set")?;
     let _ = dotenv::from_path(home.clone() + "/etc/env/target/via.env");
 

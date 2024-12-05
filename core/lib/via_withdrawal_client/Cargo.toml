@@ -20,6 +20,7 @@ zksync_utils.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 via_da_clients.workspace = true
+tracing-subscriber.workspace = true
 
 bitcoin = { version = "0.32.2", features = ["serde"] }
 byteorder = "1.4"

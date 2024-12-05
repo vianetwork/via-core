@@ -8620,6 +8620,7 @@ dependencies = [
  "rand 0.8.5",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "via_da_clients",
  "zksync_basic_types",
  "zksync_config",
