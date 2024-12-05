@@ -224,4 +224,3 @@ command
         diff = diff ? diff : '0';
         pushConfig(environment, diff);
     });
-// .action(fetchCelestiaTrustedHash);
