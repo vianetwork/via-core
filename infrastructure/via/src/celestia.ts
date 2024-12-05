@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { exec } from 'child_process';
+import { updateEnvVariable } from './helpers';
 
 // Function to execute a shell command and return it as a Promise
 function runCommand(command: string): Promise<string> {
@@ -25,20 +26,6 @@ const get_node_address_command =
 const get_auth_node_command =
     'docker exec $(docker ps -q -f name=celestia-node) celestia light auth admin --p2p.network arabica';
 const restart_celestia_container_command = 'docker restart celestia-node';
-
-async function updateEnvVariable(envFilePath: string, variableName: string, newValue: string) {
-    const envFileContent = await fs.readFile(envFilePath, 'utf-8');
-    const envConfig = dotenv.parse(envFileContent);
-
-    envConfig[variableName] = newValue;
-
-    let newEnvContent = '';
-    for (const key in envConfig) {
-        newEnvContent += `${key}=${envConfig[key]}\n`;
-    }
-
-    await fs.writeFile(envFilePath, newEnvContent, 'utf-8');
-}
 
 async function updateEnvironment(auth_token: string) {
     const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);
