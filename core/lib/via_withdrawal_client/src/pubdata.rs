@@ -12,7 +12,7 @@ pub struct Pubdata {
 }
 
 impl Pubdata {
-    pub fn _encode_pubdata(self) -> Vec<u8> {
+    pub fn encode_pubdata(self) -> Vec<u8> {
         let mut l1_messenger_pubdata = vec![];
 
         // Encoding user L2->L1 logs.
@@ -66,7 +66,7 @@ impl Pubdata {
 }
 
 /// Helper function to read a specific number of bytes
-fn _read_bytes<R: Read>(reader: &mut R, num_bytes: usize) -> anyhow::Result<Vec<u8>> {
+fn read_bytes<R: Read>(reader: &mut R, num_bytes: usize) -> anyhow::Result<Vec<u8>> {
     let mut buffer = vec![0u8; num_bytes];
     reader.read_exact(&mut buffer)?;
     Ok(buffer)
@@ -129,7 +129,7 @@ mod tests {
             l2_to_l1_messages: vec![hex::decode("deadbeef").unwrap()],
         };
 
-        let encoded_pubdata = pubdata._encode_pubdata();
+        let encoded_pubdata = pubdata.encode_pubdata();
         let pubdata_input = Pubdata::decode_pubdata(encoded_pubdata).unwrap();
 
         let decoded_message = pubdata_input.user_logs[0].clone();
@@ -168,7 +168,7 @@ mod tests {
             l2_to_l1_messages: l2_to_l1_messages,
         };
 
-        let encoded_pubdata = pubdata._encode_pubdata();
+        let encoded_pubdata = pubdata.encode_pubdata();
         let pubdata_input = Pubdata::decode_pubdata(encoded_pubdata).unwrap();
 
         let decoded_logs = pubdata_input.user_logs.clone();
