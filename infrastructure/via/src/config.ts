@@ -6,6 +6,7 @@ import * as env from './env';
 import path from 'path';
 import dotenv from 'dotenv';
 import { unpackStringSemVer } from 'utils';
+import { updateEnvVariable } from './helpers';
 
 function loadConfigFile(configPath: string, stack: string[] = []) {
     if (stack.includes(configPath)) {
@@ -125,7 +126,7 @@ export function compileConfig(environment?: string) {
     console.log(`Configs compiled for ${environment}`);
 }
 
-export function pushConfig(environment?: string, diff?: string) {
+export async function pushConfig(environment?: string, diff?: string) {
     environment ??= process.env.VIA_ENV!;
     const l2InitFile = `etc/env/l2-inits/${environment}.init.env`;
     const difference: number = parseInt(diff ? diff : '0');
@@ -180,7 +181,23 @@ export function pushConfig(environment?: string, diff?: string) {
     env.modify('DATABASE_MERKLE_TREE_BACKUP_PATH', `./db/${environment}/backups`, l2InitFile, false);
 
     env.reload();
+    await fetchCelestiaTrustedHash();
 }
+
+const fetchCelestiaTrustedHash = async () => {
+    let environment = process.env.VIA_ENV!;
+    const l2InitFile = `etc/env/l2-inits/${environment}.init.env`;
+
+    const response = await (await fetch('https://rpc.celestia-arabica-11.com/header')).json();
+    const { last_block_id, height } = response.result.header;
+
+    const envFilePath1 = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);
+
+    env.modify('VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HEIGHT', height, l2InitFile, false);
+    env.modify('VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH', last_block_id.hash, l2InitFile, false);
+    await updateEnvVariable(envFilePath1, 'VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HEIGHT', height);
+    await updateEnvVariable(envFilePath1, 'VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH', last_block_id.hash);
+};
 
 // used to increase chainId for easy deployment of next hyperchain on shared bridge
 // export function bumpChainId() {
@@ -207,3 +224,4 @@ command
         diff = diff ? diff : '0';
         pushConfig(environment, diff);
     });
+// .action(fetchCelestiaTrustedHash);

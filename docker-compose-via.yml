@@ -113,8 +113,8 @@ services:
     volumes:
       - type: bind
         source: ./volumes/celestia
-        target: /home/celestia
-    command: celestia light start --core.ip validator-2.celestia-arabica-11.com --p2p.network arabica 
+        target: /home/celestia:rw
+    command: celestia light start --headers.trusted-hash ${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip validator-2.celestia-arabica-11.com --p2p.network arabica 
     ports:
       - '26658:26658'
     environment:
