@@ -13,6 +13,7 @@ import * as config from './config';
 import * as run from './run';
 // import * as server from './server';
 import { createVolumes, up } from './up';
+import path from 'path';
 
 // Checks if all required tools are installed with the correct versions
 const checkEnv = async (): Promise<void> => {
@@ -56,7 +57,9 @@ const initSetup = async ({
         await announced('Checking environment', checkEnv());
         await announced('Checking git hooks', env.gitHooks());
         await announced('Create volumes', createVolumes());
-        await announced('Setting up containers', up(docker.VIA_DOCKER_COMPOSE));
+        const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/l2-inits/${process.env.VIA_ENV}.init.env`);
+
+        await announced('Setting up containers', up(docker.VIA_DOCKER_COMPOSE, envFilePath));
     }
 
     await announced('Compiling JS packages', run.yarn());
