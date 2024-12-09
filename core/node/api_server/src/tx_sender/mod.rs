@@ -107,6 +107,8 @@ pub struct MultiVMBaseSystemContracts {
     pub(crate) vm_1_5_0_small_memory: BaseSystemContracts,
     /// Contracts to be used after the 1.5.0 upgrade
     pub(crate) vm_1_5_0_increased_memory: BaseSystemContracts,
+    /// Contracts to be used after the bitcoin upgrade
+    pub(crate) vm_bitcoin: BaseSystemContracts,
 }
 
 impl MultiVMBaseSystemContracts {
@@ -138,6 +140,7 @@ impl MultiVMBaseSystemContracts {
             ProtocolVersionId::Version24 | ProtocolVersionId::Version25 => {
                 self.vm_1_5_0_increased_memory
             }
+            ProtocolVersionId::Version26 => self.vm_bitcoin,
         }
     }
 }
@@ -181,6 +184,7 @@ impl ApiContracts {
                 vm_1_5_0_small_memory: BaseSystemContracts::estimate_gas_1_5_0_small_memory(),
                 vm_1_5_0_increased_memory:
                     BaseSystemContracts::estimate_gas_post_1_5_0_increased_memory(),
+                vm_bitcoin: BaseSystemContracts::estimate_gas_bitcoin_1_0_0(),
             },
             eth_call: MultiVMBaseSystemContracts {
                 pre_virtual_blocks: BaseSystemContracts::playground_pre_virtual_blocks(),
@@ -194,6 +198,7 @@ impl ApiContracts {
                 vm_1_5_0_small_memory: BaseSystemContracts::playground_1_5_0_small_memory(),
                 vm_1_5_0_increased_memory:
                     BaseSystemContracts::playground_post_1_5_0_increased_memory(),
+                vm_bitcoin: BaseSystemContracts::estimate_gas_bitcoin_1_0_0(),
             },
         }
     }

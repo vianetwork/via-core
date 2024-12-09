@@ -23,9 +23,10 @@ export function createVolumes() {
     });
 }
 
-export async function up(composeFile?: string) {
+export async function up(composeFile?: string, envFilePath?: string) {
     if (composeFile) {
-        await utils.spawn(`docker compose -f ${composeFile} up -d`);
+        const envFile = envFilePath ? `--env-file ${envFilePath}` : '';
+        await utils.spawn(`docker compose ${envFile} -f ${composeFile} up -d`);
     } else {
         await utils.spawn('docker compose up -d');
     }

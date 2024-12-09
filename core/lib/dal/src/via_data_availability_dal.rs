@@ -453,4 +453,35 @@ impl ViaDataAvailabilityDal<'_, '_> {
             })
             .collect())
     }
+
+    /// Returns the data availability blob of the block.
+    pub async fn get_da_blob(
+        &mut self,
+        l1_batch_number: L1BatchNumber,
+    ) -> DalResult<Option<DataAvailabilityBlob>> {
+        let result = sqlx::query_as!(
+            StorageDABlob,
+            r#"
+            SELECT
+                l1_batch_number,
+                blob_id,
+                inclusion_data,
+                sent_at
+            FROM
+                via_data_availability
+            WHERE
+                inclusion_data IS NOT NULL
+                AND is_proof = FALSE
+                AND l1_batch_number = $1
+            LIMIT
+                1
+            "#,
+            l1_batch_number.0 as i64
+        )
+        .instrument("get_da_blob")
+        .fetch_optional(self.storage)
+        .await?;
+
+        Ok(result.map(DataAvailabilityBlob::from))
+    }
 }
