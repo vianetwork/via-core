@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE via_votable_transactions\n                SET is_finalized = TRUE, updated_at = NOW()\n                WHERE tx_id = $1\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4626efe6dfcec2aaca55f9fd9ad4b47eec44c39bc907fe4d6edacca4b6f797f8"
+}
