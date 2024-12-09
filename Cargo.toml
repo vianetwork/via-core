@@ -85,6 +85,7 @@ members = [
     # VIA Protocol Related Crates
     "core/lib/via_btc_client",
     "core/lib/via_da_clients",
+    "core/lib/via_verification",
     "core/node/via_btc_watch",
     "core/node/via_da_dispatcher",
     "core/bin/via_server",
@@ -318,6 +319,7 @@ zksync_logs_bloom_backfill = { version = "0.1.0", path = "core/node/logs_bloom_b
 via_btc_client= { version = "0.1.0", path = "core/lib/via_btc_client" }
 via_withdrawal_client = { version = "0.1.0", path = "core/lib/via_withdrawal_client" }
 via_da_clients = { version = "0.1.0", path = "core/lib/via_da_clients" }
+via_validator_lib = { version = "0.1.0", path = "core/lib/via_validation" }
 via_btc_watch = { version = "0.1.0", path = "core/node/via_btc_watch" }
 via_da_dispatcher = { version = "0.1.0", path = "core/node/via_da_dispatcher" }
 via_btc_sender = { version = "0.1.0", path = "core/node/via_btc_sender" }
