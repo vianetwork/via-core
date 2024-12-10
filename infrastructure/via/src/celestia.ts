@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { exec } from 'child_process';
+import { updateEnvVariable } from './helpers';
 
 // Function to execute a shell command and return it as a Promise
 function runCommand(command: string): Promise<string> {
@@ -25,20 +26,6 @@ const get_node_address_command =
 const get_auth_node_command =
     'docker exec $(docker ps -q -f name=celestia-node) celestia light auth admin --p2p.network arabica';
 const restart_celestia_container_command = 'docker restart celestia-node';
-
-async function updateEnvVariable(envFilePath: string, variableName: string, newValue: string) {
-    const envFileContent = await fs.readFile(envFilePath, 'utf-8');
-    const envConfig = dotenv.parse(envFileContent);
-
-    envConfig[variableName] = newValue;
-
-    let newEnvContent = '';
-    for (const key in envConfig) {
-        newEnvContent += `${key}=${envConfig[key]}\n`;
-    }
-
-    await fs.writeFile(envFilePath, newEnvContent, 'utf-8');
-}
 
 async function updateEnvironment(auth_token: string) {
     const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);
@@ -117,6 +104,19 @@ async function fix_celestia_config() {
         // Return the line unchanged if no modifications are needed
         return line;
     });
+
+    // Get the celestia block height where start the node
+    const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/l2-inits/${process.env.VIA_ENV}.init.env`);
+    const envs = (await fs.readFile(envFilePath, 'utf-8')).split('\n');
+    let height = '1';
+    for (let i = 0; i < envs.length; i++) {
+        if (envs[i].startsWith('VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HEIGHT')) {
+            height = envs[i].split('=')[1];
+            break;
+        }
+    }
+
+    await runCommand(`docker exec celestia-node sed -i 's/  SampleFrom = 1/  SampleFrom = ${height}/' config.toml`);
 
     // Join the updated lines back into a single string
     const updatedConfigFileContent = updatedLines.join('\n');
