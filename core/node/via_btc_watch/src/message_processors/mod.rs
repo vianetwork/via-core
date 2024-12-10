@@ -1,8 +1,10 @@
 pub(crate) use l1_to_l2::L1ToL2MessageProcessor;
 use via_btc_client::types::FullInscriptionMessage;
+pub(crate) use votable::VotableMessageProcessor;
 use zksync_dal::{Connection, Core};
 
 mod l1_to_l2;
+mod votable;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum MessageProcessorError {
