@@ -4228,7 +4228,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if 1.0.0",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -4664,6 +4664,21 @@ name = "multimap"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "defc4c55412d89136f966bbb339008b474350e5e6e78d2714439c386b3137a03"
+
+[[package]]
+name = "musig2"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1eaa74fd6a0747bd589b36abce26cd4cd1cd2abedb2fcba26c4eed694dd85487"
+dependencies = [
+ "base16ct 0.2.0",
+ "hmac",
+ "once_cell",
+ "secp",
+ "secp256k1 0.30.0",
+ "sha2 0.10.8",
+ "subtle",
+]
 
 [[package]]
 name = "native-tls"
@@ -6519,6 +6534,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "secp"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85ed54b1141d8cec428d8a4abf01282755ba4e4c8a621dd23fa2e0ed761814c2"
+dependencies = [
+ "base16ct 0.2.0",
+ "once_cell",
+ "secp256k1 0.30.0",
+ "subtle",
+]
+
+[[package]]
 name = "secp256k1"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6537,6 +6564,17 @@ dependencies = [
  "rand 0.8.5",
  "secp256k1-sys 0.10.0",
  "serde",
+]
+
+[[package]]
+name = "secp256k1"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b50c5943d326858130af85e049f2661ba3c78b26589b8ab98e65e80ae44a1252"
+dependencies = [
+ "bitcoin_hashes",
+ "rand 0.8.5",
+ "secp256k1-sys 0.10.0",
 ]
 
 [[package]]
@@ -8424,9 +8462,11 @@ dependencies = [
  "inquire",
  "lazy_static",
  "mockall",
+ "musig2",
  "rand 0.8.5",
  "reqwest 0.12.7",
  "secp256k1 0.29.0",
+ "secp256k1 0.30.0",
  "serde",
  "serde_json",
  "thiserror",
@@ -8853,7 +8893,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
