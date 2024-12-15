@@ -8,9 +8,10 @@ use bitcoin::{
         ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, All, Keypair,
         Message, PublicKey, Secp256k1,
     },
-    Address, Block, BlockHash, CompressedPublicKey, Network, OutPoint, PrivateKey, ScriptBuf,
-    Transaction, TxOut, Txid,
+    Address, Amount, Block, BlockHash, CompressedPublicKey, Network, OutPoint, PrivateKey,
+    ScriptBuf, Transaction, TxOut, Txid,
 };
+use bitcoincore_rpc::json::{FeeRatePercentiles, GetBlockStatsResult};
 
 use super::Inscriber;
 use crate::{
@@ -27,6 +28,7 @@ pub struct MockBitcoinOpsConfig {
     pub tx_confirmation: bool,
     pub transaction: Option<Transaction>,
     pub block: Option<Block>,
+    pub fee_history: Vec<u64>,
 }
 
 impl MockBitcoinOpsConfig {
@@ -37,9 +39,13 @@ impl MockBitcoinOpsConfig {
     pub fn set_tx_confirmation(&mut self, tx_confirmation: bool) {
         self.tx_confirmation = tx_confirmation;
     }
+
+    pub fn set_fee_history(&mut self, fees: Vec<u64>) {
+        self.fee_history = fees;
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MockBitcoinOps {
     pub balance: u128,
     pub utxos: Vec<(OutPoint, TxOut)>,
@@ -48,6 +54,7 @@ pub struct MockBitcoinOps {
     pub tx_confirmation: bool,
     pub transaction: Option<Transaction>,
     pub block: Option<Block>,
+    pub fee_history: Vec<u64>,
 }
 
 impl MockBitcoinOps {
@@ -60,6 +67,7 @@ impl MockBitcoinOps {
             tx_confirmation: config.tx_confirmation,
             transaction: config.transaction,
             block: config.block,
+            fee_history: config.fee_history,
         }
     }
 }
@@ -111,6 +119,50 @@ impl BitcoinOps for MockBitcoinOps {
 
     async fn fetch_block_by_hash(&self, _block_hash: &BlockHash) -> BitcoinClientResult<Block> {
         BitcoinClientResult::Ok(self.block.clone().expect("No block found"))
+    }
+
+    async fn get_fee_history(&self, _: usize, _: usize) -> BitcoinClientResult<Vec<u64>> {
+        BitcoinClientResult::Ok(self.fee_history.clone())
+    }
+
+    async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult> {
+        BitcoinClientResult::Ok(GetBlockStatsResult {
+            avg_fee: Amount::ZERO,
+            avg_fee_rate: Amount::ZERO,
+            avg_tx_size: 0,
+            block_hash: BlockHash::all_zeros(),
+            fee_rate_percentiles: FeeRatePercentiles {
+                fr_10th: Amount::ZERO,
+                fr_25th: Amount::ZERO,
+                fr_50th: Amount::ZERO,
+                fr_75th: Amount::ZERO,
+                fr_90th: Amount::ZERO,
+            },
+            height,
+            ins: 0,
+            max_fee: Amount::ZERO,
+            max_fee_rate: Amount::ZERO,
+            max_tx_size: 0,
+            median_fee: Amount::ZERO,
+            median_time: 0,
+            median_tx_size: 0,
+            min_fee: Amount::ZERO,
+            min_fee_rate: Amount::ZERO,
+            min_tx_size: 0,
+            outs: 0,
+            subsidy: Amount::ZERO,
+            sw_total_size: 0,
+            sw_total_weight: 0,
+            sw_txs: 0,
+            time: 0,
+            total_out: Amount::ZERO,
+            total_size: 0,
+            total_weight: 0,
+            total_fee: Amount::ZERO,
+            txs: 0,
+            utxo_increase: 0,
+            utxo_size_inc: 0,
+        })
     }
 }
 
