@@ -118,6 +118,22 @@ server:
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) server
 
+# Run 'via verifier'
+.PHONY: verifier
+verifier:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the verifier software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) verifier
+
+# Run 'via verifier --coordinator'
+.PHONY: coordinator
+coordinator:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the coordinator software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) verifier --coordinator
+
 # Run 'via clean'
 .PHONY: clean
 clean:
