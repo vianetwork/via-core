@@ -1,5 +1,5 @@
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
-use zksync_types::{Address, H256};
+use zksync_types::H256;
 
 use crate::Core;
 
@@ -83,9 +83,10 @@ impl ViaVotesDal<'_, '_> {
         &mut self,
         tx_id: H256,
         threshold: f64,
-    ) -> DalResult<()> {
+    ) -> DalResult<bool> {
         let (ok_votes, total_votes) = self.get_vote_count(tx_id).await?;
-        if total_votes > 0 && (ok_votes as f64) / (total_votes as f64) > threshold {
+        let finalized = total_votes > 0 && (ok_votes as f64) / (total_votes as f64) > threshold;
+        if finalized {
             sqlx::query!(
                 r#"
                 UPDATE via_votable_transactions
@@ -101,7 +102,7 @@ impl ViaVotesDal<'_, '_> {
             .execute(self.storage)
             .await?;
         }
-        Ok(())
+        Ok(finalized)
     }
 
     pub async fn is_transaction_finalized(&mut self, tx_id: H256) -> DalResult<bool> {

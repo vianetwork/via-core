@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                COUNT(*) FILTER (\n                    WHERE\n                        vote = TRUE\n                ) AS ok_votes,\n                COUNT(*) AS total_votes\n            FROM\n                via_votes\n            WHERE\n                tx_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ok_votes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "total_votes",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "b38342a659048118ba377392d0320bb4fc567b47885e4263e604ad9c2bce35ed"
+}

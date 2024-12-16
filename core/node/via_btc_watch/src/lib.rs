@@ -64,7 +64,7 @@ impl BtcWatch {
                 state.bridge_address.clone(),
                 state.next_expected_priority_id,
             )),
-            Box::new(VotableMessageProcessor::new(3)),
+            Box::new(VotableMessageProcessor::new()),
         ];
 
         let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);

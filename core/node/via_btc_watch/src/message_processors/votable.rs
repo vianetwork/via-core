@@ -1,20 +1,21 @@
+use sqlx::types::chrono::{DateTime, Utc};
 use via_btc_client::types::{BitcoinTxid, FullInscriptionMessage};
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_types::H256;
+use zksync_types::{aggregated_operations::AggregatedActionType, L1BatchNumber, H256};
 
 use super::{MessageProcessor, MessageProcessorError};
 
+const DEFAULT_THRESHOLD: f64 = 0.5;
+
 #[derive(Debug)]
 pub struct VotableMessageProcessor {
-    verifier_count: usize,
     threshold: f64,
 }
 
 impl VotableMessageProcessor {
-    pub fn new(verifier_count: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            verifier_count,
-            threshold: 0.5,
+            threshold: DEFAULT_THRESHOLD,
         }
     }
 }
@@ -26,26 +27,61 @@ impl MessageProcessor for VotableMessageProcessor {
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
     ) -> Result<(), MessageProcessorError> {
-        let mut votes_dal = storage.via_votes_dal();
+        // Get the current timestamp
+        let dt = Utc::now();
+        let naive_utc = dt.naive_utc();
+        let offset = dt.offset().clone();
+        let dt = DateTime::<Utc>::from_naive_utc_and_offset(naive_utc, offset);
 
         for msg in msgs {
             match msg {
                 FullInscriptionMessage::L1BatchDAReference(da_msg) => {
+                    let mut votes_dal = storage.via_votes_dal();
+
                     let tx_id = convert_txid_to_h256(da_msg.common.tx_id);
                     votes_dal
-                        .insert_votable_transaction(tx_id, "L1BatchDAReference")
+                        .insert_votable_transaction(tx_id.clone(), "L1BatchDAReference")
                         .await
                         .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+
+                    let mut eth_sender_dal = storage.eth_sender_dal();
+
+                    eth_sender_dal
+                        .insert_bogus_confirmed_eth_tx(
+                            da_msg.input.l1_batch_index,
+                            AggregatedActionType::Commit,
+                            tx_id,
+                            dt,
+                        )
+                        .await?;
                 }
                 FullInscriptionMessage::ProofDAReference(proof_msg) => {
                     let tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
+                    let mut votes_dal = storage.via_votes_dal();
+
                     votes_dal
                         .insert_votable_transaction(tx_id, "ProofDAReference")
                         .await
                         .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+
+                    let mut eth_sender_dal = storage.eth_sender_dal();
+
+                    // todo: insert proper l1_batch number
+                    eth_sender_dal
+                        .insert_bogus_confirmed_eth_tx(
+                            L1BatchNumber(1),
+                            AggregatedActionType::PublishProofOnchain,
+                            tx_id,
+                            dt,
+                        )
+                        .await?;
                 }
                 FullInscriptionMessage::ValidatorAttestation(attestation_msg) => {
+                    let mut votes_dal = storage.via_votes_dal();
+
                     let reference_txid = convert_txid_to_h256(attestation_msg.input.reference_txid);
+                    let tx_id = convert_txid_to_h256(attestation_msg.common.tx_id);
+
                     // Vote = true if attestation_msg.input.attestation == Vote::Ok
                     let is_ok = matches!(
                         attestation_msg.input.attestation,
@@ -61,14 +97,27 @@ impl MessageProcessor for VotableMessageProcessor {
                         .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
                     // Check finalization
-                    votes_dal
+                    if votes_dal
                         .finalize_transaction_if_needed(reference_txid, self.threshold)
                         .await
-                        .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+                        .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
+                    {
+                        let mut eth_sender_dal = storage.eth_sender_dal();
+
+                        // todo: insert proper l1_batch number
+                        eth_sender_dal
+                            .insert_bogus_confirmed_eth_tx(
+                                L1BatchNumber(1),
+                                AggregatedActionType::Execute,
+                                tx_id,
+                                dt,
+                            )
+                            .await?;
+                    }
                 }
                 // bootstrapping phase is already covered
                 FullInscriptionMessage::ProposeSequencer(_) => {
-                    continue;
+                    // do nothing
                 }
                 // Non-votable messages like SystemBootstrapping or L1ToL2Message are ignored by this processor
                 FullInscriptionMessage::SystemBootstrapping(_)

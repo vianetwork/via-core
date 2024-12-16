@@ -434,8 +434,8 @@ impl ViaNodeBuilder {
             .add_logs_bloom_backfill_layer()?
             .add_metadata_calculator_layer(true)?
             .add_commitment_generator_layer()?
-            .add_via_celestia_da_client_layer()?
-            .add_da_dispatcher_layer()?
+            // .add_via_celestia_da_client_layer()?
+            // .add_da_dispatcher_layer()?
             .node
             .build())
     }
