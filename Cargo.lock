@@ -9559,6 +9559,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.5.16",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+ "via_da_clients",
+ "zksync_config",
+ "zksync_core_leftovers",
+ "zksync_env_config",
+ "zksync_metadata_calculator",
+ "zksync_node_api_server",
+ "zksync_node_framework",
+ "zksync_protobuf_config",
+ "zksync_storage",
+ "zksync_types",
+ "zksync_utils",
+ "zksync_vlog",
+]
+
+[[package]]
 name = "via_withdrawal_client"
 version = "0.1.0"
 dependencies = [
