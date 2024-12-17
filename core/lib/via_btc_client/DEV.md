@@ -144,7 +144,7 @@ Votable: No
 
 (4)
 L1BatchDAReference
-Votable: Yes
+Votable: No
 Sender Validation: only valid sequencer
 |----------------------------------------------------------|
 |      Schnorr Signature                                   |

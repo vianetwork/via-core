@@ -178,7 +178,7 @@ impl BtcWatch {
 
         for processor in self.message_processors.iter_mut() {
             processor
-                .process_messages(storage, messages.clone())
+                .process_messages(storage, messages.clone(), &mut self.indexer)
                 .await
                 .map_err(|e| MessageProcessorError::Internal(e.into()))?;
         }
