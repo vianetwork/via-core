@@ -1,1 +1,226 @@
+use std::fmt;
 
+use musig2::{
+    verify_single, CompactSignature, FirstRound, KeyAggContext, PartialSignature, PubNonce,
+    SecNonceSpices, SecondRound,
+};
+use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
+
+#[derive(Debug)]
+pub enum MusigError {
+    Musig2Error(String),
+    InvalidSignerIndex,
+    MissingNonces,
+    MissingPartialSignatures,
+    InvalidState(String),
+}
+
+impl fmt::Display for MusigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MusigError::Musig2Error(e) => write!(f, "MuSig2 error: {}", e),
+            MusigError::InvalidSignerIndex => write!(f, "Invalid signer index"),
+            MusigError::MissingNonces => write!(f, "Missing required nonces"),
+            MusigError::MissingPartialSignatures => {
+                write!(f, "Missing required partial signatures")
+            }
+            MusigError::InvalidState(s) => write!(f, "Invalid state: {}", s),
+        }
+    }
+}
+
+impl std::error::Error for MusigError {}
+
+/// Represents a single signer in the MuSig2 protocol
+pub struct Signer {
+    secret_key: SecretKey,
+    _public_key: PublicKey,
+    signer_index: usize,
+    key_agg_ctx: KeyAggContext,
+    first_round: Option<FirstRound>,
+    second_round: Option<SecondRound<[u8; 32]>>,
+    message: Vec<u8>,
+}
+
+impl Signer {
+    /// Create a new signer with the given secret key and index
+    pub fn new(
+        secret_key: SecretKey,
+        signer_index: usize,
+        all_pubkeys: Vec<PublicKey>,
+    ) -> Result<Self, MusigError> {
+        let secp = Secp256k1::new();
+        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+        let key_agg_ctx =
+            KeyAggContext::new(all_pubkeys).map_err(|e| MusigError::Musig2Error(e.to_string()))?;
+
+        Ok(Self {
+            secret_key,
+            _public_key: public_key,
+            signer_index,
+            key_agg_ctx,
+            first_round: None,
+            second_round: None,
+            message: Vec::new(),
+        })
+    }
+
+    /// Get the aggregated public key for all signers
+    pub fn aggregated_pubkey(&self) -> PublicKey {
+        self.key_agg_ctx.aggregated_pubkey()
+    }
+
+    /// Start the signing session with a message
+    pub fn start_signing_session(&mut self, message: Vec<u8>) -> Result<PubNonce, MusigError> {
+        if message.len() != 32 {
+            return Err(MusigError::Musig2Error("Message must be 32 bytes".into()));
+        }
+        self.message = message.clone();
+
+        let msg_array: [u8; 32] = message[..32]
+            .try_into()
+            .map_err(|_| MusigError::Musig2Error("Failed to convert message to array".into()))?;
+
+        let first_round = FirstRound::new(
+            self.key_agg_ctx.clone(),
+            rand::random::<[u8; 32]>(),
+            self.signer_index,
+            SecNonceSpices::new()
+                .with_seckey(self.secret_key)
+                .with_message(&msg_array),
+        )
+        .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
+
+        let nonce = first_round.our_public_nonce();
+        self.first_round = Some(first_round);
+        Ok(nonce)
+    }
+
+    /// Receive a nonce from another participant
+    pub fn receive_nonce(
+        &mut self,
+        signer_index: usize,
+        nonce: PubNonce,
+    ) -> Result<(), MusigError> {
+        let first_round = self
+            .first_round
+            .as_mut()
+            .ok_or_else(|| MusigError::InvalidState("First round not initialized".into()))?;
+
+        first_round
+            .receive_nonce(signer_index, nonce)
+            .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Create partial signature
+    pub fn create_partial_signature(&mut self) -> Result<PartialSignature, MusigError> {
+        let msg_array: [u8; 32] = self.message[..32]
+            .try_into()
+            .map_err(|_| MusigError::Musig2Error("Failed to convert message to array".into()))?;
+
+        let first_round = self
+            .first_round
+            .take()
+            .ok_or_else(|| MusigError::InvalidState("First round not initialized".into()))?;
+
+        let second_round = first_round
+            .finalize(self.secret_key, msg_array)
+            .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
+
+        let partial_sig = second_round.our_signature();
+        self.second_round = Some(second_round);
+        Ok(partial_sig)
+    }
+
+    /// Receive partial signature from another signer
+    pub fn receive_partial_signature(
+        &mut self,
+        signer_index: usize,
+        partial_sig: PartialSignature,
+    ) -> Result<(), MusigError> {
+        let second_round = self
+            .second_round
+            .as_mut()
+            .ok_or_else(|| MusigError::InvalidState("Second round not initialized".into()))?;
+
+        second_round
+            .receive_signature(signer_index, partial_sig)
+            .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Create final signature
+    pub fn create_final_signature(&mut self) -> Result<CompactSignature, MusigError> {
+        let second_round = self
+            .second_round
+            .take()
+            .ok_or_else(|| MusigError::InvalidState("Second round not initialized".into()))?;
+
+        second_round
+            .finalize()
+            .map_err(|e| MusigError::Musig2Error(e.to_string()))
+    }
+}
+
+/// Helper function to verify a complete signature
+pub fn verify_signature(
+    pubkey: PublicKey,
+    signature: CompactSignature,
+    message: &[u8],
+) -> Result<(), MusigError> {
+    verify_single(pubkey, signature, message).map_err(|e| MusigError::Musig2Error(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::rngs::OsRng;
+
+    use super::*;
+
+    #[test]
+    fn test_signer_lifecycle() -> Result<(), MusigError> {
+        let mut rng = OsRng;
+        let secret_key_1 = SecretKey::new(&mut rng);
+        let secret_key_2 = SecretKey::new(&mut rng);
+
+        let secp = Secp256k1::new();
+        let public_key_1 = PublicKey::from_secret_key(&secp, &secret_key_1);
+        let public_key_2 = PublicKey::from_secret_key(&secp, &secret_key_2);
+
+        let pubkeys = vec![public_key_1, public_key_2];
+
+        let mut signer1 = Signer::new(secret_key_1, 0, pubkeys.clone())?;
+        let mut signer2 = Signer::new(secret_key_2, 1, pubkeys)?;
+
+        // Generate and exchange nonces
+        let message = b"test message".to_vec();
+        let nonce1 = signer1.start_signing_session(message.clone())?;
+        let nonce2 = signer2.start_signing_session(message.clone())?;
+
+        signer1.receive_nonce(1, nonce2)?;
+        signer2.receive_nonce(0, nonce1)?;
+
+        // Create partial signatures
+        let partial_sig1 = signer1.create_partial_signature()?;
+        let partial_sig2 = signer2.create_partial_signature()?;
+
+        // Exchange partial signatures
+        signer1.receive_partial_signature(1, partial_sig2)?;
+        signer2.receive_partial_signature(0, partial_sig1)?;
+
+        // Create final signatures
+        let final_sig1 = signer1.create_final_signature()?;
+        let final_sig2 = signer2.create_final_signature()?;
+
+        assert_eq!(
+            final_sig1.serialize(),
+            final_sig2.serialize(),
+            "Final signatures should match"
+        );
+        // Verify the signature
+        verify_signature(signer1.aggregated_pubkey(), final_sig1, &message)?;
+
+        Ok(())
+    }
+}
