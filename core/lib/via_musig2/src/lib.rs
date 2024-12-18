@@ -38,7 +38,7 @@ pub struct Signer {
     signer_index: usize,
     key_agg_ctx: KeyAggContext,
     first_round: Option<FirstRound>,
-    second_round: Option<SecondRound<[u8; 32]>>,
+    second_round: Option<SecondRound<Vec<u8>>>,
     message: Vec<u8>,
 }
 
@@ -72,14 +72,9 @@ impl Signer {
 
     /// Start the signing session with a message
     pub fn start_signing_session(&mut self, message: Vec<u8>) -> Result<PubNonce, MusigError> {
-        if message.len() != 32 {
-            return Err(MusigError::Musig2Error("Message must be 32 bytes".into()));
-        }
         self.message = message.clone();
 
-        let msg_array: [u8; 32] = message[..32]
-            .try_into()
-            .map_err(|_| MusigError::Musig2Error("Failed to convert message to array".into()))?;
+        let msg_array = message.as_slice();
 
         let first_round = FirstRound::new(
             self.key_agg_ctx.clone(),
@@ -115,9 +110,7 @@ impl Signer {
 
     /// Create partial signature
     pub fn create_partial_signature(&mut self) -> Result<PartialSignature, MusigError> {
-        let msg_array: [u8; 32] = self.message[..32]
-            .try_into()
-            .map_err(|_| MusigError::Musig2Error("Failed to convert message to array".into()))?;
+        let msg_array = self.message.clone();
 
         let first_round = self
             .first_round

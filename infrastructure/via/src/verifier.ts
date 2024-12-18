@@ -38,7 +38,7 @@ async function contributeMuSig2(secretKey?: string) {
 
     console.log('\nNOTICE: The order of public keys is critical for MuSig2 setup!');
     console.log('Make sure to keep track of the order in which public keys are shared and used.\n');
-    
+
     console.log('Instructions:');
     console.log('1. Save your secret key securely - you will need it for signing transactions');
     console.log('2. Share your public key with:');
@@ -54,7 +54,7 @@ async function calculateBridgeAddress(publicKeys: string[]) {
     process.chdir(`${process.env.VIA_HOME}`);
     console.log('\nNOTICE: Public key order is critical! Make sure the keys are provided in the same order');
     console.log('as they were originally shared. Using a different order will result in an invalid bridge address!\n');
-    
+
     const pubkeysArg = publicKeys.join(' ');
     await utils.spawn(`cargo run --example key_generation_setup -- coordinator ${pubkeysArg}`);
 
