@@ -1,9 +1,9 @@
-use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::{Address as BitcoinAddress, Network, XOnlyPublicKey};
+use std::{env, str::FromStr};
+
+use bitcoin::{taproot::TaprootSpendInfo, Address as BitcoinAddress, Network, XOnlyPublicKey};
 use musig2::KeyAggContext;
 use rand::rngs::OsRng;
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
-use std::{env, str::FromStr};
 
 #[derive(Debug)]
 #[allow(dead_code)]
