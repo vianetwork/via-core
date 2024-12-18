@@ -229,12 +229,14 @@ impl WithdrawalBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::types::BitcoinError;
+    use std::str::FromStr;
+
     use async_trait::async_trait;
     use bitcoin::Network;
     use mockall::{mock, predicate::*};
-    use std::str::FromStr;
+
+    use super::*;
+    use crate::types::BitcoinError;
 
     mock! {
         BitcoinOps {}
