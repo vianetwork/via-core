@@ -230,48 +230,114 @@ impl WithdrawalBuilder {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
-
+    use async_trait::async_trait;
     use bitcoin::Network;
-
     use super::*;
+    use mockall::{mock, predicate::*};
+    use crate::types::BitcoinError;
+
+    mock! {
+        BitcoinOps {}
+        #[async_trait]
+        impl BitcoinOps for BitcoinOps {
+            async fn fetch_utxos(&self, _address: &Address) -> Result<Vec<(OutPoint, TxOut)>, BitcoinError> {
+                // Mock implementation
+                let txid = Txid::from_str(
+                    "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
+                ).unwrap();
+                let outpoint = OutPoint::new(txid, 0);
+                let txout = TxOut {
+                    value: Amount::from_btc(1.0).unwrap(),
+                    script_pubkey: ScriptBuf::new(),
+                };
+                Ok(vec![(outpoint, txout)])
+            }
+
+            async fn get_fee_rate(&self, _target_blocks: u16) -> Result<u64, BitcoinError> {
+                Ok(2)
+            }
+
+            async fn broadcast_signed_transaction(&self, _tx_hex: &str) -> Result<Txid, BitcoinError> {
+                Ok(Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b").unwrap())
+            }
+
+            async fn check_tx_confirmation(&self, _txid: &Txid, _min_confirmations: u32) -> Result<bool, BitcoinError> {
+                Ok(true)
+            }
+
+            async fn fetch_block_height(&self) -> Result<u128, BitcoinError> {
+                Ok(100000)
+            }
+
+            async fn get_balance(&self, _address: &Address) -> Result<u128, BitcoinError> {
+                Ok(100000000) // 1 BTC in sats
+            }
+            fn get_network(&self) -> bitcoin::Network {
+                Network::Regtest
+            }
+
+            async fn fetch_block(&self, _height: u128) -> Result<bitcoin::Block, BitcoinError> {
+                Ok(bitcoin::Block::default())
+            }
+
+            async fn get_transaction(&self, _txid: &Txid) -> Result<Transaction, BitcoinError> {
+                Ok(Transaction::default())
+            }
+
+            async fn fetch_block_by_hash(&self, _hash: &bitcoin::BlockHash) -> Result<bitcoin::Block, BitcoinError> {
+                Ok(bitcoin::Block::default())
+            }
+        }
+    }
 
     #[tokio::test]
-    #[ignore] // Remove this to run against a local Bitcoin node
     async fn test_withdrawal_builder() -> Result<()> {
         let network = Network::Regtest;
-        let bridge_address = Address::from_str("bcrt1q6rhpng9evgu7ul6k0kr8f8sdre3hy9ym8t7g5h")?
+        let bridge_address = Address::from_str("bcrt1pxqkh0g270lucjafgngmwv7vtgc8mk9j5y4j8fnrxm77yunuh398qfv8tqp")?
             .require_network(network)?;
 
-        let builder = WithdrawalBuilder::new(
-            "http://localhost:18443",
-            BitcoinNetwork::Regtest,
-            bitcoincore_rpc::Auth::None,
+        // Create mock and set expectations
+        let mut mock_ops = MockBitcoinOps::new();
+        mock_ops
+            .expect_fetch_utxos()
+            .returning(|_| {
+                let txid = Txid::from_str(
+                    "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
+                ).unwrap();
+                let outpoint = OutPoint::new(txid, 0);
+                let txout = TxOut {
+                    value: Amount::from_btc(1.0).unwrap(),
+                    script_pubkey: ScriptBuf::new(),
+                };
+                Ok(vec![(outpoint, txout)])
+            });
+
+        mock_ops
+            .expect_get_fee_rate()
+            .returning(|_| Ok(2));
+
+        // Use mock client
+        let builder = WithdrawalBuilder {
+            client: Arc::new(mock_ops),
             bridge_address,
-        )
-        .await?;
+        };
 
-        let withdrawals = vec![
-            WithdrawalRequest {
-                address: Address::from_str("bcrt1qg3y8889zzz0qvg3xhm4e9j8z9wp7524fn0qxya")?
-                    .require_network(network)?,
-                amount: Amount::from_btc(0.1)?,
-            },
-            WithdrawalRequest {
-                address: Address::from_str("bcrt1qf6em9yq7h8zmmwl9q8ue73x34dj9ql9xl7t4ph")?
-                    .require_network(network)?,
-                amount: Amount::from_btc(0.2)?,
-            },
-        ];
+        let withdrawal_address = "bcrt1pv6dtdf0vrrj6ntas926v8vw9u0j3mga29vmfnxh39zfxya83p89qz9ze3l";
+        let withdrawal_amount = Amount::from_btc(0.1)?;
 
-        let proof_txid =
-            Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")?;
+        let withdrawals = vec![WithdrawalRequest {
+            address: Address::from_str(withdrawal_address)?.require_network(network)?,
+            amount: withdrawal_amount,
+        }];
+
+        let proof_txid = Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")?;
 
         let withdrawal_tx = builder
             .create_unsigned_withdrawal_tx(withdrawals, proof_txid)
             .await?;
         assert!(!withdrawal_tx.utxos.is_empty());
 
-        // Verify OP_RETURN output exists and contains our data
+        // Verify OP_RETURN output
         let op_return_output = withdrawal_tx
             .tx
             .output
