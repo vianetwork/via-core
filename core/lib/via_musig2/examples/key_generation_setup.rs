@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args.len() < 2 {
         return Err(
-            "Usage:\ncontributor [optional_public_key]\ncoordinator public_key1 public_key2 ..."
+            "Usage: contributor [optional_public_key] OR coordinator public_key1 public_key2 ..."
                 .into(),
         );
     }
