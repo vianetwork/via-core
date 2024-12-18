@@ -8581,6 +8581,7 @@ name = "via_musig2"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "clap 4.5.16",
  "hex",
  "musig2",
  "rand 0.8.5",
