@@ -26,7 +26,6 @@ bitcoincore-rpc = "0.19.0"
 rand.workspace = true
 hex.workspace = true
 secp256k1 = "0.29.0"
-secp256k1_musig2 = { package = "secp256k1", version = "0.30.0", features = ["rand"]}
 reqwest = "0.12.5"
 serde_json.workspace = true
 inquire = { version = "0.7.5", optional = true }
@@ -65,10 +64,5 @@ path = "examples/bootstrap.rs"
 [[example]]
 name = "verify_batch"
 path = "examples/verify_batch.rs"
-
-
-[[example]]
-name = "withdrawal"
-path = "examples/withdrawal.rs"
 
 

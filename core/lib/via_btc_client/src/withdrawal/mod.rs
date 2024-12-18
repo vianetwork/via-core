@@ -229,12 +229,12 @@ impl WithdrawalBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use super::*;
+    use crate::types::BitcoinError;
     use async_trait::async_trait;
     use bitcoin::Network;
-    use super::*;
     use mockall::{mock, predicate::*};
-    use crate::types::BitcoinError;
+    use std::str::FromStr;
 
     mock! {
         BitcoinOps {}
@@ -293,28 +293,25 @@ mod tests {
     #[tokio::test]
     async fn test_withdrawal_builder() -> Result<()> {
         let network = Network::Regtest;
-        let bridge_address = Address::from_str("bcrt1pxqkh0g270lucjafgngmwv7vtgc8mk9j5y4j8fnrxm77yunuh398qfv8tqp")?
-            .require_network(network)?;
+        let bridge_address =
+            Address::from_str("bcrt1pxqkh0g270lucjafgngmwv7vtgc8mk9j5y4j8fnrxm77yunuh398qfv8tqp")?
+                .require_network(network)?;
 
         // Create mock and set expectations
         let mut mock_ops = MockBitcoinOps::new();
-        mock_ops
-            .expect_fetch_utxos()
-            .returning(|_| {
-                let txid = Txid::from_str(
-                    "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
-                ).unwrap();
-                let outpoint = OutPoint::new(txid, 0);
-                let txout = TxOut {
-                    value: Amount::from_btc(1.0).unwrap(),
-                    script_pubkey: ScriptBuf::new(),
-                };
-                Ok(vec![(outpoint, txout)])
-            });
+        mock_ops.expect_fetch_utxos().returning(|_| {
+            let txid =
+                Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")
+                    .unwrap();
+            let outpoint = OutPoint::new(txid, 0);
+            let txout = TxOut {
+                value: Amount::from_btc(1.0).unwrap(),
+                script_pubkey: ScriptBuf::new(),
+            };
+            Ok(vec![(outpoint, txout)])
+        });
 
-        mock_ops
-            .expect_get_fee_rate()
-            .returning(|_| Ok(2));
+        mock_ops.expect_get_fee_rate().returning(|_| Ok(2));
 
         // Use mock client
         let builder = WithdrawalBuilder {
@@ -330,7 +327,8 @@ mod tests {
             amount: withdrawal_amount,
         }];
 
-        let proof_txid = Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")?;
+        let proof_txid =
+            Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")?;
 
         let withdrawal_tx = builder
             .create_unsigned_withdrawal_tx(withdrawals, proof_txid)
