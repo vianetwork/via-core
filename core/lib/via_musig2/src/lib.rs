@@ -40,6 +40,8 @@ pub struct Signer {
     first_round: Option<FirstRound>,
     second_round: Option<SecondRound<Vec<u8>>>,
     message: Vec<u8>,
+    nonce_submitted: bool,
+    partial_sig_submitted: bool,
 }
 
 impl Signer {
@@ -62,6 +64,8 @@ impl Signer {
             first_round: None,
             second_round: None,
             message: Vec::new(),
+            nonce_submitted: false,
+            partial_sig_submitted: false,
         })
     }
 
@@ -153,6 +157,36 @@ impl Signer {
         second_round
             .finalize()
             .map_err(|e| MusigError::Musig2Error(e.to_string()))
+    }
+
+    pub fn signer_index(&self) -> usize {
+        self.signer_index
+    }
+
+    pub fn has_not_started(&self) -> bool {
+        self.first_round.is_none()
+    }
+
+    pub fn has_submitted_nonce(&self) -> bool {
+        self.nonce_submitted
+    }
+
+    pub fn mark_nonce_submitted(&mut self) {
+        self.nonce_submitted = true;
+    }
+
+    pub fn our_nonce(&self) -> Option<PubNonce> {
+        self.first_round
+            .as_ref()
+            .map(|round| round.our_public_nonce())
+    }
+
+    pub fn has_created_partial_sig(&self) -> bool {
+        self.second_round.is_some()
+    }
+
+    pub fn mark_partial_sig_submitted(&mut self) {
+        self.partial_sig_submitted = true;
     }
 }
 
