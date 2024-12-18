@@ -23,6 +23,7 @@ use via_btc_client::{
 use via_musig2::{verify_signature, Signer};
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct AppState {
     signer: Arc<RwLock<Signer>>,
     signing_sessions: Arc<RwLock<HashMap<String, SigningSession>>>,
@@ -33,6 +34,7 @@ struct AppState {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct SigningSession {
     session_id: String,
     tx_id: String,
@@ -357,7 +359,9 @@ async fn submit_partial_signature(
     Path(session_id): Path<String>,
     Json(sig_pair): Json<PartialSignaturePair>,
 ) -> Result<StatusCode, StatusCode> {
-    let decoded_sig = base64::decode(&sig_pair.signature).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let decoded_sig = base64::engine::general_purpose::STANDARD
+        .decode(&sig_pair.signature)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
     let partial_sig =
         PartialSignature::from_slice(&decoded_sig).map_err(|_| StatusCode::BAD_REQUEST)?;
 
@@ -453,6 +457,7 @@ async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessi
 
     // Coordinator is signer_index 0, so insert coordinator's nonce:
     {
+        #[allow(unused_mut)]
         let mut signer = state.signer.write().await;
         let coordinator_nonce = signer.our_nonce().expect("nonce should be generated");
         let mut sessions = state.signing_sessions.write().await;
