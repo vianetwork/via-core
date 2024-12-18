@@ -35,7 +35,7 @@ async function contributeMuSig2(secretKey?: string) {
     process.chdir(`${process.env.VIA_HOME}`);
     const args = secretKey ? ` contributor ${secretKey}` : ' contributor';
     await utils.spawn(`cargo run --example key_generation_setup --${args}`);
-    
+
     console.log('\nInstructions:');
     console.log('1. Save your secret key securely - you will need it for signing transactions');
     console.log('2. Share your public key with:');
@@ -50,7 +50,7 @@ async function calculateBridgeAddress(publicKeys: string[]) {
     process.chdir(`${process.env.VIA_HOME}`);
     const pubkeysArg = publicKeys.join(' ');
     await utils.spawn(`cargo run --example key_generation_setup -- coordinator ${pubkeysArg}`);
-    
+
     console.log('\nInstructions:');
     console.log('1. Save this bridge address - it will be used for all Via protocol transactions');
     // TODO:
