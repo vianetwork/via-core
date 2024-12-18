@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
+use std::{clone::Clone, collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use axum::{
     extract::{Path, State},
@@ -9,7 +9,7 @@ use axum::{
 use base64::Engine;
 use bitcoin::{hashes::Hash, Address, Amount, Network, Txid};
 use hyper::Server;
-use musig2::{BinaryEncoding, Clone, CompactSignature, PartialSignature, PubNonce, ToBytes};
+use musig2::{BinaryEncoding, CompactSignature, PartialSignature, PubNonce};
 use rand::thread_rng;
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
@@ -430,8 +430,8 @@ async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessi
         utxos.insert(tx_id.clone(), unsigned_tx.clone());
     }
 
-    // Start signing session with message (transaction hash)
-    let message = unsigned_tx.tx.compute_txid().as_raw_hash().to_vec();
+    // TODO: extract sighash and sign it and broadcast in last step
+    let message = unsigned_tx.tx.compute_txid().as_byte_array().to_vec();
     {
         let mut signer = state.signer.write().await;
         signer.start_signing_session(message.clone())?;
