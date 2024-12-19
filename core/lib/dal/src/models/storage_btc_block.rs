@@ -21,7 +21,7 @@ impl From<ViaBtcStorageL1BlockDetails> for ViaBtcL1BlockDetails {
             hash: details.hash,
             commit_tx_id: Txid::from_str(&details.commit_tx_id.clone().unwrap_or_default())
                 .unwrap_or(Txid::all_zeros()),
-            reveal_tx_id: Txid::from_str(&details.commit_tx_id.clone().unwrap_or_default())
+            reveal_tx_id: Txid::from_str(&details.reveal_tx_id.clone().unwrap_or_default())
                 .unwrap_or(Txid::all_zeros()),
             blob_id: details.blob_id.unwrap_or_default(),
         }

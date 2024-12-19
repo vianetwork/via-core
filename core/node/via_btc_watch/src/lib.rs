@@ -15,7 +15,9 @@ use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::PriorityOpId;
 
 use self::{
-    message_processors::{L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError},
+    message_processors::{
+        L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError, VotableMessageProcessor,
+    },
     metrics::METRICS,
 };
 use crate::metrics::ErrorType;
@@ -57,12 +59,13 @@ impl BtcWatch {
         tracing::info!("initialized state: {state:?}");
         drop(storage);
 
-        // TODO: add other message processors if needed
-        let message_processors: Vec<Box<dyn MessageProcessor>> =
-            vec![Box::new(L1ToL2MessageProcessor::new(
+        let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
+            Box::new(L1ToL2MessageProcessor::new(
                 state.bridge_address.clone(),
                 state.next_expected_priority_id,
-            ))];
+            )),
+            Box::new(VotableMessageProcessor::new()),
+        ];
 
         let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);
 
@@ -173,9 +176,11 @@ impl BtcWatch {
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?;
 
-        // temporary use only one processor to avoid cloning
-        if let Some(processor) = self.message_processors.first_mut() {
-            processor.process_messages(storage, messages).await?;
+        for processor in self.message_processors.iter_mut() {
+            processor
+                .process_messages(storage, messages.clone(), &mut self.indexer)
+                .await
+                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
         }
 
         self.last_processed_bitcoin_block = to_block;
