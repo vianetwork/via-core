@@ -5,6 +5,20 @@ RESET = \033[0m
 # CLI tool
 CLI_TOOL = via
 
+
+CMD := $(firstword $(MAKECMDGOALS))
+VIA_ENV ?= via
+DIFF ?= 0
+
+# Select the via env
+ifeq ($(CMD), via-verifier)
+    VIA_ENV := via_verifier
+	DIFF := 1
+else ifeq ($(CMD), via-coordinator)
+	VIA_ENV := via_coordinator
+	DIFF := 2
+endif
+
 # Default target: Show help message
 .PHONY: help
 help:
@@ -46,13 +60,21 @@ via: env config init transactions celestia bootstrap server-genesis server
 .PHONY: all
 all: env config init transactions celestia btc-explorer bootstrap server-genesis server
 
+# Run the basic setup workflow in verifier
+.PHONY: via-verifier
+via-verifier: env config verifier
+
+# Run the basic setup workflow in coordinator
+.PHONY: via-verifier
+via-coordinator: env config coordinator
+
 # Run 'via env via'
 .PHONY: env
 env:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Setting the environment...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) env via
+	@$(CLI_TOOL) env ${VIA_ENV} 
 
 # Run 'via config compile'
 .PHONY: config
@@ -60,7 +82,7 @@ config:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Creating environment configuration file...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) config compile
+	@$(CLI_TOOL) config compile ${VIA_ENV} ${DIFF}
 
 # Run 'via init'
 .PHONY: init
@@ -117,6 +139,22 @@ server:
 	@echo "$(YELLOW)Running the sequencer software...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) server
+
+# Run 'via verifier'
+.PHONY: verifier
+verifier:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the verifier software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) verifier
+
+# Run 'via verifier --coordinator'
+.PHONY: coordinator
+coordinator:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the coordinator software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) verifier --coordinator
 
 # Run 'via clean'
 .PHONY: clean

@@ -95,6 +95,8 @@ members = [
     "core/lib/via_da_clients",
     "core/lib/via_musig2",
     "core/lib/via_withdrawal_client",
+    "core/bin/via_verifier",
+
 ]
 
 resolver = "2"

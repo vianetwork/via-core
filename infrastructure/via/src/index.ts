@@ -15,10 +15,10 @@ import { command as db } from './database';
 import * as env from './env';
 import { command as transactions } from './transactions';
 import { command as bootstrap } from './bootstrap';
-import { command as verifier } from './verifier';
+import { verifierCommand as verifier } from './verifier';
 import { command as celestia } from './celestia';
 import { command as btc_explorer } from './btc_explorer';
-import { command as withdraw } from './withdraw';
+import { command as token } from './token';
 
 const COMMANDS = [
     server,
@@ -36,7 +36,7 @@ const COMMANDS = [
     verifier,
     celestia,
     btc_explorer,
-    withdraw,
+    token,
     completion(program as Command)
 ];
 
