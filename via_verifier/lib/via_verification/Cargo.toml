@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-circuit_definitions = "=0.150.7"
+circuit_definitions = "=0.150.18"
 
 # circuit_definitions = {git = "https://github.com/matter-labs/zksync-protocol.git", tag = "v0.150.5"}
 
