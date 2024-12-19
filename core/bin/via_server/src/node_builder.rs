@@ -30,6 +30,7 @@ use zksync_node_framework::{
         },
         via_btc_watch::BtcWatchLayer,
         via_da_dispatcher::DataAvailabilityDispatcherLayer,
+        via_gas_adjuster::ViaGasAdjusterLayer,
         via_l1_gas::ViaL1GasLayer,
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
@@ -187,6 +188,16 @@ impl ViaNodeBuilder {
         ));
         self.node
             .add_layer(ViaInscriptionManagerLayer::new(btc_sender_config));
+        Ok(self)
+    }
+
+    fn add_gas_adjuster_layer(mut self) -> anyhow::Result<Self> {
+        let gas_adjuster_config = try_load_config!(self.configs.eth)
+            .gas_adjuster
+            .context("Via gas adjuster")?;
+        let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
+        let gas_adjuster_layer = ViaGasAdjusterLayer::new(gas_adjuster_config, btc_sender_config);
+        self.node.add_layer(gas_adjuster_layer);
         Ok(self)
     }
 
@@ -422,6 +433,7 @@ impl ViaNodeBuilder {
             // VIA layers
             .add_btc_watcher_layer()?
             .add_btc_sender_layer()?
+            .add_gas_adjuster_layer()?
             .add_l1_gas_layer()?
             .add_tx_sender_layer()?
             .add_api_caches_layer()?
