@@ -198,7 +198,7 @@ impl ApiContracts {
                 vm_1_5_0_small_memory: BaseSystemContracts::playground_1_5_0_small_memory(),
                 vm_1_5_0_increased_memory:
                     BaseSystemContracts::playground_post_1_5_0_increased_memory(),
-                vm_bitcoin: BaseSystemContracts::estimate_gas_bitcoin_1_0_0(),
+                vm_bitcoin: BaseSystemContracts::playground_bitcoin_1_0_0(),
             },
         }
     }
