@@ -4,7 +4,7 @@
 // and now we know the number of input and output we can estimate the fee and perform final utxo selection
 // create a unsigned transaction and return it to the caller
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use bitcoin::{
@@ -62,17 +62,45 @@ impl WithdrawalBuilder {
     ) -> Result<UnsignedWithdrawalTx> {
         debug!("Creating unsigned withdrawal transaction");
 
-        // Calculate total amount needed
-        let total_amount: Amount = withdrawals
-            .iter()
-            .try_fold(Amount::ZERO, |acc, w| acc.checked_add(w.amount))
+        // Group withdrawals by address and sum amounts
+        let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
+        for w in withdrawals {
+            *grouped_withdrawals.entry(w.address).or_insert(Amount::ZERO) = grouped_withdrawals
+                .get(&w.address)
+                .unwrap_or(&Amount::ZERO)
+                .checked_add(w.amount)
+                .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
+        }
+
+        // Calculate total withdrawal amount from grouped withdrawals
+        let total_withdrawal_amount: Amount = grouped_withdrawals
+            .values()
+            .try_fold(Amount::ZERO, |acc, amount| acc.checked_add(*amount))
             .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow"))?;
 
-        // Get available UTXOs from bridge address
-        let utxos = self.get_available_utxos().await?;
+        // Get available UTXOs first to estimate number of inputs
+        let available_utxos = self.get_available_utxos().await?;
 
-        // Select UTXOs for the withdrawal
-        let selected_utxos = self.select_utxos(&utxos, total_amount).await?;
+        // Get fee rate
+        let fee_rate = self.client.get_fee_rate(1).await?;
+
+        // Estimate initial fee with approximate input count
+        // We'll estimate high initially to avoid underestimating
+        let estimated_input_count =
+            self.estimate_input_count(&available_utxos, total_withdrawal_amount)?;
+        let initial_fee = self.estimate_fee(
+            estimated_input_count,
+            grouped_withdrawals.len() as u32 + 2, // +1 for OP_RETURN, +1 for potential change
+            fee_rate,
+        )?;
+
+        // Calculate total amount needed including estimated fee
+        let total_needed = total_withdrawal_amount
+            .checked_add(initial_fee)
+            .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
+
+        // Select UTXOs for the total amount including fee
+        let selected_utxos = self.select_utxos(&available_utxos, total_needed).await?;
 
         // Calculate total input amount
         let total_input_amount: Amount = selected_utxos
@@ -87,17 +115,16 @@ impl WithdrawalBuilder {
             script_pubkey: op_return_data,
         };
 
-        // Estimate fee (including OP_RETURN output)
-        let fee_rate = self.client.get_fee_rate(1).await?;
-        let fee_amount = self.estimate_fee(
+        // Calculate actual fee with real input count
+        let actual_fee = self.estimate_fee(
             selected_utxos.len() as u32,
-            withdrawals.len() as u32 + 1, // +1 for OP_RETURN output
+            grouped_withdrawals.len() as u32 + 1, // +1 for OP_RETURN output
             fee_rate,
         )?;
 
-        // Verify we have enough funds
-        let total_needed = total_amount
-            .checked_add(fee_amount)
+        // Verify we have enough funds with actual fee
+        let total_needed = total_withdrawal_amount
+            .checked_add(actual_fee)
             .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
 
         if total_input_amount < total_needed {
@@ -119,12 +146,12 @@ impl WithdrawalBuilder {
             })
             .collect();
 
-        // Create outputs for withdrawals
-        let mut outputs: Vec<TxOut> = withdrawals
+        // Create outputs for grouped withdrawals
+        let mut outputs: Vec<TxOut> = grouped_withdrawals
             .into_iter()
-            .map(|w| TxOut {
-                value: w.amount,
-                script_pubkey: w.address.script_pubkey(),
+            .map(|(address, amount)| TxOut {
+                value: amount,
+                script_pubkey: address.script_pubkey(),
             })
             .collect();
 
@@ -224,6 +251,29 @@ impl WithdrawalBuilder {
         encoded_data.extend_from_slice(&data).ok();
 
         Ok(ScriptBuf::new_op_return(encoded_data))
+    }
+
+    #[instrument(skip(self, utxos), target = "bitcoin_withdrawal")]
+    fn estimate_input_count(
+        &self,
+        utxos: &[(OutPoint, TxOut)],
+        target_amount: Amount,
+    ) -> Result<u32> {
+        let mut count: u32 = 0;
+        let mut total = Amount::ZERO;
+
+        for utxo in utxos {
+            count += 1;
+            total = total
+                .checked_add(utxo.1.value)
+                .ok_or_else(|| anyhow::anyhow!("Amount overflow during input count estimation"))?;
+
+            if total >= target_amount {
+                break;
+            }
+        }
+        // Add one more to our estimate to be safe
+        Ok(count.saturating_add(1))
     }
 }
 

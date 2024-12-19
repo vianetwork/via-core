@@ -18,7 +18,7 @@ use tracing::{info, instrument};
 use uuid::Uuid;
 use via_btc_client::{
     types::BitcoinNetwork,
-    withdrawal::{UnsignedWithdrawalTx, WithdrawalBuilder, WithdrawalRequest},
+    withdrawal_builder::{UnsignedWithdrawalTx, WithdrawalBuilder, WithdrawalRequest},
 };
 use via_musig2::{verify_signature, Signer};
 

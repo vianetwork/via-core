@@ -53,6 +53,17 @@ impl Signer {
     ) -> Result<Self, MusigError> {
         let secp = Secp256k1::new();
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+
+        // Verify that signer_index is valid and matches the public key
+        if signer_index >= all_pubkeys.len() {
+            return Err(MusigError::InvalidSignerIndex);
+        }
+        if all_pubkeys[signer_index] != public_key {
+            return Err(MusigError::Musig2Error(
+                "Public key at signer_index does not match derived public key".into(),
+            ));
+        }
+
         let key_agg_ctx =
             KeyAggContext::new(all_pubkeys).map_err(|e| MusigError::Musig2Error(e.to_string()))?;
 
