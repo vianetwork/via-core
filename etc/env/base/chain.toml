@@ -53,7 +53,7 @@ reject_tx_at_gas_percentage = 0.95
 
 # The minimal acceptable L2 gas price, i.e. the price that should include the cost of computation/proving as well
 # as potentially premium for congestion.
-minimal_l2_gas_price = 100
+minimal_l2_gas_price = 10000000
 
 # The constant that represents the possibility that a batch can be sealed because of overuse of computation resources.
 # It has range from 0 to 1. If it is 0, the compute will not depend on the cost for closing the batch.
@@ -65,8 +65,8 @@ compute_overhead_part = 0.0
 # If it is 1, the pubdata limit per batch will have to cover the entire cost of closing the batch.
 pubdata_overhead_part = 1.0
 
-# The constant amount of L1 gas that is used as the overhead for the batch. It includes the price for batch verification, etc.
-batch_overhead_l1_gas = 800000
+# The constant L1 gas unit in vbyte required to finilize the L1 Batch. This cost includes the Pubdata, proof and verification inscriptions.
+batch_overhead_l1_gas = 5000
 
 # The maximum amount of gas that can be used by the batch. This value is derived from the circuits limitation per batch.
 max_gas_per_batch = 200000000

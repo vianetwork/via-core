@@ -336,6 +336,7 @@ mod tests {
         block::Header, hashes::Hash, Amount, Block, OutPoint, ScriptBuf, Transaction, TxMerkleNode,
         TxOut,
     };
+    use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
 
     use super::*;
@@ -355,6 +356,12 @@ mod tests {
             async fn fetch_block_height(&self) -> BitcoinClientResult<u128>;
             async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
             fn get_network(&self) -> Network;
+            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
+            async fn get_fee_history(
+                &self,
+                from_block_height: usize,
+                to_block_height: usize,
+            ) -> BitcoinClientResult<Vec<u64>>;
         }
     }
 

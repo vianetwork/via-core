@@ -92,6 +92,8 @@ members = [
     "core/node/via_btc_sender",
     "core/node/via_fee_model",
     "core/node/via_state_keeper",
+    "core/lib/via_da_clients",
+    "core/lib/via_musig2",
     "core/lib/via_withdrawal_client",
     "core/bin/via_verifier",
 
@@ -326,3 +328,4 @@ via_da_dispatcher = { version = "0.1.0", path = "core/node/via_da_dispatcher" }
 via_btc_sender = { version = "0.1.0", path = "core/node/via_btc_sender" }
 via_fee_model = { version = "0.1.0", path = "core/node/via_fee_model" }
 via_state_keeper = { version = "0.1.0", path = "core/node/via_state_keeper" }
+via_musig2 = { version = "0.1.0", path = "core/lib/via_musig2" }
