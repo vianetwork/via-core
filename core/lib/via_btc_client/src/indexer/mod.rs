@@ -202,6 +202,10 @@ impl BitcoinInscriptionIndexer {
             _ => None,
         }
     }
+
+    pub fn get_number_of_verifiers(&self) -> usize {
+        self.verifier_addresses.len()
+    }
 }
 
 impl BitcoinInscriptionIndexer {

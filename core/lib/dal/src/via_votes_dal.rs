@@ -95,19 +95,40 @@ impl ViaVotesDal<'_, '_> {
         Ok((ok_votes, total_votes))
     }
 
-    /// Marks the transaction as finalized if #ok_votes / #total_votes > threshold.
+    /// Marks the transaction as finalized if #ok_votes / #total_votes >= threshold.
     /// Must use `(l1_batch_number, tx_id)` in both vote counting and the UPDATE statement.
     pub async fn finalize_transaction_if_needed(
         &mut self,
         l1_batch_number: u32,
         tx_id: H256,
         threshold: f64,
+        number_of_verifiers: usize,
     ) -> DalResult<bool> {
-        let (ok_votes, total_votes) = self.get_vote_count(l1_batch_number, tx_id).await?;
-        let is_above_threshold =
-            total_votes > 0 && (ok_votes as f64) / (total_votes as f64) > threshold;
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                is_finalized
+            FROM
+                via_votable_transactions
+            WHERE
+                l1_batch_number = $1
+                AND tx_id = $2
+            "#,
+            l1_batch_number as i64,
+            tx_id.as_bytes()
+        )
+        .instrument("check_if_already_finalized")
+        .fetch_one(self.storage)
+        .await?;
 
-        if is_above_threshold {
+        if row.is_finalized {
+            return Ok(false);
+        }
+
+        let (ok_votes, _total_votes) = self.get_vote_count(l1_batch_number, tx_id).await?;
+        let is_threshold_reached = (ok_votes as f64) / (number_of_verifiers as f64) >= threshold;
+
+        if is_threshold_reached {
             sqlx::query!(
                 r#"
                 UPDATE via_votable_transactions
@@ -126,6 +147,22 @@ impl ViaVotesDal<'_, '_> {
             .await?;
         }
 
-        Ok(is_above_threshold)
+        Ok(is_threshold_reached)
+    }
+
+    pub async fn get_last_inserted_block(&mut self) -> DalResult<Option<u32>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                MAX(l1_batch_number) AS max_batch_number
+            FROM
+                via_votable_transactions
+            "#
+        )
+        .instrument("get_last_inserted_block")
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(row.max_batch_number.map(|n| n as u32))
     }
 }

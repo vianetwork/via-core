@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT is_finalized\n            FROM via_votable_transactions\n            WHERE l1_batch_number = $1\n            AND tx_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_finalized",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d34ee99dedb5ce422060dc48bffd1a9f913563e6af55b0dd7293b30a7e210a61"
+}

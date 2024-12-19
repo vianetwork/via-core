@@ -4,7 +4,7 @@ use via_btc_client::{
     types::{BitcoinTxid, FullInscriptionMessage},
 };
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_types::{aggregated_operations::AggregatedActionType, L1BatchNumber, H256};
+use zksync_types::{aggregated_operations::AggregatedActionType, H256};
 
 use super::{MessageProcessor, MessageProcessorError};
 
@@ -38,11 +38,28 @@ impl MessageProcessor for VotableMessageProcessor {
         let dt = DateTime::<Utc>::from_naive_utc_and_offset(naive_utc, offset);
 
         for msg in msgs {
-            if let Some(l1_batch_number) = indexer.get_l1_batch_number(&msg).await {
-                match msg {
-                    FullInscriptionMessage::ProofDAReference(proof_msg) => {
-                        let tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
+            match msg {
+                ref f @ FullInscriptionMessage::ProofDAReference(ref proof_msg) => {
+                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(&f).await {
                         let mut votes_dal = storage.via_votes_dal();
+
+                        let last_inserted_block = votes_dal
+                            .get_last_inserted_block()
+                            .await
+                            .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
+                            .unwrap_or(0);
+
+                        if l1_batch_number.0 <= last_inserted_block {
+                            tracing::warn!(
+                                "Skipping ProofDAReference message with l1_batch_number: {:?} because it is already processed",
+                                l1_batch_number
+                            );
+                            continue;
+                        }
+
+                        let tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
+                        let batch_tx_id =
+                            convert_txid_to_h256(proof_msg.input.l1_batch_reveal_txid);
 
                         votes_dal
                             .insert_votable_transaction(l1_batch_number.0, tx_id)
@@ -54,13 +71,29 @@ impl MessageProcessor for VotableMessageProcessor {
                         eth_sender_dal
                             .insert_bogus_confirmed_eth_tx(
                                 l1_batch_number,
+                                AggregatedActionType::Commit,
+                                batch_tx_id,
+                                dt,
+                            )
+                            .await?;
+
+                        eth_sender_dal
+                            .insert_bogus_confirmed_eth_tx(
+                                l1_batch_number,
                                 AggregatedActionType::PublishProofOnchain,
                                 tx_id,
                                 dt,
                             )
                             .await?;
+                    } else {
+                        tracing::warn!(
+                            "L1BatchNumber not found for ProofDAReference message : {:?}",
+                            proof_msg
+                        );
                     }
-                    FullInscriptionMessage::ValidatorAttestation(attestation_msg) => {
+                }
+                ref f @ FullInscriptionMessage::ValidatorAttestation(ref attestation_msg) => {
+                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(&f).await {
                         let mut votes_dal = storage.via_votes_dal();
 
                         let reference_txid =
@@ -88,12 +121,18 @@ impl MessageProcessor for VotableMessageProcessor {
                                 l1_batch_number.0,
                                 reference_txid,
                                 self.threshold,
+                                indexer.get_number_of_verifiers(),
                             )
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                         {
                             let mut eth_sender_dal = storage.eth_sender_dal();
 
+                            tracing::error!(
+                                "Finalizing transaction with tx_id: {:?} and block number: {:?}",
+                                tx_id,
+                                l1_batch_number
+                            );
                             eth_sender_dal
                                 .insert_bogus_confirmed_eth_tx(
                                     l1_batch_number,
@@ -104,20 +143,17 @@ impl MessageProcessor for VotableMessageProcessor {
                                 .await?;
                         }
                     }
-                    // bootstrapping phase is already covered
-                    FullInscriptionMessage::ProposeSequencer(_)
-                    | FullInscriptionMessage::SystemBootstrapping(_) => {
-                        // do nothing
-                    }
-                    // Non-votable messages like L1BatchDAReference or L1ToL2Message are ignored by this processor
-                    FullInscriptionMessage::L1ToL2Message(_)
-                    | FullInscriptionMessage::L1BatchDAReference(_) => {
-                        // do nothing
-                    }
                 }
-            } else {
-                tracing::warn!("L1 batch number is not found for message: {:?}", msg);
-                continue;
+                // bootstrapping phase is already covered
+                FullInscriptionMessage::ProposeSequencer(_)
+                | FullInscriptionMessage::SystemBootstrapping(_) => {
+                    // do nothing
+                }
+                // Non-votable messages like L1BatchDAReference or L1ToL2Message are ignored by this processor
+                FullInscriptionMessage::L1ToL2Message(_)
+                | FullInscriptionMessage::L1BatchDAReference(_) => {
+                    // do nothing
+                }
             }
         }
         Ok(())
