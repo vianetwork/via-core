@@ -9624,7 +9624,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid",
+ "uuid 1.10.0",
  "via_btc_client",
 ]
 
