@@ -37,7 +37,7 @@ impl From<ViaStorageBtcInscriptionRequest> for ViaBtcInscriptionRequest {
     fn from(req: ViaStorageBtcInscriptionRequest) -> ViaBtcInscriptionRequest {
         ViaBtcInscriptionRequest {
             id: req.id,
-            request_type: ViaBtcInscriptionRequestType::from_str(&req.request_type).unwrap(),
+            request_type: req.request_type,
             inscription_message: req.inscription_message,
             confirmed_inscriptions_request_history_id: req
                 .confirmed_inscriptions_request_history_id,

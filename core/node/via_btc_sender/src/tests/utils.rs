@@ -19,8 +19,9 @@ use zksync_types::{
     btc_block::ViaBtcL1BlockDetails,
     btc_inscription_operations::ViaBtcInscriptionRequestType,
     commitment::{L1BatchCommitmentArtifacts, L1BatchMetaParameters, L1BatchMetadata},
+    l2_to_l1_log::{L2ToL1Log, UserL2ToL1Log},
     protocol_version::{L1VerifierConfig, ProtocolSemanticVersion},
-    L1BatchNumber, ProtocolVersion, ProtocolVersionId, H256,
+    L1BatchNumber, ProtocolVersion, ProtocolVersionId, H160, H256,
 };
 
 use crate::{
@@ -29,6 +30,11 @@ use crate::{
     btc_inscription_manager::ViaBtcInscriptionManager,
 };
 
+pub const BOOTLOADER_CODE_HASH_TEST: &str =
+    "010008e742608b21bf7eb23c1a9d0602047e3618b464c9b59c0fba3b3d7ab66e";
+pub const DEFAULT_AA_CODE_HASH_TEST: &str =
+    "01000563374c277a2c1e34659a2a1e87371bb6d852ce142022d497bfb50b9e32";
+
 pub fn generate_random_bytes(length: usize) -> Vec<u8> {
     let mut bytes: Vec<u8> = vec![];
     for _ in 0..length {
@@ -36,6 +42,33 @@ pub fn generate_random_bytes(length: usize) -> Vec<u8> {
         bytes.push(number);
     }
     bytes
+}
+
+/// Creates an L1 batch header with the specified number and deterministic contents.
+pub fn create_l1_batch(number: u32) -> L1BatchHeader {
+    let mut header = L1BatchHeader::new(
+        L1BatchNumber(number),
+        number.into(),
+        BaseSystemContractsHashes {
+            bootloader: H256::from_str(BOOTLOADER_CODE_HASH_TEST).unwrap(),
+            default_aa: H256::from_str(DEFAULT_AA_CODE_HASH_TEST).unwrap(),
+        },
+        ProtocolVersionId::latest(),
+    );
+    header.l1_tx_count = 3;
+    header.l2_tx_count = 5;
+    header.l2_to_l1_logs.push(UserL2ToL1Log(L2ToL1Log {
+        shard_id: 0,
+        is_service: false,
+        tx_number_in_block: 2,
+        sender: H160::random(),
+        key: H256::repeat_byte(3),
+        value: H256::zero(),
+    }));
+    header.l2_to_l1_messages.push(vec![22; 22]);
+    header.l2_to_l1_messages.push(vec![33; 33]);
+
+    header
 }
 
 pub fn default_l1_batch_metadata() -> L1BatchMetadata {
@@ -49,8 +82,8 @@ pub fn default_l1_batch_metadata() -> L1BatchMetadata {
         l2_l1_merkle_root: H256::default(),
         block_meta_params: L1BatchMetaParameters {
             zkporter_is_available: false,
-            bootloader_code_hash: H256::from_str(hex_str).unwrap(),
-            default_aa_code_hash: H256::from_str(hex_str).unwrap(),
+            bootloader_code_hash: H256::from_str(BOOTLOADER_CODE_HASH_TEST).unwrap(),
+            default_aa_code_hash: H256::from_str(DEFAULT_AA_CODE_HASH_TEST).unwrap(),
             protocol_version: Some(ProtocolVersionId::latest()),
         },
         aux_data_hash: H256::default(),
@@ -239,7 +272,7 @@ impl ViaAggregatorTest {
             .storage
             .btc_sender_dal()
             .via_save_btc_inscriptions_request(
-                ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
+                ViaBtcInscriptionRequestType::CommitL1BatchOnchain.to_string(),
                 InscriptionMessage::to_bytes(&inscription_message),
                 0,
             )
@@ -271,6 +304,13 @@ impl ViaAggregatorTest {
             )
             .await
             .unwrap();
+        let sent_at = Utc::now().naive_utc();
+
+        let _ = self
+            .storage
+            .via_data_availability_dal()
+            .insert_proof_da(batch.number, "blob_id", sent_at)
+            .await;
 
         (inscription.id, inscription_request_history_id as i64)
     }

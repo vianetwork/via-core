@@ -1,10 +1,7 @@
 use anyhow::Context;
 use bitcoin::hash_types::Txid;
 use zksync_db_connection::connection::Connection;
-use zksync_types::{
-    btc_inscription_operations::ViaBtcInscriptionRequestType,
-    btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory},
-};
+use zksync_types::btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
 
 use crate::{
     models::storage_btc_inscription_request::{
@@ -21,7 +18,7 @@ pub struct ViaBtcSenderDal<'a, 'c> {
 impl ViaBtcSenderDal<'_, '_> {
     pub async fn via_save_btc_inscriptions_request(
         &mut self,
-        inscription_request_type: ViaBtcInscriptionRequestType,
+        inscription_request_type: String,
         inscription_message: Vec<u8>,
         predicted_fee: u64,
     ) -> sqlx::Result<ViaBtcInscriptionRequest> {
@@ -35,7 +32,7 @@ impl ViaBtcSenderDal<'_, '_> {
             RETURNING
                 *
             "#,
-            inscription_request_type.to_string(),
+            inscription_request_type,
             inscription_message,
             predicted_fee as i64,
         )
