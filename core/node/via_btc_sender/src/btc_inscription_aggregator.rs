@@ -104,7 +104,7 @@ impl ViaBtcInscriptionAggregator {
                 let inscription_request = transaction
                     .btc_sender_dal()
                     .via_save_btc_inscriptions_request(
-                        operation.get_inscription_request_type(),
+                        operation.get_inscription_request_type().to_string(),
                         InscriptionMessage::to_bytes(&inscription_message),
                         prediction_fee.to_sat(),
                     )
