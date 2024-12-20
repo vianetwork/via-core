@@ -23,6 +23,7 @@ use zksync_node_framework::{
         pools_layer::PoolsLayerBuilder,
         postgres_metrics::PostgresMetricsLayer,
         prometheus_exporter::PrometheusExporterLayer,
+        proof_data_handler::ProofDataHandlerLayer,
         query_eth_client::QueryEthClientLayer,
         sigint::SigintHandlerLayer,
         via_btc_sender::{
@@ -398,6 +399,14 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_proof_data_handler_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ProofDataHandlerLayer::new(
+            try_load_config!(self.configs.proof_data_handler_config),
+            self.genesis_config.l1_batch_commit_data_generator_mode,
+        ));
+        Ok(self)
+    }
+
     /// Builds the node with the genesis initialization task only.
     pub fn only_genesis(mut self) -> anyhow::Result<ZkStackService> {
         self = self
@@ -436,6 +445,7 @@ impl ViaNodeBuilder {
             .add_commitment_generator_layer()?
             .add_via_celestia_da_client_layer()?
             .add_da_dispatcher_layer()?
+            .add_proof_data_handler_layer()?
             .node
             .build())
     }
