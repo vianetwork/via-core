@@ -49,10 +49,10 @@ impl MessageProcessor for VotableMessageProcessor {
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                             .unwrap_or(0);
 
-                        if l1_batch_number.0 <= last_inserted_block {
+                        if l1_batch_number.0 != last_inserted_block + 1 {
                             tracing::warn!(
-                                "Skipping ProofDAReference message with l1_batch_number: {:?} because it is already processed",
-                                l1_batch_number
+                                "Skipping ProofDAReference message with l1_batch_number: {:?}. Last inserted block: {:?}",
+                                l1_batch_number, last_inserted_block
                             );
                             continue;
                         }
@@ -128,7 +128,7 @@ impl MessageProcessor for VotableMessageProcessor {
                         {
                             let mut eth_sender_dal = storage.eth_sender_dal();
 
-                            tracing::error!(
+                            tracing::info!(
                                 "Finalizing transaction with tx_id: {:?} and block number: {:?}",
                                 tx_id,
                                 l1_batch_number
