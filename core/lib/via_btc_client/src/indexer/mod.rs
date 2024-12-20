@@ -7,6 +7,7 @@ use tracing::{debug, error, info, instrument, warn};
 mod parser;
 pub use parser::get_eth_address;
 use parser::MessageParser;
+use zksync_basic_types::L1BatchNumber;
 use zksync_types::H256;
 
 use crate::{
@@ -184,6 +185,27 @@ impl BitcoinInscriptionIndexer {
             self.starting_block_number,
         )
     }
+
+    pub async fn get_l1_batch_number(
+        &mut self,
+        msg: &FullInscriptionMessage,
+    ) -> Option<L1BatchNumber> {
+        match msg {
+            FullInscriptionMessage::ProofDAReference(proof_msg) => self
+                .get_l1_batch_number_from_proof_tx_id(&proof_msg.input.l1_batch_reveal_txid)
+                .await
+                .ok(),
+            FullInscriptionMessage::ValidatorAttestation(va_msg) => self
+                .get_l1_batch_number_from_validation_tx_id(&va_msg.input.reference_txid)
+                .await
+                .ok(),
+            _ => None,
+        }
+    }
+
+    pub fn get_number_of_verifiers(&self) -> usize {
+        self.verifier_addresses.len()
+    }
 }
 
 impl BitcoinInscriptionIndexer {
@@ -324,6 +346,40 @@ impl BitcoinInscriptionIndexer {
             .any(|output| output.script_pubkey == self.bridge_address.script_pubkey());
         debug!("L1ToL2Message transfer validity: {}", is_valid);
         is_valid
+    }
+
+    async fn get_l1_batch_number_from_proof_tx_id(
+        &mut self,
+        txid: &Txid,
+    ) -> anyhow::Result<L1BatchNumber> {
+        let a = self.client.get_transaction(txid).await?;
+        let b = self.parser.parse_transaction(&a, 0);
+        let msg = b
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("No message found"))?;
+
+        match msg {
+            FullInscriptionMessage::L1BatchDAReference(da_msg) => Ok(da_msg.input.l1_batch_index),
+            _ => Err(anyhow::anyhow!("Invalid message type")),
+        }
+    }
+
+    async fn get_l1_batch_number_from_validation_tx_id(
+        &mut self,
+        txid: &Txid,
+    ) -> anyhow::Result<L1BatchNumber> {
+        let a = self.client.get_transaction(txid).await?;
+        let b = self.parser.parse_transaction(&a, 0);
+        let msg = b
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("No message found"))?;
+
+        match msg {
+            FullInscriptionMessage::ProofDAReference(da_msg) => Ok(self
+                .get_l1_batch_number_from_proof_tx_id(&da_msg.input.l1_batch_reveal_txid)
+                .await?),
+            _ => Err(anyhow::anyhow!("Invalid message type")),
+        }
     }
 }
 

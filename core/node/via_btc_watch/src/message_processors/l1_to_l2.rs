@@ -1,4 +1,7 @@
-use via_btc_client::types::{BitcoinAddress, FullInscriptionMessage, L1ToL2Message};
+use via_btc_client::{
+    indexer::BitcoinInscriptionIndexer,
+    types::{BitcoinAddress, FullInscriptionMessage, L1ToL2Message},
+};
 use zksync_dal::{Connection, Core, CoreDal};
 use zksync_types::{
     abi::L2CanonicalTransaction,
@@ -33,6 +36,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         &mut self,
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
+        _: &mut BitcoinInscriptionIndexer,
     ) -> Result<(), MessageProcessorError> {
         let mut priority_ops = Vec::new();
         for msg in msgs {
