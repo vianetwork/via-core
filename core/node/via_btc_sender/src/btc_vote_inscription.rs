@@ -11,6 +11,7 @@ use zksync_types::{
     via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType, L1BatchNumber,
 };
 
+#[derive(Debug)]
 pub struct ViaVoteInscription {
     pool: ConnectionPool<Core>,
     config: ViaBtcSenderConfig,
