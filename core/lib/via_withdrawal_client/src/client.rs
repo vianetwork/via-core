@@ -83,7 +83,7 @@ mod tests {
     use std::str::FromStr;
 
     use bitcoin::Address;
-    use zksync_types::{H256, U256};
+    use zksync_types::U256;
 
     use super::*;
 
@@ -127,7 +127,7 @@ mod tests {
         let pubdata = Pubdata::decode_pubdata(encoded_pubdata).unwrap();
 
         let hashes = WithdrawalClient::l2_to_l1_messages_hashmap(&pubdata);
-        let hash = H256::from(pubdata.user_logs[0].value);
+        let hash = pubdata.user_logs[0].value;
         assert_eq!(hashes[&hash], pubdata.l2_to_l1_messages[0]);
 
         let l2_bridge_logs_metadata = WithdrawalClient::list_l2_bridge_metadata(&pubdata);
