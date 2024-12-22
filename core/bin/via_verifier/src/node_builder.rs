@@ -1,12 +1,12 @@
 use anyhow::Context;
 use zksync_config::{
     configs::{wallets::Wallets, Secrets},
-    ContractsConfig, GenesisConfig, ViaGeneralConfig,
+    ActorRole, ContractsConfig, GenesisConfig, ViaGeneralConfig,
 };
 use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer, healtcheck_server::HealthCheckLayer,
-        sigint::SigintHandlerLayer,
+        sigint::SigintHandlerLayer, via_btc_watch::BtcWatchLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -71,11 +71,24 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    // VIA related layers
+    fn add_verifier_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
+        let mut btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
+        assert_eq!(
+            btc_watch_config.actor_role,
+            ActorRole::Verifier,
+            "Verifier role is expected"
+        );
+        self.node.add_layer(BtcWatchLayer::new(btc_watch_config));
+        Ok(self)
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
             .add_sigint_handler_layer()?
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
+            .add_verifier_btc_watcher_layer()?
             .node
             .build())
     }

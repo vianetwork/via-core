@@ -16,6 +16,7 @@ via_btc_client.workspace = true
 zksync_shared_metrics.workspace = true
 zksync_dal.workspace = true
 zksync_types.workspace = true
+zksync_config.workspace = true
 
 tokio.workspace = true
 anyhow.workspace = true
