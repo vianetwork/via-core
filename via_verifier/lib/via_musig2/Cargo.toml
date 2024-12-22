@@ -1,0 +1,11 @@
+[package]
+name = "via_musig2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+musig2 = { git = "https://github.com/conduition/musig2" }
+secp256k1-musig2 = { git = "https://github.com/conduition/secp256k1-musig2" }
+rand = "0.8"
+
+
