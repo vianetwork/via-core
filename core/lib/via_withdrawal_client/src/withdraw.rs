@@ -32,7 +32,7 @@ pub fn parse_l2_withdrawal_message(l2_to_l1_message: Vec<u8>) -> anyhow::Result<
     let amount_bytes = &l2_to_l1_message[address_size + 4..];
     let amount = U256::from_big_endian(amount_bytes);
 
-    return Ok(WithdrawalRequest { address, amount });
+    Ok(WithdrawalRequest { address, amount })
 }
 
 /// Get the withdrawal function selector.
@@ -52,7 +52,7 @@ mod tests {
         // Example transaction: https://etherscan.io/tx/0x70afe07734e9b0c2d8393ab2a51fda5ac2cfccc80a01cc4a5cf587eaea3c4610
         let l2_to_l1_message = hex::decode("6c0960f96263317179383267617732687466643573736c706c70676d7a346b74663979336b37706163323232366b30776c6a6c6d7733617466773571776d346176340000000000000000000000000000000000000000000000000de0b6b3a7640000").unwrap();
         let expected_receiver = BitcoinAddress::from_str(
-            &"bc1qy82gaw2htfd5sslplpgmz4ktf9y3k7pac2226k0wljlmw3atfw5qwm4av4",
+            "bc1qy82gaw2htfd5sslplpgmz4ktf9y3k7pac2226k0wljlmw3atfw5qwm4av4",
         )
         .unwrap();
         let expected_amount = U256::from_dec_str("1000000000000000000").unwrap();
@@ -66,7 +66,7 @@ mod tests {
     fn test_parse_l2_withdrawal_message_when_address_p2pkh() {
         let l2_to_l1_message = hex::decode("6c0960f93141317a5031655035514765666932444d505466544c35534c6d7637446976664e610000000000000000000000000000000000000000000000000de0b6b3a7640000").unwrap();
         let expected_receiver =
-            BitcoinAddress::from_str(&"1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa").unwrap();
+            BitcoinAddress::from_str("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa").unwrap();
         let expected_amount = U256::from_dec_str("1000000000000000000").unwrap();
         let res = parse_l2_withdrawal_message(l2_to_l1_message).unwrap();
 
