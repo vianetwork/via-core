@@ -128,13 +128,13 @@ impl ViaBtcInscriptionAggregator {
 
     // Todo: call indexer to fetch  the data
     async fn get_bootloader_code_hash(&self) -> anyhow::Result<H256> {
-        let hex_str = "010008e742608b21bf7eb23c1a9d0602047e3618b464c9b59c0fba3b3d7ab66e";
+        let hex_str = "010008e74e40a94b1c6e6eb5a1dfbbdbd9eb9e0ec90fd358d29e8c07c30d8491";
         Ok(H256::from_str(hex_str).unwrap())
     }
 
     // Todo: call indexer to fetch  the data
     async fn get_aa_code_hash(&self) -> anyhow::Result<H256> {
-        let hex_str = "01000563374c277a2c1e34659a2a1e87371bb6d852ce142022d497bfb50b9e32";
+        let hex_str = "01000563426437b886b132bf5bcf9b0d98c3648f02a6e362893db4345078d09f";
         Ok(H256::from_str(hex_str).unwrap())
     }
 
