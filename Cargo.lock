@@ -9449,16 +9449,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "verifier_dal"
-version = "0.1.0"
-dependencies = [
- "sqlx",
- "strum 0.26.3",
- "zksync_basic_types",
- "zksync_db_connection",
-]
-
-[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9723,6 +9713,16 @@ dependencies = [
  "zksync_types",
  "zksync_utils",
  "zksync_vlog",
+]
+
+[[package]]
+name = "via_verifier_dal"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "strum 0.26.3",
+ "zksync_basic_types",
+ "zksync_db_connection",
 ]
 
 [[package]]

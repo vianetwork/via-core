@@ -1,5 +1,5 @@
 [package]
-name = "verifier_dal"
+name = "via_verifier_dal"
 description = "Via Verifier DAL"
 version.workspace = true
 edition.workspace = true
