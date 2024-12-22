@@ -129,8 +129,7 @@ impl ViaGasAdjuster {
     }
 
     fn get_base_fee(&self) -> u64 {
-        let median = self.base_fee_statistics.median();
-        median
+        self.base_fee_statistics.median()
     }
 
     fn get_priority_fee(&self) -> u64 {
