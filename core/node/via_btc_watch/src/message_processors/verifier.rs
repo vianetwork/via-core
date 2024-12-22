@@ -9,18 +9,18 @@ use zksync_types::{aggregated_operations::AggregatedActionType, H256};
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 
 #[derive(Debug)]
-pub struct VotableMessageProcessor {
+pub struct VerifierMessageProcessor {
     threshold: f64,
 }
 
-impl VotableMessageProcessor {
+impl VerifierMessageProcessor {
     pub fn new(threshold: f64) -> Self {
         Self { threshold }
     }
 }
 
 #[async_trait::async_trait]
-impl MessageProcessor for VotableMessageProcessor {
+impl MessageProcessor for VerifierMessageProcessor {
     async fn process_messages(
         &mut self,
         storage: &mut Connection<'_, Core>,
@@ -54,33 +54,11 @@ impl MessageProcessor for VotableMessageProcessor {
                         }
 
                         let tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
-                        let batch_tx_id =
-                            convert_txid_to_h256(proof_msg.input.l1_batch_reveal_txid);
 
                         votes_dal
                             .insert_votable_transaction(l1_batch_number.0, tx_id)
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
-
-                        let mut eth_sender_dal = storage.eth_sender_dal();
-
-                        eth_sender_dal
-                            .insert_bogus_confirmed_eth_tx(
-                                l1_batch_number,
-                                AggregatedActionType::Commit,
-                                batch_tx_id,
-                                dt,
-                            )
-                            .await?;
-
-                        eth_sender_dal
-                            .insert_bogus_confirmed_eth_tx(
-                                l1_batch_number,
-                                AggregatedActionType::PublishProofOnchain,
-                                tx_id,
-                                dt,
-                            )
-                            .await?;
                     } else {
                         tracing::warn!(
                             "L1BatchNumber not found for ProofDAReference message : {:?}",
@@ -122,21 +100,11 @@ impl MessageProcessor for VotableMessageProcessor {
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                         {
-                            let mut eth_sender_dal = storage.eth_sender_dal();
-
                             tracing::info!(
                                 "Finalizing transaction with tx_id: {:?} and block number: {:?}",
                                 tx_id,
                                 l1_batch_number
                             );
-                            eth_sender_dal
-                                .insert_bogus_confirmed_eth_tx(
-                                    l1_batch_number,
-                                    AggregatedActionType::Execute,
-                                    tx_id,
-                                    dt,
-                                )
-                                .await?;
                         }
                     }
                 }

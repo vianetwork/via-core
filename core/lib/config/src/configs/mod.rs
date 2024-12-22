@@ -29,7 +29,7 @@ pub use self::{
     snapshots_creator::SnapshotsCreatorConfig,
     utils::PrometheusConfig,
     via_btc_sender::ViaBtcSenderConfig,
-    via_btc_watch::ViaBtcWatchConfig,
+    via_btc_watch::{ActorRole, ViaBtcWatchConfig},
     via_celestia::ViaCelestiaConfig,
     via_general::ViaGeneralConfig,
     vm_runner::{BasicWitnessInputProducerConfig, ProtectiveReadsWriterConfig},

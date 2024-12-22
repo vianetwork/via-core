@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS via_votable_transactions (
-    l1_batch_number BIGINT NOT NULL REFERENCES l1_batches (number) ON DELETE CASCADE,
+    l1_batch_number BIGINT UNIQUE NOT NULL,
     tx_id BYTEA,
     is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     is_verified BOOLEAN NOT NULL DEFAULT FALSE,
