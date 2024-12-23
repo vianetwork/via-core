@@ -1,0 +1,11 @@
+[package]
+name = "via_withdrawal_service"
+description = "Via Withdrawal Service"
+version.workspace = true
+edition.workspace = true
+authors = ["Via Network"]
+
+
+[dependencies]
+
+[dev-dependencies]

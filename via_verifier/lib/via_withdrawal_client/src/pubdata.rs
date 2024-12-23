@@ -66,6 +66,7 @@ impl Pubdata {
 }
 
 /// Helper function to read a specific number of bytes
+#[allow(unused)]
 fn read_bytes<R: Read>(reader: &mut R, num_bytes: usize) -> anyhow::Result<Vec<u8>> {
     let mut buffer = vec![0u8; num_bytes];
     reader.read_exact(&mut buffer)?;
@@ -77,7 +78,6 @@ mod tests {
     use std::str::FromStr;
 
     use hex::encode;
-    use rand;
     use zksync_types::{web3::keccak256, Address, H256};
 
     use super::*;
@@ -165,7 +165,7 @@ mod tests {
 
         let pubdata = Pubdata {
             user_logs: user_logs.clone(),
-            l2_to_l1_messages: l2_to_l1_messages,
+            l2_to_l1_messages,
         };
 
         let encoded_pubdata = pubdata.encode_pubdata();

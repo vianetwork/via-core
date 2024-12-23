@@ -13,6 +13,7 @@ pub const WITHDRAW_FUNC_SIG: &str = "finalizeEthWithdrawal(uint256,uint256,uint1
 pub const L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR: &str = "000000000000000000000000000000000000800a";
 
 #[derive(Clone, Debug, Default)]
+#[allow(unused)]
 pub struct L2BridgeLogMetadata {
     pub log: L1MessengerL2ToL1Log,
     pub message: Vec<u8>,

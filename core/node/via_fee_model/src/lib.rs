@@ -4,16 +4,11 @@ use anyhow::Context;
 use async_trait::async_trait;
 pub use l1_gas_price::gas_adjuster::ViaGasAdjuster;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
-use zksync_node_fee_model::BaseTokenRatioProvider;
 pub use zksync_node_fee_model::BatchFeeModelInputProvider;
-use zksync_types::{
-    fee_model::{
-        BaseTokenConversionRatio, BatchFeeInput, FeeModelConfig, FeeModelConfigV2, FeeParams,
-        FeeParamsV2, PubdataIndependentBatchFeeModelInput,
-    },
-    U256,
+use zksync_types::fee_model::{
+    BaseTokenConversionRatio, BatchFeeInput, FeeModelConfig, FeeModelConfigV2, FeeParams,
+    FeeParamsV2, PubdataIndependentBatchFeeModelInput,
 };
-use zksync_utils::ceil_div_u256;
 
 mod l1_gas_price;
 
@@ -135,7 +130,7 @@ fn compute_batch_fee_model_input(
     let l1_pubdata_price = (l1_pubdata_price as f64 * l1_pubdata_price_scale_factor) as u64;
 
     // Todo: rename "batch_overhead_l1_gas" to "total_inscription_gas_vbyte"
-    let inscriptions_cost_satoshi = (config.batch_overhead_l1_gas * l1_gas_price) as u64;
+    let inscriptions_cost_satoshi = config.batch_overhead_l1_gas * l1_gas_price;
     // Scale the inscriptions_cost_satoshi to 18 decimals
     let gas_price_satoshi = inscriptions_cost_satoshi * 10_000_000_000 / config.max_gas_per_batch;
     // The "minimal_l2_gas_price" calculated from the operational cost to publish and verify block.
@@ -143,7 +138,7 @@ fn compute_batch_fee_model_input(
 
     PubdataIndependentBatchFeeModelInput {
         l1_gas_price,
-        fair_l2_gas_price: fair_l2_gas_price,
+        fair_l2_gas_price,
         fair_pubdata_price: l1_pubdata_price,
     }
 }

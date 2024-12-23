@@ -45,4 +45,3 @@ path = "examples/withdrawal.rs"
 [[example]]
 name = "coordinator"
 path = "examples/coordinator.rs"
-
