@@ -99,6 +99,7 @@ members = [
     "via_verifier/lib/via_verification",
     "via_verifier/lib/via_musig2",
     "via_verifier/lib/verifier_dal",
+    "via_verifier/node/withdrawal_service",
 ]
 
 resolver = "2"
@@ -335,4 +336,4 @@ via_withdrawal_client = { version = "0.1.0", path = "via_verifier/lib/via_withdr
 via_verification = { version = "0.1.0", path = "via_verifier/lib/via_verification" }
 via_musig2 = { version = "0.1.0", path = "via_verifier/lib/via_musig2" }
 via_verifier_dal = { version = "0.1.0", path = "via_verifier/lib/verifier_dal" }
-
+via_withdrawal_service = { version = "0.1.0", path = "via_verifier/node/withdrawal_service" }
