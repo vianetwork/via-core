@@ -2,19 +2,21 @@
 mod tests {
     use std::str::FromStr;
 
+    use chrono::Utc;
     use tokio::{sync::watch, time};
     use zksync_config::ViaBtcSenderConfig;
     use zksync_contracts::BaseSystemContractsHashes;
     use zksync_dal::{ConnectionPool, Core, CoreDal};
-    use zksync_node_test_utils::{create_l1_batch, l1_batch_metadata_to_commitment_artifacts};
+    use zksync_node_test_utils::l1_batch_metadata_to_commitment_artifacts;
     use zksync_types::{
         block::L1BatchHeader, btc_inscription_operations::ViaBtcInscriptionRequestType,
         btc_sender::ViaBtcInscriptionRequest, ProtocolVersionId, H256,
     };
 
     use crate::tests::utils::{
-        default_l1_batch_metadata, get_btc_sender_config, get_inscription_aggregator_mock,
-        ViaAggregatorTest,
+        create_l1_batch, default_l1_batch_metadata, get_btc_sender_config,
+        get_inscription_aggregator_mock, ViaAggregatorTest, BOOTLOADER_CODE_HASH_TEST,
+        DEFAULT_AA_CODE_HASH_TEST,
     };
 
     #[tokio::test]
@@ -54,6 +56,19 @@ mod tests {
                     header.clone(),
                     l1_batch_metadata_to_commitment_artifacts(&default_l1_batch_metadata()),
                 )
+                .await;
+            let sent_at = Utc::now().naive_utc();
+
+            let _ = aggregator_test
+                .storage
+                .via_data_availability_dal()
+                .insert_l1_batch_da(header.number, "blob_id", sent_at)
+                .await;
+
+            let _ = aggregator_test
+                .storage
+                .via_data_availability_dal()
+                .insert_proof_da(header.number, "blob_id", sent_at)
                 .await;
         }
 
@@ -96,7 +111,7 @@ mod tests {
         assert_eq!(inscription_request_list.len(), 1);
         assert_eq!(
             inscription_request_list[0].request_type,
-            ViaBtcInscriptionRequestType::CommitProofOnchain
+            ViaBtcInscriptionRequestType::CommitProofOnchain.to_string()
         );
 
         // We confirm that the proof inscription was processed.
@@ -223,11 +238,10 @@ mod tests {
     }
 
     pub fn via_create_l1_batch(number: u32) -> L1BatchHeader {
-        let hex_str = "0000000000000000000000000000000000000000000000000000000000000000";
         let mut header = create_l1_batch(number);
         header.base_system_contracts_hashes = BaseSystemContractsHashes {
-            bootloader: H256::from_str(hex_str).unwrap(),
-            default_aa: H256::from_str(hex_str).unwrap(),
+            bootloader: H256::from_str(BOOTLOADER_CODE_HASH_TEST).unwrap(),
+            default_aa: H256::from_str(DEFAULT_AA_CODE_HASH_TEST).unwrap(),
         };
         header.protocol_version = Some(ProtocolVersionId::latest());
 

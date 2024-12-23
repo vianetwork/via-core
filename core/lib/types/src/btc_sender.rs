@@ -1,12 +1,10 @@
 use bitcoin::Txid;
 use chrono::NaiveDateTime;
 
-use crate::btc_inscription_operations::ViaBtcInscriptionRequestType;
-
 #[derive(Clone)]
 pub struct ViaBtcInscriptionRequest {
     pub id: i64,
-    pub request_type: ViaBtcInscriptionRequestType,
+    pub request_type: String,
     pub inscription_message: Option<Vec<u8>>,
     pub predicted_fee: Option<i64>,
     pub confirmed_inscriptions_request_history_id: Option<i64>,
