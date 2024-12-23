@@ -9716,6 +9716,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier_dal"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "strum 0.26.3",
+ "zksync_basic_types",
+ "zksync_db_connection",
+]
+
+[[package]]
 name = "via_withdrawal_client"
 version = "0.1.0"
 dependencies = [
@@ -9736,6 +9746,10 @@ dependencies = [
  "zksync_types",
  "zksync_utils",
 ]
+
+[[package]]
+name = "via_withdrawal_service"
+version = "0.1.0"
 
 [[package]]
 name = "vise"

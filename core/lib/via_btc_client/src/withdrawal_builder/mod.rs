@@ -289,9 +289,9 @@ mod tests {
     use crate::types::BitcoinError;
 
     mock! {
-        BitcoinOps {}
+        BitcoinOpsService {}
         #[async_trait]
-        impl BitcoinOps for BitcoinOps {
+        impl BitcoinOps for BitcoinOpsService {
             async fn fetch_utxos(&self, _address: &Address) -> Result<Vec<(OutPoint, TxOut)>, BitcoinError> {
                 // Mock implementation
                 let txid = Txid::from_str(
@@ -339,6 +339,14 @@ mod tests {
             async fn fetch_block_by_hash(&self, _hash: &bitcoin::BlockHash) -> Result<bitcoin::Block, BitcoinError> {
                 Ok(bitcoin::Block::default())
             }
+
+            async fn get_block_stats(&self, _height: u64) -> Result<bitcoincore_rpc::json::GetBlockStatsResult, BitcoinError> {
+                todo!()
+            }
+
+            async fn get_fee_history(&self, _start: usize, _end: usize) -> Result<Vec<u64>, BitcoinError> {
+                Ok(vec![1])
+            }
         }
     }
 
@@ -350,7 +358,7 @@ mod tests {
                 .require_network(network)?;
 
         // Create mock and set expectations
-        let mut mock_ops = MockBitcoinOps::new();
+        let mut mock_ops = MockBitcoinOpsService::new();
         mock_ops.expect_fetch_utxos().returning(|_| {
             let txid =
                 Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")

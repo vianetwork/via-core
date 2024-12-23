@@ -1,4 +1,4 @@
-use std::{sync::Arc, u64};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
