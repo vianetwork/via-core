@@ -40,4 +40,5 @@ message Postgres {
 message TestDatabase {
   optional string server_url = 1; // optional
   optional string prover_url = 2; // optional
+  optional string verifier_url = 3; // optional
 }

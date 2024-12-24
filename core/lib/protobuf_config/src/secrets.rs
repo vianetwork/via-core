@@ -53,10 +53,17 @@ impl ProtoRepr for proto::DatabaseSecrets {
             .map(str::parse::<SensitiveUrl>)
             .transpose()
             .context("prover_url")?;
+        let verifier_url = self
+            .verifier_url
+            .as_deref()
+            .map(str::parse::<SensitiveUrl>)
+            .transpose()
+            .context("verifier_url")?;
         Ok(Self::Type {
             server_url,
             prover_url,
             server_replica_url,
+            via_verifier_url: verifier_url,
         })
     }
 
@@ -68,6 +75,10 @@ impl ProtoRepr for proto::DatabaseSecrets {
                 .as_ref()
                 .map(|a| a.expose_str().to_string()),
             prover_url: this.prover_url.as_ref().map(|a| a.expose_str().to_string()),
+            verifier_url: this
+                .via_verifier_url
+                .as_ref()
+                .map(|a| a.expose_str().to_string()),
         }
     }
 }

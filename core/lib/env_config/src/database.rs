@@ -46,9 +46,16 @@ impl FromEnv for DatabaseSecrets {
             .transpose()?
             .or_else(|| server_url.clone());
 
+        let verifier_url = env::var("DATABASE_VERIFIER_URL")
+            .ok()
+            .map(|s| s.parse())
+            .transpose()?
+            .or_else(|| server_url.clone());
+
         Ok(Self {
             server_url,
             prover_url,
+            via_verifier_url: verifier_url,
             server_replica_url,
         })
     }
@@ -58,6 +65,7 @@ impl FromEnv for PostgresConfig {
     fn from_env() -> anyhow::Result<Self> {
         let test_server_url = env::var("TEST_DATABASE_URL").ok();
         let test_prover_url = env::var("TEST_DATABASE_PROVER_URL").ok();
+        let test_verifier_url = env::var("TEST_DATABASE_VERIFIER_URL").ok();
         let max_connections = parse_optional_var("DATABASE_POOL_SIZE")?;
         let max_connections_master = parse_optional_var("DATABASE_POOL_SIZE_MASTER")?;
         let acquire_timeout_sec = parse_optional_var("DATABASE_ACQUIRE_TIMEOUT_SEC")?;
@@ -75,6 +83,7 @@ impl FromEnv for PostgresConfig {
             slow_query_threshold_ms,
             test_server_url,
             test_prover_url,
+            test_verifier_url,
         })
     }
 }

@@ -111,6 +111,11 @@ impl ProtoRepr for proto::Postgres {
             slow_query_threshold_ms: self.slow_query_threshold_ms,
             test_server_url,
             test_prover_url,
+            test_verifier_url: self
+                .test
+                .as_ref()
+                .map(|x| x.verifier_url.clone())
+                .unwrap_or_default(),
         })
     }
 
@@ -125,6 +130,7 @@ impl ProtoRepr for proto::Postgres {
             test: Some(proto::TestDatabase {
                 server_url: this.test_server_url.clone(),
                 prover_url: this.test_prover_url.clone(),
+                verifier_url: this.test_verifier_url.clone(),
             }),
         }
     }

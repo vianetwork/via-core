@@ -7,6 +7,7 @@ use crate::configs::consensus::ConsensusSecrets;
 pub struct DatabaseSecrets {
     pub server_url: Option<SensitiveUrl>,
     pub prover_url: Option<SensitiveUrl>,
+    pub via_verifier_url: Option<SensitiveUrl>,
     pub server_replica_url: Option<SensitiveUrl>,
 }
 
@@ -40,5 +41,11 @@ impl DatabaseSecrets {
     /// Returns a copy of the prover database URL as a `Result` to simplify error propagation.
     pub fn prover_url(&self) -> anyhow::Result<SensitiveUrl> {
         self.prover_url.clone().context("Prover DB URL is absent")
+    }
+
+    pub fn verifier_url(&self) -> anyhow::Result<SensitiveUrl> {
+        self.via_verifier_url
+            .clone()
+            .context("Verifier DB URL is absent")
     }
 }

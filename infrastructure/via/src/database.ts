@@ -10,12 +10,14 @@ export async function reset(opts: DbOpts) {
 
 export enum DalPath {
     CoreDal = 'core/lib/dal',
-    ProverDal = 'prover/crates/lib/prover_dal'
+    ProverDal = 'prover/crates/lib/prover_dal',
+    ViaVerifierDal = 'via_verifier/lib/verifier_dal'
 }
 
 export interface DbOpts {
     core: boolean;
     prover: boolean;
+    verifier: boolean;
 }
 
 function getDals(opts: DbOpts): Map<DalPath, string> {
@@ -40,12 +42,17 @@ function getTestDals(opts: DbOpts): Map<DalPath, string> {
     if (!opts.prover && !opts.core) {
         dals.set(DalPath.CoreDal, process.env.TEST_DATABASE_URL!);
         dals.set(DalPath.ProverDal, process.env.TEST_DATABASE_PROVER_URL!);
+        dals.set(DalPath.ViaVerifierDal, process.env.TEST_DATABASE_VERIFIER_URL!);
     }
     if (opts.prover) {
         dals.set(DalPath.ProverDal, process.env.TEST_DATABASE_PROVER_URL!);
     }
     if (opts.core) {
         dals.set(DalPath.CoreDal, process.env.TEST_DATABASE_URL!);
+    }
+
+    if (opts.verifier) {
+        dals.set(DalPath.ViaVerifierDal, process.env.TEST_DATABASE_VERIFIER_URL!);
     }
     return dals;
 }
