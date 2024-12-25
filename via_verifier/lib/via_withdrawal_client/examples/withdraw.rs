@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
     // Connect to withdrawl client
     let client = CelestiaClient::new(da_config).await?;
     let da_client: Box<dyn DataAvailabilityClient> = Box::new(client);
-    let withdrawal_client = WithdrawalClient::new(da_client);
+    let withdrawal_client = WithdrawalClient::new(da_client, bitcoin::Network::Regtest);
 
     let withdrawals = withdrawal_client
         .get_withdrawals(header.blob_id.as_str())
