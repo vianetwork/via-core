@@ -1,10 +1,7 @@
 use sqlx::types::chrono::{DateTime, Utc};
-use via_btc_client::{
-    indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinTxid, FullInscriptionMessage},
-};
+use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_types::{aggregated_operations::AggregatedActionType, H256};
+use zksync_types::aggregated_operations::AggregatedActionType;
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 

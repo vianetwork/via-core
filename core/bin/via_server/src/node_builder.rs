@@ -36,6 +36,7 @@ use zksync_node_framework::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
             output_handler::OutputHandlerLayer, RocksdbStorageOptions, StateKeeperLayer,
         },
+        via_zk_verification::ViaBtcProofVerificationLayer,
         vm_runner::{
             bwip::BasicWitnessInputProducerLayer, protective_reads::ProtectiveReadsWriterLayer,
         },
@@ -171,6 +172,13 @@ impl ViaNodeBuilder {
             layer = layer.as_precondition();
         }
         self.node.add_layer(layer);
+        Ok(self)
+    }
+    // TODO: remove!
+    fn add_via_verification_test_layer(mut self) -> anyhow::Result<Self> {
+        let btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
+        self.node
+            .add_layer(ViaBtcProofVerificationLayer::new(btc_watch_config));
         Ok(self)
     }
 
@@ -448,6 +456,7 @@ impl ViaNodeBuilder {
             .add_commitment_generator_layer()?
             .add_via_celestia_da_client_layer()?
             .add_da_dispatcher_layer()?
+            .add_via_verification_test_layer()?
             .node
             .build())
     }

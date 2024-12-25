@@ -74,6 +74,7 @@ impl ViaNodeBuilder {
     // VIA related layers
     fn add_verifier_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
         let mut btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
+        btc_watch_config.actor_role = ActorRole::Verifier;
         assert_eq!(
             btc_watch_config.actor_role,
             ActorRole::Verifier,

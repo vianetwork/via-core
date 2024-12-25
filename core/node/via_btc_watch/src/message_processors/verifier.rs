@@ -1,10 +1,5 @@
-use sqlx::types::chrono::{DateTime, Utc};
-use via_btc_client::{
-    indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinTxid, FullInscriptionMessage},
-};
+use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_types::{aggregated_operations::AggregatedActionType, H256};
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 
@@ -27,12 +22,6 @@ impl MessageProcessor for VerifierMessageProcessor {
         msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<(), MessageProcessorError> {
-        // Get the current timestamp
-        let dt = Utc::now();
-        let naive_utc = dt.naive_utc();
-        let offset = dt.offset().clone();
-        let dt = DateTime::<Utc>::from_naive_utc_and_offset(naive_utc, offset);
-
         for msg in msgs {
             match msg {
                 ref f @ FullInscriptionMessage::ProofDAReference(ref proof_msg) => {

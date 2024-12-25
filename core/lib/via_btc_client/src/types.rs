@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 
 use bincode::{deserialize, serialize};
 use bitcoin::{
-    address::NetworkUnchecked, script::PushBytesBuf, taproot::Signature as TaprootSignature,
-    Amount, TxIn, TxOut, Txid,
+    address::NetworkUnchecked, hashes::FromSliceError, script::PushBytesBuf,
+    taproot::Signature as TaprootSignature, Amount, TxIn, TxOut, Txid,
 };
 pub use bitcoin::{Address as BitcoinAddress, Network as BitcoinNetwork, Txid as BitcoinTxid};
 pub use bitcoincore_rpc::Auth as NodeAuth;
@@ -323,6 +323,8 @@ pub enum IndexerError {
     InvalidBlockHeight(u32),
     #[error("Bitcoin client error: {0}")]
     BitcoinClientError(#[from] BitcoinError),
+    #[error("Tx_id parsing error: {0}")]
+    TxIdParsingError(#[from] FromSliceError),
 }
 
 pub type BitcoinIndexerResult<T> = std::result::Result<T, IndexerError>;

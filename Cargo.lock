@@ -9739,6 +9739,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_zk_verifier"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "serde",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "vise",
+ "zksync_config",
+ "zksync_da_client",
+ "zksync_dal",
+ "zksync_prover_interface",
+ "zksync_shared_metrics",
+ "zksync_types",
+]
+
+[[package]]
 name = "vise"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11758,6 +11780,7 @@ dependencies = [
  "via_da_dispatcher",
  "via_fee_model",
  "via_state_keeper",
+ "via_zk_verifier",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",
  "zksync_circuit_breaker",

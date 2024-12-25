@@ -96,7 +96,7 @@ members = [
     "core/lib/via_musig2",
     "core/lib/via_withdrawal_client",
     "core/bin/via_verifier",
-
+    "core/node/via_zk_verifier",
 ]
 
 resolver = "2"
@@ -329,3 +329,4 @@ via_btc_sender = { version = "0.1.0", path = "core/node/via_btc_sender" }
 via_fee_model = { version = "0.1.0", path = "core/node/via_fee_model" }
 via_state_keeper = { version = "0.1.0", path = "core/node/via_state_keeper" }
 via_musig2 = { version = "0.1.0", path = "core/lib/via_musig2" }
+via_zk_verifier = { version = "0.1.0", path = "core/node/via_zk_verifier" }
