@@ -344,6 +344,7 @@ impl Distribution<configs::database::PostgresConfig> for EncodeDist {
             slow_query_threshold_ms: self.sample(rng),
             test_server_url: self.sample(rng),
             test_prover_url: self.sample(rng),
+            test_verifier_url: self.sample(rng),
         }
     }
 }
@@ -854,6 +855,7 @@ impl Distribution<configs::secrets::DatabaseSecrets> for EncodeDist {
             server_url: Some(format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
             server_replica_url: Some(format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
             prover_url: Some(format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
+            via_verifier_url: Some(format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
         }
     }
 }

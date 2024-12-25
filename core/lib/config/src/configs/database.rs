@@ -147,6 +147,7 @@ pub struct PostgresConfig {
     pub slow_query_threshold_ms: Option<u64>,
     pub test_server_url: Option<String>,
     pub test_prover_url: Option<String>,
+    pub test_verifier_url: Option<String>,
 }
 
 impl PostgresConfig {

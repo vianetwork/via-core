@@ -112,11 +112,13 @@ impl ExternalNodeBuilder {
                 .map(|d| d.as_millis() as u64),
             test_server_url: None,
             test_prover_url: None,
+            test_verifier_url: None,
         };
         let secrets = DatabaseSecrets {
             server_url: Some(self.config.postgres.database_url()),
             server_replica_url: Some(self.config.postgres.database_url()),
             prover_url: None,
+            via_verifier_url: None,
         };
         let pools_layer = PoolsLayerBuilder::empty(config, secrets)
             .with_master(true)
