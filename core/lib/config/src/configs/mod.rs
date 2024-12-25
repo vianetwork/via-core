@@ -72,6 +72,7 @@ pub mod via_btc_sender;
 pub mod via_btc_watch;
 pub mod via_celestia;
 pub mod via_general;
+pub mod via_verifier;
 pub mod vm_runner;
 pub mod wallets;
 
