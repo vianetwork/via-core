@@ -6,6 +6,7 @@ use zksync_config::{
 use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer, healtcheck_server::HealthCheckLayer,
+        pools_layer::PoolsLayerBuilder, postgres_metrics::PostgresMetricsLayer,
         sigint::SigintHandlerLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
@@ -68,6 +69,23 @@ impl ViaNodeBuilder {
         let circuit_breaker_config = try_load_config!(self.configs.circuit_breaker_config);
         self.node
             .add_layer(CircuitBreakerCheckerLayer(circuit_breaker_config));
+        Ok(self)
+    }
+
+    fn add_pools_layer(mut self) -> anyhow::Result<Self> {
+        let config = try_load_config!(self.configs.postgres_config);
+        let secrets = try_load_config!(self.secrets.database);
+        let pools_layer = PoolsLayerBuilder::empty(config, secrets)
+            .with_master(true)
+            .with_replica(true)
+            .with_prover(true) // Used by house keeper.
+            .build();
+        self.node.add_layer(pools_layer);
+        Ok(self)
+    }
+
+    fn add_postgres_metrics_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(PostgresMetricsLayer);
         Ok(self)
     }
 
