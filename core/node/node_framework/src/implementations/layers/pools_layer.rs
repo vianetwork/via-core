@@ -2,7 +2,9 @@ use zksync_config::configs::{DatabaseSecrets, PostgresConfig};
 use zksync_dal::{ConnectionPool, Core};
 
 use crate::{
-    implementations::resources::pools::{MasterPool, PoolResource, ProverPool, ReplicaPool},
+    implementations::resources::pools::{
+        MasterPool, PoolResource, ProverPool, ReplicaPool, ViaVerifierPool,
+    },
     wiring_layer::{WiringError, WiringLayer},
     IntoContext,
 };
@@ -14,6 +16,7 @@ pub struct PoolsLayerBuilder {
     with_master: bool,
     with_replica: bool,
     with_prover: bool,
+    with_via_verifier: bool,
     secrets: DatabaseSecrets,
 }
 
@@ -26,6 +29,7 @@ impl PoolsLayerBuilder {
             with_master: false,
             with_replica: false,
             with_prover: false,
+            with_via_verifier: false,
             secrets: database_secrets,
         }
     }
@@ -48,6 +52,11 @@ impl PoolsLayerBuilder {
         self
     }
 
+    pub fn with_via_verifier(mut self, with_via_verifier: bool) -> Self {
+        self.with_via_verifier = with_via_verifier;
+        self
+    }
+
     /// Builds the [`PoolsLayer`] with the provided configuration.
     pub fn build(self) -> PoolsLayer {
         PoolsLayer {
@@ -56,6 +65,7 @@ impl PoolsLayerBuilder {
             with_master: self.with_master,
             with_replica: self.with_replica,
             with_prover: self.with_prover,
+            with_via_verifier: self.with_via_verifier,
         }
     }
 }
@@ -75,6 +85,7 @@ pub struct PoolsLayer {
     with_master: bool,
     with_replica: bool,
     with_prover: bool,
+    with_via_verifier: bool,
 }
 
 #[derive(Debug, IntoContext)]
@@ -83,6 +94,7 @@ pub struct Output {
     pub master_pool: Option<PoolResource<MasterPool>>,
     pub replica_pool: Option<PoolResource<ReplicaPool>>,
     pub prover_pool: Option<PoolResource<ProverPool>>,
+    pub via_verifier_pool: Option<PoolResource<ViaVerifierPool>>,
 }
 
 #[async_trait::async_trait]
@@ -148,10 +160,22 @@ impl WiringLayer for PoolsLayer {
             None
         };
 
+        let via_verifier_pool = if self.with_via_verifier {
+            Some(PoolResource::<ViaVerifierPool>::new(
+                self.secrets.verifier_url()?,
+                self.config.max_connections()?,
+                None,
+                None,
+            ))
+        } else {
+            None
+        };
+
         Ok(Output {
             master_pool,
             replica_pool,
             prover_pool,
+            via_verifier_pool,
         })
     }
 }

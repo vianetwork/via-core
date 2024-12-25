@@ -12,18 +12,18 @@ mod private {
 
 // Here we are making the trait sealed, because it should be public to function correctly, but we don't
 // want to allow any other downstream implementations of this trait.
-pub trait CoreDal<'a>: private::Sealed
+pub trait VerifierDal<'a>: private::Sealed
 where
     Self: 'a,
 {
 }
 
 #[derive(Clone, Debug)]
-pub struct Core;
+pub struct Verifier;
 
 // Implement the marker trait for the Core to be able to use it in Connection.
-impl DbMarker for Core {}
+impl DbMarker for Verifier {}
 // Implement the sealed trait for the struct itself.
-impl private::Sealed for Connection<'_, Core> {}
+impl private::Sealed for Connection<'_, Verifier> {}
 
-impl<'a> CoreDal<'a> for Connection<'a, Core> {}
+impl<'a> VerifierDal<'a> for Connection<'a, Verifier> {}

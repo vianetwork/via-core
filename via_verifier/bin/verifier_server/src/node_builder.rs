@@ -76,9 +76,10 @@ impl ViaNodeBuilder {
         let config = try_load_config!(self.configs.postgres_config);
         let secrets = try_load_config!(self.secrets.database);
         let pools_layer = PoolsLayerBuilder::empty(config, secrets)
-            .with_master(true)
-            .with_replica(true)
-            .with_prover(true) // Used by house keeper.
+            .with_master(false)
+            .with_replica(false)
+            .with_prover(false) // Used by house keeper.
+            .with_via_verifier(true)
             .build();
         self.node.add_layer(pools_layer);
         Ok(self)
@@ -94,6 +95,8 @@ impl ViaNodeBuilder {
             .add_sigint_handler_layer()?
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
+            .add_pools_layer()?
+            .add_postgres_metrics_layer()?
             .node
             .build())
     }
