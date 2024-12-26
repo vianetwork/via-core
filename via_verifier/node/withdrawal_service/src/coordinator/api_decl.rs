@@ -6,6 +6,7 @@ use tower_http::cors::CorsLayer;
 use via_btc_client::withdrawal_builder::WithdrawalBuilder;
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
+use zksync_dal::{ConnectionPool, Core};
 
 use crate::{
     types::{SigningSession, ViaWithdrawalState},
@@ -13,6 +14,7 @@ use crate::{
 };
 
 pub struct RestApi {
+    pub master_connection_pool: ConnectionPool<Core>,
     pub state: ViaWithdrawalState,
     pub withdrawal_builder: WithdrawalBuilder,
     pub withdrawal_client: WithdrawalClient,
@@ -20,6 +22,7 @@ pub struct RestApi {
 
 impl RestApi {
     pub fn new(
+        master_connection_pool: ConnectionPool<Core>,
         network: Network,
         config: ViaVerifierConfig,
         withdrawal_builder: WithdrawalBuilder,
@@ -38,6 +41,7 @@ impl RestApi {
             required_signers: config.required_signers,
         };
         Ok(Self {
+            master_connection_pool,
             state,
             withdrawal_builder,
             withdrawal_client,

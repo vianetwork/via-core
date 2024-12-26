@@ -6,8 +6,7 @@ use zksync_config::{
 use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer, healtcheck_server::HealthCheckLayer,
-        pools_layer::PoolsLayerBuilder, postgres_metrics::PostgresMetricsLayer,
-        sigint::SigintHandlerLayer,
+        sigint::SigintHandlerLayer, via_verifier_withdrawal::coordinator::ViaCoordinatorApiLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -87,17 +86,21 @@ impl ViaNodeBuilder {
 
     fn add_postgres_metrics_layer(mut self) -> anyhow::Result<Self> {
         self.node.add_layer(PostgresMetricsLayer);
-        Ok(self)
-    }
+        fn add_coordinator_api_layer(mut self) -> anyhow::Result<Self> {
+            // self.node.add_layer(ViaCoordinatorApiLayer);
+            Ok(self)
+        }
 
-    pub fn build(self) -> anyhow::Result<ZkStackService> {
-        Ok(self
-            .add_sigint_handler_layer()?
-            .add_healthcheck_layer()?
-            .add_circuit_breaker_checker_layer()?
-            .add_pools_layer()?
-            .add_postgres_metrics_layer()?
-            .node
-            .build())
+        pub fn build(self) -> anyhow::Result<ZkStackService> {
+            Ok(self
+                .add_sigint_handler_layer()?
+                .add_healthcheck_layer()?
+                .add_circuit_breaker_checker_layer()?
+                .add_pools_layer()?
+                .add_postgres_metrics_layer()?
+                .add_coordinator_api_layer()?
+                .node
+                .build())
+        }
     }
 }

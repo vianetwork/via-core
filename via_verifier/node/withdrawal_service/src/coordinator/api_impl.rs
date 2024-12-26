@@ -7,6 +7,7 @@ use musig2::{BinaryEncoding, PartialSignature, PubNonce};
 use serde::Serialize;
 use tracing::instrument;
 use via_musig2::verify_signature;
+use zksync_dal::CoreDal;
 
 use super::api_decl::RestApi;
 use crate::types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse};
@@ -57,6 +58,13 @@ impl RestApi {
         let blob_id = "";
         let proof_txid = Txid::all_zeros();
         let block_number = 0;
+
+        let storage = self_
+            .master_connection_pool
+            .connection_tagged("coordinator")
+            .await
+            .unwrap()
+            .via_votes_dal();
 
         // Fetch the first ready batch to be processed from db
         // Compute the session_id from the proof_txid

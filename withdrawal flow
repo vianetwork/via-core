@@ -1,0 +1,6 @@
+1. When the verifier networks see that the block was finilized
+2. The verifier calls the coordinator to start a new sesion
+3. Fetch the withdrawals from the pubdata
+4. construct an unsigned transaction
+5. The verifiers sign
+6. The coordinator broadcast the  
