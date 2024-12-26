@@ -4,7 +4,7 @@ pub use crate::configs::{
     ActorRole, ApiConfig, BaseTokenAdjusterConfig, ContractVerifierConfig, ContractsConfig,
     DADispatcherConfig, DBConfig, EthConfig, EthWatchConfig, ExternalProofIntegrationApiConfig,
     GasAdjusterConfig, GenesisConfig, ObjectStoreConfig, PostgresConfig, SnapshotsCreatorConfig,
-    ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig, ViaGeneralConfig,
+    ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig, ViaGeneralConfig, ViaVerifierConfig,
 };
 
 pub mod configs;

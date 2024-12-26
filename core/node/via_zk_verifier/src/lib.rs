@@ -1,4 +1,5 @@
 use anyhow::Context;
+use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
@@ -8,14 +9,18 @@ use via_btc_client::{
     },
     utils::bytes_to_txid,
 };
-use zksync_config::ViaBtcWatchConfig;
+use via_verification::proof::{
+    Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
+};
+use zksync_config::ViaVerifierConfig;
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_prover_interface::outputs::L1BatchProofForL1;
-use zksync_types::{commitment::L1BatchWithMetadata, H256};
+use zksync_types::{
+    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, H256,
+};
 
 /// Copy of `zksync_l1_contract_interface::i_executor::methods::ProveBatches`
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProveBatches {
     pub prev_l1_batch: L1BatchWithMetadata,
     pub l1_batches: Vec<L1BatchWithMetadata>,
@@ -23,10 +28,11 @@ pub struct ProveBatches {
     pub should_verify: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct L1BatchData {
-    pub pubdata: Vec<u8>,
-    pub l1_batch_number: u32,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct L1BatchProofForL1 {
+    pub aggregation_result_coords: [[u8; 32]; 4],
+    pub scheduler_proof: ZkSyncProof<Bn256, ZkSyncSnarkWrapperCircuit>,
+    pub protocol_version: ProtocolSemanticVersion,
 }
 
 #[derive(Debug)]
@@ -34,8 +40,7 @@ pub struct ViaVerifier {
     pool: ConnectionPool<Core>,
     da_client: Box<dyn DataAvailabilityClient>,
     indexer: BitcoinInscriptionIndexer,
-    // TODO: Add config
-    config: ViaBtcWatchConfig,
+    config: ViaVerifierConfig,
 }
 
 impl ViaVerifier {
@@ -46,7 +51,7 @@ impl ViaVerifier {
         bootstrap_txids: Vec<BitcoinTxid>,
         pool: ConnectionPool<Core>,
         client: Box<dyn DataAvailabilityClient>,
-        config: ViaBtcWatchConfig,
+        config: ViaVerifierConfig,
     ) -> anyhow::Result<Self> {
         let indexer =
             BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
@@ -70,7 +75,7 @@ impl ViaVerifier {
 
             let mut storage = pool.connection_tagged("via_zk_verifier").await?;
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => tracing::info!(""),
+                Ok(()) => {}
                 Err(err) => tracing::error!("Failed to process via_zk_verifier: {err}"),
             }
         }
@@ -93,7 +98,7 @@ impl ViaVerifier {
 
             raw_tx_id.reverse();
             let proof_txid = bytes_to_txid(&raw_tx_id).context("Failed to parse tx_id")?;
-            tracing::warn!("trying to get proof_txid: {}", proof_txid);
+            tracing::info!("trying to get proof_txid: {}", proof_txid);
             let proof_msgs = self.indexer.parse_transaction(&proof_txid).await?;
             let proof_msg = self.expect_single_msg(&proof_msgs, "ProofDAReference")?;
 
@@ -121,7 +126,7 @@ impl ViaVerifier {
             let (batch_blob, batch_hash) = self.process_batch_da_reference(batch_da).await?;
 
             let is_verified = self
-                .verify_proof(batch_hash, proof_blob.data, batch_blob.data)
+                .verify_proof(batch_hash, &proof_blob.data, &batch_blob.data)
                 .await?;
 
             storage
@@ -187,26 +192,75 @@ impl ViaVerifier {
     async fn verify_proof(
         &self,
         batch_hash: H256,
-        proof: Vec<u8>,
-        batch: Vec<u8>,
+        proof_bytes: &[u8],
+        batch_bytes: &[u8],
     ) -> anyhow::Result<bool> {
         tracing::info!(
             ?batch_hash,
-            proof_len = proof.len(),
-            batch_len = batch.len(),
+            proof_len = proof_bytes.len(),
+            batch_len = batch_bytes.len(),
             "Verifying proof"
         );
-        let proof: ProveBatches = bincode::deserialize(&proof)?;
+        let proof_data: ProveBatches = bincode::deserialize(&proof_bytes)?;
 
-        // TODO: fetch and verify pubdata
-        // let batch: L1BatchData = bincode::deserialize(&batch)
+        if proof_data.l1_batches.len() != 1 {
+            tracing::error!(
+                "Expected exactly one L1Batch and one proof, got {} and {}",
+                proof_data.l1_batches.len(),
+                proof_data.proofs.len()
+            );
+            return Ok(false);
+        }
+
+        // TODO: decide if we need to verify the batch data (already have batch data from ProofDAReference inscription)
+        // let batch: PubData... = bincode::deserialize(&batch)
         //     .context("Failed to deserialize L1BatchWithMetadata")?;
 
-        if !proof.should_verify {
+        let protocol_version = proof_data.l1_batches[0]
+            .header
+            .protocol_version
+            .unwrap()
+            .to_string();
+
+        if !proof_data.should_verify {
+            tracing::info!(
+                "Proof verification is disabled for proof with batch number : {:?}",
+                proof_data.l1_batches[0].header.number
+            );
+            tracing::info!(
+                "Verifying proof with protocol version: {}",
+                protocol_version
+            );
+            tracing::info!("Skipping verification");
             Ok(true)
         } else {
-            // TODO: Verify the proof
-            Ok(false)
+            if proof_data.proofs.len() != 1 {
+                tracing::error!(
+                    "Expected exactly one proof, got {}",
+                    proof_data.proofs.len()
+                );
+                return Ok(false);
+            }
+
+            let (prev_commitment, curr_commitment) = (
+                proof_data.prev_l1_batch.metadata.commitment,
+                proof_data.l1_batches[0].metadata.commitment,
+            );
+            let mut proof = proof_data.proofs[0].scheduler_proof.clone();
+
+            // Put correct inputs
+            proof.inputs = via_verification::public_inputs::generate_inputs(
+                &prev_commitment,
+                &curr_commitment,
+            );
+
+            // Verify the proof
+            let via_proof = ViaZKProof { proof };
+            let vk_inner =
+                via_verification::utils::load_verification_key_without_l1_check(protocol_version)
+                    .await?;
+
+            Ok(via_proof.verify(vk_inner)?)
         }
     }
 }

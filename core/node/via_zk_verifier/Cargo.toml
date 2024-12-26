@@ -29,4 +29,6 @@ tracing.workspace = true
 sqlx.workspace = true
 serde.workspace = true
 
+via-verification.workspace = true
+
 [dev-dependencies]

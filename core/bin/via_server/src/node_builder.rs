@@ -177,8 +177,12 @@ impl ViaNodeBuilder {
     // TODO: remove!
     fn add_via_verification_test_layer(mut self) -> anyhow::Result<Self> {
         let btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
-        self.node
-            .add_layer(ViaBtcProofVerificationLayer::new(btc_watch_config));
+        let verifier_config = try_load_config!(self.configs.via_verifier_config);
+
+        self.node.add_layer(ViaBtcProofVerificationLayer::new(
+            verifier_config,
+            btc_watch_config,
+        ));
         Ok(self)
     }
 

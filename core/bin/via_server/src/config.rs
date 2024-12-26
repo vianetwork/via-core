@@ -11,7 +11,7 @@ use zksync_config::{
         ProtectiveReadsWriterConfig,
     },
     ApiConfig, DADispatcherConfig, DBConfig, EthConfig, GasAdjusterConfig, ObjectStoreConfig,
-    PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
+    PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig, ViaVerifierConfig,
 };
 use zksync_core_leftovers::temp_config_store::{decode_yaml_repr, TempConfigStore};
 use zksync_env_config::FromEnv;
@@ -84,14 +84,26 @@ pub(crate) fn load_env_config() -> anyhow::Result<TempConfigStore> {
 }
 
 // TODO: temporary solution, should be removed after the config is refactored
-pub(crate) fn via_load_env_config(
-) -> anyhow::Result<(ViaBtcWatchConfig, ViaBtcSenderConfig, ViaCelestiaConfig)> {
+pub(crate) fn via_load_env_config() -> anyhow::Result<(
+    ViaBtcWatchConfig,
+    ViaBtcSenderConfig,
+    ViaCelestiaConfig,
+    ViaVerifierConfig,
+)> {
     let btc_watch_config =
         ViaBtcWatchConfig::from_env().context("Failed to load BTC watch config")?;
     let btc_sender_config =
         ViaBtcSenderConfig::from_env().context("Failed to load BTC sender config")?;
     let celestia_config =
         ViaCelestiaConfig::from_env().context("Failed to load celestia config")?;
+    // TODO: tmp
+    let verifier_config =
+        ViaVerifierConfig::from_env().context("Failed to load verifier config")?;
 
-    Ok((btc_watch_config, btc_sender_config, celestia_config))
+    Ok((
+        btc_watch_config,
+        btc_sender_config,
+        celestia_config,
+        verifier_config,
+    ))
 }

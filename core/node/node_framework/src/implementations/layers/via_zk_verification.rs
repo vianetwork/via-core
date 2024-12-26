@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use via_btc_client::types::{BitcoinNetwork, NodeAuth};
 use via_zk_verifier::ViaVerifier;
-use zksync_config::ViaBtcWatchConfig;
+use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 
 use crate::{
     implementations::resources::{
@@ -16,7 +16,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ViaBtcProofVerificationLayer {
-    config: ViaBtcWatchConfig,
+    config: ViaVerifierConfig,
+    btc_watcher_config: ViaBtcWatchConfig,
 }
 
 #[derive(Debug, FromContext)]
@@ -34,8 +35,11 @@ pub struct ProofVerificationOutput {
 }
 
 impl ViaBtcProofVerificationLayer {
-    pub fn new(config: ViaBtcWatchConfig) -> Self {
-        Self { config }
+    pub fn new(config: ViaVerifierConfig, btc_watcher_config: ViaBtcWatchConfig) -> Self {
+        Self {
+            config,
+            btc_watcher_config,
+        }
     }
 }
 
@@ -50,14 +54,14 @@ impl WiringLayer for ViaBtcProofVerificationLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
-        let network = BitcoinNetwork::from_core_arg(self.config.network())
+        let network = BitcoinNetwork::from_core_arg(self.btc_watcher_config.network())
             .map_err(|_| WiringError::Configuration("Wrong network in config".to_string()))?;
         let node_auth = NodeAuth::UserPass(
-            self.config.rpc_user().to_string(),
-            self.config.rpc_password().to_string(),
+            self.btc_watcher_config.rpc_user().to_string(),
+            self.btc_watcher_config.rpc_password().to_string(),
         );
         let bootstrap_txids = self
-            .config
+            .btc_watcher_config
             .bootstrap_txids()
             .iter()
             .map(|txid| {
@@ -67,7 +71,7 @@ impl WiringLayer for ViaBtcProofVerificationLayer {
             .collect::<Result<Vec<_>, _>>()?;
 
         let via_proof_verification = ViaVerifier::new(
-            self.config.rpc_url(),
+            self.btc_watcher_config.rpc_url(),
             network,
             node_auth,
             bootstrap_txids,

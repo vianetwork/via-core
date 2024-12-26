@@ -9750,6 +9750,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "via-verification",
  "via_btc_client",
  "vise",
  "zksync_config",

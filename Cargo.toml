@@ -329,4 +329,5 @@ via_btc_sender = { version = "0.1.0", path = "core/node/via_btc_sender" }
 via_fee_model = { version = "0.1.0", path = "core/node/via_fee_model" }
 via_state_keeper = { version = "0.1.0", path = "core/node/via_state_keeper" }
 via_musig2 = { version = "0.1.0", path = "core/lib/via_musig2" }
+via-verification = { version = "0.1.0", path = "core/lib/via_verification" }
 via_zk_verifier = { version = "0.1.0", path = "core/node/via_zk_verifier" }

@@ -2,17 +2,18 @@ use circuit_definitions::snark_wrapper::franklin_crypto::bellman::{
     pairing::bn256::Fr, PrimeField,
 };
 use ethers::types::U256;
+use primitive_types::H256;
 use sha3::{Digest, Keccak256};
 
-use crate::{types::BatchL1Data, utils::to_fixed_bytes};
+use crate::utils::to_fixed_bytes;
 
-/// Computes the public inputs for a given batch.
+/// Computes the public inputs for a given batch commiements.
 /// Public inputs require us to fetch multiple data from L1 (like state hash etc).
-pub fn generate_inputs(batch_l1_data: &BatchL1Data) -> Vec<Fr> {
+pub fn generate_inputs(prev_batch_commitment: &H256, curr_batch_commitment: &H256) -> Vec<Fr> {
     // Prepare the input fields
     let input_fields = [
-        batch_l1_data.prev_batch_commitment.to_fixed_bytes(),
-        batch_l1_data.curr_batch_commitment.to_fixed_bytes(),
+        prev_batch_commitment.to_fixed_bytes(),
+        curr_batch_commitment.to_fixed_bytes(),
     ];
     let encoded_input_params = input_fields.into_iter().flatten().collect::<Vec<u8>>();
 
