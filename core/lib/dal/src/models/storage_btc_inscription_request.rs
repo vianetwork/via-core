@@ -2,10 +2,7 @@ use std::str::FromStr;
 
 use bitcoin::Txid;
 use sqlx::types::chrono::NaiveDateTime;
-use zksync_types::{
-    btc_inscription_operations::ViaBtcInscriptionRequestType,
-    btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory},
-};
+use zksync_types::btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
 
 #[derive(Debug, Clone)]
 pub struct ViaStorageBtcInscriptionRequest {

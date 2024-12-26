@@ -193,22 +193,21 @@ impl ViaVotesDal<'_, '_> {
         Ok(())
     }
 
-    pub async fn get_first_not_finilized_block(&mut self) -> DalResult<Option<i64>> {
+    pub async fn get_first_non_finalized_block(&mut self) -> DalResult<Option<i64>> {
         let l1_block_number = sqlx::query_scalar!(
             r#"
             SELECT
-                l1_batch_number
-            FROM
-                via_votable_transactions
+                MIN(l1_batch_number) as "l1_batch_number"
+            FROM via_votable_transactions
             WHERE
-                is_finalized = FALSE
-            ORDER BY l1_batch_number ASC
-            LIMIT 1
+                is_finalized = FALSE 
             "#,
         )
         .instrument("get_last_block_finilized")
         .fetch_optional(self.storage)
-        .await?;
+        .await?
+        .flatten();
+
         Ok(l1_block_number)
     }
 
