@@ -1,6 +1,5 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
-use bitcoin::{Address, Network};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use via_btc_client::withdrawal_builder::WithdrawalBuilder;

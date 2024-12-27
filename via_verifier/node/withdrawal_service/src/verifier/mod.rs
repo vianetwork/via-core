@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
-use bitcoin::hashes::Hash;
+use bitcoin::{hashes::Hash, TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{Client, StatusCode};
 use tokio::sync::watch;
@@ -240,8 +240,14 @@ impl ViaWithdrawalVerifier {
         unsigned_tx: UnsignedWithdrawalTx,
         musig2_signature: CompactSignature,
     ) -> String {
-        // Todo: sign the transaction
-        "".to_string()
+        let mut unsigned_tx = unsigned_tx;
+        let mut final_sig_with_hashtype = musig2_signature.serialize().to_vec();
+        let sighash_type = TapSighashType::All;
+        final_sig_with_hashtype.push(sighash_type as u8);
+        for tx in &mut unsigned_tx.tx.input {
+            tx.witness = Witness::from(vec![final_sig_with_hashtype.clone()]);
+        }
+        bitcoin::consensus::encode::serialize_hex(&unsigned_tx.tx)
     }
 
     async fn build_and_broadcast_final_transaction(&mut self) -> anyhow::Result<()> {
@@ -261,7 +267,7 @@ impl ViaWithdrawalVerifier {
                 return Ok(());
             }
             let unsigned_tx = UnsignedWithdrawalTx::from_bytes(&session_info.unsigned_tx);
-            let signed_tx = self.sign_transaction(unsigned_tx, musig2_signature);
+            let signed_tx = self.sign_transaction(unsigned_tx.clone(), musig2_signature);
 
             let txid = self
                 .btc_client
