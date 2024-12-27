@@ -60,6 +60,7 @@ fn main() -> anyhow::Result<()> {
             via_general.via_btc_watch_config = Some(via_configs.0);
             via_general.via_btc_sender_config = Some(via_configs.1);
             via_general.via_celestia_config = Some(via_configs.2);
+            via_general.via_verifier_config = Some(via_configs.3);
             via_general
         }
     };

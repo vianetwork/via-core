@@ -242,4 +242,34 @@ impl ViaVotesDal<'_, '_> {
 
         Ok(result)
     }
+
+    /// Retrieve the first not executed block. (Similar to `get_first_not_finilized_block`, just with `is_verified = FALSE`).
+    pub async fn get_first_not_verified_block(&mut self) -> DalResult<Option<(i64, Vec<u8>)>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                l1_batch_number,
+                tx_id
+            FROM
+                via_votable_transactions
+            WHERE
+                is_verified = FALSE
+            ORDER BY
+                l1_batch_number ASC
+            LIMIT
+                1
+            "#,
+        )
+        .instrument("get_first_not_executed_block")
+        .fetch_optional(self.storage)
+        .await?;
+
+        let result = row.map(|r| {
+            let l1_batch_number = r.l1_batch_number;
+            let tx_id = r.tx_id;
+            (l1_batch_number, tx_id)
+        });
+
+        Ok(result)
+    }
 }

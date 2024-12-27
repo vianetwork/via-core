@@ -1,13 +1,12 @@
-use circuit_definitions::{
+use circuit_definitions::snark_wrapper::franklin_crypto::bellman::plonk::{
+    better_better_cs::{setup::VerificationKey, verifier::verify},
+    commitments::transcript::keccak_transcript::RollingKeccakTranscript,
+};
+// Re-export the necessary types from the `circuit_definitions` crate.
+pub use circuit_definitions::{
     circuit_definitions::aux_layer::ZkSyncSnarkWrapperCircuit,
     snark_wrapper::franklin_crypto::bellman::{
-        bn256::Bn256,
-        plonk::{
-            better_better_cs::{
-                proof::Proof as ZkSyncProof, setup::VerificationKey, verifier::verify,
-            },
-            commitments::transcript::keccak_transcript::RollingKeccakTranscript,
-        },
+        bn256::Bn256, plonk::better_better_cs::proof::Proof as ZkSyncProof,
     },
 };
 
