@@ -14,17 +14,23 @@ impl ViaVotesDal<'_, '_> {
         &mut self,
         l1_batch_number: u32,
         tx_id: H256,
+        da_identifier: String,
+        blob_id: String,
+        proof_tx_id: String,
     ) -> DalResult<()> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_votable_transactions (l1_batch_number, tx_id)
+                via_votable_transactions (l1_batch_number, tx_id, da_identifier, blob_id, proof_tx_id)
             VALUES
-                ($1, $2)
-            ON CONFLICT (l1_batch_number, tx_id) DO NOTHING
+                ($1, $2, $3, $4, $5)
+            ON CONFLICT (l1_batch_number, tx_id, blob_id) DO NOTHING
             "#,
             i64::from(l1_batch_number),
-            tx_id.as_bytes()
+            tx_id.as_bytes(),
+            da_identifier,
+            blob_id,
+            proof_tx_id
         )
         .instrument("insert_votable_transaction")
         .fetch_optional(self.storage)
