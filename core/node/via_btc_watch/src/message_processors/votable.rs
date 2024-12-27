@@ -27,13 +27,13 @@ impl MessageProcessor for VotableMessageProcessor {
         // Get the current timestamp
         let dt = Utc::now();
         let naive_utc = dt.naive_utc();
-        let offset = dt.offset().clone();
+        let offset = *dt.offset();
         let dt = DateTime::<Utc>::from_naive_utc_and_offset(naive_utc, offset);
 
         for msg in msgs {
             match msg {
                 ref f @ FullInscriptionMessage::ProofDAReference(ref proof_msg) => {
-                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(&f).await {
+                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
                         let mut votes_dal = storage.via_votes_dal();
 
                         let last_inserted_block = votes_dal
@@ -86,7 +86,7 @@ impl MessageProcessor for VotableMessageProcessor {
                     }
                 }
                 ref f @ FullInscriptionMessage::ValidatorAttestation(ref attestation_msg) => {
-                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(&f).await {
+                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
                         let mut votes_dal = storage.via_votes_dal();
 
                         let reference_txid =

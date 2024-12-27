@@ -9717,6 +9717,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier_dal"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "strum 0.26.3",
+ "zksync_basic_types",
+ "zksync_db_connection",
+]
+
+[[package]]
 name = "via_withdrawal_client"
 version = "0.1.0"
 dependencies = [
@@ -9739,27 +9749,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "via_zk_verifier"
+name = "via_withdrawal_service"
 version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bincode",
- "serde",
- "sqlx",
- "thiserror",
- "tokio",
- "tracing",
- "via-verification",
- "via_btc_client",
- "vise",
- "zksync_config",
- "zksync_da_client",
- "zksync_dal",
- "zksync_prover_interface",
- "zksync_shared_metrics",
- "zksync_types",
-]
 
 [[package]]
 name = "vise"
@@ -11781,7 +11772,6 @@ dependencies = [
  "via_da_dispatcher",
  "via_fee_model",
  "via_state_keeper",
- "via_zk_verifier",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",
  "zksync_circuit_breaker",

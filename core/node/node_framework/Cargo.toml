@@ -63,7 +63,6 @@ via_btc_sender.workspace = true
 via_fee_model.workspace = true
 via_da_dispatcher.workspace = true
 via_state_keeper.workspace = true
-via_zk_verifier.workspace = true
 pin-project-lite.workspace = true
 tracing.workspace = true
 thiserror.workspace = true

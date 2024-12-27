@@ -47,7 +47,11 @@ impl ViaVerifierBlocksDal<'_, '_> {
 
                 if result.rows_affected() == 0 {
                     let err = instrumentation.constraint_error(anyhow::anyhow!(
-                        "Update commit_l1_batch_inscription_id that is is not null is not allowed"
+                        "Failed to insert into 'via_l1_batch_vote_inscription_request': \
+                        No rows were affected. This could be due to a conflict or invalid input values. \
+                        batch_number: {:?}, inscription_request_id: {:?}",
+                        i64::from(batch_number.0),
+                        inscription_request_id as i32
                     ));
                     return Err(err);
                 }

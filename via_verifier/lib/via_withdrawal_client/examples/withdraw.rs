@@ -1,7 +1,6 @@
 use std::{env, str::FromStr};
 
 use anyhow::{Context, Result};
-use dotenv;
 use tracing::info;
 use via_da_clients::celestia::client::CelestiaClient;
 use via_withdrawal_client::client::WithdrawalClient;
@@ -50,7 +49,7 @@ async fn main() -> Result<()> {
 
     let da_config = ViaCelestiaConfig {
         api_node_url: String::from(DEFAULT_CELESTIA),
-        auth_token: String::from(celestia_auth_token),
+        auth_token: celestia_auth_token,
         blob_size_limit: 1973786,
     };
 

@@ -31,9 +31,9 @@ use crate::{
 };
 
 pub const BOOTLOADER_CODE_HASH_TEST: &str =
-    "010008e742608b21bf7eb23c1a9d0602047e3618b464c9b59c0fba3b3d7ab66e";
+    "010008e74e40a94b1c6e6eb5a1dfbbdbd9eb9e0ec90fd358d29e8c07c30d8491";
 pub const DEFAULT_AA_CODE_HASH_TEST: &str =
-    "01000563374c277a2c1e34659a2a1e87371bb6d852ce142022d497bfb50b9e32";
+    "01000563426437b886b132bf5bcf9b0d98c3648f02a6e362893db4345078d09f";
 
 pub fn generate_random_bytes(length: usize) -> Vec<u8> {
     let mut bytes: Vec<u8> = vec![];

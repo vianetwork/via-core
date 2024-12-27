@@ -476,7 +476,7 @@ impl ViaDataAvailabilityDal<'_, '_> {
             LIMIT
                 1
             "#,
-            l1_batch_number.0 as i64
+            i64::from(l1_batch_number.0)
         )
         .instrument("get_da_blob")
         .fetch_optional(self.storage)

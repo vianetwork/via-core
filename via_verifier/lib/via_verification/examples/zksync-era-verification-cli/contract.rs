@@ -96,7 +96,7 @@ impl L1DataFetcher for ContractConfig {
 
         let (mut proof, block_number) = fetch_proof_from_l1(
             batch_number,
-            &self.provider.url().to_string(),
+            self.provider.url().as_ref(),
             protocol_version_id,
         )
         .await?;
@@ -106,6 +106,8 @@ impl L1DataFetcher for ContractConfig {
             &batch_l1_data.prev_batch_commitment,
             &batch_l1_data.curr_batch_commitment,
         );
+        fetch_l1_commit_data(batch_number, self.provider.url().as_ref()).await?;
+        let inputs = generate_inputs(&batch_l1_data);
         proof.proof.inputs = inputs.clone();
 
         Ok((proof, block_number))

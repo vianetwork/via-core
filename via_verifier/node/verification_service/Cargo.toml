@@ -1,0 +1,11 @@
+[package]
+name = "via_verification_service"
+description = "Via Verification Service"
+version.workspace = true
+edition.workspace = true
+authors = ["Via Network"]
+
+
+[dependencies]
+
+[dev-dependencies]

@@ -38,7 +38,7 @@ impl WithdrawalClient {
     fn l2_to_l1_messages_hashmap(pubdata: &Pubdata) -> HashMap<H256, Vec<u8>> {
         let mut hashes: HashMap<H256, Vec<u8>> = HashMap::new();
         for message in &pubdata.l2_to_l1_messages {
-            let hash = H256::from(keccak256(&message));
+            let hash = H256::from(keccak256(message));
             hashes.insert(hash, message.clone());
         }
         hashes
@@ -48,7 +48,7 @@ impl WithdrawalClient {
         let mut withdrawals: Vec<L2BridgeLogMetadata> = Vec::new();
         let l2_bridges_hash =
             H256::from(H160::from_str(L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR).unwrap());
-        let l2_to_l1_messages_hashmap = WithdrawalClient::l2_to_l1_messages_hashmap(&pubdata);
+        let l2_to_l1_messages_hashmap = WithdrawalClient::l2_to_l1_messages_hashmap(pubdata);
         for log in pubdata.user_logs.clone() {
             // Ignore the logs if not from emitted from the L2 bridge contract
             if log.key != l2_bridges_hash {
@@ -70,9 +70,8 @@ impl WithdrawalClient {
         for l2_bridge_log_metadata in l2_bridge_logs_metadata {
             let withdrawal_request = parse_l2_withdrawal_message(l2_bridge_log_metadata.message);
 
-            match withdrawal_request {
-                Ok(req) => withdrawal_requests.push(req),
-                Err(_) => (),
+            if let Ok(req) = withdrawal_request {
+                withdrawal_requests.push(req)
             }
         }
         withdrawal_requests
@@ -84,7 +83,7 @@ mod tests {
     use std::str::FromStr;
 
     use bitcoin::Address;
-    use zksync_types::{H256, U256};
+    use zksync_types::U256;
 
     use super::*;
 
@@ -95,7 +94,7 @@ mod tests {
         let pubdata = Pubdata::decode_pubdata(encoded_pubdata).unwrap();
 
         let hashes = WithdrawalClient::l2_to_l1_messages_hashmap(&pubdata);
-        let hash = H256::from(pubdata.user_logs[0].value);
+        let hash = pubdata.user_logs[0].value;
         assert_eq!(hashes[&hash], pubdata.l2_to_l1_messages[0]);
     }
 
@@ -106,7 +105,7 @@ mod tests {
         let pubdata = Pubdata::decode_pubdata(encoded_pubdata).unwrap();
 
         let hashes = WithdrawalClient::l2_to_l1_messages_hashmap(&pubdata);
-        let hash = H256::from(pubdata.user_logs[0].value);
+        let hash = pubdata.user_logs[0].value;
         assert_eq!(hashes[&hash], pubdata.l2_to_l1_messages[0]);
 
         let l2_bridge_logs_metadata = WithdrawalClient::list_l2_bridge_metadata(&pubdata);
@@ -128,7 +127,7 @@ mod tests {
         let pubdata = Pubdata::decode_pubdata(encoded_pubdata).unwrap();
 
         let hashes = WithdrawalClient::l2_to_l1_messages_hashmap(&pubdata);
-        let hash = H256::from(pubdata.user_logs[0].value);
+        let hash = pubdata.user_logs[0].value;
         assert_eq!(hashes[&hash], pubdata.l2_to_l1_messages[0]);
 
         let l2_bridge_logs_metadata = WithdrawalClient::list_l2_bridge_metadata(&pubdata);

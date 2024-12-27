@@ -224,9 +224,12 @@ pub fn deserialize_proof<T: Circuit<Bn256>>(mut proof: Vec<U256>) -> Proof<Bn256
 /// Serialize a point's coordinates into a vector
 fn serialize_point<E: Engine>(point: &E::G1Affine, mut buffer: &mut Vec<u8>) -> anyhow::Result<()> {
     let (x, y) = point.as_xy();
+    #[allow(clippy::needless_borrows_for_generic_args)]
     x.into_repr()
         .write_be(&mut buffer)
         .expect("Failed to write x coordinate");
+
+    #[allow(clippy::needless_borrows_for_generic_args)]
     y.into_repr()
         .write_be(&mut buffer)
         .expect("Failed to write y coordinate");

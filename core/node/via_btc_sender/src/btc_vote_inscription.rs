@@ -92,7 +92,7 @@ impl ViaVoteInscription {
     ) -> anyhow::Result<Option<(L1BatchNumber, bool, Vec<u8>)>> {
         if let Some(batch_number) = storage
             .via_votes_dal()
-            .get_first_not_finilized_block()
+            .get_first_non_finalized_block()
             .await?
         {
             // Check if already created a voting inscription
