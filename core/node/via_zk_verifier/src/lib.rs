@@ -131,11 +131,7 @@ impl ViaVerifier {
 
             storage
                 .via_votes_dal()
-                .mark_transaction_executed(l1_batch_number, db_raw_tx_id)
-                .await?;
-            storage
-                .via_votes_dal()
-                .verify_votable_transaction(l1_batch_number as u32, db_raw_tx_id, is_verified)
+                .get_first_not_verified_block(l1_batch_number as u32, db_raw_tx_id, is_verified)
                 .await?;
         }
 

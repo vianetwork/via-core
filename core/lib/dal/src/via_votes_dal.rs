@@ -243,34 +243,8 @@ impl ViaVotesDal<'_, '_> {
         Ok(result)
     }
 
-    /// Marks a transaction as executed.
-    pub async fn mark_transaction_executed(
-        &mut self,
-        l1_batch_number: i64,
-        tx_id: H256,
-    ) -> DalResult<()> {
-        sqlx::query!(
-            r#"
-            UPDATE via_votable_transactions
-            SET
-                is_executed = TRUE,
-                updated_at = NOW()
-            WHERE
-                l1_batch_number = $1
-                AND tx_id = $2
-            "#,
-            l1_batch_number,
-            tx_id.as_bytes()
-        )
-        .instrument("mark_transaction_executed")
-        .execute(self.storage)
-        .await?;
-
-        Ok(())
-    }
-
-    /// Retrieve the first not executed block. (Similar to `get_first_not_finilized_block`, just with `is_executed = FALSE`).
-    pub async fn get_first_not_executed_block(&mut self) -> DalResult<Option<(i64, Vec<u8>)>> {
+    /// Retrieve the first not executed block. (Similar to `get_first_not_finilized_block`, just with `is_verified = FALSE`).
+    pub async fn get_first_not_verified_block(&mut self) -> DalResult<Option<(i64, Vec<u8>)>> {
         let row = sqlx::query!(
             r#"
             SELECT
@@ -279,7 +253,7 @@ impl ViaVotesDal<'_, '_> {
             FROM
                 via_votable_transactions
             WHERE
-                is_executed = FALSE
+                is_verified = FALSE
             ORDER BY
                 l1_batch_number ASC
             LIMIT
