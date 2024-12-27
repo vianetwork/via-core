@@ -278,4 +278,83 @@ impl ViaVotesDal<'_, '_> {
 
         Ok(result)
     }
+    pub async fn get_finalized_blocks_and_non_processed_withdrawals(
+        &mut self,
+    ) -> DalResult<Vec<(i64, String, String)>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                l1_batch_number,
+                blob_id,
+                proof_tx_id
+            FROM
+                via_votable_transactions
+            WHERE
+                is_finalized = TRUE
+                AND is_verified = TRUE
+                AND withdrawal_tx_id IS NULL
+            ORDER BY
+                l1_batch_number ASC
+            "#,
+        )
+        .instrument("get_finalized_blocks_and_non_processed_withdrawals")
+        .fetch_all(self.storage)
+        .await?;
+
+        // Map the rows into a Vec<(l1_batch_number, blob_id, proof_tx_id)>
+        let result: Vec<(i64, String, String)> = rows
+            .into_iter()
+            .map(|r| (r.l1_batch_number, r.blob_id, r.proof_tx_id))
+            .collect();
+
+        Ok(result)
+    }
+
+    pub async fn mark_vote_transaction_as_processed_withdrawals(
+        &mut self,
+        tx_id: H256,
+        l1_batch_number: i64,
+    ) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            UPDATE via_votable_transactions
+            SET
+                withdrawal_tx_id = $1
+            WHERE
+                is_finalized = TRUE
+                AND is_verified = TRUE
+                AND withdrawal_tx_id IS NULL
+                AND l1_batch_number = $2
+            "#,
+            tx_id.as_bytes(),
+            l1_batch_number
+        )
+        .instrument("mark_vote_transaction_as_processed_withdrawals")
+        .execute(self.storage)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_vote_transaction_withdrawal_tx(
+        &mut self,
+        l1_batch_number: i64,
+    ) -> DalResult<Option<Vec<u8>>> {
+        let withdrawal_tx_id = sqlx::query_scalar!(
+            r#"
+            SELECT
+                withdrawal_tx_id
+            FROM via_votable_transactions
+            WHERE
+                l1_batch_number = $1
+            "#,
+            l1_batch_number
+        )
+        .instrument("get_vote_transaction_withdrawal_tx")
+        .fetch_optional(self.storage)
+        .await?
+        .flatten();
+
+        Ok(withdrawal_tx_id)
+    }
 }
