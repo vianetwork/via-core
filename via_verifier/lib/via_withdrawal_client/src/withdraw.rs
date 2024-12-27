@@ -1,12 +1,16 @@
 use std::str::FromStr;
 
 use anyhow::Context;
-use bitcoin::Address as BitcoinAddress;
+use bitcoin::{Address as BitcoinAddress, Amount, Network};
+use via_btc_client::withdrawal_builder::WithdrawalRequest;
 use zksync_basic_types::{web3::keccak256, U256};
 
-use crate::types::{WithdrawalRequest, WITHDRAW_FUNC_SIG};
+use crate::types::WITHDRAW_FUNC_SIG;
 
-pub fn parse_l2_withdrawal_message(l2_to_l1_message: Vec<u8>) -> anyhow::Result<WithdrawalRequest> {
+pub fn parse_l2_withdrawal_message(
+    l2_to_l1_message: Vec<u8>,
+    network: Network,
+) -> anyhow::Result<WithdrawalRequest> {
     // We check that the message is long enough to read the data.
     // Please note that there are two versions of the message:
     // The message that is sent by `withdraw(address _l1Receiver)`
@@ -26,11 +30,13 @@ pub fn parse_l2_withdrawal_message(l2_to_l1_message: Vec<u8>) -> anyhow::Result<
     let address_bytes = &l2_to_l1_message[4..4 + address_size];
     let address_str =
         String::from_utf8(address_bytes.to_vec()).context("Parse address to string")?;
-    let address = BitcoinAddress::from_str(&address_str).context("parse bitcoin address")?;
+    let address = BitcoinAddress::from_str(&address_str)
+        .context("parse bitcoin address")?
+        .require_network(network)?;
 
     // The last 32 bytes represent the amount (uint256)
     let amount_bytes = &l2_to_l1_message[address_size + 4..];
-    let amount = U256::from_big_endian(amount_bytes);
+    let amount = Amount::from_sat(U256::from_big_endian(amount_bytes).as_u64());
 
     Ok(WithdrawalRequest { address, amount })
 }
@@ -54,9 +60,10 @@ mod tests {
         let expected_receiver = BitcoinAddress::from_str(
             "bc1qy82gaw2htfd5sslplpgmz4ktf9y3k7pac2226k0wljlmw3atfw5qwm4av4",
         )
-        .unwrap();
-        let expected_amount = U256::from_dec_str("1000000000000000000").unwrap();
-        let res = parse_l2_withdrawal_message(l2_to_l1_message).unwrap();
+        .unwrap()
+        .assume_checked();
+        let expected_amount = Amount::from_sat(1000000000000000000);
+        let res = parse_l2_withdrawal_message(l2_to_l1_message, Network::Bitcoin).unwrap();
 
         assert_eq!(res.address, expected_receiver);
         assert_eq!(res.amount, expected_amount);
@@ -65,10 +72,11 @@ mod tests {
     #[test]
     fn test_parse_l2_withdrawal_message_when_address_p2pkh() {
         let l2_to_l1_message = hex::decode("6c0960f93141317a5031655035514765666932444d505466544c35534c6d7637446976664e610000000000000000000000000000000000000000000000000de0b6b3a7640000").unwrap();
-        let expected_receiver =
-            BitcoinAddress::from_str("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa").unwrap();
-        let expected_amount = U256::from_dec_str("1000000000000000000").unwrap();
-        let res = parse_l2_withdrawal_message(l2_to_l1_message).unwrap();
+        let expected_receiver = BitcoinAddress::from_str("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
+            .unwrap()
+            .assume_checked();
+        let expected_amount = Amount::from_sat(1000000000000000000);
+        let res = parse_l2_withdrawal_message(l2_to_l1_message, Network::Bitcoin).unwrap();
 
         assert_eq!(res.address, expected_receiver);
         assert_eq!(res.amount, expected_amount);
