@@ -7,5 +7,5 @@ pub mod inscriber;
 #[cfg(feature = "regtest")]
 pub mod regtest;
 pub(crate) mod signer;
-pub(crate) mod utils;
+pub mod utils;
 pub mod withdrawal_builder;

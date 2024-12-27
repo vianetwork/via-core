@@ -1,14 +1,9 @@
 use sqlx::types::chrono::{DateTime, Utc};
-use via_btc_client::{
-    indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinTxid, FullInscriptionMessage},
-};
+use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_types::{aggregated_operations::AggregatedActionType, H256};
+use zksync_types::aggregated_operations::AggregatedActionType;
 
-use super::{MessageProcessor, MessageProcessorError};
-
-const DEFAULT_THRESHOLD: f64 = 0.5;
+use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 
 #[derive(Debug)]
 pub struct VotableMessageProcessor {
@@ -16,10 +11,8 @@ pub struct VotableMessageProcessor {
 }
 
 impl VotableMessageProcessor {
-    pub fn new() -> Self {
-        Self {
-            threshold: DEFAULT_THRESHOLD,
-        }
+    pub fn new(threshold: f64) -> Self {
+        Self { threshold }
     }
 }
 
@@ -158,10 +151,4 @@ impl MessageProcessor for VotableMessageProcessor {
         }
         Ok(())
     }
-}
-
-fn convert_txid_to_h256(txid: BitcoinTxid) -> H256 {
-    let mut tx_id_bytes = txid.as_raw_hash()[..].to_vec();
-    tx_id_bytes.reverse();
-    H256::from_slice(&tx_id_bytes)
 }

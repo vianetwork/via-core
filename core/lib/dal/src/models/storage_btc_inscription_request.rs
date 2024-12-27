@@ -2,10 +2,7 @@ use std::str::FromStr;
 
 use bitcoin::Txid;
 use sqlx::types::chrono::NaiveDateTime;
-use zksync_types::{
-    btc_inscription_operations::ViaBtcInscriptionRequestType,
-    btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory},
-};
+use zksync_types::btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
 
 #[derive(Debug, Clone)]
 pub struct ViaStorageBtcInscriptionRequest {
@@ -37,7 +34,7 @@ impl From<ViaStorageBtcInscriptionRequest> for ViaBtcInscriptionRequest {
     fn from(req: ViaStorageBtcInscriptionRequest) -> ViaBtcInscriptionRequest {
         ViaBtcInscriptionRequest {
             id: req.id,
-            request_type: ViaBtcInscriptionRequestType::from_str(&req.request_type).unwrap(),
+            request_type: req.request_type,
             inscription_message: req.inscription_message,
             confirmed_inscriptions_request_history_id: req
                 .confirmed_inscriptions_request_history_id,

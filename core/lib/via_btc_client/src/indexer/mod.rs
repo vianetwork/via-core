@@ -5,8 +5,7 @@ use bitcoincore_rpc::Auth;
 use tracing::{debug, error, info, instrument, warn};
 
 mod parser;
-pub use parser::get_eth_address;
-use parser::MessageParser;
+pub use parser::{get_eth_address, MessageParser};
 use zksync_basic_types::L1BatchNumber;
 use zksync_types::H256;
 
@@ -205,6 +204,14 @@ impl BitcoinInscriptionIndexer {
 
     pub fn get_number_of_verifiers(&self) -> usize {
         self.verifier_addresses.len()
+    }
+
+    pub async fn parse_transaction(
+        &mut self,
+        tx: &Txid,
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
+        let tx = self.client.get_transaction(&tx).await?;
+        Ok(self.parser.parse_transaction(&tx, 0))
     }
 }
 

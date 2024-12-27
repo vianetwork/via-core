@@ -29,9 +29,10 @@ pub use self::{
     snapshots_creator::SnapshotsCreatorConfig,
     utils::PrometheusConfig,
     via_btc_sender::ViaBtcSenderConfig,
-    via_btc_watch::ViaBtcWatchConfig,
+    via_btc_watch::{ActorRole, ViaBtcWatchConfig},
     via_celestia::ViaCelestiaConfig,
     via_general::ViaGeneralConfig,
+    via_verifier::ViaVerifierConfig,
     vm_runner::{BasicWitnessInputProducerConfig, ProtectiveReadsWriterConfig},
 };
 
@@ -72,6 +73,7 @@ pub mod via_btc_sender;
 pub mod via_btc_watch;
 pub mod via_celestia;
 pub mod via_general;
+pub mod via_verifier;
 pub mod vm_runner;
 pub mod wallets;
 

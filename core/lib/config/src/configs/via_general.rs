@@ -17,7 +17,7 @@ use crate::{
     },
     ApiConfig, ContractVerifierConfig, DBConfig, EthConfig, ExternalProofIntegrationApiConfig,
     ObjectStoreConfig, PostgresConfig, SnapshotsCreatorConfig, ViaBtcSenderConfig,
-    ViaBtcWatchConfig, ViaCelestiaConfig,
+    ViaBtcWatchConfig, ViaCelestiaConfig, ViaVerifierConfig,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +59,7 @@ pub struct ViaGeneralConfig {
     pub via_btc_sender_config: Option<ViaBtcSenderConfig>,
     pub via_btc_watch_config: Option<ViaBtcWatchConfig>,
     pub via_celestia_config: Option<ViaCelestiaConfig>,
+    pub via_verifier_config: Option<ViaVerifierConfig>,
 }
 
 impl From<GeneralConfig> for ViaGeneralConfig {
@@ -101,6 +102,7 @@ impl From<GeneralConfig> for ViaGeneralConfig {
             via_btc_sender_config: None,
             via_btc_watch_config: None,
             via_celestia_config: None,
+            via_verifier_config: None,
         }
     }
 }

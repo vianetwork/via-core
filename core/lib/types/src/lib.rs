@@ -61,6 +61,7 @@ pub mod helpers;
 pub mod proto;
 pub mod transaction_request;
 pub mod utils;
+pub mod via_verifier_btc_inscription_operations;
 
 /// Denotes the first byte of the special ZKsync's EIP-712-signed transaction.
 pub const EIP_712_TX_TYPE: u8 = 0x71;

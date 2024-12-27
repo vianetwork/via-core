@@ -165,4 +165,111 @@ impl ViaVotesDal<'_, '_> {
 
         Ok(row.max_batch_number.map(|n| n as u32))
     }
+
+    pub async fn verify_votable_transaction(
+        &mut self,
+        l1_batch_number: u32,
+        tx_id: H256,
+        l1_batch_status: bool,
+    ) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            UPDATE via_votable_transactions
+            SET
+                is_verified = TRUE,
+                l1_batch_status = $3,
+                updated_at = NOW()
+            WHERE
+                l1_batch_number = $1
+                AND tx_id = $2
+            "#,
+            l1_batch_number as i64,
+            tx_id.as_bytes(),
+            l1_batch_status
+        )
+        .instrument("verify_transaction")
+        .execute(self.storage)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_first_non_finalized_block(&mut self) -> DalResult<Option<i64>> {
+        let l1_block_number = sqlx::query_scalar!(
+            r#"
+            SELECT
+                MIN(l1_batch_number) as "l1_batch_number"
+            FROM via_votable_transactions
+            WHERE
+                is_finalized = FALSE 
+            "#,
+        )
+        .instrument("get_last_block_finilized")
+        .fetch_optional(self.storage)
+        .await?
+        .flatten();
+
+        Ok(l1_block_number)
+    }
+
+    pub async fn get_verifier_vote_status(
+        &mut self,
+        block_number: i64,
+    ) -> DalResult<Option<(bool, Vec<u8>)>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                l1_batch_status,
+                tx_id
+            FROM
+                via_votable_transactions
+            WHERE
+                l1_batch_number = $1
+                AND is_verified = TRUE
+            LIMIT
+                1
+            "#,
+            block_number
+        )
+        .instrument("get_verifier_vote_status")
+        .fetch_optional(self.storage)
+        .await?;
+
+        let result = row.map(|r| {
+            let l1_batch_status = r.l1_batch_status;
+            let tx_id = r.tx_id;
+            (l1_batch_status, tx_id)
+        });
+
+        Ok(result)
+    }
+
+    /// Retrieve the first not executed block. (Similar to `get_first_not_finilized_block`, just with `is_verified = FALSE`).
+    pub async fn get_first_not_verified_block(&mut self) -> DalResult<Option<(i64, Vec<u8>)>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                l1_batch_number,
+                tx_id
+            FROM
+                via_votable_transactions
+            WHERE
+                is_verified = FALSE
+            ORDER BY
+                l1_batch_number ASC
+            LIMIT
+                1
+            "#,
+        )
+        .instrument("get_first_not_executed_block")
+        .fetch_optional(self.storage)
+        .await?;
+
+        let result = row.map(|r| {
+            let l1_batch_number = r.l1_batch_number;
+            let tx_id = r.tx_id;
+            (l1_batch_number, tx_id)
+        });
+
+        Ok(result)
+    }
 }
