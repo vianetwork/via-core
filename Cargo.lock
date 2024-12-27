@@ -9739,6 +9739,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "via_btc_client",
  "via_da_clients",
  "zksync_basic_types",
  "zksync_config",
@@ -9751,6 +9752,29 @@ dependencies = [
 [[package]]
 name = "via_withdrawal_service"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "base64 0.21.7",
+ "bitcoin",
+ "hex",
+ "musig2",
+ "reqwest 0.12.7",
+ "secp256k1 0.30.0",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "uuid 1.10.0",
+ "via_btc_client",
+ "via_musig2",
+ "via_withdrawal_client",
+ "vise",
+ "zksync_config",
+ "zksync_dal",
+ "zksync_types",
+]
 
 [[package]]
 name = "vise"
