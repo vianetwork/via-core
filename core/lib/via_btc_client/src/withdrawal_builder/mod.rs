@@ -3,17 +3,22 @@
 // and then it will use client to get available utxo, and then perform utxo selection based on the total amount of the withdrawal
 // and now we know the number of input and output we can estimate the fee and perform final utxo selection
 // create a unsigned transaction and return it to the caller
-
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
+use bincode::{deserialize, serialize};
 use bitcoin::{
     absolute, hashes::Hash, script::PushBytesBuf, transaction, Address, Amount, OutPoint,
     ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument};
 
-use crate::{client::BitcoinClient, traits::BitcoinOps, types::BitcoinNetwork};
+use crate::{
+    client::BitcoinClient,
+    traits::{BitcoinOps, Serializable},
+    types::BitcoinNetwork,
+};
 
 #[derive(Debug)]
 pub struct WithdrawalBuilder {
@@ -27,12 +32,25 @@ pub struct WithdrawalRequest {
     pub amount: Amount,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnsignedWithdrawalTx {
     pub tx: Transaction,
     pub txid: Txid,
     pub utxos: Vec<(OutPoint, TxOut)>,
     pub change_amount: Amount,
+}
+
+impl Serializable for UnsignedWithdrawalTx {
+    fn to_bytes(&self) -> Vec<u8> {
+        serialize(self).expect("error serialize the UnsignedWithdrawalTx")
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self
+    where
+        Self: Sized,
+    {
+        deserialize(bytes).expect("error deserialize the UnsignedWithdrawalTx")
+    }
 }
 
 const OP_RETURN_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
