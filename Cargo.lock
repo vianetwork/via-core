@@ -11796,6 +11796,8 @@ dependencies = [
  "via_da_dispatcher",
  "via_fee_model",
  "via_state_keeper",
+ "via_withdrawal_client",
+ "via_withdrawal_service",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",
  "zksync_circuit_breaker",
