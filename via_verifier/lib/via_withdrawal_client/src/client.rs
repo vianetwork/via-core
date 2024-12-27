@@ -1,29 +1,32 @@
 use std::{collections::HashMap, str::FromStr};
 
+use bitcoin::Network;
+use via_btc_client::withdrawal_builder::WithdrawalRequest;
 use zksync_da_client::DataAvailabilityClient;
 use zksync_types::{web3::keccak256, H160, H256};
 
 use crate::{
     pubdata::Pubdata,
-    types::{L2BridgeLogMetadata, WithdrawalRequest, L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR},
+    types::{L2BridgeLogMetadata, L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR},
     withdraw::parse_l2_withdrawal_message,
 };
 
 #[derive(Debug)]
 pub struct WithdrawalClient {
+    network: Network,
     client: Box<dyn DataAvailabilityClient>,
 }
 
 impl WithdrawalClient {
-    pub fn new(client: Box<dyn DataAvailabilityClient>) -> Self {
-        Self { client }
+    pub fn new(client: Box<dyn DataAvailabilityClient>, network: Network) -> Self {
+        Self { client, network }
     }
 
     pub async fn get_withdrawals(&self, blob_id: &str) -> anyhow::Result<Vec<WithdrawalRequest>> {
         let pubdata_bytes = self.fetch_pubdata(blob_id).await?;
         let pubdata = Pubdata::decode_pubdata(pubdata_bytes)?;
         let l2_bridge_metadata = WithdrawalClient::list_l2_bridge_metadata(&pubdata);
-        let withdrawals = WithdrawalClient::get_valid_withdrawals(l2_bridge_metadata);
+        let withdrawals = WithdrawalClient::get_valid_withdrawals(self.network, l2_bridge_metadata);
         Ok(withdrawals)
     }
 
@@ -64,11 +67,13 @@ impl WithdrawalClient {
     }
 
     fn get_valid_withdrawals(
+        network: Network,
         l2_bridge_logs_metadata: Vec<L2BridgeLogMetadata>,
     ) -> Vec<WithdrawalRequest> {
         let mut withdrawal_requests: Vec<WithdrawalRequest> = Vec::new();
         for l2_bridge_log_metadata in l2_bridge_logs_metadata {
-            let withdrawal_request = parse_l2_withdrawal_message(l2_bridge_log_metadata.message);
+            let withdrawal_request =
+                parse_l2_withdrawal_message(l2_bridge_log_metadata.message, network);
 
             if let Ok(req) = withdrawal_request {
                 withdrawal_requests.push(req)
@@ -82,7 +87,7 @@ impl WithdrawalClient {
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin::Address;
+    use bitcoin::{Address, Amount};
     use zksync_types::U256;
 
     use super::*;
@@ -131,14 +136,15 @@ mod tests {
         assert_eq!(hashes[&hash], pubdata.l2_to_l1_messages[0]);
 
         let l2_bridge_logs_metadata = WithdrawalClient::list_l2_bridge_metadata(&pubdata);
-        let withdrawals = WithdrawalClient::get_valid_withdrawals(l2_bridge_logs_metadata);
+        let withdrawals =
+            WithdrawalClient::get_valid_withdrawals(Network::Regtest, l2_bridge_logs_metadata);
         let expected_user_address =
-            Address::from_str("bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56").unwrap();
+            Address::from_str("bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56")
+                .unwrap()
+                .assume_checked();
         assert_eq!(withdrawals.len(), 1);
-        assert_eq!(withdrawals[0].clone().address, expected_user_address);
-        assert_eq!(
-            withdrawals[0].clone().amount,
-            U256::from_dec_str("100000000").unwrap()
-        );
+        assert_eq!(&withdrawals[0].address, &expected_user_address);
+        let expected_amount = Amount::from_sat(100000000);
+        assert_eq!(&withdrawals[0].amount, &expected_amount);
     }
 }

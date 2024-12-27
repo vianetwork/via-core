@@ -19,8 +19,8 @@ zksync_types.workspace = true
 zksync_utils.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-via_da_clients.workspace = true
 tracing-subscriber.workspace = true
+via_btc_client.workspace = true
 
 bitcoin = { version = "0.32.2", features = ["serde"] }
 byteorder = "1.4"
@@ -29,6 +29,7 @@ byteorder = "1.4"
 rand = "0.8"
 zksync_dal.workspace = true
 dotenv = "0.15"
+via_da_clients.workspace = true
 
 [[example]]
 name = "withdraw"

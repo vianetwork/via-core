@@ -42,10 +42,16 @@ impl MessageProcessor for VerifierMessageProcessor {
                             continue;
                         }
 
-                        let tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
+                        let tx_id = convert_txid_to_h256(proof_msg.common.tx_id.clone());
 
                         votes_dal
-                            .insert_votable_transaction(l1_batch_number.0, tx_id)
+                            .insert_votable_transaction(
+                                l1_batch_number.0,
+                                tx_id,
+                                proof_msg.input.da_identifier.clone(),
+                                proof_msg.input.blob_id.clone(),
+                                proof_msg.input.l1_batch_reveal_txid.to_string(),
+                            )
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
                     } else {
