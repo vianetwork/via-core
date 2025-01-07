@@ -210,7 +210,7 @@ impl BitcoinInscriptionIndexer {
         &mut self,
         tx: &Txid,
     ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
-        let tx = self.client.get_transaction(&tx).await?;
+        let tx = self.client.get_transaction(tx).await?;
         Ok(self.parser.parse_transaction(&tx, 0))
     }
 }

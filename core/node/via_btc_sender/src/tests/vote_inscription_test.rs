@@ -168,7 +168,7 @@ mod tests {
         assert!(op.is_some());
         let (l1_block_number, vote, tx_id_vec) = op.unwrap();
         assert_eq!(l1_block_number, L1BatchNumber::from(1));
-        assert_eq!(vote, true);
+        assert!(vote);
         assert_eq!(H256::from_slice(&tx_id_vec), tx_id);
 
         let inscription = aggregator_test
@@ -193,7 +193,7 @@ mod tests {
         assert_eq!(
             InscriptionMessage::from_bytes(
                 inscriptions
-                    .get(0)
+                    .first()
                     .unwrap()
                     .inscription_message
                     .as_ref()
