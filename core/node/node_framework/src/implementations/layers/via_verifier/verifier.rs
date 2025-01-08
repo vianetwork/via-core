@@ -27,7 +27,7 @@ pub struct Input {
     pub master_pool: PoolResource<MasterPool>,
 }
 
-#[derive(Debug, IntoContext)]
+#[derive(IntoContext)]
 #[context(crate = crate)]
 pub struct Output {
     #[context(task)]

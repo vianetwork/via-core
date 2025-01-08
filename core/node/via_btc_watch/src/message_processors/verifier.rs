@@ -42,7 +42,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                             continue;
                         }
 
-                        let tx_id = convert_txid_to_h256(proof_msg.common.tx_id.clone());
+                        let tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
 
                         votes_dal
                             .insert_votable_transaction(

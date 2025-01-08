@@ -21,8 +21,8 @@ pub fn get_signer(
     all_pubkeys.push(public_key);
 
     let mut signer_index = 0;
-    for i in 0..verifiers_pub_keys_str.len() {
-        let pk = PublicKey::from_slice(verifiers_pub_keys_str[i].as_bytes())?;
+    for (i, key) in verifiers_pub_keys_str.iter().enumerate() {
+        let pk = PublicKey::from_slice(key.as_bytes())?;
         all_pubkeys.push(pk);
         if pk == public_key {
             signer_index = i;

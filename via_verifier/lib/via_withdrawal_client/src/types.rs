@@ -20,6 +20,7 @@ pub struct L2BridgeLogMetadata {
 }
 
 #[derive(Clone, Debug)]
+#[allow(unused)]
 pub struct WithdrawalRequest {
     /// The receiver l1 address.
     pub address: BitcoinAddress<NetworkUnchecked>,
