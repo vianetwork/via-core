@@ -108,18 +108,18 @@ services:
       - POSTGRES_PASSWORD=notsecurepassword
 
   celestia-node:
-    image: "ghcr.io/celestiaorg/celestia-node:v0.20.2-arabica"
+    image: "ghcr.io/celestiaorg/celestia-node:v0.20.4-mocha"
     container_name: celestia-node
     volumes:
       - type: bind
         source: ./volumes/celestia
         target: /home/celestia
-    command: celestia light start --headers.trusted-hash ${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip validator-2.celestia-arabica-11.com --p2p.network arabica 
+    command: celestia light start --headers.trusted-hash ${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip full.consensus.mocha-4.celestia-mocha.com --p2p.network mocha 
     ports:
       - '26658:26658'
     environment:
       - NODE_TYPE=light
-      - P2P_NETWORK=arabica
+      - P2P_NETWORK=mocha
 
 volumes:
   bitcoin_data:
