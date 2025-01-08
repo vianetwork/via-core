@@ -6,7 +6,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum VerifierRole {
+pub enum VerifierMode {
     VERIFIER = 0,
     COORDINATOR = 1,
 }
@@ -28,7 +28,7 @@ pub struct ViaVerifierConfig {
     /// The minimum required signers.
     pub required_signers: usize,
     /// The role.
-    pub role: VerifierRole,
+    pub verifier_mode: VerifierMode,
 }
 
 impl ViaVerifierConfig {
@@ -50,7 +50,7 @@ impl ViaVerifierConfig {
             verifiers_pub_keys_str: Vec::new(),
             bridge_address_str: "".to_string(),
             required_signers: 2,
-            role: VerifierRole::VERIFIER,
+            verifier_mode: VerifierMode::VERIFIER,
         }
     }
 }
