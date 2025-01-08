@@ -88,7 +88,6 @@ mod tests {
     use std::str::FromStr;
 
     use bitcoin::{Address, Amount};
-    use zksync_types::U256;
 
     use super::*;
 
