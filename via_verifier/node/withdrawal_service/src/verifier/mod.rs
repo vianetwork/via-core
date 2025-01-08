@@ -1,9 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bitcoin::{hashes::Hash, TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
-use reqwest::{Client, StatusCode};
+use reqwest::{header, Client, StatusCode};
 use tokio::sync::watch;
 use via_btc_client::{
     traits::{BitcoinOps, Serializable},
@@ -11,20 +11,22 @@ use via_btc_client::{
 };
 use via_musig2::{verify_signature, Signer};
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
-use zksync_config::configs::via_verifier::{VerifierRole, ViaVerifierConfig};
+use zksync_config::configs::via_verifier::{VerifierMode, ViaVerifierConfig};
 use zksync_types::H256;
 
 use crate::{
-    types::{NoncePair, SigningSessionResponse},
+    types::{NoncePair, PartialSignaturePair, SigningSessionResponse},
     utils::{decode_nonce, decode_signature, encode_nonce, encode_signature, get_signer},
 };
 
+#[derive(Debug)]
 pub struct ViaWithdrawalVerifier {
     master_connection_pool: ConnectionPool<Verifier>,
     btc_client: Arc<dyn BitcoinOps>,
     config: ViaVerifierConfig,
     client: Client,
     signer: Signer,
+    final_sig: Option<CompactSignature>,
 }
 
 impl ViaWithdrawalVerifier {
@@ -44,6 +46,7 @@ impl ViaWithdrawalVerifier {
             signer,
             client: Client::new(),
             config,
+            final_sig: None,
         })
     }
 
@@ -71,12 +74,18 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn loop_iteration(&mut self) -> Result<(), anyhow::Error> {
-        if self.config.role == VerifierRole::COORDINATOR {
+        if self.config.verifier_mode == VerifierMode::COORDINATOR {
             self.create_new_session().await?;
+
+            tracing::info!("create a new session");
             self.build_and_broadcast_final_transaction().await?;
         }
 
         let session_info = self.get_session().await?;
+        if session_info.l1_block_number == 0 {
+            tracing::info!("Empty session, nothing to process");
+            return Ok(());
+        }
 
         let session_signature = self.get_session_signatures().await?;
         let session_nonces = self.get_session_nonces().await?;
@@ -118,7 +127,7 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn get_session(&self) -> anyhow::Result<SigningSessionResponse> {
-        let url = format!("{}/session/", self.config.url);
+        let url = format!("{}/session", self.config.url);
         let resp = self.client.get(&url).send().await?;
         if resp.status().as_u16() != StatusCode::OK.as_u16() {
             anyhow::bail!("Error to fetch the session");
@@ -129,7 +138,7 @@ impl ViaWithdrawalVerifier {
 
     async fn get_session_nonces(&self) -> anyhow::Result<HashMap<usize, String>> {
         // We need to fetch all nonces from the coordinator
-        let nonces_url = format!("{}/session/nonce/", self.config.url);
+        let nonces_url = format!("{}/session/nonce", self.config.url);
         let resp = self.client.get(&nonces_url).send().await?;
         let nonces: HashMap<usize, String> = resp.json().await?;
         Ok(nonces)
@@ -142,7 +151,7 @@ impl ViaWithdrawalVerifier {
             .ok_or_else(|| anyhow::anyhow!("No nonce available"))?;
 
         let nonce_pair = encode_nonce(self.signer.signer_index(), nonce).unwrap();
-        let url = format!("{}/session/nonce/", self.config.url);
+        let url = format!("{}/session/nonce", self.config.url);
         let res = self.client.post(&url).json(&nonce_pair).send().await?;
 
         if res.status().is_success() {
@@ -153,12 +162,12 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn get_session_signatures(&self) -> anyhow::Result<HashMap<usize, PartialSignature>> {
-        let url = format!("{}/session/signature/", self.config.url);
+        let url = format!("{}/session/signature", self.config.url);
         let resp = self.client.get(&url).send().await?;
-        let signatures: HashMap<usize, String> = resp.json().await?;
+        let signatures: HashMap<usize, PartialSignaturePair> = resp.json().await?;
         let mut partial_sigs: HashMap<usize, PartialSignature> = HashMap::new();
         for (idx, sig) in signatures {
-            partial_sigs.insert(idx, decode_signature(sig).unwrap());
+            partial_sigs.insert(idx, decode_signature(sig.signature).unwrap());
         }
         Ok(partial_sigs)
     }
@@ -183,7 +192,7 @@ impl ViaWithdrawalVerifier {
         let partial_sig = self.signer.create_partial_signature()?;
         let sig_pair = encode_signature(self.signer.signer_index(), partial_sig)?;
 
-        let url = format!("{}/session/signature/", self.config.url,);
+        let url = format!("{}/session/signature", self.config.url,);
         let resp = self.client.post(&url).json(&sig_pair).send().await?;
         if resp.status().is_success() {
             self.signer.mark_partial_sig_submitted();
@@ -197,29 +206,39 @@ impl ViaWithdrawalVerifier {
             self.config.verifiers_pub_keys_str.clone(),
         )?;
         self.signer = signer;
+        self.final_sig = None;
         Ok(())
     }
 
     async fn create_new_session(&mut self) -> anyhow::Result<()> {
         let session_info = self.get_session().await?;
         if session_info.l1_block_number == 0 {
-            let url = format!("{}/session/new/", self.config.url,);
-            let resp = self.client.post(&url).send().await?;
+            let url = format!("{}/session/new", self.config.url,);
+            let resp = self
+                .client
+                .post(&url)
+                .header(header::CONTENT_TYPE, "application/json")
+                .send()
+                .await?;
+
+            println!("{:?}", resp);
             if !resp.status().is_success() {}
         }
         Ok(())
     }
 
-    async fn create_final_signature(&mut self) -> anyhow::Result<Option<CompactSignature>> {
+    async fn create_final_signature(&mut self) -> anyhow::Result<()> {
+        if self.final_sig.is_some() {
+            return Ok(());
+        }
         let session_info = self.get_session().await?;
 
         if session_info.received_partial_signatures >= session_info.required_signers {
             let signatures = self.get_session_signatures().await?;
-            if session_info.received_partial_signatures >= session_info.required_signers {
-                for (&i, sig) in &signatures {
-                    if self.signer.signer_index() != i {
-                        self.signer.receive_partial_signature(i, *sig)?;
-                    }
+            for (&i, sig) in &signatures {
+                println!("1");
+                if self.signer.signer_index() != i {
+                    self.signer.receive_partial_signature(i, *sig)?;
                 }
             }
 
@@ -230,9 +249,11 @@ impl ViaWithdrawalVerifier {
                 final_sig,
                 &hex::decode(&session_info.message_to_sign)?,
             )?;
-            return Ok(Some(final_sig));
+            self.final_sig = Some(final_sig);
+
+            return Ok(());
         }
-        Ok(None)
+        Ok(())
     }
 
     fn sign_transaction(
@@ -252,8 +273,11 @@ impl ViaWithdrawalVerifier {
 
     async fn build_and_broadcast_final_transaction(&mut self) -> anyhow::Result<()> {
         let session_info = self.get_session().await?;
+        self.create_final_signature()
+            .await
+            .context("Error create final signature")?;
 
-        if let Some(musig2_signature) = self.create_final_signature().await? {
+        if let Some(musig2_signature) = self.final_sig {
             let withdrawal_txid = self
                 .master_connection_pool
                 .connection_tagged("coordinator task")

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use via_btc_client::withdrawal_builder::UnsignedWithdrawalTx;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ViaWithdrawalState {
     pub signing_session: Arc<RwLock<SigningSession>>,
     pub required_signers: usize,
@@ -36,7 +36,7 @@ pub struct PartialSignaturePair {
     pub signature: String,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SigningSessionResponse {
     pub l1_block_number: i64,
     /// hex-encoded message (txid)

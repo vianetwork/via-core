@@ -3,7 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Context;
 use axum::{extract::State, response::Response, Json};
 use base64::Engine;
-use bitcoin::{hashes::Hash, Txid};
+use bitcoin::{
+    hashes::Hash,
+    sighash::{Prevouts, SighashCache},
+    TapSighashType, Txid,
+};
 use musig2::{BinaryEncoding, PubNonce};
 use serde::Serialize;
 use tracing::instrument;
@@ -51,7 +55,7 @@ impl RestApi {
         if l1_block_number != 0 {
             let withdrawal_tx = self_
                 .master_connection_pool
-                .connection_tagged("coordinator")
+                .connection_tagged("coordinator api")
                 .await
                 .unwrap()
                 .via_votes_dal()
@@ -77,7 +81,10 @@ impl RestApi {
             .unwrap();
 
         if blocks.is_empty() {
-            return not_found("No block ready to process withdrawals found");
+            if l1_block_number != 0 {
+                self_.reset_session().await;
+            }
+            return not_found("No block found for processing withdrawals");
         }
 
         let mut withdrawals_to_process: Vec<WithdrawalRequest> = Vec::new();
@@ -88,6 +95,7 @@ impl RestApi {
                 .withdrawal_client
                 .get_withdrawals(blob_id)
                 .await
+                .context("Error to get withdrawals")
                 .unwrap();
 
             if !withdrawals.is_empty() {
@@ -110,31 +118,33 @@ impl RestApi {
         }
 
         if withdrawals_to_process.is_empty() {
-            {
-                let mut session = self_.state.signing_session.write().await;
-                *session = SigningSession::default();
-            }
-            return bad_request("There are no withdrawals to process in this block");
+            self_.reset_session().await;
+            return not_found("There are no withdrawals to process");
         }
 
         let unsigned_tx = self_
             .withdrawal_builder
             .create_unsigned_withdrawal_tx(withdrawals_to_process, proof_txid)
             .await
+            .context("Error to create a unsigned withdrawal transaction")
             .unwrap();
 
-        let message = unsigned_tx
-            .tx
-            .compute_txid()
-            .as_raw_hash()
-            .as_byte_array()
-            .to_vec();
+        let mut sighash_cache = SighashCache::new(&unsigned_tx.tx);
+        let sighash_type = TapSighashType::All;
+        let mut txout_list = Vec::with_capacity(unsigned_tx.utxos.len());
+
+        for (_, txout) in unsigned_tx.utxos.clone() {
+            txout_list.push(txout);
+        }
+        let sighash = sighash_cache
+            .taproot_key_spend_signature_hash(0, &Prevouts::All(&txout_list), sighash_type)
+            .unwrap();
 
         let new_sesssion = SigningSession {
             l1_block_number,
             received_nonces: HashMap::new(),
             received_sigs: HashMap::new(),
-            message: message.clone(),
+            message: sighash.to_byte_array().to_vec(),
             unsigned_tx: Some(unsigned_tx),
         };
 
@@ -233,5 +243,10 @@ impl RestApi {
             signatures.insert(signer_index, sig);
         }
         ok_json(signatures)
+    }
+
+    pub async fn reset_session(&self) {
+        let mut session = self.state.signing_session.write().await;
+        *session = SigningSession::default();
     }
 }
