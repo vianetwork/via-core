@@ -50,6 +50,10 @@ services:
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${TEST_ADDRESS} 300
         echo "Sent 300 BTC to TEST_ADDRESS: $${TEST_ADDRESS}"
 
+        echo "TEST_ADDRESS_2: $${TEST_ADDRESS_2}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${TEST_ADDRESS_2} 300
+        echo "Sent 300 BTC to TEST_ADDRESS_2: $${TEST_ADDRESS_2}"
+
         echo "VERIFIER_1_ADDRESS: $${VERIFIER_1_ADDRESS}"
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${VERIFIER_1_ADDRESS} 300
         echo "Sent 300 BTC to VERIFIER_1_ADDRESS: $${VERIFIER_1_ADDRESS}"
@@ -61,6 +65,14 @@ services:
         echo "VERIFIER_3_ADDRESS: $${VERIFIER_3_ADDRESS}"
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${VERIFIER_3_ADDRESS} 300
         echo "Sent 300 BTC to VERIFIER_3_ADDRESS: $${VERIFIER_3_ADDRESS}"
+
+        echo "BRIDGE_ADDRESS: $${BRIDGE_ADDRESS}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${BRIDGE_ADDRESS} 300
+        echo "Sent 300 BTC to BRIDGE_ADDRESS: $${BRIDGE_ADDRESS}"
+
+        echo "BRIDGE_ADDRESS_TEST: $${BRIDGE_ADDRESS_TEST}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${BRIDGE_ADDRESS_TEST} 300
+        echo "Sent 300 BTC to BRIDGE_ADDRESS_TEST: $${BRIDGE_ADDRESS_TEST}"
 
         bitcoin-cli $${RPC_ARGS} generatetoaddress 6 $${ALICE_ADDRESS}
 
@@ -89,9 +101,12 @@ services:
     environment:
       - BITCOIN_DATA=/home/bitcoin/.bitcoin
       - TEST_ADDRESS=bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
+      - TEST_ADDRESS_2=bcrt1quw8xktufw6v4vjl32ledaenfzghs9ckyujcc5z
       - VERIFIER_1_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
       - VERIFIER_2_ADDRESS=bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
       - VERIFIER_3_ADDRESS=bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm
+      - BRIDGE_ADDRESS_TEST=bcrt1pdsrfe4xu50j9yl8k3t2x3zsl3u6nzg4eleg3udw406ev2kn2hmpqwvr44v
+      - BRIDGE_ADDRESS=bcrt1pu2js99s96f97ecngk8nz7hkaf7fgnjnpv8rxpaft7zd3h9q5affqdz0dch
       - RPC_ARGS=-chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
       - SLEEP_SECONDS=5
 
@@ -108,18 +123,18 @@ services:
       - POSTGRES_PASSWORD=notsecurepassword
 
   celestia-node:
-    image: "ghcr.io/celestiaorg/celestia-node:v0.20.2-arabica"
+    image: "ghcr.io/celestiaorg/celestia-node:v0.20.4-mocha"
     container_name: celestia-node
     volumes:
       - type: bind
         source: ./volumes/celestia
         target: /home/celestia
-    command: celestia light start --headers.trusted-hash ${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip validator-2.celestia-arabica-11.com --p2p.network arabica 
+    command: celestia light start --headers.trusted-hash ${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip consensus-full-mocha-4.celestia-mocha.com --p2p.network mocha 
     ports:
       - '26658:26658'
     environment:
       - NODE_TYPE=light
-      - P2P_NETWORK=arabica
+      - P2P_NETWORK=mocha
 
 volumes:
   bitcoin_data:

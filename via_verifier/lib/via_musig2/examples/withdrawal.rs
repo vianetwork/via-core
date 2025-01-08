@@ -1,32 +1,55 @@
 use bitcoin::{
     absolute,
     hashes::Hash,
+    secp256k1,
     sighash::{Prevouts, SighashCache},
     taproot::TaprootSpendInfo,
-    Address as BitcoinAddress, Amount, Network, OutPoint, TapSighashType, Transaction, TxIn, TxOut,
-    Witness, XOnlyPublicKey,
+    Address as BitcoinAddress, Amount, CompressedPublicKey, Network, PrivateKey, TapSighashType,
+    Transaction, TxIn, TxOut, Witness, XOnlyPublicKey,
 };
-// use bitcoincore_rpc::Auth;
 use musig2::{
     verify_single, CompactSignature, FirstRound, KeyAggContext, PartialSignature, SecNonceSpices,
 };
-use rand::{rngs::OsRng, Rng};
-use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
+use rand::Rng;
+use secp256k1_musig2::{schnorr, PublicKey, Secp256k1, SecretKey};
+use via_btc_client::{inscriber::Inscriber, types::NodeAuth};
+
+const RPC_URL: &str = "http://0.0.0.0:18443";
+const RPC_USERNAME: &str = "rpcuser";
+const RPC_PASSWORD: &str = "rpcpassword";
+const NETWORK: Network = Network::Regtest;
+const PK: &str = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // -------------------------------------------
     // Setup: Create secret and public keys for three participants
     // -------------------------------------------
-    let mut rng = OsRng;
-    let secret_key_1 = SecretKey::new(&mut rng);
-    let secret_key_2 = SecretKey::new(&mut rng);
-    let secret_key_3 = SecretKey::new(&mut rng);
+
+    let private_key_1 = PrivateKey::from_wif(&String::from(
+        "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R",
+    ))?;
+
+    let private_key_2 = PrivateKey::from_wif(&String::from(
+        "cUWA5dZXc6NwLovW3Kr9DykfY5ysFigKZM5Annzty7J8a43Fe2YF",
+    ))?;
+
+    let private_key_3 = PrivateKey::from_wif(&String::from(
+        "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm",
+    ))?;
 
     let secp = Secp256k1::new();
-    let public_key_1 = PublicKey::from_secret_key(&secp, &secret_key_1);
-    let public_key_2 = PublicKey::from_secret_key(&secp, &secret_key_2);
-    let public_key_3 = PublicKey::from_secret_key(&secp, &secret_key_3);
+    let secret_key_1 = SecretKey::from_byte_array(&private_key_1.inner.secret_bytes())?;
+    let public_key_1 = secp256k1_musig2::PublicKey::from_secret_key(&secp, &secret_key_1);
+
+    let com_public_key_1 = CompressedPublicKey::from_slice(&public_key_1.serialize().to_vec())?;
+    let address_1 = BitcoinAddress::p2wpkh(&com_public_key_1, Network::Regtest);
+
+    let secret_key_2 = SecretKey::from_byte_array(&private_key_2.inner.secret_bytes())?;
+    let public_key_2 = secp256k1_musig2::PublicKey::from_secret_key(&secp, &secret_key_2);
+
+    let secret_key_3 = SecretKey::from_byte_array(&private_key_3.inner.secret_bytes())?;
+    let public_key_3 = secp256k1_musig2::PublicKey::from_secret_key(&secp, &secret_key_3);
 
     // -------------------------------------------
     // Key aggregation (MuSig2)
@@ -48,46 +71,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // -------------------------------------------
     // Connect to Bitcoin node (adjust RPC credentials and URL)
     // -------------------------------------------
-    // NOTE: Update these with real RPC credentials and URL
-    let _rpc_url = "http://127.0.0.1:18443";
-    let _rpc_user = "user";
-    let _rpc_pass = "pass";
-
-    // let client = BitcoinClient::new(rpc_url, Network::Regtest, Auth::UserPass(rpc_user.into(), rpc_pass.into()))?;
-
-    // -------------------------------------------
-    // Instead of fetching UTXOs from node, use a fake constant UTXO for demonstration
-    // Comment out real fetching code
-    // -------------------------------------------
-    // let utxos = client.fetch_utxos(&address).await?;
-    // if utxos.is_empty() {
-    //     eprintln!("No UTXOs found for this address. Please fund it first.");
-    //     return Ok(());
-    // }
-
-    // We'll use a fake UTXO here
-    let fake_utxo_txid = bitcoin::Txid::from_slice(&[0x11; 32]).unwrap(); // just a dummy 32-byte txid
-    let fake_vout = 0;
-    let fake_utxo_amount = Amount::from_btc(1.0).unwrap(); // 1 BTC in the fake utxo
-    let fake_utxo = (fake_utxo_txid, fake_vout, fake_utxo_amount);
+    let inscriber = Inscriber::new(
+        RPC_URL,
+        NETWORK,
+        NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string()),
+        PK,
+        None,
+    )
+    .await?;
+    let client = inscriber.get_client().await;
 
     // -------------------------------------------
-    // Create a transaction spending this fake UTXO
+    // Fetching UTXOs from node
     // -------------------------------------------
-    let send_amount = Amount::from_btc(0.1).unwrap(); // amount to send
+    let utxos = client.fetch_utxos(&address).await?;
+
+    // -------------------------------------------
+    // Create a transaction spending the UTXO
+    // -------------------------------------------
+    let send_amount = Amount::from_btc(0.1).unwrap();
     let fee_amount = Amount::from_btc(0.0001).unwrap();
-    let change_amount = fake_utxo_amount - send_amount - fee_amount;
-
-    // The recipient address - for demonstration let's send to the same aggregated address
-    // or another regtest address.
-    let recipient_address = address.clone();
-    let change_address = address.clone();
+    let change_amount = utxos[0].1.value - send_amount - fee_amount;
 
     let txin = TxIn {
-        previous_output: OutPoint {
-            txid: fake_utxo.0,
-            vout: fake_utxo.1,
-        },
+        previous_output: utxos[0].0,
         sequence: bitcoin::Sequence(0xFFFFFFFF),
         witness: Witness::new(),
         script_sig: bitcoin::Script::new().into(),
@@ -95,12 +102,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let txout_recipient = TxOut {
         value: send_amount,
-        script_pubkey: recipient_address.script_pubkey(),
+        script_pubkey: address_1.script_pubkey(),
     };
 
     let txout_change = TxOut {
         value: change_amount,
-        script_pubkey: change_address.script_pubkey(),
+        script_pubkey: address.script_pubkey(),
     };
 
     let mut unsigned_tx = Transaction {
@@ -120,8 +127,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sighash = sighash_cache.taproot_key_spend_signature_hash(
         0,
         &Prevouts::All(&[TxOut {
-            value: fake_utxo_amount,
-            script_pubkey: recipient_address.script_pubkey(),
+            value: utxos[0].1.value,
+            script_pubkey: utxos[0].1.script_pubkey.clone(),
         }]),
         sighash_type,
     )?;
@@ -203,8 +210,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut final_sig_with_hashtype = final_signature.serialize().to_vec();
     final_sig_with_hashtype.push(sighash_type as u8); // For SIGHASH_DEFAULT this is 0x00
 
+    let signature = bitcoin::taproot::Signature {
+        sighash_type,
+        signature: secp256k1::schnorr::Signature::from_slice(&final_signature.serialize())?,
+    };
+
     // For a key-path spend in taproot, the witness is just the signature
-    unsigned_tx.input[0].witness = Witness::from(vec![final_sig_with_hashtype]);
+    unsigned_tx.input[0].witness.push(signature.to_vec());
+
+    let secp = Secp256k1::new();
+
+    // -------------------------------------------
+    // Verify the Schnorr signature
+    // -------------------------------------------
+    let array: [u8; 64] = final_signature.serialize().try_into().unwrap();
+    let sig = schnorr::Signature::from_byte_array(array);
+
+    match secp.verify_schnorr(
+        &sig,
+        message.as_byte_array(),
+        &aggregated_pubkey.x_only_public_key().0,
+    ) {
+        Ok(_) => println!("Valid schnorr sig!"),
+        Err(e) => {
+            println!("Invalid schnorr sig: {:?}", e);
+            return Ok(());
+        }
+    }
 
     // -------------------------------------------
     // Print the signed raw transaction (in hex)
@@ -212,9 +244,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let signed_raw_tx = bitcoin::consensus::encode::serialize_hex(&unsigned_tx);
     println!("Signed raw transaction (hex): {}", signed_raw_tx);
 
-    // NOTE: In real scenario, you could broadcast this transaction using the Bitcoin node RPC:
-    // client.broadcast_raw_tx(&signed_raw_tx).await?;
-    // Here we just printed it.
+    // -------------------------------------------
+    // Broadcast the signed transation
+    // -------------------------------------------
+    client.broadcast_signed_transaction(&signed_raw_tx).await?;
 
     Ok(())
 }
