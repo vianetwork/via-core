@@ -25,7 +25,7 @@ impl MessageProcessor for VerifierMessageProcessor {
         for msg in msgs {
             match msg {
                 ref f @ FullInscriptionMessage::ProofDAReference(ref proof_msg) => {
-                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(&f).await {
+                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
                         let mut votes_dal = storage.via_votes_dal();
 
                         let last_inserted_block = votes_dal
@@ -62,7 +62,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                     }
                 }
                 ref f @ FullInscriptionMessage::ValidatorAttestation(ref attestation_msg) => {
-                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(&f).await {
+                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
                         let mut votes_dal = storage.via_votes_dal();
 
                         let reference_txid =

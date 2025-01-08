@@ -72,7 +72,6 @@ pub fn create_l1_batch(number: u32) -> L1BatchHeader {
 }
 
 pub fn default_l1_batch_metadata() -> L1BatchMetadata {
-    let hex_str = "0000000000000000000000000000000000000000000000000000000000000000";
     L1BatchMetadata {
         root_hash: H256::default(),
         rollup_last_leaf_index: 0,
