@@ -105,10 +105,7 @@ impl RestApi {
                     .await
                     .unwrap()
                     .via_votes_dal()
-                    .mark_vote_transaction_as_processed_withdrawals(
-                        H256::zero(),
-                        l1_block_number,
-                    )
+                    .mark_vote_transaction_as_processed_withdrawals(H256::zero(), l1_block_number)
             }
         }
 

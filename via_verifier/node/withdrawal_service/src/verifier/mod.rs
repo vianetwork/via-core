@@ -274,8 +274,7 @@ impl ViaWithdrawalVerifier {
                 .broadcast_signed_transaction(&signed_tx)
                 .await?;
 
-            self
-                .master_connection_pool
+            self.master_connection_pool
                 .connection_tagged("coordinator task")
                 .await
                 .unwrap()
