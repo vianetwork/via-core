@@ -2,6 +2,7 @@ use std::{clone::Clone, str::FromStr};
 
 use anyhow::Context;
 use base64::Engine;
+use bitcoin::PrivateKey;
 use musig2::{BinaryEncoding, PartialSignature, PubNonce};
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
 use via_musig2::Signer;
@@ -9,20 +10,20 @@ use via_musig2::Signer;
 use crate::types::{NoncePair, PartialSignaturePair};
 
 pub fn get_signer(
-    private_key: &str,
+    private_key_wif: &str,
     verifiers_pub_keys_str: Vec<String>,
 ) -> anyhow::Result<Signer> {
-    let secret_key =
-        SecretKey::from_str(private_key).context("Error to compute the coordinator sk")?;
+    let private_key = PrivateKey::from_wif(private_key_wif)?;
+    let secret_key = SecretKey::from_byte_array(&private_key.inner.secret_bytes())
+        .context("Error to compute the coordinator sk")?;
     let secp = Secp256k1::new();
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
     let mut all_pubkeys = Vec::new();
-    all_pubkeys.push(public_key);
 
     let mut signer_index = 0;
     for i in 0..verifiers_pub_keys_str.len() {
-        let pk = PublicKey::from_slice(verifiers_pub_keys_str[i].as_bytes())?;
+        let pk = PublicKey::from_str(&verifiers_pub_keys_str[i])?;
         all_pubkeys.push(pk);
         if pk == public_key {
             signer_index = i;
@@ -34,7 +35,9 @@ pub fn get_signer(
 }
 
 pub fn decode_signature(signature: String) -> anyhow::Result<PartialSignature> {
-    let decoded_sig = base64::engine::general_purpose::STANDARD.decode(&signature)?;
+    let decoded_sig = base64::engine::general_purpose::STANDARD
+        .decode(&signature)
+        .context("error to decode signature")?;
     Ok(PartialSignature::from_slice(&decoded_sig)?)
 }
 
@@ -59,7 +62,9 @@ pub fn encode_nonce(signer_index: usize, nonce: PubNonce) -> anyhow::Result<Nonc
 }
 
 pub fn decode_nonce(nonce_pair: NoncePair) -> anyhow::Result<PubNonce> {
-    let decoded_nonce = base64::engine::general_purpose::STANDARD.decode(&nonce_pair.nonce)?;
+    let decoded_nonce = base64::engine::general_purpose::STANDARD
+        .decode(&nonce_pair.nonce)
+        .context("error to encode nonde")?;
     let pub_nonce = PubNonce::from_bytes(&decoded_nonce)?;
     Ok(pub_nonce)
 }
