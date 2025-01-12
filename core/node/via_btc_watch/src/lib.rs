@@ -19,9 +19,8 @@ use self::{
     message_processors::{
         L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError, VotableMessageProcessor,
     },
-    metrics::METRICS,
+    metrics::{ErrorType, METRICS},
 };
-use crate::{message_processors::VerifierMessageProcessor, metrics::ErrorType};
 
 const DEFAULT_VOTING_THRESHOLD: f64 = 0.5;
 
@@ -66,22 +65,13 @@ impl BtcWatch {
         assert_eq!(actor_role, &ActorRole::Sequencer);
 
         // Only build message processors that match the actor role:
-        let message_processors: Vec<Box<dyn MessageProcessor>> = match actor_role {
-            ActorRole::Verifier => {
-                vec![Box::new(VerifierMessageProcessor::new(
-                    DEFAULT_VOTING_THRESHOLD,
-                ))]
-            }
-            _ => {
-                vec![
-                    Box::new(L1ToL2MessageProcessor::new(
-                        state.bridge_address.clone(),
-                        state.next_expected_priority_id,
-                    )),
-                    Box::new(VotableMessageProcessor::new(DEFAULT_VOTING_THRESHOLD)),
-                ]
-            }
-        };
+        let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
+            Box::new(L1ToL2MessageProcessor::new(
+                state.bridge_address.clone(),
+                state.next_expected_priority_id,
+            )),
+            Box::new(VotableMessageProcessor::new(DEFAULT_VOTING_THRESHOLD)),
+        ];
 
         let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);
 
