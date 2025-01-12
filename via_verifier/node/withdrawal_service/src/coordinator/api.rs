@@ -1,9 +1,9 @@
 use anyhow::Context as _;
 use tokio::sync::watch;
 use via_btc_client::withdrawal_builder::WithdrawalBuilder;
+use via_verifier_dal::{ConnectionPool, Core};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
-use zksync_dal::{ConnectionPool, Core};
 
 use crate::coordinator::api_decl::RestApi;
 

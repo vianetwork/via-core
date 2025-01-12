@@ -10,8 +10,8 @@ use via_btc_client::{
     withdrawal_builder::UnsignedWithdrawalTx,
 };
 use via_musig2::{verify_signature, Signer};
+use via_verifier_dal::{ConnectionPool, Core, CoreDal};
 use zksync_config::configs::via_verifier::{VerifierRole, ViaVerifierConfig};
-use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_types::H256;
 
 use crate::{

@@ -3,9 +3,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use via_btc_client::withdrawal_builder::WithdrawalBuilder;
+use via_verifier_dal::{ConnectionPool, Core};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
-use zksync_dal::{ConnectionPool, Core};
 
 use crate::types::{SigningSession, ViaWithdrawalState};
 

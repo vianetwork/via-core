@@ -9769,10 +9769,10 @@ dependencies = [
  "uuid 1.10.0",
  "via_btc_client",
  "via_musig2",
+ "via_verifier_dal",
  "via_withdrawal_client",
  "vise",
  "zksync_config",
- "zksync_dal",
  "zksync_types",
 ]
 
