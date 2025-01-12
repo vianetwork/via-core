@@ -42,7 +42,6 @@ pub mod via_gas_adjuster;
 pub mod via_l1_gas;
 pub mod via_state_keeper;
 // TODO: TMP in sequencer
-pub mod verifier_pools_layer;
 pub mod via_verifier;
 pub mod via_zk_verification;
 pub mod vm_runner;
