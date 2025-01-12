@@ -9720,9 +9720,11 @@ dependencies = [
 name = "via_verifier_dal"
 version = "0.1.0"
 dependencies = [
+ "rand 0.8.5",
  "sqlx",
  "strum 0.26.3",
  "thiserror",
+ "tokio",
  "zksync_basic_types",
  "zksync_db_connection",
  "zksync_types",

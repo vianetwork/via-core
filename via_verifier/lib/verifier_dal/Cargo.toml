@@ -29,3 +29,7 @@ sqlx = { workspace = true, features = [
     "migrate",
     "ipnetwork",
 ] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+rand = { workspace = true }
