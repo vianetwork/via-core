@@ -3,14 +3,14 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use via_btc_client::withdrawal_builder::WithdrawalBuilder;
-use via_verifier_dal::{ConnectionPool, Core};
+use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
 
 use crate::types::{SigningSession, ViaWithdrawalState};
 
 pub struct RestApi {
-    pub master_connection_pool: ConnectionPool<Core>,
+    pub master_connection_pool: ConnectionPool<Verifier>,
     pub state: ViaWithdrawalState,
     pub withdrawal_builder: WithdrawalBuilder,
     pub withdrawal_client: WithdrawalClient,
@@ -19,7 +19,7 @@ pub struct RestApi {
 impl RestApi {
     pub fn new(
         config: ViaVerifierConfig,
-        master_connection_pool: ConnectionPool<Core>,
+        master_connection_pool: ConnectionPool<Verifier>,
         withdrawal_builder: WithdrawalBuilder,
         withdrawal_client: WithdrawalClient,
     ) -> anyhow::Result<Self> {

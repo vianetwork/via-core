@@ -9722,8 +9722,10 @@ version = "0.1.0"
 dependencies = [
  "sqlx",
  "strum 0.26.3",
+ "thiserror",
  "zksync_basic_types",
  "zksync_db_connection",
+ "zksync_types",
 ]
 
 [[package]]
@@ -11796,6 +11798,7 @@ dependencies = [
  "via_da_dispatcher",
  "via_fee_model",
  "via_state_keeper",
+ "via_verifier_dal",
  "via_withdrawal_client",
  "via_withdrawal_service",
  "zksync_base_token_adjuster",

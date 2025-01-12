@@ -10,7 +10,7 @@ use via_btc_client::{
     withdrawal_builder::UnsignedWithdrawalTx,
 };
 use via_musig2::{verify_signature, Signer};
-use via_verifier_dal::{ConnectionPool, Core, CoreDal};
+use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use zksync_config::configs::via_verifier::{VerifierRole, ViaVerifierConfig};
 use zksync_types::H256;
 
@@ -20,7 +20,7 @@ use crate::{
 };
 
 pub struct ViaWithdrawalVerifier {
-    master_connection_pool: ConnectionPool<Core>,
+    master_connection_pool: ConnectionPool<Verifier>,
     btc_client: Arc<dyn BitcoinOps>,
     config: ViaVerifierConfig,
     client: Client,
@@ -29,7 +29,7 @@ pub struct ViaWithdrawalVerifier {
 
 impl ViaWithdrawalVerifier {
     pub async fn new(
-        master_connection_pool: ConnectionPool<Core>,
+        master_connection_pool: ConnectionPool<Verifier>,
         btc_client: Arc<dyn BitcoinOps>,
         config: ViaVerifierConfig,
     ) -> anyhow::Result<Self> {
@@ -257,8 +257,7 @@ impl ViaWithdrawalVerifier {
             let withdrawal_txid = self
                 .master_connection_pool
                 .connection_tagged("coordinator task")
-                .await
-                .unwrap()
+                .await?
                 .via_votes_dal()
                 .get_vote_transaction_withdrawal_tx(session_info.l1_block_number)
                 .await?;
@@ -276,8 +275,7 @@ impl ViaWithdrawalVerifier {
 
             self.master_connection_pool
                 .connection_tagged("coordinator task")
-                .await
-                .unwrap()
+                .await?
                 .via_votes_dal()
                 .mark_vote_transaction_as_processed_withdrawals(
                     H256::from_slice(&txid.as_raw_hash().to_byte_array()),

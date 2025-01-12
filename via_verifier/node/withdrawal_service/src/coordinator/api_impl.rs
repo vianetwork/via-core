@@ -8,7 +8,7 @@ use musig2::{BinaryEncoding, PubNonce};
 use serde::Serialize;
 use tracing::instrument;
 use via_btc_client::{traits::Serializable, withdrawal_builder::WithdrawalRequest};
-use via_verifier_dal::CoreDal;
+use via_verifier_dal::VerifierDal;
 use zksync_types::H256;
 
 use super::api_decl::RestApi;

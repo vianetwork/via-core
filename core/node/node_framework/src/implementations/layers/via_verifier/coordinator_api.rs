@@ -6,14 +6,14 @@ use via_btc_client::{
     withdrawal_builder::WithdrawalBuilder,
 };
 use via_btc_watch::BitcoinNetwork;
+use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
-use zksync_dal::{ConnectionPool, Core};
 
 use crate::{
     implementations::resources::{
         da_client::DAClientResource,
-        pools::{MasterPool, PoolResource},
+        pools::{PoolResource, VerifierPool},
     },
     service::StopReceiver,
     task::{Task, TaskId},
@@ -31,7 +31,7 @@ pub struct ViaCoordinatorApiLayer {
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
-    pub master_pool: PoolResource<MasterPool>,
+    pub master_pool: PoolResource<VerifierPool>,
     pub client: DAClientResource,
 }
 
@@ -85,7 +85,7 @@ impl WiringLayer for ViaCoordinatorApiLayer {
 
 #[derive(Debug)]
 pub struct ViaCoordinatorApiTask {
-    master_pool: ConnectionPool<Core>,
+    master_pool: ConnectionPool<Verifier>,
     config: ViaVerifierConfig,
     withdrawal_builder: WithdrawalBuilder,
     withdrawal_client: WithdrawalClient,

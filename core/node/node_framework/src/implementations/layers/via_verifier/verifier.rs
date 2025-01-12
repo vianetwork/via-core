@@ -7,7 +7,7 @@ use via_withdrawal_service::verifier::ViaWithdrawalVerifier;
 use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
 
 use crate::{
-    implementations::resources::pools::{MasterPool, PoolResource},
+    implementations::resources::pools::{PoolResource, VerifierPool},
     service::StopReceiver,
     task::{Task, TaskId},
     wiring_layer::{WiringError, WiringLayer},
@@ -24,7 +24,7 @@ pub struct ViaWithdrawalVerifierLayer {
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
-    pub master_pool: PoolResource<MasterPool>,
+    pub master_pool: PoolResource<VerifierPool>,
 }
 
 #[derive(IntoContext)]
