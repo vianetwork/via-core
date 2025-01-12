@@ -22,6 +22,7 @@ pub struct BtcWatchLayer {
     btc_watch_config: ViaBtcWatchConfig,
 }
 
+// TODO: add verifier pool and make btc_watch verifier compatible
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {

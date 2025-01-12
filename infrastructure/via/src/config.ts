@@ -174,6 +174,19 @@ export async function pushConfig(environment?: string, diff?: string) {
             l2InitFile,
             false
         );
+
+        env.modify(
+            `DATABASE_VERIFIER_URL`,
+            `postgres://postgres:notsecurepassword@localhost/verifier_${environment}`,
+            l2InitFile,
+            false
+        );
+        env.modify(
+            `TEST_DATABASE_VERIFIER_URL`,
+            `postgres://postgres:notsecurepassword@localhost/verifier_${environment}_test`,
+            l2InitFile,
+            false
+        );
     }
 
     env.modify('DATABASE_STATE_KEEPER_DB_PATH', `./db/${environment}/state_keeper`, l2InitFile, false);

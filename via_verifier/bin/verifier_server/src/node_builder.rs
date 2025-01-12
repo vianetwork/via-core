@@ -6,7 +6,7 @@ use zksync_config::{
 use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer, healtcheck_server::HealthCheckLayer,
-        sigint::SigintHandlerLayer, via_btc_watch::BtcWatchLayer,
+        pools_layer::PoolsLayerBuilder, sigint::SigintHandlerLayer, via_btc_watch::BtcWatchLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -84,8 +84,19 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_pools_layer(mut self) -> anyhow::Result<Self> {
+        let config = try_load_config!(self.configs.postgres_config);
+        let secrets = try_load_config!(self.secrets.database);
+        let pools_layer = PoolsLayerBuilder::empty(config, secrets)
+            .with_verifier(true)
+            .build();
+        self.node.add_layer(pools_layer);
+        Ok(self)
+    }
+
     pub fn build(self) -> anyhow::Result<ZkStackService> {
         Ok(self
+            .add_pools_layer()?
             .add_sigint_handler_layer()?
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
