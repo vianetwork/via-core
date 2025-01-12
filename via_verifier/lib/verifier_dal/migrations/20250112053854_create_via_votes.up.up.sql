@@ -21,4 +21,5 @@ CREATE TABLE IF NOT EXISTS via_votes (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (l1_batch_number, tx_id, verifier_address),
     FOREIGN KEY (l1_batch_number, tx_id) REFERENCES via_votable_transactions (l1_batch_number, tx_id) ON DELETE CASCADE
-); 
+);
+
