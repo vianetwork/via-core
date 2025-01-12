@@ -1,10 +1,11 @@
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::NodeAuth};
-use via_btc_watch::{BitcoinNetwork, BtcWatch};
+use via_btc_watch::BitcoinNetwork;
+use via_verifier_btc_watch::VerifierBtcWatch;
 use zksync_config::ViaBtcWatchConfig;
 
 use crate::{
     implementations::resources::{
-        pools::{MasterPool, PoolResource},
+        pools::{PoolResource, VerifierPool},
         via_btc_indexer::BtcIndexerResource,
     },
     service::StopReceiver,
@@ -15,9 +16,9 @@ use crate::{
 
 /// Wiring layer for bitcoin watcher
 ///
-/// Responsible for initializing and running of [`BtcWatch`] component, that polls the Bitcoin node for the relevant events.
+/// Responsible for initializing and running of [`VerifierBtcWatch`] component, that polls the Bitcoin node for the relevant events.
 #[derive(Debug)]
-pub struct BtcWatchLayer {
+pub struct VerifierBtcWatchLayer {
     // TODO: divide into multiple configs
     btc_watch_config: ViaBtcWatchConfig,
 }
@@ -25,7 +26,7 @@ pub struct BtcWatchLayer {
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
-    pub master_pool: PoolResource<MasterPool>,
+    pub master_pool: PoolResource<VerifierPool>,
 }
 
 #[derive(Debug, IntoContext)]
@@ -33,22 +34,22 @@ pub struct Input {
 pub struct Output {
     pub btc_indexer_resource: BtcIndexerResource,
     #[context(task)]
-    pub btc_watch: BtcWatch,
+    pub btc_watch: VerifierBtcWatch,
 }
 
-impl BtcWatchLayer {
+impl VerifierBtcWatchLayer {
     pub fn new(btc_watch_config: ViaBtcWatchConfig) -> Self {
         Self { btc_watch_config }
     }
 }
 
 #[async_trait::async_trait]
-impl WiringLayer for BtcWatchLayer {
+impl WiringLayer for VerifierBtcWatchLayer {
     type Input = Input;
     type Output = Output;
 
     fn layer_name(&self) -> &'static str {
-        "btc_watch_layer"
+        "verifier_btc_watch_layer"
     }
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
@@ -80,7 +81,7 @@ impl WiringLayer for BtcWatchLayer {
             .await
             .map_err(|e| WiringError::Internal(e.into()))?,
         );
-        let btc_watch = BtcWatch::new(
+        let btc_watch = VerifierBtcWatch::new(
             self.btc_watch_config.rpc_url(),
             network,
             node_auth,
@@ -101,9 +102,9 @@ impl WiringLayer for BtcWatchLayer {
 }
 
 #[async_trait::async_trait]
-impl Task for BtcWatch {
+impl Task for VerifierBtcWatch {
     fn id(&self) -> TaskId {
-        "btc_watch".into()
+        "verifier_btc_watch".into()
     }
 
     async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {

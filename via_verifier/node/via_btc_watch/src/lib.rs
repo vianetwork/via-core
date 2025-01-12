@@ -9,16 +9,13 @@ use tokio::sync::watch;
 pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinAddress, BitcoinTxid, NodeAuth},
+    types::{BitcoinTxid, NodeAuth},
 };
+use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ActorRole;
-use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::PriorityOpId;
 
 use self::{
-    message_processors::{
-        L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError, VotableMessageProcessor,
-    },
+    message_processors::{MessageProcessor, MessageProcessorError},
     metrics::METRICS,
 };
 use crate::{message_processors::VerifierMessageProcessor, metrics::ErrorType};
@@ -28,22 +25,20 @@ const DEFAULT_VOTING_THRESHOLD: f64 = 0.5;
 #[derive(Debug)]
 struct BtcWatchState {
     last_processed_bitcoin_block: u32,
-    next_expected_priority_id: PriorityOpId,
-    bridge_address: BitcoinAddress,
 }
 
 #[derive(Debug)]
-pub struct BtcWatch {
+pub struct VerifierBtcWatch {
     indexer: BitcoinInscriptionIndexer,
     poll_interval: Duration,
     confirmations_for_btc_msg: u64,
     last_processed_bitcoin_block: u32,
-    pool: ConnectionPool<Core>,
+    pool: ConnectionPool<Verifier>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
     btc_blocks_lag: u32,
 }
 
-impl BtcWatch {
+impl VerifierBtcWatch {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         rpc_url: &str,
@@ -51,7 +46,7 @@ impl BtcWatch {
         node_auth: NodeAuth,
         confirmations_for_btc_msg: Option<u64>,
         bootstrap_txids: Vec<BitcoinTxid>,
-        pool: ConnectionPool<Core>,
+        pool: ConnectionPool<Verifier>,
         poll_interval: Duration,
         btc_blocks_lag: u32,
         actor_role: &ActorRole,
@@ -63,25 +58,11 @@ impl BtcWatch {
         tracing::info!("initialized state: {state:?}");
         drop(storage);
 
-        assert_eq!(actor_role, &ActorRole::Sequencer);
+        assert_eq!(actor_role, &ActorRole::Verifier);
 
-        // Only build message processors that match the actor role:
-        let message_processors: Vec<Box<dyn MessageProcessor>> = match actor_role {
-            ActorRole::Verifier => {
-                vec![Box::new(VerifierMessageProcessor::new(
-                    DEFAULT_VOTING_THRESHOLD,
-                ))]
-            }
-            _ => {
-                vec![
-                    Box::new(L1ToL2MessageProcessor::new(
-                        state.bridge_address.clone(),
-                        state.next_expected_priority_id,
-                    )),
-                    Box::new(VotableMessageProcessor::new(DEFAULT_VOTING_THRESHOLD)),
-                ]
-            }
-        };
+        let message_processors: Vec<Box<dyn MessageProcessor>> = vec![Box::new(
+            VerifierMessageProcessor::new(DEFAULT_VOTING_THRESHOLD),
+        )];
 
         let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);
 
@@ -106,36 +87,24 @@ impl BtcWatch {
 
     async fn initialize_state(
         indexer: &BitcoinInscriptionIndexer,
-        storage: &mut Connection<'_, Core>,
+        storage: &mut Connection<'_, Verifier>,
         btc_blocks_lag: u32,
     ) -> anyhow::Result<BtcWatchState> {
-        let last_processed_bitcoin_block = match storage
-            .via_transactions_dal()
-            .get_last_processed_l1_block()
-            .await?
-        {
-            Some(block) => block.0.saturating_sub(1),
-            None => indexer
-                .fetch_block_height()
-                .await
-                .context("cannot get current Bitcoin block")?
-                .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
-        };
+        let last_processed_bitcoin_block =
+            match storage.via_votes_dal().get_last_inserted_block().await? {
+                Some(block) => block.saturating_sub(1),
+                None => indexer
+                    .fetch_block_height()
+                    .await
+                    .context("cannot get current Bitcoin block")?
+                    .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
+            };
 
         // TODO: get the bridge address from the database?
-        let (bridge_address, ..) = indexer.get_state();
-
-        let next_expected_priority_id = storage
-            .via_transactions_dal()
-            .last_priority_id()
-            .await?
-            .map(|id| id + 1)
-            .unwrap_or(PriorityOpId(0));
+        let (_bridge_address, ..) = indexer.get_state();
 
         Ok(BtcWatchState {
             last_processed_bitcoin_block,
-            bridge_address,
-            next_expected_priority_id,
         })
     }
 
@@ -174,7 +143,7 @@ impl BtcWatch {
 
     async fn loop_iteration(
         &mut self,
-        storage: &mut Connection<'_, Core>,
+        storage: &mut Connection<'_, Verifier>,
     ) -> Result<(), MessageProcessorError> {
         let to_block = self
             .indexer

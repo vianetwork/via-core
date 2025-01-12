@@ -100,6 +100,8 @@ members = [
     "via_verifier/lib/via_musig2",
     "via_verifier/lib/verifier_dal",
     "via_verifier/node/withdrawal_service",
+    "via_verifier/node/via_zk_verifier",
+    "via_verifier/node/via_btc_watch",
 ]
 
 resolver = "2"
@@ -337,3 +339,5 @@ via_verification = { version = "0.1.0", path = "via_verifier/lib/via_verificatio
 via_musig2 = { version = "0.1.0", path = "via_verifier/lib/via_musig2" }
 via_verifier_dal = { version = "0.1.0", path = "via_verifier/lib/verifier_dal" }
 via_withdrawal_service = { version = "0.1.0", path = "via_verifier/node/withdrawal_service" }
+via_zk_verifier = { version = "0.1.0", path = "via_verifier/node/via_zk_verifier" }
+via_verifier_btc_watch = { version = "0.1.0", path = "via_verifier/node/via_btc_watch" }
