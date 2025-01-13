@@ -1,14 +1,12 @@
-pub(crate) use l1_to_l2::L1ToL2MessageProcessor;
+pub(crate) use verifier::VerifierMessageProcessor;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{BitcoinTxid, FullInscriptionMessage},
 };
-pub(crate) use votable::VotableMessageProcessor;
-use zksync_dal::{Connection, Core};
+use via_verifier_dal::{Connection, Verifier};
 use zksync_types::H256;
 
-mod l1_to_l2;
-mod votable;
+mod verifier;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum MessageProcessorError {
@@ -22,7 +20,7 @@ pub(super) enum MessageProcessorError {
 pub(super) trait MessageProcessor: 'static + std::fmt::Debug + Send + Sync {
     async fn process_messages(
         &mut self,
-        storage: &mut Connection<'_, Core>,
+        storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<(), MessageProcessorError>;

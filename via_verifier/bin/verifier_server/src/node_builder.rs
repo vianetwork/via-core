@@ -6,7 +6,8 @@ use zksync_config::{
 use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer, healtcheck_server::HealthCheckLayer,
-        pools_layer::PoolsLayerBuilder, sigint::SigintHandlerLayer, via_btc_watch::BtcWatchLayer,
+        pools_layer::PoolsLayerBuilder, sigint::SigintHandlerLayer,
+        via_verifier_btc_watch::VerifierBtcWatchLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -80,7 +81,8 @@ impl ViaNodeBuilder {
             ActorRole::Verifier,
             "Verifier role is expected"
         );
-        self.node.add_layer(BtcWatchLayer::new(btc_watch_config));
+        self.node
+            .add_layer(VerifierBtcWatchLayer::new(btc_watch_config));
         Ok(self)
     }
 

@@ -1,5 +1,5 @@
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
-use zksync_dal::{Connection, Core, CoreDal};
+use via_verifier_dal::{Connection, Verifier, VerifierDal};
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 
@@ -18,7 +18,7 @@ impl VerifierMessageProcessor {
 impl MessageProcessor for VerifierMessageProcessor {
     async fn process_messages(
         &mut self,
-        storage: &mut Connection<'_, Core>,
+        storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<(), MessageProcessorError> {
