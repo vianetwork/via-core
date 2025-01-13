@@ -2,19 +2,14 @@ import { Command } from 'commander';
 import * as utils from 'utils';
 import * as env from './env';
 
-export async function verifier(isCoordinator: boolean) {
+export async function verifier() {
     let options = '';
-    console.log('Is Verifier Coordinator Instance', isCoordinator);
-    if (isCoordinator) {
-        options += '--coordinator';
-    }
-    await utils.spawn(`cargo run --bin via_verifier -- ${options}`);
+    await utils.spawn(`cargo run --bin via_verifier`);
 }
 
 export const verifierCommand = new Command('verifier')
     .description('start via verifier node')
-    .option('--coordinator', 'start the verifier node as coordinator', false)
     .action(async (cmd: Command) => {
         cmd.chainName ? env.reload(cmd.chainName) : env.load();
-        await verifier(cmd.coordinator);
+        await verifier();
     });
