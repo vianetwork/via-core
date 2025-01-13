@@ -220,7 +220,6 @@ impl ViaWithdrawalVerifier {
                 .send()
                 .await?;
 
-            println!("{:?}", resp);
             if !resp.status().is_success() {}
         }
         Ok(())
