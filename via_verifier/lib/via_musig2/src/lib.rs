@@ -44,6 +44,19 @@ pub struct Signer {
     partial_sig_submitted: bool,
 }
 
+impl fmt::Debug for Signer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Signer")
+            .field("_public_key", &self._public_key)
+            .field("signer_index", &self.signer_index)
+            .field("key_agg_ctx", &self.key_agg_ctx)
+            .field("message", &self.message)
+            .field("nonce_submitted", &self.nonce_submitted)
+            .field("partial_sig_submitted", &self.partial_sig_submitted)
+            .finish()
+    }
+}
+
 impl Signer {
     /// Create a new signer with the given secret key and index
     pub fn new(
