@@ -12,7 +12,6 @@ use via_btc_client::{
 use via_musig2::{verify_signature, Signer};
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use zksync_config::configs::via_verifier::{VerifierMode, ViaVerifierConfig};
-
 use zksync_types::H256;
 
 use crate::{

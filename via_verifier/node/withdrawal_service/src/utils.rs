@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use anyhow::Context;
 use base64::Engine;
 use bitcoin::PrivateKey;
@@ -22,7 +24,7 @@ pub fn get_signer(
     let mut signer_index = 0;
 
     for (i, key) in verifiers_pub_keys_str.iter().enumerate() {
-        let pk = PublicKey::from_slice(key.as_bytes())?;
+        let pk = PublicKey::from_str(key)?;
         all_pubkeys.push(pk);
         if pk == public_key {
             signer_index = i;
