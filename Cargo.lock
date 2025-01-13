@@ -9455,29 +9455,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "via-verification"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "circuit_definitions",
- "clap 4.5.16",
- "ethers",
- "hex",
- "once_cell",
- "primitive-types",
- "reqwest 0.12.7",
- "serde",
- "serde_json",
- "sha3 0.10.8",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "zksync_types",
-]
-
-[[package]]
 name = "via_btc_client"
 version = "0.1.0"
 dependencies = [
@@ -9694,6 +9671,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verification"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "circuit_definitions",
+ "clap 4.5.16",
+ "ethers",
+ "hex",
+ "once_cell",
+ "primitive-types",
+ "reqwest 0.12.7",
+ "serde",
+ "serde_json",
+ "sha3 0.10.8",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_verifier"
 version = "0.1.0"
 dependencies = [
@@ -9717,13 +9717,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier_btc_watch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "via_verifier_dal",
+ "vise",
+ "zksync_config",
+ "zksync_shared_metrics",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_verifier_dal"
 version = "0.1.0"
 dependencies = [
+ "rand 0.8.5",
  "sqlx",
  "strum 0.26.3",
+ "thiserror",
+ "tokio",
  "zksync_basic_types",
  "zksync_db_connection",
+ "zksync_types",
 ]
 
 [[package]]
@@ -9769,10 +9791,34 @@ dependencies = [
  "uuid 1.10.0",
  "via_btc_client",
  "via_musig2",
+ "via_verifier_dal",
  "via_withdrawal_client",
  "vise",
  "zksync_config",
+ "zksync_types",
+]
+
+[[package]]
+name = "via_zk_verifier"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "serde",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "via_verification",
+ "via_verifier_dal",
+ "vise",
+ "zksync_config",
+ "zksync_da_client",
  "zksync_dal",
+ "zksync_prover_interface",
+ "zksync_shared_metrics",
  "zksync_types",
 ]
 
@@ -11796,8 +11842,11 @@ dependencies = [
  "via_da_dispatcher",
  "via_fee_model",
  "via_state_keeper",
+ "via_verifier_btc_watch",
+ "via_verifier_dal",
  "via_withdrawal_client",
  "via_withdrawal_service",
+ "via_zk_verifier",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",
  "zksync_circuit_breaker",

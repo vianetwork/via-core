@@ -4,7 +4,7 @@ import * as env from './env';
 
 export async function verifier(isCoordinator: boolean) {
     let options = '';
-    console.log(isCoordinator);
+    console.log('Is Verifier Coordinator Instance', isCoordinator);
     if (isCoordinator) {
         options += '--coordinator';
     }

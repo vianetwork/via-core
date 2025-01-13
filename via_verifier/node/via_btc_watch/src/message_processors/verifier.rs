@@ -1,5 +1,5 @@
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
-use zksync_dal::{Connection, Core, CoreDal};
+use via_verifier_dal::{Connection, Verifier, VerifierDal};
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 
@@ -18,14 +18,14 @@ impl VerifierMessageProcessor {
 impl MessageProcessor for VerifierMessageProcessor {
     async fn process_messages(
         &mut self,
-        storage: &mut Connection<'_, Core>,
+        storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<(), MessageProcessorError> {
         for msg in msgs {
             match msg {
                 ref f @ FullInscriptionMessage::ProofDAReference(ref proof_msg) => {
-                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(&f).await {
+                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
                         let mut votes_dal = storage.via_votes_dal();
 
                         let last_inserted_block = votes_dal
@@ -42,7 +42,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                             continue;
                         }
 
-                        let tx_id = convert_txid_to_h256(proof_msg.common.tx_id.clone());
+                        let tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
 
                         votes_dal
                             .insert_votable_transaction(
@@ -62,7 +62,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                     }
                 }
                 ref f @ FullInscriptionMessage::ValidatorAttestation(ref attestation_msg) => {
-                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(&f).await {
+                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
                         let mut votes_dal = storage.via_votes_dal();
 
                         let reference_txid =

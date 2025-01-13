@@ -1,15 +1,15 @@
 use anyhow::Context as _;
 use tokio::sync::watch;
 use via_btc_client::withdrawal_builder::WithdrawalBuilder;
+use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
-use zksync_dal::{ConnectionPool, Core};
 
 use crate::coordinator::api_decl::RestApi;
 
 pub async fn start_coordinator_server(
     config: ViaVerifierConfig,
-    master_connection_pool: ConnectionPool<Core>,
+    master_connection_pool: ConnectionPool<Verifier>,
     withdrawal_builder: WithdrawalBuilder,
     withdrawal_client: WithdrawalClient,
     mut stop_receiver: watch::Receiver<bool>,

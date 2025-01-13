@@ -10,8 +10,9 @@ use via_btc_client::{
     withdrawal_builder::UnsignedWithdrawalTx,
 };
 use via_musig2::{verify_signature, Signer};
+use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use zksync_config::configs::via_verifier::{VerifierMode, ViaVerifierConfig};
-use zksync_dal::{ConnectionPool, Core, CoreDal};
+
 use zksync_types::H256;
 
 use crate::{
@@ -19,9 +20,8 @@ use crate::{
     utils::{decode_nonce, decode_signature, encode_nonce, encode_signature, get_signer},
 };
 
-#[derive(Debug)]
 pub struct ViaWithdrawalVerifier {
-    master_connection_pool: ConnectionPool<Core>,
+    master_connection_pool: ConnectionPool<Verifier>,
     btc_client: Arc<dyn BitcoinOps>,
     config: ViaVerifierConfig,
     client: Client,
@@ -31,7 +31,7 @@ pub struct ViaWithdrawalVerifier {
 
 impl ViaWithdrawalVerifier {
     pub async fn new(
-        master_connection_pool: ConnectionPool<Core>,
+        master_connection_pool: ConnectionPool<Verifier>,
         btc_client: Arc<dyn BitcoinOps>,
         config: ViaVerifierConfig,
     ) -> anyhow::Result<Self> {
@@ -91,16 +91,16 @@ impl ViaWithdrawalVerifier {
         let session_nonces = self.get_session_nonces().await?;
         let verifier_index = self.signer.signer_index();
 
-        if session_signature.get(&verifier_index).is_some()
-            && session_nonces.get(&verifier_index).is_some()
+        if session_signature.contains_key(&verifier_index)
+            && session_nonces.contains_key(&verifier_index)
         {
             // The verifier already sent his nonce and partial signature
             return Ok(());
         }
 
         // Reinit the signer incase the coordinator lost his in memory data
-        if session_signature.get(&verifier_index).is_none()
-            && session_nonces.get(&verifier_index).is_none()
+        if !session_signature.contains_key(&verifier_index)
+            && !session_nonces.contains_key(&verifier_index)
             && (self.signer.has_created_partial_sig() || self.signer.has_submitted_nonce())
         {
             _ = self.reinit_signer();
@@ -113,7 +113,7 @@ impl ViaWithdrawalVerifier {
                 self.signer.start_signing_session(message)?;
             }
 
-            if session_nonces.get(&verifier_index).is_none() {
+            if !session_nonces.contains_key(&verifier_index) {
                 self.submit_nonce().await?;
             }
         } else if session_info.received_nonces >= session_info.required_signers {
@@ -281,8 +281,7 @@ impl ViaWithdrawalVerifier {
             let withdrawal_txid = self
                 .master_connection_pool
                 .connection_tagged("coordinator task")
-                .await
-                .unwrap()
+                .await?
                 .via_votes_dal()
                 .get_vote_transaction_withdrawal_tx(session_info.l1_block_number)
                 .await?;
@@ -298,11 +297,9 @@ impl ViaWithdrawalVerifier {
                 .broadcast_signed_transaction(&signed_tx)
                 .await?;
 
-            _ = self
-                .master_connection_pool
+            self.master_connection_pool
                 .connection_tagged("coordinator task")
-                .await
-                .unwrap()
+                .await?
                 .via_votes_dal()
                 .mark_vote_transaction_as_processed_withdrawals(
                     H256::from_slice(&txid.as_raw_hash().to_byte_array()),

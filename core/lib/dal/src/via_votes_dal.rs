@@ -189,7 +189,7 @@ impl ViaVotesDal<'_, '_> {
                 l1_batch_number = $1
                 AND tx_id = $2
             "#,
-            l1_batch_number as i64,
+            i64::from(l1_batch_number),
             tx_id.as_bytes(),
             l1_batch_status
         )

@@ -12,7 +12,7 @@ use musig2::{BinaryEncoding, PubNonce};
 use serde::Serialize;
 use tracing::instrument;
 use via_btc_client::{traits::Serializable, withdrawal_builder::WithdrawalRequest};
-use zksync_dal::CoreDal;
+use via_verifier_dal::VerifierDal;
 use zksync_types::H256;
 
 use super::api_decl::RestApi;
@@ -80,7 +80,7 @@ impl RestApi {
             .await
             .unwrap();
 
-        if blocks.len() == 0 {
+        if blocks.is_empty() {
             if l1_block_number != 0 {
                 self_.reset_session().await;
             }
@@ -90,20 +90,19 @@ impl RestApi {
         let mut withdrawals_to_process: Vec<WithdrawalRequest> = Vec::new();
         let mut proof_txid = Txid::all_zeros();
 
-        for i in 0..blocks.len() {
-            let (block_number, blob_id, proof_tx) = &blocks[i];
+        for (block_number, blob_id, proof_tx) in blocks.iter() {
             let withdrawals = self_
                 .withdrawal_client
-                .get_withdrawals(&blob_id)
+                .get_withdrawals(blob_id)
                 .await
                 .context("Error to get withdrawals")
                 .unwrap();
 
-            if withdrawals.len() > 0 {
+            if !withdrawals.is_empty() {
                 proof_txid = Txid::from_slice(proof_tx.as_bytes())
                     .context("Invalid proof id")
                     .unwrap();
-                l1_block_number = block_number.clone();
+                l1_block_number = *block_number;
                 withdrawals_to_process = withdrawals;
                 break;
             } else {
@@ -114,10 +113,7 @@ impl RestApi {
                     .await
                     .unwrap()
                     .via_votes_dal()
-                    .mark_vote_transaction_as_processed_withdrawals(
-                        H256::zero(),
-                        l1_block_number.clone(),
-                    )
+                    .mark_vote_transaction_as_processed_withdrawals(H256::zero(), l1_block_number)
             }
         }
 
@@ -243,7 +239,7 @@ impl RestApi {
         let session = self_.state.signing_session.read().await;
         let mut signatures = HashMap::new();
         for (&signer_index, signature) in &session.received_sigs {
-            let sig = encode_signature(signer_index, signature.clone()).unwrap();
+            let sig = encode_signature(signer_index, *signature).unwrap();
             signatures.insert(signer_index, sig);
         }
         ok_json(signatures)

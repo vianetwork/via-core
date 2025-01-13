@@ -133,6 +133,6 @@ impl ViaVoteInscription {
             reference_txid: Txid::from_slice(&tx_id)?,
             attestation,
         };
-        return Ok(InscriptionMessage::ValidatorAttestation(input));
+        Ok(InscriptionMessage::ValidatorAttestation(input))
     }
 }

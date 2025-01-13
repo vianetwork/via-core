@@ -1,6 +1,6 @@
 [package]
-name = "via_zk_verifier"
-description = "VIA zk verifier"
+name = "via_verifier_btc_watch"
+description = "VIA Bitcoin watcher for verifier"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -14,21 +14,17 @@ categories.workspace = true
 vise.workspace = true
 via_btc_client.workspace = true
 zksync_shared_metrics.workspace = true
-zksync_dal.workspace = true
 zksync_types.workspace = true
 zksync_config.workspace = true
-zksync_da_client.workspace = true
-zksync_prover_interface.workspace = true
 
 tokio.workspace = true
 anyhow.workspace = true
-bincode.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
-serde.workspace = true
 
-via-verification.workspace = true
+via_verifier_dal.workspace = true
+
 
 [dev-dependencies]

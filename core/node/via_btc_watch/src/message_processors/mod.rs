@@ -1,5 +1,4 @@
 pub(crate) use l1_to_l2::L1ToL2MessageProcessor;
-pub(crate) use verifier::VerifierMessageProcessor;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{BitcoinTxid, FullInscriptionMessage},
@@ -9,7 +8,6 @@ use zksync_dal::{Connection, Core};
 use zksync_types::H256;
 
 mod l1_to_l2;
-mod verifier;
 mod votable;
 
 #[derive(Debug, thiserror::Error)]

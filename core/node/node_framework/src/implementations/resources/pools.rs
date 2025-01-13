@@ -7,6 +7,7 @@ use std::{
 };
 
 use tokio::sync::Mutex;
+use via_verifier_dal::Verifier;
 use zksync_dal::{ConnectionPool, Core};
 use zksync_db_connection::connection_pool::ConnectionPoolBuilder;
 use zksync_prover_dal::Prover;
@@ -113,6 +114,10 @@ pub struct ReplicaPool {}
 #[non_exhaustive]
 pub struct ProverPool {}
 
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct VerifierPool {}
+
 pub trait PoolKind: Clone + Sync + Send + 'static {
     type DbMarker: zksync_db_connection::connection::DbMarker;
 
@@ -140,5 +145,13 @@ impl PoolKind for ProverPool {
 
     fn kind_str() -> &'static str {
         "prover"
+    }
+}
+
+impl PoolKind for VerifierPool {
+    type DbMarker = Verifier;
+
+    fn kind_str() -> &'static str {
+        "verifier"
     }
 }

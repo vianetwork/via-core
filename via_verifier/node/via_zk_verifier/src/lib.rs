@@ -12,9 +12,9 @@ use via_btc_client::{
 use via_verification::proof::{
     Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
 };
+use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaVerifierConfig;
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
-use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::{
     commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, H256,
 };
@@ -37,7 +37,7 @@ pub struct L1BatchProofForL1 {
 
 #[derive(Debug)]
 pub struct ViaVerifier {
-    pool: ConnectionPool<Core>,
+    pool: ConnectionPool<Verifier>,
     da_client: Box<dyn DataAvailabilityClient>,
     indexer: BitcoinInscriptionIndexer,
     config: ViaVerifierConfig,
@@ -49,7 +49,7 @@ impl ViaVerifier {
         network: BitcoinNetwork,
         node_auth: NodeAuth,
         bootstrap_txids: Vec<BitcoinTxid>,
-        pool: ConnectionPool<Core>,
+        pool: ConnectionPool<Verifier>,
         client: Box<dyn DataAvailabilityClient>,
         config: ViaVerifierConfig,
     ) -> anyhow::Result<Self> {
@@ -64,7 +64,7 @@ impl ViaVerifier {
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
-        let mut timer = tokio::time::interval(self.config.poll_interval());
+        let mut timer = tokio::time::interval(self.config.polling_interval());
         let pool = self.pool.clone();
 
         while !*stop_receiver.borrow_and_update() {
@@ -86,11 +86,11 @@ impl ViaVerifier {
 
     pub async fn loop_iteration(
         &mut self,
-        storage: &mut Connection<'_, Core>,
+        storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
         if let Some((l1_batch_number, mut raw_tx_id)) = storage
             .via_votes_dal()
-            .get_first_not_executed_block()
+            .get_first_not_verified_block()
             .await?
         {
             let db_raw_tx_id = H256::from_slice(&raw_tx_id);
@@ -131,7 +131,7 @@ impl ViaVerifier {
 
             storage
                 .via_votes_dal()
-                .get_first_not_verified_block(l1_batch_number as u32, db_raw_tx_id, is_verified)
+                .verify_votable_transaction(l1_batch_number as u32, db_raw_tx_id, is_verified)
                 .await?;
         }
 
@@ -197,7 +197,7 @@ impl ViaVerifier {
             batch_len = batch_bytes.len(),
             "Verifying proof"
         );
-        let proof_data: ProveBatches = bincode::deserialize(&proof_bytes)?;
+        let proof_data: ProveBatches = bincode::deserialize(proof_bytes)?;
 
         if proof_data.l1_batches.len() != 1 {
             tracing::error!(
