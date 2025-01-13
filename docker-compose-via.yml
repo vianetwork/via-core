@@ -114,6 +114,9 @@ services:
       - type: bind
         source: ./volumes/celestia
         target: /home/celestia
+      - type: bind
+        source: ./volumes/celestia-keys
+        target: /root/.celestia-light-mocha-4/keys
     command: celestia light start --headers.trusted-hash ${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip full.consensus.mocha-4.celestia-mocha.com --p2p.network mocha 
     ports:
       - '26658:26658'
