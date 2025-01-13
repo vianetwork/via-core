@@ -16,10 +16,6 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[derive(Debug, Parser)]
 #[command(author = "Via verifer", version, about = "Via verifer node", long_about = None)]
 struct Cli {
-    /// Run the verifier node as coordinator.
-    #[arg(long)]
-    coordinator: bool,
-
     /// Path to the YAML config. If set, it will be used instead of env vars.
     #[arg(long)]
     config_path: Option<std::path::PathBuf>,
@@ -61,6 +57,7 @@ fn main() -> anyhow::Result<()> {
             via_general.via_btc_watch_config = Some(via_configs.0);
             via_general.via_btc_sender_config = Some(via_configs.1);
             via_general.via_celestia_config = Some(via_configs.2);
+            via_general.via_verifier_config = Some(via_configs.3);
             via_general
         }
     };
@@ -105,14 +102,8 @@ fn main() -> anyhow::Result<()> {
         .clone()
         .context("Observability config missing")?;
 
-    let node_builder = node_builder::ViaNodeBuilder::new(
-        opt.coordinator,
-        configs,
-        wallets,
-        secrets,
-        genesis,
-        contracts_config,
-    )?;
+    let node_builder =
+        node_builder::ViaNodeBuilder::new(configs, wallets, secrets, genesis, contracts_config)?;
 
     let observability_guard = {
         // Observability initialization should be performed within tokio context.
