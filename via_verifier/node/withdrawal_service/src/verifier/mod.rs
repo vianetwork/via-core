@@ -20,7 +20,6 @@ use crate::{
     utils::{decode_nonce, decode_signature, encode_nonce, encode_signature, get_signer},
 };
 
-#[derive(Debug)]
 pub struct ViaWithdrawalVerifier {
     master_connection_pool: ConnectionPool<Verifier>,
     btc_client: Arc<dyn BitcoinOps>,

@@ -1,5 +1,3 @@
-use std::{clone::Clone, str::FromStr};
-
 use anyhow::Context;
 use base64::Engine;
 use bitcoin::PrivateKey;

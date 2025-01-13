@@ -197,7 +197,7 @@ impl ViaVerifier {
             batch_len = batch_bytes.len(),
             "Verifying proof"
         );
-        let proof_data: ProveBatches = bincode::deserialize(&proof_bytes)?;
+        let proof_data: ProveBatches = bincode::deserialize(proof_bytes)?;
 
         if proof_data.l1_batches.len() != 1 {
             tracing::error!(
