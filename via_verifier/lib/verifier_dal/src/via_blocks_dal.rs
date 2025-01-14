@@ -7,15 +7,14 @@ use zksync_types::{
     via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType, L1BatchNumber,
 };
 
-pub use crate::models::storage_block::{L1BatchMetadataError, L1BatchWithOptionalMetadata};
-use crate::Core;
+use crate::Verifier;
 
 #[derive(Debug)]
-pub struct ViaVerifierBlocksDal<'a, 'c> {
-    pub(crate) storage: &'a mut Connection<'c, Core>,
+pub struct ViaBlocksDal<'a, 'c> {
+    pub(crate) storage: &'a mut Connection<'c, Verifier>,
 }
 
-impl ViaVerifierBlocksDal<'_, '_> {
+impl ViaBlocksDal<'_, '_> {
     pub async fn insert_vote_l1_batch_inscription_request_id(
         &mut self,
         batch_number: L1BatchNumber,
