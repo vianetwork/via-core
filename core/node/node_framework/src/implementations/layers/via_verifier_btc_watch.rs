@@ -71,6 +71,7 @@ impl WiringLayer for VerifierBtcWatchLayer {
             .collect::<Result<Vec<_>, _>>()?;
         let btc_blocks_lag = self.btc_watch_config.btc_blocks_lag();
 
+        tracing::error!("bootstrap_txids: {:?}", bootstrap_txids);
         let indexer = BtcIndexerResource::from(
             BitcoinInscriptionIndexer::new(
                 self.btc_watch_config.rpc_url(),

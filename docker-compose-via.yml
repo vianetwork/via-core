@@ -114,7 +114,7 @@ services:
     volumes:
       - type: bind
         source: ./volumes/celestia
-        target: /home/celestia:rw
+        target: /home/celestia
       # - type: bind
       #   source: ./volumes/celestia-keys
       #   target: /root/.celestia-light-mocha-4/keys

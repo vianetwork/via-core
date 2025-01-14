@@ -15,6 +15,7 @@ use zksync_node_framework::{
             coordinator_api::ViaCoordinatorApiLayer, verifier::ViaWithdrawalVerifierLayer,
         },
         via_verifier_btc_watch::VerifierBtcWatchLayer,
+        via_zk_verification::ViaBtcProofVerificationLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -91,7 +92,6 @@ impl ViaNodeBuilder {
     // VIA related layers
     fn add_verifier_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
         let mut btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
-        btc_watch_config.actor_role = ActorRole::Verifier;
         assert_eq!(
             btc_watch_config.actor_role,
             ActorRole::Verifier,
@@ -132,18 +132,30 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_zkp_verification_layer(mut self) -> anyhow::Result<Self> {
+        let via_verifier_config = try_load_config!(self.configs.via_verifier_config);
+        let via_btc_watcher_config = try_load_config!(self.configs.via_btc_watch_config);
+        self.node.add_layer(ViaBtcProofVerificationLayer {
+            config: via_verifier_config,
+            btc_watcher_config: via_btc_watcher_config,
+        });
+        Ok(self)
+    }
+
     pub fn build(mut self) -> anyhow::Result<ZkStackService> {
         self = self
             .add_sigint_handler_layer()?
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
-            .add_pools_layer()?;
-        // .add_verifier_btc_watcher_layer()?;
+            .add_pools_layer()?
+            .add_verifier_btc_watcher_layer()?
+            .add_withdrawal_verifier_task_layer()?;
 
         if self.is_coordinator {
             self = self
                 .add_via_celestia_da_client_layer()?
-                .add_verifier_coordinator_api_layer()?;
+                .add_verifier_coordinator_api_layer()?
+                .add_zkp_verification_layer()?;
         }
 
         self = self.add_withdrawal_verifier_task_layer()?;
