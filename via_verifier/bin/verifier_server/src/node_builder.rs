@@ -10,6 +10,9 @@ use zksync_node_framework::{
         healtcheck_server::HealthCheckLayer,
         pools_layer::PoolsLayerBuilder,
         sigint::SigintHandlerLayer,
+        via_btc_sender::{
+            vote::ViaBtcVoteInscriptionLayer, vote_manager::ViaInscriptionManagerLayer,
+        },
         via_btc_watch::BtcWatchLayer,
         via_verifier::{
             coordinator_api::ViaCoordinatorApiLayer, verifier::ViaWithdrawalVerifierLayer,
@@ -88,6 +91,15 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_btc_sender_layer(mut self) -> anyhow::Result<Self> {
+        let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
+        self.node
+            .add_layer(ViaBtcVoteInscriptionLayer::new(btc_sender_config.clone()));
+        self.node
+            .add_layer(ViaInscriptionManagerLayer::new(btc_sender_config));
+        Ok(self)
+    }
+
     // VIA related layers
     fn add_verifier_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
         let mut btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
@@ -137,7 +149,8 @@ impl ViaNodeBuilder {
             .add_sigint_handler_layer()?
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
-            .add_pools_layer()?;
+            .add_pools_layer()?
+            .add_btc_sender_layer()?;
         // .add_verifier_btc_watcher_layer()?;
 
         if self.is_coordinator {
