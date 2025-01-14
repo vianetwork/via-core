@@ -19,8 +19,6 @@ struct CoordinatorOutput {
     bridge_address: BitcoinAddress,
 }
 
-// TODO: Add mechanism to validate generated address for bridge is valid and contain all contributors' pubkeys
-
 fn generate_keypair() -> (SecretKey, PublicKey) {
     let mut rng = OsRng;
     let secp = Secp256k1::new();
