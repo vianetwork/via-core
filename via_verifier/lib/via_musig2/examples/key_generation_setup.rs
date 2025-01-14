@@ -82,8 +82,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let mut pubkeys = Vec::new();
-            for _i in 2..args.len() {
-                let (_, public_key) = generate_keypair();
+            for i in 2..args.len() {
+                let public_key = PublicKey::from_str(&args[i]).unwrap();
                 pubkeys.push(public_key);
             }
 
