@@ -4,7 +4,7 @@ import * as env from './env';
 import { updateBootstrapTxidsEnv } from './bootstrap';
 import { updateEnvVariable } from './helpers';
 import path from 'path';
-import {load_from_file} from "./env";
+import { load_from_file } from './env';
 
 export async function verifier() {
     let options = '';
