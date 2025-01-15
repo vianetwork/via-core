@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                l1_batch_status,\n                tx_id\n            FROM\n                via_votable_transactions\n            WHERE\n                l1_batch_number = $1\n                AND is_verified = TRUE\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_status",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "tx_id",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "9c5faf8349565e8eedb040d4a72d8690e72af5ae37d0059be1fa43a432ec1375"
+}

@@ -1,7 +1,6 @@
 use std::io::Read;
 
 use anyhow::Context;
-use bitcoin::{address::NetworkUnchecked, Address as BitcoinAddress};
 use byteorder::{BigEndian, ReadBytesExt};
 use zksync_types::{Address, H160, H256, U256};
 use zksync_utils::{u256_to_bytes_be, u256_to_h256};
@@ -17,14 +16,6 @@ pub const L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR: &str = "00000000000000000000000000
 pub struct L2BridgeLogMetadata {
     pub log: L1MessengerL2ToL1Log,
     pub message: Vec<u8>,
-}
-
-#[derive(Clone, Debug)]
-pub struct WithdrawalRequest {
-    /// The receiver l1 address.
-    pub address: BitcoinAddress<NetworkUnchecked>,
-    /// The amount user will receive.
-    pub amount: U256,
 }
 
 /// Corresponds to the following solidity event:

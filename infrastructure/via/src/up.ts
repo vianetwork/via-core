@@ -21,6 +21,9 @@ export function createVolumes() {
     fs.mkdirSync(`${process.env.VIA_HOME}/volumes/btc-explorer/mysql`, {
         recursive: true
     });
+    fs.mkdirSync(`${process.env.VIA_HOME}/volumes/celestia-keys`, {
+        recursive: true
+    });
 }
 
 export async function up(composeFile?: string, envFilePath?: string) {

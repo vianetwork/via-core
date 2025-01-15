@@ -76,6 +76,15 @@ export function reload(environment?: string) {
     }
 }
 
+export function load_from_file(environment?: string) {
+    environment = environment ?? get();
+    const envFile = (process.env.ENV_FILE = `etc/env/target/${environment}.env`);
+    const env = dotenv.parse(fs.readFileSync(envFile));
+    for (const envVar in env) {
+        process.env[envVar] = env[envVar];
+    }
+}
+
 // loads environment variables
 export function load() {
     fs.mkdirSync('etc/env/target', { recursive: true });

@@ -1,0 +1,2 @@
+DROP TABLE via_btc_inscriptions_request_history;
+DROP TABLE via_btc_inscriptions_request;

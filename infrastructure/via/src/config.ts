@@ -174,6 +174,19 @@ export async function pushConfig(environment?: string, diff?: string) {
             l2InitFile,
             false
         );
+
+        env.modify(
+            `DATABASE_VERIFIER_URL`,
+            `postgres://postgres:notsecurepassword@localhost/verifier_${environment}`,
+            l2InitFile,
+            false
+        );
+        env.modify(
+            `TEST_DATABASE_VERIFIER_URL`,
+            `postgres://postgres:notsecurepassword@localhost/verifier_${environment}_test`,
+            l2InitFile,
+            false
+        );
     }
 
     env.modify('DATABASE_STATE_KEEPER_DB_PATH', `./db/${environment}/state_keeper`, l2InitFile, false);
@@ -188,7 +201,7 @@ const fetchCelestiaTrustedHash = async () => {
     let environment = process.env.VIA_ENV!;
     const l2InitFile = `etc/env/l2-inits/${environment}.init.env`;
 
-    const response = await (await fetch('https://rpc.celestia-arabica-11.com/header')).json();
+    const response = await (await fetch('http://public-celestia-mocha4-consensus.numia.xyz:26657/header')).json();
     const { last_block_id, height } = response.result.header;
 
     const envFilePath1 = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);

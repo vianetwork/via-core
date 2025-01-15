@@ -1,1 +1,29 @@
-__imports__ = [ "base", "l2-inits/via_coordinator.init.env", "configs/via_base.toml" ]
+__imports__ = [
+    "base",
+    "l2-inits/via_coordinator.init.env",
+    "configs/via_base.toml",
+]
+
+[via_verifier]
+# Interval between polling db for verification requests (in ms).
+poll_interval = 10000
+# Coordinator server port.
+port = 6060
+# Coordinator server url.
+url = "http://0.0.0.0:6060"
+# The signer private key.
+private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R"
+# The verifiers public keys.
+verifiers_pub_keys_str = [
+    "0216d3ee537b26e65c4651cea9d066048eb083d40aeb11eb26644517a8f41bba11",
+    "02ffa48031b415a78769b47d325a53f2f83610e8e7b47d864d945f216b1ab7c2dc",
+]
+# The bridge address. Run the following cmd: `cargo run --example key_generation_setup coordinator 0216d3ee537b26e65c4651cea9d066048eb083d40aeb11eb26644517a8f41bba11 02ffa48031b415a78769b47d325a53f2f83610e8e7b47d864d945f216b1ab7c2dc`
+bridge_address_str = "bcrt1plt2vht9q56x66alsyz2sc59pt3nuuh2vde3kgakju00nk3pyc62sr4tsyv"
+# The minimum required signers.
+required_signers = 2
+# The verifier_mode can be simple verifier or coordinator.
+verifier_mode = "COORDINATOR"
+
+[via_btc_watch]
+actor_role = "Verifier"
