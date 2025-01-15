@@ -149,13 +149,11 @@ impl ViaNodeBuilder {
             .add_circuit_breaker_checker_layer()?
             .add_pools_layer()?
             .add_verifier_btc_watcher_layer()?
-            .add_withdrawal_verifier_task_layer()?;
+            .add_via_celestia_da_client_layer()?
+            .add_zkp_verification_layer()?;
 
         if self.is_coordinator {
-            self = self
-                .add_via_celestia_da_client_layer()?
-                .add_verifier_coordinator_api_layer()?
-                .add_zkp_verification_layer()?;
+            self = self.add_verifier_coordinator_api_layer()?
         }
 
         self = self.add_withdrawal_verifier_task_layer()?;

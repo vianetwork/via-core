@@ -7,17 +7,11 @@ import path from 'path';
 import { load_from_file } from './env';
 
 export async function verifier() {
-    let options = '';
     await updateBootstrapTxidsEnv();
-
-    const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);
-    await updateEnvVariable(envFilePath, 'VIA_BTC_WATCH_ACTOR_ROLE', 'Verifier');
 
     console.log(`Starting verifier node...`);
 
     env.load_from_file();
-
-    await console.log(`Starting verifier node...`);
 
     await utils.spawn(`cargo run --bin via_verifier`);
 }
