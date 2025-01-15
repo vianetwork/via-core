@@ -120,3 +120,5 @@ core/tests/ts-integration/deployments-zk
 .env
 
 *.via
+
+celestia-keys/*
