@@ -24,7 +24,7 @@ impl ViaVotesDal<'_, '_> {
                 via_votable_transactions (l1_batch_number, tx_id, da_identifier, blob_id, proof_tx_id)
             VALUES
                 ($1, $2, $3, $4, $5)
-            ON CONFLICT (l1_batch_number, tx_id, blob_id) DO NOTHING
+            ON CONFLICT (l1_batch_number, tx_id) DO NOTHING
             "#,
             i64::from(l1_batch_number),
             tx_id.as_bytes(),
