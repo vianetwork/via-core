@@ -11,8 +11,13 @@ pub use zksync_db_connection::{
     error::{DalError, DalResult},
 };
 
-use crate::via_votes_dal::ViaVotesDal;
+use crate::{
+    via_blocks_dal::ViaBlocksDal, via_btc_sender_dal::ViaBtcSenderDal, via_votes_dal::ViaVotesDal,
+};
 
+pub mod models;
+pub mod via_blocks_dal;
+pub mod via_btc_sender_dal;
 pub mod via_votes_dal;
 
 #[cfg(test)]
@@ -30,6 +35,8 @@ where
     Self: 'a,
 {
     fn via_votes_dal(&mut self) -> ViaVotesDal<'_, 'a>;
+    fn via_btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a>;
+    fn via_block_dal(&mut self) -> ViaBlocksDal<'_, 'a>;
 }
 
 #[derive(Clone, Debug)]
@@ -43,5 +50,12 @@ impl private::Sealed for Connection<'_, Verifier> {}
 impl<'a> VerifierDal<'a> for Connection<'a, Verifier> {
     fn via_votes_dal(&mut self) -> ViaVotesDal<'_, 'a> {
         ViaVotesDal { storage: self }
+    }
+
+    fn via_btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a> {
+        ViaBtcSenderDal { storage: self }
+    }
+    fn via_block_dal(&mut self) -> ViaBlocksDal<'_, 'a> {
+        ViaBlocksDal { storage: self }
     }
 }

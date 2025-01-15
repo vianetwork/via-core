@@ -5,7 +5,6 @@
 
 use btc_sender_dal::ViaBtcSenderDal;
 pub use sqlx::{types::BigDecimal, Error as SqlxError};
-use via_verifier_blocks_dal::ViaVerifierBlocksDal;
 use zksync_db_connection::connection::DbMarker;
 pub use zksync_db_connection::{
     connection::{Connection, IsolationLevel},
@@ -67,7 +66,6 @@ pub mod transactions_web3_dal;
 pub mod via_blocks_dal;
 pub mod via_data_availability_dal;
 pub mod via_transactions_dal;
-pub mod via_verifier_blocks_dal;
 pub mod via_votes_dal;
 pub mod vm_runner_dal;
 
@@ -106,8 +104,6 @@ where
     fn eth_sender_dal(&mut self) -> EthSenderDal<'_, 'a>;
 
     fn btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a>;
-
-    fn via_verifier_block_dal(&mut self) -> ViaVerifierBlocksDal<'_, 'a>;
 
     fn events_dal(&mut self) -> EventsDal<'_, 'a>;
 
@@ -206,10 +202,6 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
 
     fn btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a> {
         ViaBtcSenderDal { storage: self }
-    }
-
-    fn via_verifier_block_dal(&mut self) -> ViaVerifierBlocksDal<'_, 'a> {
-        ViaVerifierBlocksDal { storage: self }
     }
 
     fn events_dal(&mut self) -> EventsDal<'_, 'a> {

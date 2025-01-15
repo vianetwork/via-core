@@ -9717,6 +9717,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier_btc_sender"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "bitcoin",
+ "chrono",
+ "hex",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "via_da_dispatcher",
+ "via_verifier_dal",
+ "zksync_config",
+ "zksync_contracts",
+ "zksync_l1_contract_interface",
+ "zksync_node_test_utils",
+ "zksync_object_store",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_verifier_btc_watch"
 version = "0.1.0"
 dependencies = [
@@ -9738,6 +9762,8 @@ dependencies = [
 name = "via_verifier_dal"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "bitcoin",
  "rand 0.8.5",
  "sqlx",
  "strum 0.26.3",
@@ -11842,6 +11868,7 @@ dependencies = [
  "via_da_dispatcher",
  "via_fee_model",
  "via_state_keeper",
+ "via_verifier_btc_sender",
  "via_verifier_btc_watch",
  "via_verifier_dal",
  "via_withdrawal_client",
