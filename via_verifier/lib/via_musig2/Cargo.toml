@@ -51,6 +51,7 @@ path = "examples/withdrawal.rs"
 name = "coordinator"
 path = "examples/coordinator.rs"
 
+
 [[example]]
-name = "generate_btc_pk"
-path = "examples/generate_btc_pk.rs"
+name = "withdrawal2"
+path = "examples/withdrawal2.rs"

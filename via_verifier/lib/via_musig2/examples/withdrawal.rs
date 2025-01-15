@@ -1,17 +1,20 @@
+use std::str::FromStr;
+
 use bitcoin::{
     absolute,
     hashes::Hash,
     secp256k1,
+    secp256k1::schnorr,
     sighash::{Prevouts, SighashCache},
-    taproot::TaprootSpendInfo,
-    Address as BitcoinAddress, Amount, CompressedPublicKey, Network, PrivateKey, TapSighashType,
-    Transaction, TxIn, TxOut, Witness, XOnlyPublicKey,
+    taproot::{TaprootBuilder, TaprootSpendInfo},
+    Address as BitcoinAddress, Amount, CompressedPublicKey, Network, PrivateKey, ScriptBuf,
+    TapSighashType, Transaction, TxIn, TxOut, Witness, XOnlyPublicKey,
 };
 use musig2::{
     verify_single, CompactSignature, FirstRound, KeyAggContext, PartialSignature, SecNonceSpices,
 };
 use rand::Rng;
-use secp256k1_musig2::{schnorr, PublicKey, Secp256k1, SecretKey};
+use secp256k1_musig2::{PublicKey, Scalar, Secp256k1, SecretKey};
 use via_btc_client::{inscriber::Inscriber, types::NodeAuth};
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
@@ -20,43 +23,67 @@ const RPC_PASSWORD: &str = "rpcpassword";
 const NETWORK: Network = Network::Regtest;
 const PK: &str = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm";
 
+// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
+use std::sync::LazyLock;
+
+static UNSPENDABLE_XONLY_PUBKEY: LazyLock<bitcoin::secp256k1::XOnlyPublicKey> =
+    LazyLock::new(|| {
+        XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51")
+            .unwrap()
+    });
+
+static SECP: LazyLock<secp256k1::Secp256k1<secp256k1::All>> =
+    LazyLock::new(|| secp256k1::Secp256k1::new());
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // -------------------------------------------
     // Setup: Create secret and public keys for three participants
     // -------------------------------------------
 
-    let private_key_1 = PrivateKey::from_wif(&String::from(
-        "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R",
-    ))?;
-
-    let private_key_2 = PrivateKey::from_wif(&String::from(
-        "cUWA5dZXc6NwLovW3Kr9DykfY5ysFigKZM5Annzty7J8a43Fe2YF",
-    ))?;
-
-    let private_key_3 = PrivateKey::from_wif(&String::from(
-        "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm",
-    ))?;
+    let private_key_1 =
+        PrivateKey::from_wif("cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R")?;
+    let private_key_2 =
+        PrivateKey::from_wif("cUWA5dZXc6NwLovW3Kr9DykfY5ysFigKZM5Annzty7J8a43Fe2YF")?;
+    let private_key_3 =
+        PrivateKey::from_wif("cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm")?;
 
     let secp = Secp256k1::new();
-    let secret_key_1 = SecretKey::from_byte_array(&private_key_1.inner.secret_bytes())?;
-    let public_key_1 = secp256k1_musig2::PublicKey::from_secret_key(&secp, &secret_key_1);
 
+    let secret_key_1 = SecretKey::from_slice(&private_key_1.inner.secret_bytes())?;
+    let public_key_1: PublicKey = secret_key_1.public_key(&secp);
+
+    let secret_key_2 = SecretKey::from_slice(&private_key_2.inner.secret_bytes())?;
+    let public_key_2: PublicKey = secret_key_2.public_key(&secp);
+
+    let secret_key_3 = SecretKey::from_slice(&private_key_3.inner.secret_bytes())?;
+    let public_key_3: PublicKey = secret_key_3.public_key(&secp);
+
+    // -------------------------------------------
+    // Create receiver addresses
+    // -------------------------------------------
     let com_public_key_1 = CompressedPublicKey::from_slice(&public_key_1.serialize().to_vec())?;
     let address_1 = BitcoinAddress::p2wpkh(&com_public_key_1, Network::Regtest);
-
-    let secret_key_2 = SecretKey::from_byte_array(&private_key_2.inner.secret_bytes())?;
-    let public_key_2 = secp256k1_musig2::PublicKey::from_secret_key(&secp, &secret_key_2);
-
-    let secret_key_3 = SecretKey::from_byte_array(&private_key_3.inner.secret_bytes())?;
-    let public_key_3 = secp256k1_musig2::PublicKey::from_secret_key(&secp, &secret_key_3);
 
     // -------------------------------------------
     // Key aggregation (MuSig2)
     // -------------------------------------------
     let pubkeys = vec![public_key_1, public_key_2, public_key_3];
-    let key_agg_ctx = KeyAggContext::new(pubkeys)?;
-    let aggregated_pubkey: PublicKey = key_agg_ctx.aggregated_pubkey();
+    let mut musig_key_agg_cache = KeyAggContext::new(pubkeys)?;
+
+    let tree_info = create_taproot_spend_info(Some(agg_xonly_pubkey_raw), scripts)?;
+
+    let plain_tweak: [u8; 32] = *b"this could be a BIP32 tweak....\0";
+    let xonly_tweak: [u8; 32] = *b"this could be a Taproot tweak..\0";
+
+    let plain_tweak = Scalar::from_be_bytes(plain_tweak).unwrap();
+    let xonly_tweak = Scalar::from_be_bytes(xonly_tweak).unwrap();
+
+    musig_key_agg_cache = musig_key_agg_cache.with_plain_tweak(plain_tweak)?;
+    musig_key_agg_cache = musig_key_agg_cache.with_xonly_tweak(xonly_tweak)?;
+    musig_key_agg_cache.with_tweak(tweak, is_xonly);
+
+    let aggregated_pubkey: PublicKey = musig_key_agg_cache.aggregated_pubkey();
 
     // Convert to x-only pubkey for Taproot address
     let (xonly_agg_key, _parity) = aggregated_pubkey.x_only_public_key();
@@ -140,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // -------------------------------------------
     // First round: generate public nonces
     let mut first_round_1 = FirstRound::new(
-        key_agg_ctx.clone(),
+        musig_key_agg_cache.clone(),
         rand::thread_rng().gen::<[u8; 32]>(),
         0,
         SecNonceSpices::new()
@@ -149,7 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let mut first_round_2 = FirstRound::new(
-        key_agg_ctx.clone(),
+        musig_key_agg_cache.clone(),
         rand::thread_rng().gen::<[u8; 32]>(),
         1,
         SecNonceSpices::new()
@@ -158,7 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let mut first_round_3 = FirstRound::new(
-        key_agg_ctx.clone(),
+        musig_key_agg_cache.clone(),
         rand::thread_rng().gen::<[u8; 32]>(),
         2,
         SecNonceSpices::new()
@@ -212,7 +239,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let signature = bitcoin::taproot::Signature {
         sighash_type,
-        signature: secp256k1::schnorr::Signature::from_slice(&final_signature.serialize())?,
+        signature: schnorr::Signature::from_slice(&final_signature.serialize())?,
     };
 
     // For a key-path spend in taproot, the witness is just the signature
@@ -224,19 +251,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verify the Schnorr signature
     // -------------------------------------------
     let array: [u8; 64] = final_signature.serialize().try_into().unwrap();
-    let sig = schnorr::Signature::from_byte_array(array);
+    let sig = schnorr::Signature::from_slice(&array)?;
 
-    match secp.verify_schnorr(
-        &sig,
-        message.as_byte_array(),
-        &aggregated_pubkey.x_only_public_key().0,
-    ) {
-        Ok(_) => println!("Valid schnorr sig!"),
-        Err(e) => {
-            println!("Invalid schnorr sig: {:?}", e);
-            return Ok(());
-        }
-    }
+    // match secp.verify_schnorr(
+    //     &sig,
+    //     message.as_byte_array(),
+    //     &aggregated_pubkey.x_only_public_key().0,
+    // ) {
+    //     Ok(_) => println!("Valid schnorr sig!"),
+    //     Err(e) => {
+    //         println!("Invalid schnorr sig: {:?}", e);
+    //         return Ok(());
+    //     }
+    // }
 
     // -------------------------------------------
     // Print the signed raw transaction (in hex)
@@ -250,4 +277,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.broadcast_signed_transaction(&signed_raw_tx).await?;
 
     Ok(())
+}
+
+fn create_taproot_spend_info(
+    internal_key: Option<XOnlyPublicKey>,
+    scripts: Vec<ScriptBuf>,
+) -> anyhow::Result<TaprootSpendInfo> {
+    let n = scripts.len();
+    if n == 0 {
+        return Err(anyhow::anyhow!("No scripts provided"));
+    }
+
+    let taproot_builder = if n > 1 {
+        let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
+        let k = 2_usize.pow(m.into()) - n;
+        (0..n).try_fold(TaprootBuilder::new(), |acc, i| {
+            acc.add_leaf(m - ((i >= n - k) as u8), scripts[i].clone())
+        })?
+    } else {
+        TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
+    };
+    let tree_info = match internal_key {
+        Some(xonly_pk) => taproot_builder.finalize(&SECP, xonly_pk).map_err(|e| e)?,
+        None => taproot_builder
+            .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+            .map_err(|e| e)?,
+    };
+    Ok(tree_info)
 }

@@ -105,7 +105,7 @@ services:
       - VERIFIER_1_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
       - VERIFIER_2_ADDRESS=bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
       - VERIFIER_3_ADDRESS=bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm
-      - BRIDGE_ADDRESS_TEST=bcrt1pdsrfe4xu50j9yl8k3t2x3zsl3u6nzg4eleg3udw406ev2kn2hmpqwvr44v
+      - BRIDGE_ADDRESS_TEST=bcrt1pjwy0jgaacfqdnlfrtk9rll0gk5awacen40wwj7yxmyh27g5dtr6s2z74aa
       - BRIDGE_ADDRESS=bcrt1pu2js99s96f97ecngk8nz7hkaf7fgnjnpv8rxpaft7zd3h9q5affqdz0dch
       - RPC_ARGS=-chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
       - SLEEP_SECONDS=5
