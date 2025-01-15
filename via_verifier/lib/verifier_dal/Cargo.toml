@@ -11,11 +11,13 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 zksync_db_connection.workspace = true
 zksync_basic_types.workspace = true
 zksync_types.workspace = true
 thiserror.workspace = true
 
+bitcoin = { version = "0.32.2" }
 strum = { workspace = true, features = ["derive"] }
 sqlx = { workspace = true, features = [
     "runtime-tokio",

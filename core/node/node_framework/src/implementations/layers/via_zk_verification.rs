@@ -16,8 +16,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ViaBtcProofVerificationLayer {
-    config: ViaVerifierConfig,
-    btc_watcher_config: ViaBtcWatchConfig,
+    pub config: ViaVerifierConfig,
+    pub btc_watcher_config: ViaBtcWatchConfig,
 }
 
 #[derive(Debug, FromContext)]

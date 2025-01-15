@@ -5,21 +5,21 @@ use via_btc_client::{
     traits::Serializable,
     types::{InscriptionMessage, ValidatorAttestationInput, Vote},
 };
+use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
-use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::{
     via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType, L1BatchNumber,
 };
 
 #[derive(Debug)]
 pub struct ViaVoteInscription {
-    pool: ConnectionPool<Core>,
+    pool: ConnectionPool<Verifier>,
     config: ViaBtcSenderConfig,
 }
 
 impl ViaVoteInscription {
     pub async fn new(
-        pool: ConnectionPool<Core>,
+        pool: ConnectionPool<Verifier>,
         config: ViaBtcSenderConfig,
     ) -> anyhow::Result<Self> {
         Ok(Self { pool, config })
@@ -55,7 +55,7 @@ impl ViaVoteInscription {
 
     pub async fn loop_iteration(
         &mut self,
-        storage: &mut Connection<'_, Core>,
+        storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
         if let Some((l1_batch_number, vote, tx_id)) = self.get_voting_operation(storage).await? {
             tracing::info!("New voting operation ready to be processed");
@@ -63,7 +63,7 @@ impl ViaVoteInscription {
             let inscription_message = self.construct_voting_inscription_message(vote, tx_id)?;
 
             let inscription_request = transaction
-                .btc_sender_dal()
+                .via_btc_sender_dal()
                 .via_save_btc_inscriptions_request(
                     ViaVerifierBtcInscriptionRequestType::VoteOnchain.to_string(),
                     InscriptionMessage::to_bytes(&inscription_message),
@@ -73,7 +73,7 @@ impl ViaVoteInscription {
                 .context("Via save btc inscriptions request")?;
 
             transaction
-                .via_verifier_block_dal()
+                .via_block_dal()
                 .insert_vote_l1_batch_inscription_request_id(
                     l1_batch_number,
                     inscription_request.id,
@@ -88,7 +88,7 @@ impl ViaVoteInscription {
 
     pub async fn get_voting_operation(
         &mut self,
-        storage: &mut Connection<'_, Core>,
+        storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<Option<(L1BatchNumber, bool, Vec<u8>)>> {
         if let Some(batch_number) = storage
             .via_votes_dal()
@@ -97,7 +97,7 @@ impl ViaVoteInscription {
         {
             // Check if already created a voting inscription
             let exists = storage
-                .via_verifier_block_dal()
+                .via_block_dal()
                 .check_vote_l1_batch_inscription_request_if_exists(batch_number)
                 .await?;
             if exists {

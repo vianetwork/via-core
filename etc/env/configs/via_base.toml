@@ -32,9 +32,6 @@ api_node_url = "http://0.0.0.0:26658"
 auth_token = ""
 blob_size_limit = 1973786
 
-[via_verifier]
-poll_interval = 1000
-
 [rust]
 log = """\
 warn,\

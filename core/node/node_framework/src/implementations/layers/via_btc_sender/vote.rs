@@ -1,8 +1,8 @@
-use via_btc_sender::btc_vote_inscription::ViaVoteInscription;
+use via_verifier_btc_sender::btc_vote_inscription::ViaVoteInscription;
 use zksync_config::ViaBtcSenderConfig;
 
 use crate::{
-    implementations::resources::pools::{MasterPool, PoolResource},
+    implementations::resources::pools::{PoolResource, VerifierPool},
     service::StopReceiver,
     task::{Task, TaskId},
     wiring_layer::{WiringError, WiringLayer},
@@ -20,7 +20,7 @@ pub struct ViaBtcVoteInscriptionLayer {
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
-    pub master_pool: PoolResource<MasterPool>,
+    pub master_pool: PoolResource<VerifierPool>,
 }
 
 #[derive(Debug, IntoContext)]
@@ -46,7 +46,7 @@ impl WiringLayer for ViaBtcVoteInscriptionLayer {
     }
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
-        // // Get resources.
+        // Get resources.
         let master_pool = input.master_pool.get().await.unwrap();
 
         let via_vote_inscription = ViaVoteInscription::new(master_pool, self.config).await?;

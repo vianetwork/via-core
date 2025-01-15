@@ -9,9 +9,8 @@ import * as contract from './contract';
 import * as db from './database';
 import * as docker from './docker';
 import * as env from './env';
-import * as config from './config';
 import * as run from './run';
-// import * as server from './server';
+import { Mode } from './types';
 import { createVolumes, up } from './up';
 import path from 'path';
 
@@ -70,11 +69,22 @@ const initSetup = async ({
     ]);
 };
 
-const initDatabase = async (shouldCheck: boolean = true): Promise<void> => {
-    await announced('Drop postgres db', db.drop({ core: true, prover: true, verifier: true }));
-    await announced('Setup postgres db', db.setup({ core: true, prover: true, verifier: true }, shouldCheck));
+const initDatabase = async (
+    shouldCheck: boolean = true,
+    core = true,
+    prover = true,
+    verifier = false
+): Promise<void> => {
+    await announced('Drop postgres db', db.drop({ core, prover, verifier }));
+    await announced('Setup postgres db', db.setup({ core, prover, verifier }, shouldCheck));
     await announced('Clean rocksdb', clean(`db/${process.env.VIA_ENV!}`));
     await announced('Clean backups', clean(`backups/${process.env.VIA_ENV!}`));
+};
+
+const initVerifierSetup = async (skipEnvSetup: boolean): Promise<void> => {
+    await announced(`Initializing the verifier'}`);
+    await announced('Checking environment', checkEnv());
+    await initDatabase(true, false, false, true);
 };
 
 // Deploys ERC20 and WETH tokens to localhost
@@ -116,6 +126,7 @@ type InitDevCmdActionOptions = InitSetupOptions & {
     baseTokenName?: string;
     localLegacyBridgeTesting?: boolean;
     shouldCheckPostgres: boolean; // Whether to perform `cargo sqlx prepare --check`
+    mode: Mode;
 };
 export const initDevCmdAction = async ({
     skipEnvSetup,
@@ -147,6 +158,22 @@ export const initDevCmdAction = async ({
     }
 };
 
+export const initVerifierDevCmdAction = async ({ skipEnvSetup }: InitDevCmdActionOptions): Promise<void> => {
+    await initVerifierSetup(skipEnvSetup);
+};
+
+const init = async (options: InitDevCmdActionOptions) => {
+    switch (options.mode) {
+        case Mode.SEQUENCER:
+            return await initDevCmdAction(options);
+        case Mode.VERIFIER:
+        case Mode.COORDINATOR:
+            return await initVerifierDevCmdAction(options);
+        default:
+            throw new Error('Invalid init mode');
+    }
+};
+
 // ########################### Command Definitions ###########################
 export const initCommand = new Command('init')
     .option('--skip-submodules-checkout')
@@ -155,10 +182,11 @@ export const initCommand = new Command('init')
     .option('--base-token-name <base-token-name>', 'base token name') // ?
     // .option('--validium-mode', 'deploy contracts in Validium mode')
     .option('--run-observability', 'run observability suite')
+    .option('--mode [type]', 'init mode', Mode.SEQUENCER)
     .option(
         '--local-legacy-bridge-testing',
         'used to test LegacyBridge compatibily. The chain will have the same id as the era chain id, while eraChainId in L2SharedBridge will be 0'
     )
     .option('--should-check-postgres', 'Whether to perform cargo sqlx prepare --check during database setup', true)
     .description('Deploys the shared bridge and registers a hyperchain locally, as quickly as possible.')
-    .action(initDevCmdAction);
+    .action(init);
