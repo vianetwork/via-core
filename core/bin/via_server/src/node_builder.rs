@@ -14,6 +14,7 @@ use zksync_node_framework::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
         commitment_generator::CommitmentGeneratorLayer,
         healtcheck_server::HealthCheckLayer,
+        house_keeper::HouseKeeperLayer,
         logs_bloom_backfill::LogsBloomBackfillLayer,
         metadata_calculator::MetadataCalculatorLayer,
         node_storage_init::{
@@ -23,6 +24,7 @@ use zksync_node_framework::{
         pools_layer::PoolsLayerBuilder,
         postgres_metrics::PostgresMetricsLayer,
         prometheus_exporter::PrometheusExporterLayer,
+        proof_data_handler::ProofDataHandlerLayer,
         query_eth_client::QueryEthClientLayer,
         sigint::SigintHandlerLayer,
         via_btc_sender::{
@@ -378,6 +380,24 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_house_keeper_layer(mut self) -> anyhow::Result<Self> {
+        let house_keeper_config = try_load_config!(self.configs.house_keeper_config);
+        let fri_prover_config = try_load_config!(self.configs.prover_config);
+        let fri_witness_generator_config = try_load_config!(self.configs.witness_generator_config);
+        let fri_prover_group_config = try_load_config!(self.configs.prover_group_config);
+        let fri_proof_compressor_config = try_load_config!(self.configs.proof_compressor_config);
+
+        self.node.add_layer(HouseKeeperLayer::new(
+            house_keeper_config,
+            fri_prover_config,
+            fri_witness_generator_config,
+            fri_prover_group_config,
+            fri_proof_compressor_config,
+        ));
+
+        Ok(self)
+    }
+
     fn add_commitment_generator_layer(mut self) -> anyhow::Result<Self> {
         self.node.add_layer(CommitmentGeneratorLayer::new(
             self.genesis_config.l1_batch_commit_data_generator_mode,
@@ -406,6 +426,14 @@ impl ViaNodeBuilder {
         let celestia_config = try_load_config!(self.configs.via_celestia_config);
         self.node
             .add_layer(ViaCelestiaClientWiringLayer::new(celestia_config));
+        Ok(self)
+    }
+
+    fn add_proof_data_handler_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ProofDataHandlerLayer::new(
+            try_load_config!(self.configs.proof_data_handler_config),
+            self.genesis_config.l1_batch_commit_data_generator_mode,
+        ));
         Ok(self)
     }
 
@@ -448,6 +476,8 @@ impl ViaNodeBuilder {
             .add_commitment_generator_layer()?
             .add_via_celestia_da_client_layer()?
             .add_da_dispatcher_layer()?
+            .add_proof_data_handler_layer()?
+            .add_house_keeper_layer()?
             .node
             .build())
     }
