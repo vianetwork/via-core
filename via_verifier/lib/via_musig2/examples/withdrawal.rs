@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // In a real application these would come from the chain.
     let (dummy_out_point, dummy_utxo) = utxos[0].clone();
 
-    let change_amount = dummy_utxo.value - SPEND_AMOUNT;
+    let change_amount = dummy_utxo.value - SPEND_AMOUNT - Amount::from_sat(1000);
 
     // Get an address to send to.
     let address = receivers_address();

@@ -54,6 +54,10 @@ services:
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${VERIFIER_1_ADDRESS} 300
         echo "Sent 300 BTC to VERIFIER_1_ADDRESS: $${VERIFIER_1_ADDRESS}"
 
+        echo "BRIDGE_ADDRESS: $${BRIDGE_ADDRESS}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${BRIDGE_ADDRESS} 300
+        echo "Sent 300 BTC to BRIDGE_ADDRESS: $${BRIDGE_ADDRESS}"
+
         echo "VERIFIER_2_ADDRESS: $${VERIFIER_2_ADDRESS}"
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${VERIFIER_2_ADDRESS} 300
         echo "Sent 300 BTC to VERIFIER_2_ADDRESS: $${VERIFIER_2_ADDRESS}"
