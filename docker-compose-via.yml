@@ -92,7 +92,7 @@ services:
       - VERIFIER_1_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
       - VERIFIER_2_ADDRESS=bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
       - VERIFIER_3_ADDRESS=bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm
-      - BRIDGE_ADDRESS=bcrt1plt2vht9q56x66alsyz2sc59pt3nuuh2vde3kgakju00nk3pyc62sr4tsyv
+      - BRIDGE_ADDRESS=bcrt1paf9ewekz080f4vluhm0sau7wn3f7uuxcngh9ffyram4q7qjsx4cqsa23tj
       - RPC_ARGS=-chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
       - SLEEP_SECONDS=5
 
