@@ -10,8 +10,8 @@ use bitcoin::{
     locktime::absolute,
     secp256k1::{Message, Secp256k1, SecretKey},
     sighash::{Prevouts, SighashCache, TapSighashType},
-    transaction, Address, Amount, Network, PrivateKey, PublicKey, ScriptBuf, Sequence, Transaction,
-    TxIn, TxOut, Witness, XOnlyPublicKey,
+    transaction, Address, Amount, Network, PrivateKey, PublicKey, ScriptBuf, Sequence,
+    TapTweakHash, Transaction, TxIn, TxOut, Witness, XOnlyPublicKey,
 };
 use musig2::{secp::Scalar, KeyAggContext};
 use rand::Rng;
@@ -65,12 +65,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut musig_key_agg_cache = KeyAggContext::new(pubkeys)?;
 
-    let agg_pubkey: secp256k1_musig2::PublicKey = musig_key_agg_cache.aggregated_pubkey();
+    let agg_pubkey = musig_key_agg_cache.aggregated_pubkey::<secp256k1_musig2::PublicKey>();
+    let (xonly_agg_key, _) = agg_pubkey.x_only_public_key();
 
-    let final_internal_key = agg_pubkey.x_only_public_key();
+    // Convert to bitcoin XOnlyPublicKey first
+    let internal_key = bitcoin::XOnlyPublicKey::from_slice(&xonly_agg_key.serialize())?;
 
-    let final_internal_key = XOnlyPublicKey::from_slice(&final_internal_key.0.serialize())?;
-    let address = Address::p2tr(&secp, final_internal_key, None, NETWORK);
+    // Calculate taproot tweak
+    let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, None);
+    let tweak = tap_tweak.to_scalar();
+    let tweak_bytes = tweak.to_be_bytes();
+    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
+
+    // Apply tweak to the key aggregation context before signing
+    musig_key_agg_cache = musig_key_agg_cache.with_xonly_tweak(tweak)?;
+
+    // Use internal_key for address creation
+    let address = Address::p2tr(&secp, internal_key, None, NETWORK);
 
     println!("address: {}", address);
 
@@ -118,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The change output is locked to a key controlled by us.
     let change = TxOut {
         value: change_amount,
-        script_pubkey: ScriptBuf::new_p2tr(&secp, final_internal_key, None), // Change comes back to us.
+        script_pubkey: ScriptBuf::new_p2tr(&secp, internal_key, None), // Change comes back to us.
     };
 
     // The transaction we want to sign and broadcast.
@@ -151,15 +162,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secret_key_2 = musig2::secp256k1::SecretKey::from_slice(&secret_key_2[..]).unwrap();
     let secret_key_3 = musig2::secp256k1::SecretKey::from_slice(&secret_key_3[..]).unwrap();
 
-    // Apply taproot tweak to the aggregation context
-    let merkle_root = [0u8; 32]; // No script path in this example
-    let musig_key_agg_cache = musig_key_agg_cache
-        .with_taproot_tweak(&merkle_root)
-        .unwrap();
-
     // First round: Generate nonces
     let mut first_round_1 = FirstRound::new(
-        musig_key_agg_cache.clone(),
+        musig_key_agg_cache.clone(), // Use tweaked context
         thread_rng().gen::<[u8; 32]>(),
         0,
         SecNonceSpices::new()
