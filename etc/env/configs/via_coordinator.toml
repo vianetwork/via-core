@@ -12,14 +12,14 @@ port = 6060
 # Coordinator server url.
 url = "http://0.0.0.0:6060"
 # The signer private key.
-private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R"
+private_key = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm"
 # The verifiers public keys.
 verifiers_pub_keys_str = [
-    "0216d3ee537b26e65c4651cea9d066048eb083d40aeb11eb26644517a8f41bba11",
-    "02ffa48031b415a78769b47d325a53f2f83610e8e7b47d864d945f216b1ab7c2dc",
+    "03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b",
+    "02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662",
 ]
-# The bridge address. Run the following cmd: `cargo run --example key_generation_setup coordinator 0216d3ee537b26e65c4651cea9d066048eb083d40aeb11eb26644517a8f41bba11 02ffa48031b415a78769b47d325a53f2f83610e8e7b47d864d945f216b1ab7c2dc`
-bridge_address_str = "bcrt1plt2vht9q56x66alsyz2sc59pt3nuuh2vde3kgakju00nk3pyc62sr4tsyv"
+# The bridge address. Run the following cmd: `cargo run --example key_generation_setup coordinator 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b 02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662`
+bridge_address_str = "bcrt1paf9ewekz080f4vluhm0sau7wn3f7uuxcngh9ffyram4q7qjsx4cqsa23tj"
 # The minimum required signers.
 required_signers = 2
 # The verifier_mode can be simple verifier or coordinator.

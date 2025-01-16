@@ -51,9 +51,10 @@ async fn main() -> Result<()> {
     let rpc_username = args[6].clone();
     let rpc_password = args[7].clone();
 
-    let bridge_p2wpkh_mpc_address = "bcrt1qdrzjq2mwlhrnhan94em5sl032zd95m73ud8ddw"
-        .parse::<BitcoinAddress<NetworkUnchecked>>()?
-        .require_network(network)?;
+    let bridge_p2wpkh_mpc_address =
+        "bcrt1paf9ewekz080f4vluhm0sau7wn3f7uuxcngh9ffyram4q7qjsx4cqsa23tj"
+            .parse::<BitcoinAddress<NetworkUnchecked>>()?
+            .require_network(network)?;
 
     // Load the previous context from the file if it exists
     let context = load_context_from_file(CONTEXT_FILE)?;
