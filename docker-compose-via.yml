@@ -105,7 +105,7 @@ services:
       - VERIFIER_1_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
       - VERIFIER_2_ADDRESS=bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
       - VERIFIER_3_ADDRESS=bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm
-      - BRIDGE_ADDRESS_TEST=bcrt1pjwy0jgaacfqdnlfrtk9rll0gk5awacen40wwj7yxmyh27g5dtr6s2z74aa
+      - BRIDGE_ADDRESS_TEST=bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg
       - BRIDGE_ADDRESS=bcrt1pu2js99s96f97ecngk8nz7hkaf7fgnjnpv8rxpaft7zd3h9q5affqdz0dch
       - RPC_ARGS=-chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
       - SLEEP_SECONDS=5
@@ -122,19 +122,19 @@ services:
     environment:
       - POSTGRES_PASSWORD=notsecurepassword
 
-  celestia-node:
-    image: "ghcr.io/celestiaorg/celestia-node:v0.20.4-mocha"
-    container_name: celestia-node
-    volumes:
-      - type: bind
-        source: ./volumes/celestia
-        target: /home/celestia
-    command: celestia light start --headers.trusted-hash ${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip consensus-full-mocha-4.celestia-mocha.com --p2p.network mocha 
-    ports:
-      - '26658:26658'
-    environment:
-      - NODE_TYPE=light
-      - P2P_NETWORK=mocha
+  # celestia-node:
+  #   image: "ghcr.io/celestiaorg/celestia-node:v0.20.4-mocha"
+  #   container_name: celestia-node
+  #   volumes:
+  #     - type: bind
+  #       source: ./volumes/celestia
+  #       target: /home/celestia
+  #   command: celestia light start --headers.trusted-hash ${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip consensus-full-mocha-4.celestia-mocha.com --p2p.network mocha 
+  #   ports:
+  #     - '26658:26658'
+  #   environment:
+  #     - NODE_TYPE=light
+  #     - P2P_NETWORK=mocha
 
 volumes:
   bitcoin_data:

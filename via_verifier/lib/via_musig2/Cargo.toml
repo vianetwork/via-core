@@ -55,3 +55,8 @@ path = "examples/coordinator.rs"
 [[example]]
 name = "withdrawal2"
 path = "examples/withdrawal2.rs"
+
+
+[[example]]
+name = "withdrawal3"
+path = "examples/withdrawal3.rs"

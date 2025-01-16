@@ -6,28 +6,64 @@ use std::str::FromStr;
 
 use bitcoin::{
     hashes::Hash,
-    key::{Keypair, TapTweak, TweakedKeypair, UntweakedPublicKey},
+    key::{Keypair, TapTweak, TweakedKeypair},
     locktime::absolute,
-    secp256k1::{rand, Message, Secp256k1, SecretKey, Signing, Verification},
+    secp256k1::{Message, Secp256k1, SecretKey},
     sighash::{Prevouts, SighashCache, TapSighashType},
-    transaction, Address, Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
-    Txid, Witness,
+    transaction, Address, Amount, Network, PrivateKey, ScriptBuf, Sequence, Transaction, TxIn,
+    TxOut, Witness,
 };
+use via_btc_client::{inscriber::Inscriber, types::NodeAuth};
 
-const DUMMY_UTXO_AMOUNT: Amount = Amount::from_sat(20_000_000);
+const RPC_URL: &str = "http://0.0.0.0:18443";
+const RPC_USERNAME: &str = "rpcuser";
+const RPC_PASSWORD: &str = "rpcpassword";
+const NETWORK: Network = Network::Regtest;
+const PK: &str = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm";
+
 const SPEND_AMOUNT: Amount = Amount::from_sat(5_000_000);
-const CHANGE_AMOUNT: Amount = Amount::from_sat(14_999_000); // 1000 sat fee.
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secp = Secp256k1::new();
 
     // Get a keypair we control. In a real application these would come from a stored secret.
-    let keypair = senders_keys(&secp);
+    let private_key =
+        PrivateKey::from_wif("cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R").unwrap();
+
+    let secret_key = SecretKey::from_slice(&private_key.inner.secret_bytes()).unwrap();
+
+    let keypair = Keypair::from_secret_key(&secp, &secret_key);
+
     let (internal_key, _parity) = keypair.x_only_public_key();
+
+    let address = Address::p2tr(&secp, internal_key, None, NETWORK);
+
+    println!("address: {}", address);
+
+    // -------------------------------------------
+    // Connect to Bitcoin node (adjust RPC credentials and URL)
+    // -------------------------------------------
+    let inscriber = Inscriber::new(
+        RPC_URL,
+        NETWORK,
+        NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string()),
+        PK,
+        None,
+    )
+    .await?;
+    let client = inscriber.get_client().await;
+
+    // -------------------------------------------
+    // Fetching UTXOs from node
+    // -------------------------------------------
+    let utxos = client.fetch_utxos(&address).await?;
 
     // Get an unspent output that is locked to the key above that we control.
     // In a real application these would come from the chain.
-    let (dummy_out_point, dummy_utxo) = dummy_unspent_transaction_output(&secp, internal_key);
+    let (dummy_out_point, dummy_utxo) = utxos[0].clone();
+
+    let change_amount = dummy_utxo.value - SPEND_AMOUNT;
 
     // Get an address to send to.
     let address = receivers_address();
@@ -48,7 +84,7 @@ fn main() {
 
     // The change output is locked to a key controlled by us.
     let change = TxOut {
-        value: CHANGE_AMOUNT,
+        value: change_amount,
         script_pubkey: ScriptBuf::new_p2tr(&secp, internal_key, None), // Change comes back to us.
     };
 
@@ -89,14 +125,12 @@ fn main() {
 
     // BOOM! Transaction signed and ready to broadcast.
     println!("{:#?}", tx);
-}
 
-/// An example of keys controlled by the transaction sender.
-///
-/// In a real application these would be actual secrets.
-fn senders_keys<C: Signing>(secp: &Secp256k1<C>) -> Keypair {
-    let sk = SecretKey::new(&mut rand::thread_rng());
-    Keypair::from_secret_key(secp, &sk)
+    let tx_hex = bitcoin::consensus::encode::serialize_hex(&tx);
+    let res = client.broadcast_signed_transaction(&tx_hex).await?;
+    println!("res: {:?}", res);
+
+    Ok(())
 }
 
 /// A dummy address for the receiver.
@@ -109,31 +143,4 @@ fn receivers_address() -> Address {
         .expect("a valid address")
         .require_network(Network::Bitcoin)
         .expect("valid address for mainnet")
-}
-
-/// Creates a p2wpkh output locked to the key associated with `wpkh`.
-///
-/// An utxo is described by the `OutPoint` (txid and index within the transaction that it was
-/// created). Using the out point one can get the transaction by `txid` and using the `vout` get the
-/// transaction value and script pubkey (`TxOut`) of the utxo.
-///
-/// This output is locked to keys that we control, in a real application this would be a valid
-/// output taken from a transaction that appears in the chain.
-fn dummy_unspent_transaction_output<C: Verification>(
-    secp: &Secp256k1<C>,
-    internal_key: UntweakedPublicKey,
-) -> (OutPoint, TxOut) {
-    let script_pubkey = ScriptBuf::new_p2tr(secp, internal_key, None);
-
-    let out_point = OutPoint {
-        txid: Txid::all_zeros(), // Obviously invalid.
-        vout: 0,
-    };
-
-    let utxo = TxOut {
-        value: DUMMY_UTXO_AMOUNT,
-        script_pubkey,
-    };
-
-    (out_point, utxo)
 }
