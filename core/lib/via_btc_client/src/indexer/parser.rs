@@ -507,7 +507,7 @@ impl MessageParser {
             .iter()
             .find(|output| {
                 if let Some(address) = self.bridge_address.as_ref() {
-                    output.script_pubkey.is_p2wpkh()
+                    output.script_pubkey.is_p2tr()
                         && output.script_pubkey == address.script_pubkey()
                 } else {
                     tracing::error!("Bridge address not found");
