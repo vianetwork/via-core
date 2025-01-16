@@ -205,9 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Second round: Create partial signatures
     let binding = sighash.to_byte_array();
     let mut second_round_1 = first_round_1.finalize(secret_key_1, &binding)?;
-    let binding = sighash.to_byte_array();
     let second_round_2 = first_round_2.finalize(secret_key_2, &binding)?;
-    let binding = sighash.to_byte_array();
     let second_round_3 = first_round_3.finalize(secret_key_3, &binding)?;
     // Combine partial signatures
     let partial_sig_2: [u8; 32] = second_round_2.our_signature();
