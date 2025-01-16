@@ -1,6 +1,6 @@
 use std::{env, str::FromStr};
 
-use bitcoin::{taproot::TaprootSpendInfo, Address as BitcoinAddress, Network, XOnlyPublicKey};
+use bitcoin::{Address as BitcoinAddress, Network};
 use musig2::KeyAggContext;
 use rand::rngs::OsRng;
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
@@ -30,16 +30,18 @@ fn generate_keypair() -> (SecretKey, PublicKey) {
 fn create_bridge_address(
     pubkeys: Vec<PublicKey>,
 ) -> Result<BitcoinAddress, Box<dyn std::error::Error>> {
-    let key_agg_ctx: KeyAggContext = KeyAggContext::new(pubkeys)?;
-    let aggregated_pubkey: PublicKey = key_agg_ctx.aggregated_pubkey();
+    let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let (xonly_agg_key, _parity) = aggregated_pubkey.x_only_public_key();
-    let xonly_pub = XOnlyPublicKey::from_slice(&xonly_agg_key.serialize())?;
+    let musig_key_agg_cache = KeyAggContext::new(pubkeys)?;
 
-    let secp_btc = bitcoin::secp256k1::Secp256k1::new();
-    let tap_info = TaprootSpendInfo::new_key_spend(&secp_btc, xonly_pub, None);
-    let tweaked_key = tap_info.output_key();
-    let address = BitcoinAddress::p2tr(&secp_btc, tweaked_key.into(), None, Network::Regtest);
+    let agg_pubkey = musig_key_agg_cache.aggregated_pubkey::<secp256k1_musig2::PublicKey>();
+    let (xonly_agg_key, _) = agg_pubkey.x_only_public_key();
+
+    // Convert to bitcoin XOnlyPublicKey first
+    let internal_key = bitcoin::XOnlyPublicKey::from_slice(&xonly_agg_key.serialize())?;
+
+    // Use internal_key for address creation
+    let address = BitcoinAddress::p2tr(&secp, internal_key, None, Network::Regtest);
 
     Ok(address)
 }
