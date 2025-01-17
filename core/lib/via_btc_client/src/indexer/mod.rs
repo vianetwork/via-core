@@ -306,7 +306,7 @@ impl BitcoinInscriptionIndexer {
 
                 let bridge_address = sb
                     .input
-                    .bridge_p2wpkh_mpc_address
+                    .bridge_musig2_address
                     .require_network(network)
                     .unwrap();
                 state.bridge_address = Some(bridge_address);
@@ -591,11 +591,7 @@ mod tests {
                 common: get_test_common_fields(),
                 input: types::SystemBootstrappingInput {
                     start_block_height: 0,
-                    bridge_p2wpkh_mpc_address: indexer
-                        .bridge_address
-                        .clone()
-                        .as_unchecked()
-                        .to_owned(),
+                    bridge_musig2_address: indexer.bridge_address.clone().as_unchecked().to_owned(),
                     verifier_p2wpkh_addresses: vec![],
                     bootloader_hash: H256::zero(),
                     abstract_account_hash: H256::zero(),

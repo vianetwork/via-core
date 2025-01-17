@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
     let rpc_username = args[6].clone();
     let rpc_password = args[7].clone();
 
-    let bridge_p2wpkh_mpc_address = "bcrt1qdrzjq2mwlhrnhan94em5sl032zd95m73ud8ddw"
+    let bridge_musig2_address = "bcrt1p3w832gamavyl3w8y6ev9mv6sdw7nl4d8yj4psxls4vcxrrqpcd0stcngwh"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
         .require_network(network)?;
 
@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
             InscriptionMessage::L1ToL2Message(input),
             InscriptionConfig::default(),
             Some(Recipient {
-                address: bridge_p2wpkh_mpc_address,
+                address: bridge_musig2_address,
                 amount: Amount::from_btc(amount)?,
             }),
         )

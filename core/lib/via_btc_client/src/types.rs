@@ -74,7 +74,7 @@ pub struct CommonFields {
 pub struct SystemBootstrappingInput {
     pub start_block_height: u32,
     pub verifier_p2wpkh_addresses: Vec<BitcoinAddress<NetworkUnchecked>>,
-    pub bridge_p2wpkh_mpc_address: BitcoinAddress<NetworkUnchecked>,
+    pub bridge_musig2_address: BitcoinAddress<NetworkUnchecked>,
     pub bootloader_hash: H256,
     pub abstract_account_hash: H256,
 }

@@ -18,8 +18,11 @@ verifiers_pub_keys_str = [
     "0216d3ee537b26e65c4651cea9d066048eb083d40aeb11eb26644517a8f41bba11",
     "02ffa48031b415a78769b47d325a53f2f83610e8e7b47d864d945f216b1ab7c2dc",
 ]
-# The bridge address.
-bridge_address_str = ""
+
+# The bridge address. Run the following cmd: `cargo run --example key_generation_setup coordinator 0216d3ee537b26e65c4651cea9d066048eb083d40aeb11eb26644517a8f41bba11 02ffa48031b415a78769b47d325a53f2f83610e8e7b47d864d945f216b1ab7c2dc`
+# also update the bridge address in the via_btc_client/examples/deposit.rs
+
+bridge_address_str = "bcrt1p3w832gamavyl3w8y6ev9mv6sdw7nl4d8yj4psxls4vcxrrqpcd0stcngwh"
 # The minimum required signers.
 required_signers = 2
 # The verifier_mode can be simple verifier or coordinator.

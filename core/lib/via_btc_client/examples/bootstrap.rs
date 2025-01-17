@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
     let verifier_3_p2wpkh_address = "bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
-    let bridge_p2wpkh_mpc_address = "bcrt1qdrzjq2mwlhrnhan94em5sl032zd95m73ud8ddw"
+    let bridge_musig2_address = "bcrt1p3w832gamavyl3w8y6ev9mv6sdw7nl4d8yj4psxls4vcxrrqpcd0stcngwh"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
 
     let mut verifier_inscribers: Vec<Inscriber> = vec![
@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
             verifier_2_p2wpkh_address,
             verifier_3_p2wpkh_address,
         ],
-        bridge_p2wpkh_mpc_address,
+        bridge_musig2_address,
         bootloader_hash: H256::zero(),
         abstract_account_hash: H256::random(),
     };
