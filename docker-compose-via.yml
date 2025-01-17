@@ -54,9 +54,9 @@ services:
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${VERIFIER_1_ADDRESS} 300
         echo "Sent 300 BTC to VERIFIER_1_ADDRESS: $${VERIFIER_1_ADDRESS}"
 
-        echo "BRIDGE_ADDRESS: $${BRIDGE_ADDRESS}"
-        bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${BRIDGE_ADDRESS} 300
-        echo "Sent 300 BTC to BRIDGE_ADDRESS: $${BRIDGE_ADDRESS}"
+        echo "BRIDGE_TEST_ADDRESS: $${BRIDGE_TEST_ADDRESS}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${BRIDGE_TEST_ADDRESS} 300
+        echo "Sent 300 BTC to BRIDGE_TEST_ADDRESS: $${BRIDGE_TEST_ADDRESS}"
 
         echo "VERIFIER_2_ADDRESS: $${VERIFIER_2_ADDRESS}"
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${VERIFIER_2_ADDRESS} 300
@@ -96,7 +96,7 @@ services:
       - VERIFIER_1_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
       - VERIFIER_2_ADDRESS=bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
       - VERIFIER_3_ADDRESS=bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm
-      - BRIDGE_ADDRESS=bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg
+      - BRIDGE_TEST_ADDRESS=bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg
       - RPC_ARGS=-chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
       - SLEEP_SECONDS=5
 
