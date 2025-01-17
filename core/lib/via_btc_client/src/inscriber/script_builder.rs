@@ -232,7 +232,7 @@ impl InscriptionData {
         }
 
         let bridge_address = input
-            .bridge_p2wpkh_mpc_address
+            .bridge_musig2_address
             .clone()
             .require_network(network)?;
         let bridge_address_encoded = Self::encode_push_bytes(bridge_address.to_string().as_bytes());

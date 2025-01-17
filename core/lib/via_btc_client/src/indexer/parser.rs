@@ -279,7 +279,7 @@ impl MessageParser {
             common: common_fields.clone(),
             input: SystemBootstrappingInput {
                 start_block_height,
-                bridge_p2wpkh_mpc_address: network_unchecked_bridge_address,
+                bridge_musig2_address: network_unchecked_bridge_address,
                 verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
                 bootloader_hash,
                 abstract_account_hash,
@@ -507,7 +507,7 @@ impl MessageParser {
             .iter()
             .find(|output| {
                 if let Some(address) = self.bridge_address.as_ref() {
-                    output.script_pubkey.is_p2wpkh()
+                    output.script_pubkey.is_p2tr()
                         && output.script_pubkey == address.script_pubkey()
                 } else {
                     tracing::error!("Bridge address not found");

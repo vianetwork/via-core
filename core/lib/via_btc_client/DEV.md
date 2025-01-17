@@ -96,7 +96,7 @@ Votable : No
 |      OP_PUSHBYTES_32  b"verifier_5_p2wpkh_address"          |
 |      OP_PUSHBYTES_32  b"verifier_6_p2wpkh_address"          |
 |      OP_PUSHBYTES_32  b"verifier_7_p2wpkh_address"          |
-|      OP_PUSHBYTES_32  b"bridge_p2wpkh_mpc_address"          |
+|      OP_PUSHBYTES_32  b"bridge_musig2_address"          |
 |      OP_PUSHBYTES_32  b"Str('bootloader_hash')"             |
 |      OP_PUSHBYTES_32  b"Str('abstract_account_hash')"       |
 |      OP_ENDIF                                               |
