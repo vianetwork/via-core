@@ -57,6 +57,7 @@ async fn main() -> Result<()> {
     let _verifier_3_private_key =
         "cS9UbUKKepDjthBFPBDBe5vGVjNXXygCN75kPWmNKk7HTPV8p6he".to_string();
 
+
     let sequencer_p2wpkh_address = "bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
     let verifier_1_p2wpkh_address = "bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv"
@@ -65,10 +66,11 @@ async fn main() -> Result<()> {
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
     let _verifier_3_p2wpkh_address = "bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
-
+  
     // cargo run --example key_generation_setup coordinator 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b 02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662
     let bridge_musig2_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
+
 
     let mut verifier_inscribers: Vec<Inscriber> = vec![
         create_inscriber(

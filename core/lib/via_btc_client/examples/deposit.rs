@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
         .require_network(network)?;
 
+
     // Load the previous context from the file if it exists
     let context = load_context_from_file(CONTEXT_FILE)?;
 
