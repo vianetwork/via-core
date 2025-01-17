@@ -27,3 +27,5 @@ verifier_mode = "COORDINATOR"
 
 [via_btc_watch]
 actor_role = "Verifier"
+# Number of blocks that we should check when restarting the service.
+btc_blocks_lag = 1000

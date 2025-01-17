@@ -1,4 +1,7 @@
 [via_btc_watch]
+# Number of blocks that we should wait before processing the new blocks.
+# For local regtest we should wait for 0 blocks.
+# But for mainnet we should wait for 3 blocks.
 confirmations_for_btc_msg = 0
 btc_node_poll_interval = 1000
 rpc_url = "http://0.0.0.0:18443"
@@ -7,10 +10,8 @@ rpc_password = "rpcpassword"
 network = "regtest"
 bootstrap_txids = []
 actor_role = "Sequencer"
-# Number of blocks that we should wait before processing the new blocks.
-# For local regtest we should wait for 0 blocks. 
-# But for mainnet we should wait for 3 blocks.
-btc_blocks_lag = 0
+# Number of blocks that we should check when restarting the service.
+btc_blocks_lag = 1000
 
 [via_btc_sender]
 poll_interval = 1000
