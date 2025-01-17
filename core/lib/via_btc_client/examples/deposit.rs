@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
     let rpc_username = args[6].clone();
     let rpc_password = args[7].clone();
 
-    let bridge_musig2_address = "bcrt1p3w832gamavyl3w8y6ev9mv6sdw7nl4d8yj4psxls4vcxrrqpcd0stcngwh"
+    let bridge_musig2_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
         .require_network(network)?;
 
