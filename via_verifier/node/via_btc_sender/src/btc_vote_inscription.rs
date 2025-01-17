@@ -124,15 +124,25 @@ impl ViaVoteInscription {
         vote: bool,
         tx_id: Vec<u8>,
     ) -> anyhow::Result<InscriptionMessage> {
-        let mut attestation = Vote::NotOk;
+        let attestation = if vote { Vote::Ok } else { Vote::NotOk };
 
-        if vote {
-            attestation = Vote::Ok;
-        }
+        // Convert H256 bytes to Txid
+        let txid = Self::h256_to_txid(&tx_id)?;
+
         let input = ValidatorAttestationInput {
-            reference_txid: Txid::from_slice(&tx_id)?,
+            reference_txid: txid,
             attestation,
         };
         Ok(InscriptionMessage::ValidatorAttestation(input))
+    }
+
+    /// Converts H256 bytes (from the DB) to a Txid by reversing the byte order.
+    fn h256_to_txid(h256_bytes: &[u8]) -> anyhow::Result<Txid> {
+        if h256_bytes.len() != 32 {
+            return Err(anyhow::anyhow!("H256 must be 32 bytes"));
+        }
+        let mut reversed_bytes = h256_bytes.to_vec();
+        reversed_bytes.reverse();
+        Txid::from_slice(&reversed_bytes).context("Failed to convert H256 to Txid")
     }
 }
