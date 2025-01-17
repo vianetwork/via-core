@@ -80,11 +80,11 @@ async function withdraw(amount: number, receiverL1Address: string, userL2Private
     const contract = new Contract(L2_BASE_TOKEN, abi, wallet) as any;
 
     let balance = await contract.balanceOf(wallet.address);
-    console.log('Balance before withdraw', ethers.formatUnits(balance, 8));
-    const tx = await contract.connect(wallet).withdraw(btcAddress, { value: ethers.parseUnits(String(amount), 8) });
+    console.log('Balance before withdraw', ethers.formatEther(String(balance)));
+    const tx = await contract.connect(wallet).withdraw(btcAddress, { value: ethers.parseEther(String(amount)) });
     await tx.wait();
     balance = await contract.balanceOf(wallet.address);
-    console.log('Balance after withdraw', ethers.formatUnits(balance, 8));
+    console.log('Balance after withdraw', ethers.formatEther(String(balance)));
 }
 
 export const command = new Command('token').description('Bridge BTC L2<>L1');
