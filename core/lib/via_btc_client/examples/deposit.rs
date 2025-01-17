@@ -51,10 +51,10 @@ async fn main() -> Result<()> {
     let rpc_username = args[6].clone();
     let rpc_password = args[7].clone();
 
-    let bridge_p2wpkh_mpc_address =
-        "bcrt1paf9ewekz080f4vluhm0sau7wn3f7uuxcngh9ffyram4q7qjsx4cqsa23tj"
-            .parse::<BitcoinAddress<NetworkUnchecked>>()?
-            .require_network(network)?;
+    let bridge_musig2_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
+        .parse::<BitcoinAddress<NetworkUnchecked>>()?
+        .require_network(network)?;
+
 
     // Load the previous context from the file if it exists
     let context = load_context_from_file(CONTEXT_FILE)?;
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
             InscriptionMessage::L1ToL2Message(input),
             InscriptionConfig::default(),
             Some(Recipient {
-                address: bridge_p2wpkh_mpc_address,
+                address: bridge_musig2_address,
                 amount: Amount::from_btc(amount)?,
             }),
         )

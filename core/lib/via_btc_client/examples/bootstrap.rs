@@ -54,7 +54,9 @@ async fn main() -> Result<()> {
     // pubkey: 02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662
     let verifier_2_private_key = "cQ4UHjdsGWFMcQ8zXcaSr7m4Kxq9x7g9EKqguTaFH7fA34mZAnqW".to_string();
     // pubkey: 03cf1b1c7ad2952a99e6e2d12d52437f41f867c30eceef1bf88f402296424d6eb8
-    let verifier_3_private_key = "cS9UbUKKepDjthBFPBDBe5vGVjNXXygCN75kPWmNKk7HTPV8p6he".to_string();
+    let _verifier_3_private_key =
+        "cS9UbUKKepDjthBFPBDBe5vGVjNXXygCN75kPWmNKk7HTPV8p6he".to_string();
+
 
     let sequencer_p2wpkh_address = "bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
@@ -62,12 +64,13 @@ async fn main() -> Result<()> {
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
     let verifier_2_p2wpkh_address = "bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
-    let verifier_3_p2wpkh_address = "bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm"
+    let _verifier_3_p2wpkh_address = "bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?;
+  
     // cargo run --example key_generation_setup coordinator 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b 02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662
-    let bridge_p2wpkh_mpc_address =
-        "bcrt1paf9ewekz080f4vluhm0sau7wn3f7uuxcngh9ffyram4q7qjsx4cqsa23tj"
-            .parse::<BitcoinAddress<NetworkUnchecked>>()?;
+    let bridge_musig2_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
+        .parse::<BitcoinAddress<NetworkUnchecked>>()?;
+
 
     let mut verifier_inscribers: Vec<Inscriber> = vec![
         create_inscriber(
@@ -104,7 +107,7 @@ async fn main() -> Result<()> {
             verifier_2_p2wpkh_address,
             // verifier_3_p2wpkh_address,
         ],
-        bridge_p2wpkh_mpc_address,
+        bridge_musig2_address,
         bootloader_hash: H256::zero(),
         abstract_account_hash: H256::random(),
     };
