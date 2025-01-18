@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n                via_votable_transactions (l1_batch_number, tx_id, da_identifier, blob_id, pubdata_reveal_tx_id, pubdata_blob_id)\n            VALUES\n                ($1, $2, $3, $4, $5, $6)\n            ON CONFLICT (l1_batch_number, tx_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bytea",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "32aa4bea1feff592ceaae7c10f8f30743de219ffd56015380a713ee0fd1fcce0"
+}
