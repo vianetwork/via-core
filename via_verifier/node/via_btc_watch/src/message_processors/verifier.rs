@@ -44,6 +44,27 @@ impl MessageProcessor for VerifierMessageProcessor {
 
                         let tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
 
+                        let pubdata_msgs = indexer
+                            .parse_transaction(&proof_msg.input.l1_batch_reveal_txid)
+                            .await?;
+
+                        if pubdata_msgs.len() != 1 {
+                            return Err(MessageProcessorError::Internal(anyhow::Error::msg(
+                                "Invalid pubdata msg lenght",
+                            )));
+                        }
+
+                        let inscription = pubdata_msgs[0].clone();
+
+                        let l1_batch_da_ref_inscription = match inscription {
+                            FullInscriptionMessage::L1BatchDAReference(da_msg) => da_msg,
+                            _ => {
+                                return Err(MessageProcessorError::Internal(anyhow::Error::msg(
+                                    "Invalid inscription type",
+                                )))
+                            }
+                        };
+
                         votes_dal
                             .insert_votable_transaction(
                                 l1_batch_number.0,
@@ -51,6 +72,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 proof_msg.input.da_identifier.clone(),
                                 proof_msg.input.blob_id.clone(),
                                 proof_msg.input.l1_batch_reveal_txid.to_string(),
+                                l1_batch_da_ref_inscription.input.blob_id,
                             )
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
