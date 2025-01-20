@@ -1,7 +1,7 @@
 pub(crate) use verifier::VerifierMessageProcessor;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinTxid, FullInscriptionMessage},
+    types::{BitcoinTxid, FullInscriptionMessage, IndexerError},
 };
 use via_verifier_dal::{Connection, Verifier};
 use zksync_types::H256;
@@ -14,6 +14,12 @@ pub(super) enum MessageProcessorError {
     Internal(#[from] anyhow::Error),
     #[error("database error: {0}")]
     DatabaseError(String),
+}
+
+impl From<IndexerError> for MessageProcessorError {
+    fn from(err: IndexerError) -> Self {
+        MessageProcessorError::Internal(err.into())
+    }
 }
 
 #[async_trait::async_trait]

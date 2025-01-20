@@ -15,7 +15,7 @@ use via_btc_client::{traits::Serializable, withdrawal_builder::WithdrawalRequest
 use via_verifier_dal::VerifierDal;
 use zksync_types::H256;
 
-use super::api_decl::RestApi;
+use super::{api_decl::RestApi, error::ApiError};
 use crate::{
     types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse},
     utils::{decode_signature, encode_signature},
@@ -28,23 +28,11 @@ fn ok_json<T: Serialize>(data: T) -> Response<String> {
         .unwrap()
 }
 
-fn bad_request(message: &str) -> Response<String> {
-    Response::builder()
-        .status(axum::http::StatusCode::BAD_REQUEST)
-        .body(message.to_string())
-        .unwrap()
-}
-
-fn not_found(message: &str) -> Response<String> {
-    Response::builder()
-        .status(axum::http::StatusCode::NOT_FOUND)
-        .body(message.to_string())
-        .unwrap()
-}
-
 impl RestApi {
     #[instrument(skip(self_))]
-    pub async fn new_session(State(self_): State<Arc<Self>>) -> Response<String> {
+    pub async fn new_session(
+        State(self_): State<Arc<Self>>,
+    ) -> anyhow::Result<Response<String>, ApiError> {
         let mut l1_block_number: i64;
 
         {
@@ -56,16 +44,14 @@ impl RestApi {
             let withdrawal_tx = self_
                 .master_connection_pool
                 .connection_tagged("coordinator api")
-                .await
-                .unwrap()
+                .await?
                 .via_votes_dal()
                 .get_vote_transaction_withdrawal_tx(l1_block_number)
-                .await
-                .unwrap();
+                .await?;
 
             if withdrawal_tx.is_none() {
                 // The withdrawal process is in progress
-                return ok_json(l1_block_number);
+                return Ok(ok_json(l1_block_number));
             }
         }
 
@@ -84,24 +70,21 @@ impl RestApi {
             if l1_block_number != 0 {
                 self_.reset_session().await;
             }
-            return not_found("No block found for processing withdrawals");
+            return Ok(ok_json("No block found for processing withdrawals"));
         }
 
         let mut withdrawals_to_process: Vec<WithdrawalRequest> = Vec::new();
         let mut proof_txid = Txid::all_zeros();
 
-        for (block_number, blob_id, proof_tx) in blocks.iter() {
+        for (block_number, blob_id, proof_tx_id) in blocks.iter() {
             let withdrawals = self_
                 .withdrawal_client
                 .get_withdrawals(blob_id)
                 .await
-                .context("Error to get withdrawals")
-                .unwrap();
+                .context("Error to get withdrawals from DA")?;
 
             if !withdrawals.is_empty() {
-                proof_txid = Txid::from_slice(proof_tx.as_bytes())
-                    .context("Invalid proof id")
-                    .unwrap();
+                proof_txid = Self::h256_to_txid(&proof_tx_id).context("Invalid proof tx id")?;
                 l1_block_number = *block_number;
                 withdrawals_to_process = withdrawals;
                 break;
@@ -110,29 +93,36 @@ impl RestApi {
                 _ = self_
                     .master_connection_pool
                     .connection_tagged("coordinator")
-                    .await
-                    .unwrap()
+                    .await?
                     .via_votes_dal()
                     .mark_vote_transaction_as_processed_withdrawals(
                         H256::zero(),
                         block_number.clone(),
                     )
                     .await
-                    .unwrap();
+                    .context("Error to mark a vote transaction as processed")?;
             }
         }
 
         if withdrawals_to_process.is_empty() {
             self_.reset_session().await;
-            return not_found("There are no withdrawals to process");
+            return Ok(ok_json("There are no withdrawals to process"));
         }
 
-        let unsigned_tx = self_
+        let unsigned_tx_result = self_
             .withdrawal_builder
             .create_unsigned_withdrawal_tx(withdrawals_to_process, proof_txid)
-            .await
-            .context("Error to create a unsigned withdrawal transaction")
-            .unwrap();
+            .await;
+
+        let unsigned_tx = match unsigned_tx_result {
+            Ok(unsigned_tx) => unsigned_tx,
+            Err(err) => {
+                tracing::info!("Invalid unsigned tx: {err}");
+                return Err(ApiError::InternalServerError(
+                    "Invalid unsigned tx".to_string(),
+                ));
+            }
+        };
 
         let mut sighash_cache = SighashCache::new(&unsigned_tx.tx);
         let sighash_type = TapSighashType::All;
@@ -158,7 +148,7 @@ impl RestApi {
             *session = new_sesssion;
         }
 
-        return ok_json(l1_block_number);
+        return Ok(ok_json(l1_block_number));
     }
 
     #[instrument(skip(self_))]
@@ -184,16 +174,16 @@ impl RestApi {
     pub async fn submit_nonce(
         State(self_): State<Arc<Self>>,
         Json(nonce_pair): Json<NoncePair>,
-    ) -> Response<String> {
+    ) -> anyhow::Result<Response<String>, ApiError> {
         let decoded_nonce =
             match base64::engine::general_purpose::STANDARD.decode(&nonce_pair.nonce) {
                 Ok(nonce) => nonce,
-                Err(_) => return bad_request("Invalid nonce pair"),
+                Err(_) => return Err(ApiError::BadRequest("Invalid nonce pair".to_string())),
             };
 
         let pub_nonce = match PubNonce::from_bytes(&decoded_nonce) {
             Ok(nonce) => nonce,
-            Err(_) => return bad_request("Invalid pub nonce"),
+            Err(_) => return Err(ApiError::BadRequest("Invalid pub nonce".to_string())),
         };
 
         let mut session = self_.state.signing_session.write().await;
@@ -202,17 +192,17 @@ impl RestApi {
             .received_nonces
             .insert(nonce_pair.signer_index, pub_nonce);
 
-        ok_json("Success")
+        Ok(ok_json("Success"))
     }
 
     #[instrument(skip(self_))]
     pub async fn submit_partial_signature(
         State(self_): State<Arc<Self>>,
         Json(sig_pair): Json<PartialSignaturePair>,
-    ) -> Response<String> {
+    ) -> anyhow::Result<Response<String>, ApiError> {
         let partial_sig = match decode_signature(sig_pair.signature) {
             Ok(sig) => sig,
-            Err(_) => return bad_request("Invalid signature"),
+            Err(_) => return Err(ApiError::BadRequest("Invalid signature".to_string())),
         };
 
         {
@@ -222,7 +212,7 @@ impl RestApi {
                 .received_sigs
                 .insert(sig_pair.signer_index, partial_sig);
         }
-        ok_json("Success")
+        Ok(ok_json("Success"))
     }
 
     #[instrument(skip(self_))]
@@ -253,5 +243,16 @@ impl RestApi {
     pub async fn reset_session(&self) {
         let mut session = self.state.signing_session.write().await;
         *session = SigningSession::default();
+    }
+
+    // Todo: move this logic in a helper crate as it's used in multiple crates.
+    /// Converts H256 bytes (from the DB) to a Txid by reversing the byte order.
+    fn h256_to_txid(h256_bytes: &[u8]) -> anyhow::Result<Txid> {
+        if h256_bytes.len() != 32 {
+            return Err(anyhow::anyhow!("H256 must be 32 bytes"));
+        }
+        let mut reversed_bytes = h256_bytes.to_vec();
+        reversed_bytes.reverse();
+        Txid::from_slice(&reversed_bytes).context("Failed to convert H256 to Txid")
     }
 }

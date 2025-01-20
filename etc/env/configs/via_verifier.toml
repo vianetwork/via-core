@@ -32,3 +32,6 @@ verifier_mode = "VERIFIER"
 actor_role = "Verifier"
 # Number of blocks that we should check when restarting the service.
 btc_blocks_lag = 1000
+
+[via_btc_sender]
+private_key = "cQ4UHjdsGWFMcQ8zXcaSr7m4Kxq9x7g9EKqguTaFH7fA34mZAnqW"

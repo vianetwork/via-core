@@ -51,7 +51,14 @@ mod tests {
         let _ = aggregator_test
             .storage
             .via_votes_dal()
-            .insert_votable_transaction(1, tx_id, "".to_string(), "".to_string(), "".to_string())
+            .insert_votable_transaction(
+                1,
+                tx_id,
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+            )
             .await;
 
         let op = aggregator_test
@@ -124,7 +131,14 @@ mod tests {
         let _ = aggregator_test
             .storage
             .via_votes_dal()
-            .insert_votable_transaction(1, tx_id, "".to_string(), "".to_string(), "".to_string())
+            .insert_votable_transaction(
+                1,
+                tx_id,
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+            )
             .await;
 
         let _ = aggregator_test

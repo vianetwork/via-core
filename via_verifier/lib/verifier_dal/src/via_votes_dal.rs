@@ -16,21 +16,30 @@ impl ViaVotesDal<'_, '_> {
         tx_id: H256,
         da_identifier: String,
         blob_id: String,
-        proof_tx_id: String,
+        pubdata_reveal_tx_id: String,
+        pubdata_blob_id: String,
     ) -> DalResult<()> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_votable_transactions (l1_batch_number, tx_id, da_identifier, blob_id, proof_tx_id)
+                via_votable_transactions (
+                    l1_batch_number,
+                    tx_id,
+                    da_identifier,
+                    blob_id,
+                    pubdata_reveal_tx_id,
+                    pubdata_blob_id
+                )
             VALUES
-                ($1, $2, $3, $4, $5)
+                ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (l1_batch_number, tx_id) DO NOTHING
             "#,
             i64::from(l1_batch_number),
             tx_id.as_bytes(),
             da_identifier,
             blob_id,
-            proof_tx_id
+            pubdata_reveal_tx_id,
+            pubdata_blob_id
         )
         .instrument("insert_votable_transaction")
         .fetch_optional(self.storage)
@@ -280,13 +289,13 @@ impl ViaVotesDal<'_, '_> {
     }
     pub async fn get_finalized_blocks_and_non_processed_withdrawals(
         &mut self,
-    ) -> DalResult<Vec<(i64, String, String)>> {
+    ) -> DalResult<Vec<(i64, String, Vec<u8>)>> {
         let rows = sqlx::query!(
             r#"
             SELECT
                 l1_batch_number,
-                blob_id,
-                proof_tx_id
+                pubdata_blob_id,
+                tx_id
             FROM
                 via_votable_transactions
             WHERE
@@ -301,10 +310,10 @@ impl ViaVotesDal<'_, '_> {
         .fetch_all(self.storage)
         .await?;
 
-        // Map the rows into a Vec<(l1_batch_number, blob_id, proof_tx_id)>
-        let result: Vec<(i64, String, String)> = rows
+        // Map the rows into a Vec<(l1_batch_number, pubdata_blob_id, tx_id)>
+        let result: Vec<(i64, String, Vec<u8>)> = rows
             .into_iter()
-            .map(|r| (r.l1_batch_number, r.blob_id, r.proof_tx_id))
+            .map(|r| (r.l1_batch_number, r.pubdata_blob_id, r.tx_id))
             .collect();
 
         Ok(result)

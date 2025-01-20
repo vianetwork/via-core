@@ -34,7 +34,8 @@ async fn test_via_vote_workflow() {
             tx_id,
             "test_da_id".to_string(),
             "test_blob_id".to_string(),
-            "test_proof_tx_id".to_string(),
+            "test_pubdata_tx_id".to_string(),
+            "test_pubdata_blob_id".to_string(),
         )
         .await
         .unwrap();
