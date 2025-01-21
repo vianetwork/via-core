@@ -3,7 +3,7 @@
 # For local regtest we should wait for 0 blocks. 
 # But for mainnet we should wait for 3 blocks.
 confirmations_for_btc_msg = 0
-btc_node_poll_interval = 10000
+btc_node_poll_interval = 2000
 rpc_url = "http://0.0.0.0:18443"
 rpc_user = "rpcuser"
 rpc_password = "rpcpassword"
@@ -14,7 +14,7 @@ actor_role = "Sequencer"
 btc_blocks_lag = 1000
 
 [via_btc_sender]
-poll_interval = 10000
+poll_interval = 2000
 private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R"
 max_aggregated_blocks_to_commit = 1
 max_aggregated_proofs_to_commit = 1
