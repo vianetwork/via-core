@@ -46,7 +46,7 @@ export async function gitHooks() {
     }
 }
 
-export function set(environment: string, print: boolean = false) {
+export function set(environment: string, print: boolean = false, soft: boolean = false) {
     if (!fs.existsSync(`etc/env/target/${environment}.env`) && !fs.existsSync(`etc/env/configs/${environment}.toml`)) {
         console.error(
             `Unknown environment: ${environment}.\nCreate an environment file etc/env/target/${environment}.env or etc/env/configs/${environment}.toml`
@@ -60,7 +60,11 @@ export function set(environment: string, print: boolean = false) {
         // No .env file found - we should compile it!
         config.compileConfig(environment);
     }
-    reload();
+
+    // Only reload if we did NOT pass the --soft flag
+    if (!soft) {
+        reload(environment);
+    }
     get(print);
 }
 
@@ -150,8 +154,14 @@ export function mergeInitToEnv() {
 }
 
 export const command = new Command('env')
-    .arguments('[env_name]')
     .description('get or set via environment')
-    .action((environment?: string) => {
-        environment ? set(environment, true) : get(true);
+    .option('--soft', 'Skip reloading the environment')
+    .action((cmd: Command) => {
+        // If user typed `cli env dev --soft`, then:
+        // cmd.args[0] = 'dev'
+        // cmd.soft = true
+        const environment = cmd.args[0];
+        const { soft } = cmd.opts();
+
+        environment ? set(environment, /*print=*/ true, soft) : get(/*print=*/ true);
     });
