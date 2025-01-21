@@ -99,7 +99,7 @@ impl ViaBtcInscriptionAggregator {
                     .context("Via get inscriber info")?;
 
                 let prediction_fee = inscribe_info.reveal_tx_output_info._reveal_fee
-                    + inscribe_info.commit_tx_output_info._commit_tx_fee;
+                    + inscribe_info.commit_tx_output_info.commit_tx_fee;
 
                 let inscription_request = transaction
                     .btc_sender_dal()

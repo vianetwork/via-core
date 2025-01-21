@@ -207,7 +207,7 @@ impl ViaBtcInscriptionManager {
             serialize(&inscribe_info.final_reveal_tx.tx).context("Serilize the reveal tx")?;
 
         let actual_fees = inscribe_info.reveal_tx_output_info._reveal_fee
-            + inscribe_info.commit_tx_output_info._commit_tx_fee;
+            + inscribe_info.commit_tx_output_info.commit_tx_fee;
 
         tracing::info!(
             "New inscription created {commit_tx} {reveal_tx}",

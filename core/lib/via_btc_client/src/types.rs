@@ -141,7 +141,7 @@ pub struct InscriptionConfig {
 
 impl Default for InscriptionConfig {
     fn default() -> Self {
-        InscriptionConfig { fee_multiplier: 1 }
+        InscriptionConfig { fee_multiplier: 0 }
     }
 }
 
