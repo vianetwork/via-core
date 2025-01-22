@@ -287,6 +287,39 @@ impl ViaVotesDal<'_, '_> {
 
         Ok(result)
     }
+
+    pub async fn get_finalized_block_and_non_processed_withdrawal(
+        &mut self,
+        l1_batch_number: i64,
+    ) -> DalResult<Option<(String, Vec<u8>)>> {
+        // Query the database to fetch the desired row
+        let result = sqlx::query!(
+            r#"
+            SELECT
+                pubdata_blob_id,
+                tx_id
+            FROM
+                via_votable_transactions
+            WHERE
+                is_finalized = TRUE
+                AND is_verified = TRUE
+                AND withdrawal_tx_id IS NULL
+                AND l1_batch_number = $1
+            LIMIT
+                1
+            "#,
+            l1_batch_number
+        )
+        .instrument("get_finalized_block_and_non_processed_withdrawal")
+        .fetch_optional(&mut self.storage) // Use fetch_optional to handle None results
+        .await?;
+
+        // Map the result into the desired output format
+        let mapped_result = result.map(|row| (row.pubdata_blob_id, row.tx_id));
+
+        Ok(mapped_result)
+    }
+
     pub async fn get_finalized_blocks_and_non_processed_withdrawals(
         &mut self,
     ) -> DalResult<Vec<(i64, String, Vec<u8>)>> {

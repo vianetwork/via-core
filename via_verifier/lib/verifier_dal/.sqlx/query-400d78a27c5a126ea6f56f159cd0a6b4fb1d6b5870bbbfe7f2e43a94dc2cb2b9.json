@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                pubdata_blob_id,\n                tx_id\n            FROM\n                via_votable_transactions\n            WHERE\n                is_finalized = TRUE\n                AND is_verified = TRUE\n                AND withdrawal_tx_id IS NULL\n                AND l1_batch_number = $1\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pubdata_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "tx_id",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "400d78a27c5a126ea6f56f159cd0a6b4fb1d6b5870bbbfe7f2e43a94dc2cb2b9"
+}
