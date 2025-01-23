@@ -223,18 +223,32 @@ impl ViaWithdrawalVerifier {
         }
 
         // Verify if all withdrawals are included with valid amount.
-        for (i, (_, txout)) in unsigned_tx.utxos.iter().enumerate() {
+        for (i, txout) in unsigned_tx
+            .tx
+            .output
+            .iter()
+            .enumerate()
+            .take(unsigned_tx.tx.output.len().saturating_sub(2))
+        {
             let req = &withdrawals[i];
             if req.amount != txout.value || req.address.script_pubkey() != txout.script_pubkey {
-                tracing::error!("Invalid request withdrawal, id: {i}");
+                tracing::error!(
+                    "Invalid request withdrawal for batch {}, index: {}",
+                    session.l1_block_number,
+                    i
+                );
                 return Ok(false);
             }
         }
+        tracing::info!(
+            "All request withdrawals for batch {} are valid",
+            session.l1_block_number
+        );
 
         // Verify the OP return
         let tx_id = h256_to_txid(&proof_tx_id)?;
         let op_return_data = WithdrawalBuilder::create_op_return_script(tx_id)?;
-        let (_, op_return_tx_out) = &unsigned_tx.utxos[len - 2];
+        let op_return_tx_out = &unsigned_tx.tx.output[unsigned_tx.tx.output.len() - 2];
 
         if op_return_tx_out.script_pubkey.to_string() != op_return_data.to_string()
             || op_return_tx_out.value != Amount::ZERO
@@ -271,6 +285,7 @@ impl ViaWithdrawalVerifier {
             );
             return Ok(false);
         }
+        tracing::info!("Sighash for batch {} is valid", session.l1_block_number);
         Ok(true)
     }
 
