@@ -12,10 +12,10 @@ use zksync_types::{Address as EVMAddress, L1BatchNumber};
 use crate::{
     types,
     types::{
-        CommonFields, FullInscriptionMessage as Message, L1BatchDAReference,
-        L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput, ProofDAReference,
-        ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput, SystemBootstrapping,
-        SystemBootstrappingInput, ValidatorAttestation, ValidatorAttestationInput, Vote,
+        CommonFields, FullInscriptionMessage, L1BatchDAReference, L1BatchDAReferenceInput,
+        L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput,
+        ProposeSequencer, ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput,
+        ValidatorAttestation, ValidatorAttestationInput, Vote,
     },
 };
 
@@ -43,7 +43,11 @@ impl MessageParser {
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
-    pub fn parse_transaction(&mut self, tx: &Transaction, block_height: u32) -> Vec<Message> {
+    pub fn parse_transaction(
+        &mut self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Vec<FullInscriptionMessage> {
         // parsing btc address
         let mut sender_addresses: Option<Address> = None;
         for input in tx.input.iter() {
@@ -74,7 +78,7 @@ impl MessageParser {
         tx: &Transaction,
         block_height: u32,
         address: Address,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
             return None;
@@ -138,7 +142,7 @@ impl MessageParser {
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         let message_type = instructions.get(1)?;
 
         match message_type {
@@ -200,7 +204,7 @@ impl MessageParser {
         &mut self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS {
             warn!("Insufficient instructions for system bootstrapping");
             return None;
@@ -275,16 +279,18 @@ impl MessageParser {
 
         debug!("Parsed abstract account hash");
 
-        Some(Message::SystemBootstrapping(SystemBootstrapping {
-            common: common_fields.clone(),
-            input: SystemBootstrappingInput {
-                start_block_height,
-                bridge_musig2_address: network_unchecked_bridge_address,
-                verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
-                bootloader_hash,
-                abstract_account_hash,
+        Some(FullInscriptionMessage::SystemBootstrapping(
+            SystemBootstrapping {
+                common: common_fields.clone(),
+                input: SystemBootstrappingInput {
+                    start_block_height,
+                    bridge_musig2_address: network_unchecked_bridge_address,
+                    verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
+                    bootloader_hash,
+                    abstract_account_hash,
+                },
             },
-        }))
+        ))
     }
 
     #[instrument(
@@ -295,7 +301,7 @@ impl MessageParser {
         &self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_PROPOSE_SEQUENCER_INSTRUCTIONS {
             warn!("Insufficient instructions for propose sequencer");
             return None;
@@ -316,7 +322,7 @@ impl MessageParser {
 
         debug!("Parsed sequencer address");
 
-        Some(Message::ProposeSequencer(ProposeSequencer {
+        Some(FullInscriptionMessage::ProposeSequencer(ProposeSequencer {
             common: common_fields.clone(),
             input: ProposeSequencerInput {
                 sequencer_new_p2wpkh_address: sequencer_address.as_unchecked().clone(),
@@ -332,7 +338,7 @@ impl MessageParser {
         &self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS {
             warn!("Insufficient instructions for validator attestation");
             return None;
@@ -373,13 +379,15 @@ impl MessageParser {
 
         debug!("Parsed attestation: {:?}", attestation);
 
-        Some(Message::ValidatorAttestation(ValidatorAttestation {
-            common: common_fields.clone(),
-            input: ValidatorAttestationInput {
-                reference_txid,
-                attestation,
+        Some(FullInscriptionMessage::ValidatorAttestation(
+            ValidatorAttestation {
+                common: common_fields.clone(),
+                input: ValidatorAttestationInput {
+                    reference_txid,
+                    attestation,
+                },
             },
-        }))
+        ))
     }
 
     #[instrument(
@@ -390,7 +398,7 @@ impl MessageParser {
         &self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS {
             warn!("Insufficient instructions for L1 batch DA reference");
             return None;
@@ -419,15 +427,17 @@ impl MessageParser {
             .to_string();
         debug!("Parsed blob ID: {}", blob_id);
 
-        Some(Message::L1BatchDAReference(L1BatchDAReference {
-            common: common_fields.clone(),
-            input: L1BatchDAReferenceInput {
-                l1_batch_hash,
-                l1_batch_index,
-                da_identifier,
-                blob_id,
+        Some(FullInscriptionMessage::L1BatchDAReference(
+            L1BatchDAReference {
+                common: common_fields.clone(),
+                input: L1BatchDAReferenceInput {
+                    l1_batch_hash,
+                    l1_batch_index,
+                    da_identifier,
+                    blob_id,
+                },
             },
-        }))
+        ))
     }
 
     #[instrument(
@@ -438,7 +448,7 @@ impl MessageParser {
         &self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_PROOF_DA_REFERENCE_INSTRUCTIONS {
             warn!("Insufficient instructions for proof DA reference");
             return None;
@@ -466,7 +476,7 @@ impl MessageParser {
             .to_string();
         debug!("Parsed blob ID: {}", blob_id);
 
-        Some(Message::ProofDAReference(ProofDAReference {
+        Some(FullInscriptionMessage::ProofDAReference(ProofDAReference {
             common: common_fields.clone(),
             input: ProofDAReferenceInput {
                 l1_batch_reveal_txid,
@@ -485,7 +495,7 @@ impl MessageParser {
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS {
             warn!("Insufficient instructions for L1 to L2 message");
             return None;
@@ -518,7 +528,7 @@ impl MessageParser {
             .unwrap_or(Amount::ZERO);
         debug!("Parsed amount: {}", amount);
 
-        Some(Message::L1ToL2Message(L1ToL2Message {
+        Some(FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
             common: common_fields.clone(),
             amount,
             input: L1ToL2MessageInput {
@@ -590,7 +600,7 @@ mod tests {
         let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        if let Some(Message::SystemBootstrapping(bootstrapping)) =
+        if let Some(FullInscriptionMessage::SystemBootstrapping(bootstrapping)) =
             parser.parse_transaction(&tx, 0).pop()
         {
             assert_eq!(bootstrapping.input.start_block_height, 10);

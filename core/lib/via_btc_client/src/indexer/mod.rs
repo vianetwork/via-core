@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bitcoin::{Address, BlockHash, Network, Txid};
+use bitcoin::{Address, BlockHash, Network, Transaction as BitcoinTransaction, Txid};
 use bitcoincore_rpc::Auth;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -140,20 +140,40 @@ impl BitcoinInscriptionIndexer {
 
         let block = self.client.fetch_block(block_height as u128).await?;
 
-        let messages: Vec<_> = block
+        let important_txs: Vec<_> = block
             .txdata
             .iter()
+            .filter(|tx| self.is_transaction_involving_important_addresses(tx))
+            .collect();
+
+        let parsed_messages: Vec<_> = important_txs
+            .iter()
             .flat_map(|tx| self.parser.parse_transaction(tx, block_height))
-            // TODO: Implement message validation
-            // .filter(|message| self.is_valid_message(message))
+            .collect();
+
+        let valid_messages: Vec<_> = parsed_messages
+            .into_iter()
+            .filter(|message| self.is_valid_message(message))
             .collect();
 
         debug!(
             "Processed {} valid messages in block {}",
-            messages.len(),
+            valid_messages.len(),
             block_height
         );
-        Ok(messages)
+        Ok(valid_messages)
+    }
+
+    fn is_transaction_involving_important_addresses(&self, tx: &BitcoinTransaction) -> bool {
+        tx.output.iter().any(|output| {
+            let script_pubkey = &output.script_pubkey;
+            script_pubkey == &self.sequencer_address.script_pubkey()
+                || script_pubkey == &self.bridge_address.script_pubkey()
+                || self
+                    .verifier_addresses
+                    .iter()
+                    .any(|addr| script_pubkey == &addr.script_pubkey())
+        })
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
