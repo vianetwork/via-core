@@ -78,7 +78,7 @@ impl ViaWithdrawalVerifier {
         if self.config.verifier_mode == VerifierMode::COORDINATOR {
             tracing::info!("create a new session");
 
-            if !session_info.l1_block_number == 0 {
+            if session_info.l1_block_number != 0 {
                 let withdrawal_txid = self
                     .master_connection_pool
                     .connection_tagged("coordinator task")
@@ -87,10 +87,11 @@ impl ViaWithdrawalVerifier {
                     .get_vote_transaction_withdrawal_tx(session_info.l1_block_number)
                     .await?;
 
+                // TODO: refactore the transaction confirmation for the musig2, and implement utxo manager like in the inscriber
                 // Check if the previous batch musig2 transaction was minted before start a new session.
                 if let Some(tx) = withdrawal_txid {
                     let tx_id = Txid::from_slice(&tx)?;
-                    let is_confirmed = self.btc_client.check_tx_confirmation(&tx_id, 2).await?;
+                    let is_confirmed = self.btc_client.check_tx_confirmation(&tx_id, 1).await?;
                     if !is_confirmed {
                         return Ok(());
                     }
