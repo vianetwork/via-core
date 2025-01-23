@@ -16,10 +16,16 @@ ifeq ($(CMD), via-verifier)
     VIA_ENV := via_verifier
 	DIFF := 1
 	MODE := verifier
+else ifeq ($(CMD), via-restart)
+    VIA_ENV := via
+else ifeq ($(CMD), via-restart-verifier)
+	VIA_ENV := via_verifier
 else ifeq ($(CMD), via-coordinator)
 	VIA_ENV := via_coordinator
 	DIFF := 2
 	MODE := coordinator
+else ifeq ($(CMD), via-restart-coordinator)
+	VIA_ENV := via_coordinator
 endif
 
 # Default target: Show help message
@@ -55,6 +61,10 @@ help:
 # Default target: Redirect to help
 .DEFAULT_GOAL := help
 
+# Restart the sequence
+.PHONY: via-restart
+via-restart: env server
+
 # Run the basic setup workflow in sequence
 .PHONY: via
 via: base transactions celestia bootstrap server-genesis server
@@ -67,9 +77,17 @@ all: base transactions celestia btc-explorer bootstrap server-genesis server
 .PHONY: via-verifier
 via-verifier: base celestia verifier
 
-# Run the basic setup workflow in coordinator
+# Restart the verifier
+.PHONY: via-restart-verifier
+via-restart-verifier: env verifier
+
+# Run the basic setup workflow for the coordinator
 .PHONY: via-coordinator
 via-coordinator: base celestia verifier
+
+# Restart the coordinator
+.PHONY: via-restart-coordinator
+via-restart-coordinator: env verifier
 
 # Run minimal required setup
 .PHONY: base
