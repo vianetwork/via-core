@@ -209,7 +209,18 @@ impl ViaWithdrawalVerifier {
         let withdrawals = self.withdrawal_client.get_withdrawals(blob_id).await?;
         let unsigned_tx = UnsignedWithdrawalTx::from_bytes(&session.unsigned_tx);
 
-        let len = withdrawals.len();
+        // Group withdrawals by address and sum amounts
+        let mut grouped_withdrawals: HashMap<String, Amount> = HashMap::new();
+        for w in &withdrawals {
+            let key = w.address.script_pubkey().to_string();
+            *grouped_withdrawals.entry(key).or_insert(Amount::ZERO) = grouped_withdrawals
+                .get(&key)
+                .unwrap_or(&Amount::ZERO)
+                .checked_add(w.amount)
+                .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
+        }
+
+        let len = grouped_withdrawals.len();
         if len == 0 {
             tracing::error!(
                 "Invalid session, there are no withdrawals to process, l1 batch: {}",
@@ -222,7 +233,7 @@ impl ViaWithdrawalVerifier {
             return Ok(false);
         }
 
-        // Verify if all withdrawals are included with valid amount.
+        // Verify if all grouped_withdrawals are included with valid amount.
         for (i, txout) in unsigned_tx
             .tx
             .output
@@ -230,8 +241,8 @@ impl ViaWithdrawalVerifier {
             .enumerate()
             .take(unsigned_tx.tx.output.len().saturating_sub(2))
         {
-            let req = &withdrawals[i];
-            if req.amount != txout.value || req.address.script_pubkey() != txout.script_pubkey {
+            let amount = &grouped_withdrawals[&txout.script_pubkey.to_string()];
+            if amount != &txout.value {
                 tracing::error!(
                     "Invalid request withdrawal for batch {}, index: {}",
                     session.l1_block_number,
