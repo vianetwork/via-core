@@ -45,9 +45,7 @@ impl ViaBtcInscriptionManager {
             let mut storage = pool.connection_tagged("via_btc_sender").await?;
 
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => {
-                    tracing::info!("Inscription manager task finished");
-                }
+                Ok(()) => {}
                 Err(err) => {
                     tracing::error!("Failed to process btc_sender_inscription_manager: {err}");
                 }
