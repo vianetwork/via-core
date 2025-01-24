@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
-use bitcoin::{hashes::Hash, TapSighashType, Witness};
+use bitcoin::{hashes::Hash, TapSighashType, Txid, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
 use tokio::sync::watch;
@@ -73,17 +73,47 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn loop_iteration(&mut self) -> Result<(), anyhow::Error> {
-        if self.config.verifier_mode == VerifierMode::COORDINATOR {
-            self.create_new_session().await?;
+        let mut session_info = self.get_session().await?;
 
+        if self.config.verifier_mode == VerifierMode::COORDINATOR {
             tracing::info!("create a new session");
-            self.build_and_broadcast_final_transaction().await?;
+
+            if session_info.l1_block_number != 0 {
+                let withdrawal_txid = self
+                    .master_connection_pool
+                    .connection_tagged("coordinator task")
+                    .await?
+                    .via_votes_dal()
+                    .get_vote_transaction_withdrawal_tx(session_info.l1_block_number)
+                    .await?;
+
+                // TODO: refactore the transaction confirmation for the musig2, and implement utxo manager like in the inscriber
+                // Check if the previous batch musig2 transaction was minted before start a new session.
+                if let Some(tx) = withdrawal_txid {
+                    let tx_id = Txid::from_slice(&tx)?;
+                    let is_confirmed = self.btc_client.check_tx_confirmation(&tx_id, 1).await?;
+                    if !is_confirmed {
+                        return Ok(());
+                    }
+                }
+            }
+
+            self.create_new_session().await?;
         }
 
-        let session_info = self.get_session().await?;
+        session_info = self.get_session().await?;
         if session_info.l1_block_number == 0 {
             tracing::info!("Empty session, nothing to process");
             return Ok(());
+        }
+
+        if self.config.verifier_mode == VerifierMode::COORDINATOR {
+            if self
+                .build_and_broadcast_final_transaction(&session_info)
+                .await?
+            {
+                return Ok(());
+            }
         }
 
         let session_signature = self.get_session_signatures().await?;
@@ -93,16 +123,16 @@ impl ViaWithdrawalVerifier {
         if session_signature.contains_key(&verifier_index)
             && session_nonces.contains_key(&verifier_index)
         {
-            // The verifier already sent his nonce and partial signature
             return Ok(());
         }
 
-        // Reinit the signer incase the coordinator lost his in memory data
+        // Reinit the signer, when a new session is created by the coordinator.
         if !session_signature.contains_key(&verifier_index)
             && !session_nonces.contains_key(&verifier_index)
             && (self.signer.has_created_partial_sig() || self.signer.has_submitted_nonce())
         {
-            _ = self.reinit_signer();
+            self.reinit_signer()?;
+            return Ok(());
         }
 
         if session_info.received_nonces < session_info.required_signers {
@@ -210,31 +240,31 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn create_new_session(&mut self) -> anyhow::Result<()> {
-        let session_info = self.get_session().await?;
-        if session_info.l1_block_number == 0 {
-            let url = format!("{}/session/new", self.config.url,);
-            let resp = self
-                .client
-                .post(&url)
-                .header(header::CONTENT_TYPE, "application/json")
-                .send()
-                .await?;
+        let url = format!("{}/session/new", self.config.url);
+        let resp = self
+            .client
+            .post(&url)
+            .header(header::CONTENT_TYPE, "application/json")
+            .send()
+            .await?;
 
-            if !resp.status().is_success() {}
+        if !resp.status().is_success() {
+            self.reinit_signer()?;
         }
         Ok(())
     }
 
-    async fn create_final_signature(&mut self) -> anyhow::Result<()> {
+    async fn create_final_signature(
+        &mut self,
+        session_info: &SigningSessionResponse,
+    ) -> anyhow::Result<()> {
         if self.final_sig.is_some() {
             return Ok(());
         }
-        let session_info = self.get_session().await?;
 
         if session_info.received_partial_signatures >= session_info.required_signers {
             let signatures = self.get_session_signatures().await?;
             for (&i, sig) in &signatures {
-                println!("1");
                 if self.signer.signer_index() != i {
                     self.signer.receive_partial_signature(i, *sig)?;
                 }
@@ -269,9 +299,11 @@ impl ViaWithdrawalVerifier {
         bitcoin::consensus::encode::serialize_hex(&unsigned_tx.tx)
     }
 
-    async fn build_and_broadcast_final_transaction(&mut self) -> anyhow::Result<()> {
-        let session_info = self.get_session().await?;
-        self.create_final_signature()
+    async fn build_and_broadcast_final_transaction(
+        &mut self,
+        session_info: &SigningSessionResponse,
+    ) -> anyhow::Result<bool> {
+        self.create_final_signature(session_info)
             .await
             .context("Error create final signature")?;
 
@@ -285,8 +317,9 @@ impl ViaWithdrawalVerifier {
                 .await?;
 
             if withdrawal_txid.is_some() {
-                return Ok(());
+                return Ok(false);
             }
+
             let unsigned_tx = UnsignedWithdrawalTx::from_bytes(&session_info.unsigned_tx);
             let signed_tx = self.sign_transaction(unsigned_tx.clone(), musig2_signature);
 
@@ -304,7 +337,17 @@ impl ViaWithdrawalVerifier {
                     session_info.l1_block_number,
                 )
                 .await?;
+
+            tracing::info!(
+                "New withdrawal transaction processed, l1 batch {} musig2 tx_id {}",
+                session_info.l1_block_number,
+                txid
+            );
+
+            self.reinit_signer()?;
+
+            return Ok(true);
         }
-        Ok(())
+        Ok(false)
     }
 }

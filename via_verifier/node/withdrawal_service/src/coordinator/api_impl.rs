@@ -59,12 +59,10 @@ impl RestApi {
         let blocks = self_
             .master_connection_pool
             .connection_tagged("coordinator")
-            .await
-            .unwrap()
+            .await?
             .via_votes_dal()
             .get_finalized_blocks_and_non_processed_withdrawals()
-            .await
-            .unwrap();
+            .await?;
 
         if blocks.is_empty() {
             if l1_block_number != 0 {

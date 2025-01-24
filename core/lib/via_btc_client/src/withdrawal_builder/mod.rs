@@ -100,7 +100,7 @@ impl WithdrawalBuilder {
         let available_utxos = self.get_available_utxos().await?;
 
         // Get fee rate
-        let fee_rate = self.client.get_fee_rate(1).await?;
+        let fee_rate = std::cmp::max(self.client.get_fee_rate(1).await?, 1);
 
         // Estimate initial fee with approximate input count
         // We'll estimate high initially to avoid underestimating
