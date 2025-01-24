@@ -63,7 +63,7 @@ help:
 
 # Restart the sequence
 .PHONY: via-restart
-via-restart: env server
+via-restart: env-soft server
 
 # Run the basic setup workflow in sequence
 .PHONY: via
@@ -79,7 +79,7 @@ via-verifier: base celestia verifier
 
 # Restart the verifier
 .PHONY: via-restart-verifier
-via-restart-verifier: env verifier
+via-restart-verifier: env-soft verifier
 
 # Run the basic setup workflow for the coordinator
 .PHONY: via-coordinator
@@ -87,7 +87,7 @@ via-coordinator: base celestia verifier
 
 # Restart the coordinator
 .PHONY: via-restart-coordinator
-via-restart-coordinator: env verifier
+via-restart-coordinator: env-soft verifier
 
 # Run minimal required setup
 .PHONY: base
@@ -99,7 +99,15 @@ env:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Setting the environment...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) env ${VIA_ENV} 
+	@$(CLI_TOOL) env ${VIA_ENV}
+
+# Run 'via env via --soft'
+.PHONY: env-soft
+env-soft:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Setting the environment...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) env ${VIA_ENV} --soft
 
 # Run 'via config compile'
 .PHONY: config
