@@ -139,6 +139,7 @@ impl BitcoinInscriptionIndexer {
         }
 
         let block = self.client.fetch_block(block_height as u128).await?;
+        // TODO: check block header is belong to a valid chain of blocks (reorg detection and management)
 
         let important_txs: Vec<_> = block
             .txdata
@@ -165,7 +166,18 @@ impl BitcoinInscriptionIndexer {
     }
 
     fn is_transaction_involving_important_addresses(&self, tx: &BitcoinTransaction) -> bool {
-        tx.output.iter().any(|output| {
+        // We only care about the transactions that sequencer, verifiers are sending and the bridge is receiving
+
+        let is_important_sender = tx.input.iter().any(|input| {
+            if let Some(btc_address) = self.parser.parse_p2wpkh(&input.witness) {
+                btc_address == self.sequencer_address
+                    || self.verifier_addresses.contains(&btc_address)
+            } else {
+                false
+            }
+        });
+
+        let is_important_receiver = tx.output.iter().any(|output| {
             let script_pubkey = &output.script_pubkey;
             script_pubkey == &self.sequencer_address.script_pubkey()
                 || script_pubkey == &self.bridge_address.script_pubkey()
@@ -173,7 +185,9 @@ impl BitcoinInscriptionIndexer {
                     .verifier_addresses
                     .iter()
                     .any(|addr| script_pubkey == &addr.script_pubkey())
-        })
+        });
+
+        is_important_sender || is_important_receiver
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
@@ -313,7 +327,7 @@ impl BitcoinInscriptionIndexer {
                 debug!("Processing SystemBootstrapping message");
 
                 // convert the verifier addresses to the correct network
-                // scince the bootstrap message should run on the bootstrapping phase of sequencer
+                // since the bootstrap message should run on the bootstrapping phase of sequencer
                 // i consume it's ok to using unwrap
                 let verifier_addresses = sb
                     .input

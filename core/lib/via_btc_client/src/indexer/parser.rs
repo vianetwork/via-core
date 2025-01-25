@@ -122,7 +122,7 @@ impl MessageParser {
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer::parser")]
-    fn parse_p2wpkh(&mut self, witness: &Witness) -> Option<Address> {
+    pub fn parse_p2wpkh(&self, witness: &Witness) -> Option<Address> {
         if witness.len() == 2 {
             let public_key = bitcoin::PublicKey::from_slice(&witness[1]).ok()?;
             let cm_pk = CompressedPublicKey::try_from(public_key).ok()?;
