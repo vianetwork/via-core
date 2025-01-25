@@ -94,7 +94,7 @@ impl BitcoinInscriptionIndexer {
         for txid in bootstrap_txids {
             debug!("Processing bootstrap transaction: {}", txid);
             let tx = client.get_transaction(&txid).await?;
-            let messages = parser.parse_transaction(&tx, 0);
+            let messages = parser.parse_system_transaction(&tx, 0);
 
             for message in messages {
                 Self::process_bootstrap_message(&mut bootstrap_state, message, txid, network);
@@ -141,21 +141,48 @@ impl BitcoinInscriptionIndexer {
         let block = self.client.fetch_block(block_height as u128).await?;
         // TODO: check block header is belong to a valid chain of blocks (reorg detection and management)
 
-        let important_txs: Vec<_> = block
-            .txdata
-            .iter()
-            .filter(|tx| self.is_transaction_involving_important_addresses(tx))
-            .collect();
+        // let important_txs: Vec<_> = block
+        //     .txdata
+        //     .iter()
+        //     .filter(|tx| self.is_transaction_involving_important_addresses(tx))
+        //     .collect();
 
-        let parsed_messages: Vec<_> = important_txs
-            .iter()
-            .flat_map(|tx| self.parser.parse_transaction(tx, block_height))
-            .collect();
+        // let system transaction
+        // let bridge transaction
+        // parse system transaction
+        // parse bridge transaction
 
-        let valid_messages: Vec<_> = parsed_messages
-            .into_iter()
-            .filter(|message| self.is_valid_message(message))
-            .collect();
+        let mut valid_messages = Vec::new();
+
+        let (system_tx, bridge_tx) = self.extract_important_transactions(&block.txdata);
+
+        if let Some(system_tx) = system_tx {
+            let parsed_messages: Vec<_> = system_tx
+                .iter()
+                .flat_map(|tx| self.parser.parse_system_transaction(tx, block_height))
+                .collect();
+
+            let messages: Vec<_> = parsed_messages
+                .into_iter()
+                .filter(|message| self.is_valid_system_message(message))
+                .collect();
+
+            valid_messages.extend(messages);
+        }
+
+        if let Some(bridge_tx) = bridge_tx {
+            let parsed_messages: Vec<_> = bridge_tx
+                .iter()
+                .flat_map(|tx| self.parser.parse_bridge_transaction(tx, block_height))
+                .collect();
+
+            let messages: Vec<_> = parsed_messages
+                .into_iter()
+                .filter(|message| self.is_valid_bridge_message(message))
+                .collect();
+
+            valid_messages.extend(messages);
+        }
 
         debug!(
             "Processed {} valid messages in block {}",
@@ -165,29 +192,53 @@ impl BitcoinInscriptionIndexer {
         Ok(valid_messages)
     }
 
-    fn is_transaction_involving_important_addresses(&self, tx: &BitcoinTransaction) -> bool {
+    fn extract_important_transactions(
+        &self,
+        transactions: &[BitcoinTransaction],
+    ) -> (
+        Option<Vec<BitcoinTransaction>>,
+        Option<Vec<BitcoinTransaction>>,
+    ) {
         // We only care about the transactions that sequencer, verifiers are sending and the bridge is receiving
+        let system_txs: Vec<BitcoinTransaction> = transactions
+            .iter()
+            .filter(|tx| {
+                tx.input.iter().any(|input| {
+                    if let Some(btc_address) = self.parser.parse_p2wpkh(&input.witness) {
+                        btc_address == self.sequencer_address
+                            || self.verifier_addresses.contains(&btc_address)
+                    } else {
+                        false
+                    }
+                })
+            })
+            .cloned()
+            .collect();
 
-        let is_important_sender = tx.input.iter().any(|input| {
-            if let Some(btc_address) = self.parser.parse_p2wpkh(&input.witness) {
-                btc_address == self.sequencer_address
-                    || self.verifier_addresses.contains(&btc_address)
-            } else {
-                false
-            }
-        });
+        let bridge_txs: Vec<BitcoinTransaction> = transactions
+            .iter()
+            .filter(|tx| {
+                tx.output.iter().any(|output| {
+                    let script_pubkey = &output.script_pubkey;
+                    script_pubkey == &self.bridge_address.script_pubkey()
+                })
+            })
+            .cloned()
+            .collect();
 
-        let is_important_receiver = tx.output.iter().any(|output| {
-            let script_pubkey = &output.script_pubkey;
-            script_pubkey == &self.sequencer_address.script_pubkey()
-                || script_pubkey == &self.bridge_address.script_pubkey()
-                || self
-                    .verifier_addresses
-                    .iter()
-                    .any(|addr| script_pubkey == &addr.script_pubkey())
-        });
+        let system_txs = if !system_txs.is_empty() {
+            Some(system_txs)
+        } else {
+            None
+        };
 
-        is_important_sender || is_important_receiver
+        let bridge_txs = if !bridge_txs.is_empty() {
+            Some(bridge_txs)
+        } else {
+            None
+        };
+
+        (system_txs, bridge_txs)
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
@@ -245,7 +296,7 @@ impl BitcoinInscriptionIndexer {
         tx: &Txid,
     ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
         let tx = self.client.get_transaction(tx).await?;
-        Ok(self.parser.parse_transaction(&tx, 0))
+        Ok(self.parser.parse_system_transaction(&tx, 0))
     }
 }
 
@@ -287,7 +338,7 @@ impl BitcoinInscriptionIndexer {
     }
 
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
-    fn is_valid_message(&self, message: &FullInscriptionMessage) -> bool {
+    fn is_valid_system_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
             FullInscriptionMessage::ProposeSequencer(m) => {
                 self.verifier_addresses.contains(&m.common.p2wpkh_address)
@@ -312,6 +363,13 @@ impl BitcoinInscriptionIndexer {
                 debug!("SystemBootstrapping message is always valid");
                 true
             }
+        }
+    }
+
+    fn is_valid_bridge_message(&self, message: &FullInscriptionMessage) -> bool {
+        match message {
+            FullInscriptionMessage::L1ToL2Message(m) => self.is_valid_l1_to_l2_transfer(m),
+            _ => false,
         }
     }
 
@@ -394,7 +452,7 @@ impl BitcoinInscriptionIndexer {
         txid: &Txid,
     ) -> anyhow::Result<L1BatchNumber> {
         let a = self.client.get_transaction(txid).await?;
-        let b = self.parser.parse_transaction(&a, 0);
+        let b = self.parser.parse_system_transaction(&a, 0);
         let msg = b
             .first()
             .ok_or_else(|| anyhow::anyhow!("No message found"))?;
@@ -410,7 +468,7 @@ impl BitcoinInscriptionIndexer {
         txid: &Txid,
     ) -> anyhow::Result<L1BatchNumber> {
         let a = self.client.get_transaction(txid).await?;
-        let b = self.parser.parse_transaction(&a, 0);
+        let b = self.parser.parse_system_transaction(&a, 0);
         let msg = b
             .first()
             .ok_or_else(|| anyhow::anyhow!("No message found"))?;
@@ -574,7 +632,7 @@ mod tests {
                     .to_owned(),
             },
         });
-        assert!(!indexer.is_valid_message(&propose_sequencer));
+        assert!(!indexer.is_valid_system_message(&propose_sequencer));
 
         let validator_attestation =
             FullInscriptionMessage::ValidatorAttestation(types::ValidatorAttestation {
@@ -584,7 +642,7 @@ mod tests {
                     attestation: Vote::Ok,
                 },
             });
-        assert!(!indexer.is_valid_message(&validator_attestation));
+        assert!(!indexer.is_valid_system_message(&validator_attestation));
 
         let l1_batch_da_reference =
             FullInscriptionMessage::L1BatchDAReference(types::L1BatchDAReference {
@@ -603,7 +661,7 @@ mod tests {
                 },
             });
         // We didn't vote for the sequencer yet, so this message is invalid
-        assert!(indexer.is_valid_message(&l1_batch_da_reference));
+        assert!(indexer.is_valid_system_message(&l1_batch_da_reference));
 
         let l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
             common: get_test_common_fields(),
@@ -618,7 +676,7 @@ mod tests {
                 script_pubkey: indexer.bridge_address.script_pubkey(),
             }],
         });
-        assert!(indexer.is_valid_message(&l1_to_l2_message));
+        assert!(indexer.is_valid_bridge_message(&l1_to_l2_message));
 
         let system_bootstrapping =
             FullInscriptionMessage::SystemBootstrapping(types::SystemBootstrapping {
@@ -631,7 +689,7 @@ mod tests {
                     abstract_account_hash: H256::zero(),
                 },
             });
-        assert!(indexer.is_valid_message(&system_bootstrapping));
+        assert!(indexer.is_valid_system_message(&system_bootstrapping));
     }
 
     #[tokio::test]

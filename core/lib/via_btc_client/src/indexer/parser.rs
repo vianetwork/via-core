@@ -43,7 +43,36 @@ impl MessageParser {
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
-    pub fn parse_transaction(
+    pub fn parse_system_transaction(
+        &mut self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Vec<FullInscriptionMessage> {
+        // parsing btc address
+        let mut sender_addresses: Option<Address> = None;
+        for input in tx.input.iter() {
+            let witness = &input.witness;
+            if let Some(btc_address) = self.parse_p2wpkh(witness) {
+                sender_addresses = Some(btc_address);
+            }
+        }
+
+        match sender_addresses {
+            Some(address) => {
+                // parsing messages
+                tx.input
+                    .iter()
+                    .filter_map(|input| self.parse_input(input, tx, block_height, address.clone()))
+                    .collect()
+            }
+            None => {
+                vec![]
+            }
+        }
+    }
+
+    #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
+    pub fn parse_bridge_transaction(
         &mut self,
         tx: &Transaction,
         block_height: u32,
@@ -589,7 +618,7 @@ mod tests {
         let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        let messages = parser.parse_transaction(&tx, 0);
+        let messages = parser.parse_system_transaction(&tx, 0);
         assert_eq!(messages.len(), 1);
     }
 
@@ -601,7 +630,7 @@ mod tests {
         let tx = setup_test_transaction();
 
         if let Some(FullInscriptionMessage::SystemBootstrapping(bootstrapping)) =
-            parser.parse_transaction(&tx, 0).pop()
+            parser.parse_system_transaction(&tx, 0).pop()
         {
             assert_eq!(bootstrapping.input.start_block_height, 10);
             assert_eq!(bootstrapping.input.verifier_p2wpkh_addresses.len(), 1);
