@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bitcoin::{Address, BlockHash, Network, Transaction as BitcoinTransaction, Txid};
+use bitcoin::{Address, Amount, BlockHash, Network, Transaction as BitcoinTransaction, Txid};
 use bitcoincore_rpc::Auth;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -441,12 +441,26 @@ impl BitcoinInscriptionIndexer {
 
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_l1_to_l2_transfer(&self, message: &L1ToL2Message) -> bool {
-        let is_valid = message
+        let is_valid_receiver = message
             .tx_outputs
             .iter()
             .any(|output| output.script_pubkey == self.bridge_address.script_pubkey());
-        debug!("L1ToL2Message transfer validity: {}", is_valid);
-        is_valid
+        debug!("L1ToL2Message transfer validity: {}", is_valid_receiver);
+
+        let total_bridge_amount = message
+            .tx_outputs
+            .iter()
+            .filter(|output| output.script_pubkey == self.bridge_address.script_pubkey())
+            .map(|output| output.value)
+            .sum::<Amount>();
+
+        let is_valid_amount = message.amount == total_bridge_amount;
+        debug!(
+            "Amount validation: message amount = {}, total bridge outputs = {}",
+            message.amount, total_bridge_amount
+        );
+
+        is_valid_receiver && is_valid_amount
     }
 
     async fn get_l1_batch_number_from_proof_tx_id(
