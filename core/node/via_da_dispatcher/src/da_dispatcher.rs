@@ -203,15 +203,18 @@ impl ViaDataAvailabilityDispatcher {
     async fn dispatch_real_proofs(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 
+        tracing::error!("dispatch_real_proofs started");
         let proofs = conn
             .via_data_availability_dal()
             .get_ready_for_da_dispatch_proofs(self.config.max_rows_to_dispatch() as usize)
             .await?;
 
+        tracing::error!("dispatch_real_proofs got proofs : {:?}", proofs);
         drop(conn);
 
         for proof in proofs {
             // fetch the proof from object store
+            tracing::error!("dispatch_real_proofs proof : {:?}", proof);
             let proof_data = match self.load_real_proof_operation(proof.l1_batch_number).await {
                 Some(proof) => proof,
                 None => {
@@ -220,7 +223,11 @@ impl ViaDataAvailabilityDispatcher {
                 }
             };
 
+            tracing::error!("proof_data : {:?}", proof_data);
+
             let serelize_proof = proof_data.into_tokens();
+
+            tracing::error!("serelize_proof : {:?}", serelize_proof);
             // iterate over tokens and convert them to bytes
             let mut proof_bytes = Vec::new();
             for token in serelize_proof {
@@ -229,6 +236,8 @@ impl ViaDataAvailabilityDispatcher {
 
             // concatenate all bytes
             let final_proof = proof_bytes.into_iter().flatten().collect::<Vec<u8>>();
+
+            tracing::error!("final_proof : {:?}", final_proof);
 
             let dispatch_latency = METRICS.proof_dispatch_latency.start();
 
@@ -279,6 +288,7 @@ impl ViaDataAvailabilityDispatcher {
     ) -> Option<ProveBatches> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
+        tracing::error!("load_real_proof_operation started");
         let previous_proven_batch_number =
             match storage.blocks_dal().get_last_l1_batch_with_prove_tx().await {
                 Ok(batch_number) => batch_number,
@@ -288,6 +298,10 @@ impl ViaDataAvailabilityDispatcher {
                 }
             };
 
+        tracing::error!(
+            "previous_proven_batch_number : {:?}",
+            previous_proven_batch_number
+        );
         let minor_version = match storage
             .blocks_dal()
             .get_batch_protocol_version_id(batch_to_prove)
@@ -303,6 +317,8 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
+        tracing::error!("minor version : {:?}", minor_version);
+
         let latest_semantic_version = match storage
             .protocol_versions_dal()
             .latest_semantic_version()
@@ -315,10 +331,14 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
+        tracing::error!("latest_semantic_version : {:?}", latest_semantic_version);
+
         let l1_verifier_config = storage
             .protocol_versions_dal()
             .l1_verifier_config_for_version(latest_semantic_version)
             .await?;
+
+        tracing::error!("l1 verifier config: {:?}", l1_verifier_config);
 
         let allowed_patch_versions = match storage
             .protocol_versions_dal()
@@ -346,6 +366,8 @@ impl ViaDataAvailabilityDispatcher {
             })
             .collect();
 
+        tracing::error!("allowed_versions : {:?}", allowed_versions);
+
         let proof = match self
             .load_wrapped_fri_proofs_for_range(batch_to_prove, &allowed_versions)
             .await
@@ -356,6 +378,8 @@ impl ViaDataAvailabilityDispatcher {
                 return None;
             }
         };
+
+        tracing::error!("proof : {:?}", proof);
 
         let previous_proven_batch_metadata = match storage
             .blocks_dal()
@@ -380,6 +404,11 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
+        tracing::error!(
+            "previous_proven_batch_metadata : {:?}",
+            previous_proven_batch_metadata
+        );
+
         let metadata_for_batch_being_proved = match storage
             .blocks_dal()
             .get_l1_batch_metadata(batch_to_prove)
@@ -402,6 +431,11 @@ impl ViaDataAvailabilityDispatcher {
                 return None;
             }
         };
+
+        tracing::error!(
+            "metadata_for_batch_being_proved : {:?}",
+            metadata_for_batch_being_proved
+        );
 
         Some(ProveBatches {
             prev_l1_batch: previous_proven_batch_metadata,
@@ -520,10 +554,21 @@ impl ViaDataAvailabilityDispatcher {
         l1_batch_number: L1BatchNumber,
         allowed_versions: &[ProtocolSemanticVersion],
     ) -> Option<L1BatchProofForL1> {
+        tracing::error!("load_wrapped_fri_proofs_for_range started");
         for version in allowed_versions {
             match self.blob_store.get((l1_batch_number, *version)).await {
-                Ok(proof) => return Some(proof),
-                Err(ObjectStoreError::KeyNotFound(_)) => continue, // Proof is not ready yet.
+                Ok(proof) => {
+                    tracing::error!("load_wrapped_fri_proofs_for_range proof : {:?}", proof);
+                    return Some(proof);
+                }
+                Err(ObjectStoreError::KeyNotFound(_)) => {
+                    tracing::error!(
+                        "KeyNotFound for loading proof for batch {} and version {:?}",
+                        l1_batch_number.0,
+                        version
+                    );
+                    continue;
+                } // Proof is not ready yet.
                 Err(err) => {
                     tracing::error!(
                         "Failed to load proof for batch {} and version {:?}: {}",
@@ -536,16 +581,27 @@ impl ViaDataAvailabilityDispatcher {
             }
         }
 
+        tracing::error!("load_wrapped_fri_proofs_for_range failed");
+
         // Check for deprecated file naming if patch 0 is allowed.
         let is_patch_0_present = allowed_versions.iter().any(|v| v.patch.0 == 0);
+        tracing::error!("is_patch_0_present : {:?}", is_patch_0_present);
         if is_patch_0_present {
             match self
                 .blob_store
                 .get_by_encoded_key(format!("l1_batch_proof_{}.bin", l1_batch_number))
                 .await
             {
-                Ok(proof) => return Some(proof),
-                Err(ObjectStoreError::KeyNotFound(_)) => (),
+                Ok(proof) => {
+                    tracing::error!("load_wrapped_fri_proofs_for_range proof : {:?}", proof);
+                    return Some(proof);
+                }
+                Err(ObjectStoreError::KeyNotFound(_)) => {
+                    tracing::error!(
+                        "KeyNotFound for loading proof for batch {}",
+                        l1_batch_number.0
+                    );
+                }
                 Err(err) => {
                     tracing::error!(
                         "Failed to load proof for batch {} from deprecated naming: {}",
