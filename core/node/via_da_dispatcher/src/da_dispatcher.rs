@@ -13,7 +13,7 @@ use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_l1_contract_interface::{i_executor::methods::ProveBatches, Tokenize};
 use zksync_object_store::{ObjectStore, ObjectStoreError};
 use zksync_prover_interface::outputs::L1BatchProofForL1;
-use zksync_types::{protocol_version::ProtocolSemanticVersion, L1BatchNumber};
+use zksync_types::{ethabi::Token, protocol_version::ProtocolSemanticVersion, L1BatchNumber};
 
 use crate::metrics::METRICS;
 
@@ -228,14 +228,9 @@ impl ViaDataAvailabilityDispatcher {
             let serelize_proof = proof_data.into_tokens();
 
             tracing::error!("serelize_proof : {:?}", serelize_proof);
-            // iterate over tokens and convert them to bytes
-            let mut proof_bytes = Vec::new();
-            for token in serelize_proof {
-                proof_bytes.extend(token.into_bytes());
-            }
 
             // concatenate all bytes
-            let final_proof = proof_bytes.into_iter().flatten().collect::<Vec<u8>>();
+            let final_proof = flatten_tokens(&serelize_proof);
 
             tracing::error!("final_proof : {:?}", final_proof);
 
@@ -740,6 +735,48 @@ impl ViaDataAvailabilityDispatcher {
 
         Ok(())
     }
+}
+
+/// Recursively flattens all `Token` variants into a single `Vec<u8>`.
+fn flatten_tokens(tokens: &[Token]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for token in tokens {
+        match token {
+            Token::Uint(u) => {
+                let mut buf = [0u8; 32];
+                u.to_big_endian(&mut buf);
+                out.extend_from_slice(&buf);
+            }
+            Token::FixedBytes(fixed_bytes) => {
+                out.extend_from_slice(fixed_bytes);
+            }
+            Token::Array(arr) | Token::FixedArray(arr) | Token::Tuple(arr) => {
+                out.extend(flatten_tokens(arr));
+            }
+            // not used in the prover
+            Token::Bool(b) => {
+                out.push(if *b { 1 } else { 0 });
+            }
+            Token::Address(a) => {
+                out.extend_from_slice(a.as_bytes());
+            }
+            Token::Int(i) => {
+                let mut buf = [0u8; 32];
+                i.to_big_endian(&mut buf);
+                out.extend_from_slice(&buf);
+            }
+            Token::Bytes(bytes) => {
+                out.extend_from_slice(bytes);
+            }
+            Token::String(s) => {
+                let str_bytes = s.as_bytes();
+                let len_u32 = str_bytes.len() as u32;
+                out.extend_from_slice(&len_u32.to_be_bytes());
+                out.extend_from_slice(str_bytes);
+            }
+        }
+    }
+    out
 }
 
 async fn retry<T, Fut, F>(
