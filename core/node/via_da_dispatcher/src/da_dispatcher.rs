@@ -10,10 +10,10 @@ use zksync_da_client::{
     DataAvailabilityClient,
 };
 use zksync_dal::{ConnectionPool, Core, CoreDal};
-use zksync_l1_contract_interface::{i_executor::methods::ProveBatches, Tokenize};
+use zksync_l1_contract_interface::i_executor::methods::ProveBatches;
 use zksync_object_store::{ObjectStore, ObjectStoreError};
 use zksync_prover_interface::outputs::L1BatchProofForL1;
-use zksync_types::{ethabi::Token, protocol_version::ProtocolSemanticVersion, L1BatchNumber};
+use zksync_types::{protocol_version::ProtocolSemanticVersion, L1BatchNumber};
 
 use crate::metrics::METRICS;
 
@@ -203,36 +203,22 @@ impl ViaDataAvailabilityDispatcher {
     async fn dispatch_real_proofs(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 
-        tracing::error!("dispatch_real_proofs started");
         let proofs = conn
             .via_data_availability_dal()
             .get_ready_for_da_dispatch_proofs(self.config.max_rows_to_dispatch() as usize)
             .await?;
 
-        tracing::error!("dispatch_real_proofs got proofs : {:?}", proofs);
         drop(conn);
 
         for proof in proofs {
             // fetch the proof from object store
-            tracing::error!("dispatch_real_proofs proof : {:?}", proof);
-            let proof_data = match self.load_real_proof_operation(proof.l1_batch_number).await {
+            let final_proof = match self.load_real_proof_operation(proof.l1_batch_number).await {
                 Some(proof) => proof,
                 None => {
                     tracing::error!("Failed to load proof for batch {}", proof.l1_batch_number.0);
                     continue;
                 }
             };
-
-            tracing::error!("proof_data : {:?}", proof_data);
-
-            let serelize_proof = proof_data.into_tokens();
-
-            tracing::error!("serelize_proof : {:?}", serelize_proof);
-
-            // concatenate all bytes
-            let final_proof = flatten_tokens(&serelize_proof);
-
-            tracing::error!("final_proof : {:?}", final_proof);
 
             let dispatch_latency = METRICS.proof_dispatch_latency.start();
 
@@ -277,13 +263,9 @@ impl ViaDataAvailabilityDispatcher {
     }
 
     /// Loads a real proof operation for a given L1 batch number.
-    async fn load_real_proof_operation(
-        &self,
-        batch_to_prove: L1BatchNumber,
-    ) -> Option<ProveBatches> {
+    async fn load_real_proof_operation(&self, batch_to_prove: L1BatchNumber) -> Option<Vec<u8>> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
-        tracing::error!("load_real_proof_operation started");
         let previous_proven_batch_number =
             match storage.blocks_dal().get_last_l1_batch_with_prove_tx().await {
                 Ok(batch_number) => batch_number,
@@ -293,10 +275,6 @@ impl ViaDataAvailabilityDispatcher {
                 }
             };
 
-        tracing::error!(
-            "previous_proven_batch_number : {:?}",
-            previous_proven_batch_number
-        );
         let minor_version = match storage
             .blocks_dal()
             .get_batch_protocol_version_id(batch_to_prove)
@@ -312,8 +290,6 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
-        tracing::error!("minor version : {:?}", minor_version);
-
         let latest_semantic_version = match storage
             .protocol_versions_dal()
             .latest_semantic_version()
@@ -326,14 +302,10 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
-        tracing::error!("latest_semantic_version : {:?}", latest_semantic_version);
-
         let l1_verifier_config = storage
             .protocol_versions_dal()
             .l1_verifier_config_for_version(latest_semantic_version)
             .await?;
-
-        tracing::error!("l1 verifier config: {:?}", l1_verifier_config);
 
         let allowed_patch_versions = match storage
             .protocol_versions_dal()
@@ -361,8 +333,6 @@ impl ViaDataAvailabilityDispatcher {
             })
             .collect();
 
-        tracing::error!("allowed_versions : {:?}", allowed_versions);
-
         let proof = match self
             .load_wrapped_fri_proofs_for_range(batch_to_prove, &allowed_versions)
             .await
@@ -373,8 +343,6 @@ impl ViaDataAvailabilityDispatcher {
                 return None;
             }
         };
-
-        tracing::error!("proof : {:?}", proof);
 
         let previous_proven_batch_metadata = match storage
             .blocks_dal()
@@ -399,11 +367,6 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
-        tracing::error!(
-            "previous_proven_batch_metadata : {:?}",
-            previous_proven_batch_metadata
-        );
-
         let metadata_for_batch_being_proved = match storage
             .blocks_dal()
             .get_l1_batch_metadata(batch_to_prove)
@@ -427,17 +390,14 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
-        tracing::error!(
-            "metadata_for_batch_being_proved : {:?}",
-            metadata_for_batch_being_proved
-        );
-
-        Some(ProveBatches {
+        let res = ProveBatches {
             prev_l1_batch: previous_proven_batch_metadata,
             l1_batches: vec![metadata_for_batch_being_proved],
             proofs: vec![proof],
             should_verify: true,
-        })
+        };
+
+        serialize_prove_batches(&res)
     }
 
     async fn prepare_dummy_proof_operation(
@@ -508,62 +468,21 @@ impl ViaDataAvailabilityDispatcher {
             should_verify: false,
         };
 
-        let prev_l1_batch_bytes = bincode::serialize(&res.prev_l1_batch)
-            .map_err(|e| {
-                tracing::error!("Failed to serialize prev_l1_batch: {}", e);
-                None::<Vec<u8>>
-            })
-            .ok()?;
-        let l1_batches_bytes = bincode::serialize(&res.l1_batches)
-            .map_err(|e| {
-                tracing::error!("Failed to serialize l1_batches: {}", e);
-                None::<Vec<u8>>
-            })
-            .ok()?;
-        let proofs_bytes = bincode::serialize(&res.proofs)
-            .map_err(|e| {
-                tracing::error!("Failed to serialize proofs: {}", e);
-                None::<Vec<u8>>
-            })
-            .ok()?;
-        let should_verify = bincode::serialize(&res.should_verify)
-            .map_err(|e| {
-                tracing::error!("Failed to serialize should_verify: {}", e);
-                None::<Vec<u8>>
-            })
-            .ok()?;
-
-        let final_proof = [
-            prev_l1_batch_bytes,
-            l1_batches_bytes,
-            proofs_bytes,
-            should_verify,
-        ]
-        .concat();
-
-        Some(final_proof)
+        serialize_prove_batches(&res)
     }
+
     /// Loads wrapped FRI proofs for a given L1 batch number and allowed protocol versions.
     pub async fn load_wrapped_fri_proofs_for_range(
         &self,
         l1_batch_number: L1BatchNumber,
         allowed_versions: &[ProtocolSemanticVersion],
     ) -> Option<L1BatchProofForL1> {
-        tracing::error!("load_wrapped_fri_proofs_for_range started");
         for version in allowed_versions {
             match self.blob_store.get((l1_batch_number, *version)).await {
                 Ok(proof) => {
-                    tracing::error!("load_wrapped_fri_proofs_for_range proof : {:?}", proof);
                     return Some(proof);
                 }
-                Err(ObjectStoreError::KeyNotFound(_)) => {
-                    tracing::error!(
-                        "KeyNotFound for loading proof for batch {} and version {:?}",
-                        l1_batch_number.0,
-                        version
-                    );
-                    continue;
-                } // Proof is not ready yet.
+                Err(ObjectStoreError::KeyNotFound(_)) => continue, // Proof is not ready yet.
                 Err(err) => {
                     tracing::error!(
                         "Failed to load proof for batch {} and version {:?}: {}",
@@ -576,11 +495,8 @@ impl ViaDataAvailabilityDispatcher {
             }
         }
 
-        tracing::error!("load_wrapped_fri_proofs_for_range failed");
-
         // Check for deprecated file naming if patch 0 is allowed.
         let is_patch_0_present = allowed_versions.iter().any(|v| v.patch.0 == 0);
-        tracing::error!("is_patch_0_present : {:?}", is_patch_0_present);
         if is_patch_0_present {
             match self
                 .blob_store
@@ -588,7 +504,6 @@ impl ViaDataAvailabilityDispatcher {
                 .await
             {
                 Ok(proof) => {
-                    tracing::error!("load_wrapped_fri_proofs_for_range proof : {:?}", proof);
                     return Some(proof);
                 }
                 Err(ObjectStoreError::KeyNotFound(_)) => {
@@ -737,46 +652,41 @@ impl ViaDataAvailabilityDispatcher {
     }
 }
 
-/// Recursively flattens all `Token` variants into a single `Vec<u8>`.
-fn flatten_tokens(tokens: &[Token]) -> Vec<u8> {
-    let mut out = Vec::new();
-    for token in tokens {
-        match token {
-            Token::Uint(u) => {
-                let mut buf = [0u8; 32];
-                u.to_big_endian(&mut buf);
-                out.extend_from_slice(&buf);
-            }
-            Token::FixedBytes(fixed_bytes) => {
-                out.extend_from_slice(fixed_bytes);
-            }
-            Token::Array(arr) | Token::FixedArray(arr) | Token::Tuple(arr) => {
-                out.extend(flatten_tokens(arr));
-            }
-            // not used in the prover
-            Token::Bool(b) => {
-                out.push(if *b { 1 } else { 0 });
-            }
-            Token::Address(a) => {
-                out.extend_from_slice(a.as_bytes());
-            }
-            Token::Int(i) => {
-                let mut buf = [0u8; 32];
-                i.to_big_endian(&mut buf);
-                out.extend_from_slice(&buf);
-            }
-            Token::Bytes(bytes) => {
-                out.extend_from_slice(bytes);
-            }
-            Token::String(s) => {
-                let str_bytes = s.as_bytes();
-                let len_u32 = str_bytes.len() as u32;
-                out.extend_from_slice(&len_u32.to_be_bytes());
-                out.extend_from_slice(str_bytes);
-            }
-        }
-    }
-    out
+fn serialize_prove_batches(prove_batches: &ProveBatches) -> Option<Vec<u8>> {
+    let prev_l1_batch_bytes = bincode::serialize(&prove_batches.prev_l1_batch)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize prev_l1_batch: {}", e);
+            None::<Vec<u8>>
+        })
+        .ok()?;
+    let l1_batches_bytes = bincode::serialize(&prove_batches.l1_batches)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize l1_batches: {}", e);
+            None::<Vec<u8>>
+        })
+        .ok()?;
+    let proofs_bytes = bincode::serialize(&prove_batches.proofs)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize proofs: {}", e);
+            None::<Vec<u8>>
+        })
+        .ok()?;
+    let should_verify = bincode::serialize(&prove_batches.should_verify)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize should_verify: {}", e);
+            None::<Vec<u8>>
+        })
+        .ok()?;
+
+    Some(
+        [
+            prev_l1_batch_bytes,
+            l1_batches_bytes,
+            proofs_bytes,
+            should_verify,
+        ]
+        .concat(),
+    )
 }
 
 async fn retry<T, Fut, F>(
