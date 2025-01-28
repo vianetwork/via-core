@@ -3,7 +3,7 @@ use bitcoin::{
     hashes::Hash,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, Txid, Witness,
+    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, TxOut, Txid, Witness,
 };
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
@@ -62,7 +62,9 @@ impl MessageParser {
                 // parsing messages
                 tx.input
                     .iter()
-                    .filter_map(|input| self.parse_input(input, tx, block_height, address.clone()))
+                    .filter_map(|input| {
+                        self.parse_system_input(input, tx, block_height, address.clone())
+                    })
                     .collect()
             }
             None => {
@@ -77,31 +79,40 @@ impl MessageParser {
         tx: &Transaction,
         block_height: u32,
     ) -> Vec<FullInscriptionMessage> {
-        // parsing btc address
-        let mut sender_addresses: Option<Address> = None;
-        for input in tx.input.iter() {
-            let witness = &input.witness;
-            if let Some(btc_address) = self.parse_p2wpkh(witness) {
-                sender_addresses = Some(btc_address);
+        let mut messages = Vec::new();
+
+        // Find bridge output and amount first
+        let bridge_output = match tx.output.iter().find(|output| {
+            if let Some(bridge_addr) = &self.bridge_address {
+                output.script_pubkey == bridge_addr.script_pubkey()
+            } else {
+                false
             }
+        }) {
+            Some(output) => output,
+            None => return messages, // Not a bridge transaction
+        };
+
+        // Try to parse as inscription-based deposit first
+        if let Some(inscription_message) =
+            self.parse_inscription_deposit(tx, block_height, bridge_output)
+        {
+            messages.push(inscription_message);
+            return messages;
         }
 
-        match sender_addresses {
-            Some(address) => {
-                // parsing messages
-                tx.input
-                    .iter()
-                    .filter_map(|input| self.parse_input(input, tx, block_height, address.clone()))
-                    .collect()
-            }
-            None => {
-                vec![]
-            }
+        // If not an inscription, try to parse as OP_RETURN based deposit
+        if let Some(op_return_message) =
+            self.parse_op_return_deposit(tx, block_height, bridge_output)
+        {
+            messages.push(op_return_message);
         }
+
+        messages
     }
 
     #[instrument(skip(self, input, tx), target = "bitcoin_indexer::parser")]
-    fn parse_input(
+    fn parse_system_input(
         &mut self,
         input: &bitcoin::TxIn,
         tx: &Transaction,
@@ -144,10 +155,10 @@ impl MessageParser {
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
             block_height,
             tx_id: tx.compute_ntxid().into(),
-            p2wpkh_address: address,
+            p2wpkh_address: Some(address),
         };
 
-        self.parse_message(tx, &instructions[via_index..], &common_fields)
+        self.parse_system_message(tx, &instructions[via_index..], &common_fields)
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer::parser")]
@@ -166,7 +177,7 @@ impl MessageParser {
         skip(self, tx, instructions, common_fields),
         target = "bitcoin_indexer::parser"
     )]
-    fn parse_message(
+    fn parse_system_message(
         &mut self,
         tx: &Transaction,
         instructions: &[Instruction],
@@ -210,7 +221,7 @@ impl MessageParser {
                 self.parse_l1_to_l2_message(tx, instructions, common_fields)
             }
             Instruction::PushBytes(bytes) => {
-                warn!("Unknown message type");
+                warn!("Unknown message type for system transaction parser");
                 warn!(
                     "first instruction: {:?}",
                     String::from_utf8(bytes.as_bytes().to_vec())
@@ -565,6 +576,95 @@ impl MessageParser {
                 l2_contract_address,
                 call_data,
             },
+            tx_outputs: tx.output.clone(),
+        }))
+    }
+
+    fn parse_inscription_deposit(
+        &self,
+        tx: &Transaction,
+        block_height: u32,
+        bridge_output: &TxOut,
+    ) -> Option<FullInscriptionMessage> {
+        // Try to find any witness data that contains a valid inscription
+        for input in tx.input.iter() {
+            let witness = &input.witness;
+            if witness.len() < MIN_WITNESS_LENGTH {
+                continue;
+            }
+
+            // Parse signature and control block
+            let signature = TaprootSignature::from_slice(&witness[0]).ok()?;
+            let script = ScriptBuf::from_bytes(witness[1].to_vec());
+            let control_block = ControlBlock::decode(&witness[2]).ok()?;
+
+            let instructions: Vec<_> = script.instructions().filter_map(Result::ok).collect();
+            let via_index = find_via_inscription_protocol(&instructions)?;
+
+            // Try to parse p2wpkh address if possible, but make it optional
+            let p2wpkh_address = self.parse_p2wpkh(witness);
+
+            let common_fields = CommonFields {
+                schnorr_signature: signature,
+                encoded_public_key: PushBytesBuf::from(control_block.internal_key.serialize()),
+                block_height,
+                tx_id: tx.compute_ntxid().into(),
+                p2wpkh_address,
+            };
+
+            // Parse L1ToL2Message from instructions
+            return self.parse_l1_to_l2_message(tx, &instructions[via_index..], &common_fields);
+        }
+
+        None
+    }
+
+    fn parse_op_return_deposit(
+        &self,
+        tx: &Transaction,
+        block_height: u32,
+        bridge_output: &TxOut,
+    ) -> Option<FullInscriptionMessage> {
+        // Find OP_RETURN output
+        let op_return_output = tx
+            .output
+            .iter()
+            .find(|output| output.script_pubkey.is_op_return())?;
+
+        // Parse OP_RETURN data
+        let op_return_data = op_return_output.script_pubkey.as_bytes();
+        if op_return_data.len() < 2 {
+            return None;
+        }
+
+        // Parse receiver address from OP_RETURN data
+        let receiver_l2_address = EVMAddress::from_slice(&op_return_data[2..22])?;
+
+        let input = L1ToL2MessageInput {
+            receiver_l2_address,
+            l2_contract_address: EVMAddress::zero(),
+            call_data: vec![],
+        };
+
+        // Try to parse p2wpkh address from the first input if possible
+        let p2wpkh_address = tx
+            .input
+            .first()
+            .and_then(|input| self.parse_p2wpkh(&input.witness));
+
+        // Create common fields with empty signature for OP_RETURN
+        let common_fields = CommonFields {
+            schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
+            encoded_public_key: PushBytesBuf::new(),
+            block_height,
+            tx_id: tx.compute_ntxid().into(),
+            p2wpkh_address,
+        };
+
+        Some(FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
+            common: common_fields,
+            amount: bridge_output.value,
+            input,
             tx_outputs: tx.output.clone(),
         }))
     }

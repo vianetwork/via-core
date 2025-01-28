@@ -140,17 +140,7 @@ impl BitcoinInscriptionIndexer {
 
         let block = self.client.fetch_block(block_height as u128).await?;
         // TODO: check block header is belong to a valid chain of blocks (reorg detection and management)
-
-        // let important_txs: Vec<_> = block
-        //     .txdata
-        //     .iter()
-        //     .filter(|tx| self.is_transaction_involving_important_addresses(tx))
-        //     .collect();
-
-        // let system transaction
-        // let bridge transaction
-        // parse system transaction
-        // parse bridge transaction
+        // TODO: deal with malicious sequencer, verifiers from being able to make trouble by sending invalid messages / valid messages with invalid data
 
         let mut valid_messages = Vec::new();
 
@@ -340,29 +330,31 @@ impl BitcoinInscriptionIndexer {
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_system_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
-            FullInscriptionMessage::ProposeSequencer(m) => {
-                self.verifier_addresses.contains(&m.common.p2wpkh_address)
-            }
-            FullInscriptionMessage::ValidatorAttestation(m) => {
-                self.verifier_addresses.contains(&m.common.p2wpkh_address)
-            }
-            FullInscriptionMessage::L1BatchDAReference(m) => {
-                m.common.p2wpkh_address == self.sequencer_address
-            }
-            FullInscriptionMessage::ProofDAReference(m) => {
-                m.common.p2wpkh_address == self.sequencer_address
-            }
-            FullInscriptionMessage::L1ToL2Message(m) => {
-                // TODO: also check sender address
-                let is_valid =
-                    m.amount > bitcoin::Amount::ZERO && self.is_valid_l1_to_l2_transfer(m);
-                debug!("L1ToL2Message validity: {}", is_valid);
-                is_valid
-            }
+            FullInscriptionMessage::ProposeSequencer(m) => m
+                .common
+                .p2wpkh_address
+                .as_ref()
+                .map_or(false, |addr| self.verifier_addresses.contains(addr)),
+            FullInscriptionMessage::ValidatorAttestation(m) => m
+                .common
+                .p2wpkh_address
+                .as_ref()
+                .map_or(false, |addr| self.verifier_addresses.contains(addr)),
+            FullInscriptionMessage::L1BatchDAReference(m) => m
+                .common
+                .p2wpkh_address
+                .as_ref()
+                .map_or(false, |addr| addr == &self.sequencer_address),
+            FullInscriptionMessage::ProofDAReference(m) => m
+                .common
+                .p2wpkh_address
+                .as_ref()
+                .map_or(false, |addr| addr == &self.sequencer_address),
             FullInscriptionMessage::SystemBootstrapping(_) => {
                 debug!("SystemBootstrapping message is always valid");
                 true
             }
+            _ => false,
         }
     }
 
@@ -408,7 +400,12 @@ impl BitcoinInscriptionIndexer {
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
                 debug!("Processing ProposeSequencer message");
-                if state.verifier_addresses.contains(&ps.common.p2wpkh_address) {
+                let p2wpkh_address = ps
+                    .common
+                    .p2wpkh_address
+                    .as_ref()
+                    .expect("ProposeSequencer message must have a p2wpkh address");
+                if state.verifier_addresses.contains(p2wpkh_address) {
                     let sequencer_address = ps
                         .input
                         .sequencer_new_p2wpkh_address
@@ -419,14 +416,19 @@ impl BitcoinInscriptionIndexer {
                 }
             }
             FullInscriptionMessage::ValidatorAttestation(va) => {
-                if state.verifier_addresses.contains(&va.common.p2wpkh_address)
+                let p2wpkh_address = va
+                    .common
+                    .p2wpkh_address
+                    .as_ref()
+                    .expect("ValidatorAttestation message must have a p2wpkh address");
+                if state.verifier_addresses.contains(p2wpkh_address)
                     && state.proposed_sequencer.is_some()
                 {
                     if let Some(proposed_txid) = state.proposed_sequencer_txid {
                         if va.input.reference_txid == proposed_txid {
                             state
                                 .sequencer_votes
-                                .insert(va.common.p2wpkh_address, va.input.attestation);
+                                .insert(p2wpkh_address.clone(), va.input.attestation);
                         }
                     }
                 }
@@ -533,7 +535,7 @@ mod tests {
             encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
             block_height: 0,
             tx_id: Txid::all_zeros(),
-            p2wpkh_address: get_test_addr(),
+            p2wpkh_address: Some(get_test_addr()),
         }
     }
 
@@ -651,7 +653,7 @@ mod tests {
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                     block_height: 0,
                     tx_id: Txid::all_zeros(),
-                    p2wpkh_address: get_test_addr(),
+                    p2wpkh_address: Some(get_test_addr()),
                 },
                 input: types::L1BatchDAReferenceInput {
                     l1_batch_hash: zksync_basic_types::H256::zero(),
