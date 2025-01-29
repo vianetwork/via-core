@@ -68,19 +68,30 @@ pub async fn load_verification_key<F: L1DataFetcher>(
 pub async fn load_verification_key_without_l1_check(
     protocol_version: String,
 ) -> Result<VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit>, VerificationError> {
-    let file_path = format!(
-        "core/lib/via_verification/keys/protocol_version/{}/scheduler_key.json",
-        protocol_version
-    );
-    let base_dir = env::var("VIA_HOME").map_err(|e| VerificationError::Other(e.to_string()))?;
-    let base_path = PathBuf::from(base_dir);
-    let file = base_path.join(&file_path);
+    let key_path = match env::var("VIA_VK_KEY_PATH") {
+        Ok(path) => {
+            let file_path = format!("protocol_version/{}/scheduler_key.json", protocol_version);
+            let base_path = PathBuf::from(path);
+            base_path.join(&file_path)
+        }
+        Err(_) => {
+            // from VIA_HOME
+            let base_dir =
+                env::var("VIA_HOME").map_err(|e| VerificationError::Other(e.to_string()))?;
+            let base_path = PathBuf::from(base_dir);
+            let file_path = format!(
+                "via_verifier/lib/via_verification/keys/protocol_version/{}/scheduler_key.json",
+                protocol_version
+            );
+            base_path.join(&file_path)
+        }
+    };
 
     // Load the verification key from the specified file.
-    let verification_key_content = fs::read_to_string(file).map_err(|e| {
+    let verification_key_content = fs::read_to_string(key_path.clone()).map_err(|e| {
         VerificationError::Other(format!(
-            "Failed to read verification key from {}: {}",
-            file_path, e
+            "Failed to read verification key from {:?}: {}",
+            key_path, e
         ))
     })?;
     let vk_inner: VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit> =

@@ -10,7 +10,7 @@ use zksync_da_client::{
     DataAvailabilityClient,
 };
 use zksync_dal::{ConnectionPool, Core, CoreDal};
-use zksync_l1_contract_interface::{i_executor::methods::ProveBatches, Tokenize};
+use zksync_l1_contract_interface::i_executor::methods::ProveBatches;
 use zksync_object_store::{ObjectStore, ObjectStoreError};
 use zksync_prover_interface::outputs::L1BatchProofForL1;
 use zksync_types::{protocol_version::ProtocolSemanticVersion, L1BatchNumber};
@@ -212,23 +212,13 @@ impl ViaDataAvailabilityDispatcher {
 
         for proof in proofs {
             // fetch the proof from object store
-            let proof_data = match self.load_real_proof_operation(proof.l1_batch_number).await {
+            let final_proof = match self.load_real_proof_operation(proof.l1_batch_number).await {
                 Some(proof) => proof,
                 None => {
                     tracing::error!("Failed to load proof for batch {}", proof.l1_batch_number.0);
                     continue;
                 }
             };
-
-            let serelize_proof = proof_data.into_tokens();
-            // iterate over tokens and convert them to bytes
-            let mut proof_bytes = Vec::new();
-            for token in serelize_proof {
-                proof_bytes.extend(token.into_bytes());
-            }
-
-            // concatenate all bytes
-            let final_proof = proof_bytes.into_iter().flatten().collect::<Vec<u8>>();
 
             let dispatch_latency = METRICS.proof_dispatch_latency.start();
 
@@ -273,10 +263,7 @@ impl ViaDataAvailabilityDispatcher {
     }
 
     /// Loads a real proof operation for a given L1 batch number.
-    async fn load_real_proof_operation(
-        &self,
-        batch_to_prove: L1BatchNumber,
-    ) -> Option<ProveBatches> {
+    async fn load_real_proof_operation(&self, batch_to_prove: L1BatchNumber) -> Option<Vec<u8>> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
         let previous_proven_batch_number =
@@ -403,12 +390,14 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
-        Some(ProveBatches {
+        let res = ProveBatches {
             prev_l1_batch: previous_proven_batch_metadata,
             l1_batches: vec![metadata_for_batch_being_proved],
             proofs: vec![proof],
             should_verify: true,
-        })
+        };
+
+        serialize_prove_batches(&res)
     }
 
     async fn prepare_dummy_proof_operation(
@@ -479,41 +468,9 @@ impl ViaDataAvailabilityDispatcher {
             should_verify: false,
         };
 
-        let prev_l1_batch_bytes = bincode::serialize(&res.prev_l1_batch)
-            .map_err(|e| {
-                tracing::error!("Failed to serialize prev_l1_batch: {}", e);
-                None::<Vec<u8>>
-            })
-            .ok()?;
-        let l1_batches_bytes = bincode::serialize(&res.l1_batches)
-            .map_err(|e| {
-                tracing::error!("Failed to serialize l1_batches: {}", e);
-                None::<Vec<u8>>
-            })
-            .ok()?;
-        let proofs_bytes = bincode::serialize(&res.proofs)
-            .map_err(|e| {
-                tracing::error!("Failed to serialize proofs: {}", e);
-                None::<Vec<u8>>
-            })
-            .ok()?;
-        let should_verify = bincode::serialize(&res.should_verify)
-            .map_err(|e| {
-                tracing::error!("Failed to serialize should_verify: {}", e);
-                None::<Vec<u8>>
-            })
-            .ok()?;
-
-        let final_proof = [
-            prev_l1_batch_bytes,
-            l1_batches_bytes,
-            proofs_bytes,
-            should_verify,
-        ]
-        .concat();
-
-        Some(final_proof)
+        serialize_prove_batches(&res)
     }
+
     /// Loads wrapped FRI proofs for a given L1 batch number and allowed protocol versions.
     pub async fn load_wrapped_fri_proofs_for_range(
         &self,
@@ -522,7 +479,9 @@ impl ViaDataAvailabilityDispatcher {
     ) -> Option<L1BatchProofForL1> {
         for version in allowed_versions {
             match self.blob_store.get((l1_batch_number, *version)).await {
-                Ok(proof) => return Some(proof),
+                Ok(proof) => {
+                    return Some(proof);
+                }
                 Err(ObjectStoreError::KeyNotFound(_)) => continue, // Proof is not ready yet.
                 Err(err) => {
                     tracing::error!(
@@ -544,8 +503,15 @@ impl ViaDataAvailabilityDispatcher {
                 .get_by_encoded_key(format!("l1_batch_proof_{}.bin", l1_batch_number))
                 .await
             {
-                Ok(proof) => return Some(proof),
-                Err(ObjectStoreError::KeyNotFound(_)) => (),
+                Ok(proof) => {
+                    return Some(proof);
+                }
+                Err(ObjectStoreError::KeyNotFound(_)) => {
+                    tracing::error!(
+                        "KeyNotFound for loading proof for batch {}",
+                        l1_batch_number.0
+                    );
+                }
                 Err(err) => {
                     tracing::error!(
                         "Failed to load proof for batch {} from deprecated naming: {}",
@@ -684,6 +650,43 @@ impl ViaDataAvailabilityDispatcher {
 
         Ok(())
     }
+}
+
+fn serialize_prove_batches(prove_batches: &ProveBatches) -> Option<Vec<u8>> {
+    let prev_l1_batch_bytes = bincode::serialize(&prove_batches.prev_l1_batch)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize prev_l1_batch: {}", e);
+            None::<Vec<u8>>
+        })
+        .ok()?;
+    let l1_batches_bytes = bincode::serialize(&prove_batches.l1_batches)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize l1_batches: {}", e);
+            None::<Vec<u8>>
+        })
+        .ok()?;
+    let proofs_bytes = bincode::serialize(&prove_batches.proofs)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize proofs: {}", e);
+            None::<Vec<u8>>
+        })
+        .ok()?;
+    let should_verify = bincode::serialize(&prove_batches.should_verify)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize should_verify: {}", e);
+            None::<Vec<u8>>
+        })
+        .ok()?;
+
+    Some(
+        [
+            prev_l1_batch_bytes,
+            l1_batches_bytes,
+            proofs_bytes,
+            should_verify,
+        ]
+        .concat(),
+    )
 }
 
 async fn retry<T, Fut, F>(
