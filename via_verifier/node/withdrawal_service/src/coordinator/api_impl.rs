@@ -74,6 +74,11 @@ impl RestApi {
         let mut withdrawals_to_process: Vec<WithdrawalRequest> = Vec::new();
         let mut proof_txid = Txid::all_zeros();
 
+        tracing::info!(
+            "Found {} finalized unprocessed L1 batch(es) with withdrawals waiting to be processed",
+            blocks.len()
+        );
+
         for (block_number, blob_id, proof_tx_id) in blocks.iter() {
             let withdrawals = self_
                 .withdrawal_client
@@ -85,6 +90,11 @@ impl RestApi {
                 proof_txid = Self::h256_to_txid(&proof_tx_id).context("Invalid proof tx id")?;
                 l1_block_number = *block_number;
                 withdrawals_to_process = withdrawals;
+                tracing::info!(
+                    "L1 batch {} includes withdrawal requests {}",
+                    block_number.clone(),
+                    withdrawals_to_process.len()
+                );
                 break;
             } else {
                 // If there is no withdrawals to process in a batch, update the status and mark it as processed
@@ -99,6 +109,10 @@ impl RestApi {
                     )
                     .await
                     .context("Error to mark a vote transaction as processed")?;
+                tracing::info!(
+                    "There is no withdrawal to process in l1 batch {}",
+                    block_number.clone()
+                );
             }
         }
 
@@ -106,6 +120,12 @@ impl RestApi {
             self_.reset_session().await;
             return Ok(ok_json("There are no withdrawals to process"));
         }
+
+        tracing::info!(
+            "Found withdrawals in the l1 batch {}, total withdrawals: {}",
+            l1_block_number,
+            withdrawals_to_process.len()
+        );
 
         let unsigned_tx_result = self_
             .withdrawal_builder
@@ -115,7 +135,7 @@ impl RestApi {
         let unsigned_tx = match unsigned_tx_result {
             Ok(unsigned_tx) => unsigned_tx,
             Err(err) => {
-                tracing::info!("Invalid unsigned tx: {err}");
+                tracing::error!("Invalid unsigned tx for batch {l1_block_number}: {err}");
                 return Err(ApiError::InternalServerError(
                     "Invalid unsigned tx".to_string(),
                 ));
@@ -145,6 +165,8 @@ impl RestApi {
             let mut session = self_.state.signing_session.write().await;
             *session = new_sesssion;
         }
+
+        tracing::info!("New session created for l1 batch {}", l1_block_number);
 
         return Ok(ok_json(l1_block_number));
     }
