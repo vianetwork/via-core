@@ -59,9 +59,7 @@ impl ViaWithdrawalVerifier {
             }
 
             match self.loop_iteration().await {
-                Ok(()) => {
-                    tracing::info!("Verifier withdrawal task finished");
-                }
+                Ok(()) => {}
                 Err(err) => {
                     tracing::error!("Failed to process verifier withdrawal task: {err}");
                 }
