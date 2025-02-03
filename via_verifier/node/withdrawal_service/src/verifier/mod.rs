@@ -152,10 +152,7 @@ impl ViaWithdrawalVerifier {
         Ok(())
     }
 
-    fn create_request_headers(
-        &self,
-        body: Option<&impl serde::Serialize>,
-    ) -> anyhow::Result<header::HeaderMap> {
+    fn create_request_headers(&self) -> anyhow::Result<header::HeaderMap> {
         let mut headers = header::HeaderMap::new();
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let verifier_index = self.signer.signer_index().to_string();
@@ -163,18 +160,12 @@ impl ViaWithdrawalVerifier {
         let private_key = bitcoin::PrivateKey::from_wif(&self.config.private_key)?;
         let secret_key = private_key.inner;
 
-        // Create signature based on whether there's a body
-        let signature = if let Some(data) = body {
-            // Sign the request body directly
-            crate::auth::sign_request(data, &secret_key)?
-        } else {
-            // Sign timestamp + verifier_index as a JSON object
-            let payload = serde_json::json!({
-                "timestamp": timestamp,
-                "verifier_index": verifier_index,
-            });
-            crate::auth::sign_request(&payload, &secret_key)?
-        };
+        // Sign timestamp + verifier_index as a JSON object
+        let payload = serde_json::json!({
+            "timestamp": timestamp,
+            "verifier_index": verifier_index,
+        });
+        let signature = crate::auth::sign_request(&payload, &secret_key)?;
 
         headers.insert("X-Timestamp", header::HeaderValue::from_str(&timestamp)?);
         headers.insert(
@@ -188,7 +179,7 @@ impl ViaWithdrawalVerifier {
 
     async fn get_session(&self) -> anyhow::Result<SigningSessionResponse> {
         let url = format!("{}/session", self.config.url);
-        let headers = self.create_request_headers(None::<&()>)?;
+        let headers = self.create_request_headers()?;
         let resp = self
             .client
             .get(&url)
@@ -210,7 +201,7 @@ impl ViaWithdrawalVerifier {
 
     async fn get_session_nonces(&self) -> anyhow::Result<HashMap<usize, String>> {
         let nonces_url = format!("{}/session/nonce", self.config.url);
-        let headers = self.create_request_headers(None::<&()>)?;
+        let headers = self.create_request_headers()?;
         let resp = self
             .client
             .get(&nonces_url)
@@ -239,7 +230,7 @@ impl ViaWithdrawalVerifier {
 
         let nonce_pair = encode_nonce(self.signer.signer_index(), nonce).unwrap();
         let url = format!("{}/session/nonce", self.config.url);
-        let headers = self.create_request_headers(Some(&nonce_pair))?;
+        let headers = self.create_request_headers()?;
         let res = self
             .client
             .post(&url)
@@ -264,7 +255,7 @@ impl ViaWithdrawalVerifier {
 
     async fn get_session_signatures(&self) -> anyhow::Result<HashMap<usize, PartialSignature>> {
         let url = format!("{}/session/signature", self.config.url);
-        let headers = self.create_request_headers(None::<&()>)?;
+        let headers = self.create_request_headers()?;
         let resp = self
             .client
             .get(&url)
@@ -310,7 +301,7 @@ impl ViaWithdrawalVerifier {
         let sig_pair = encode_signature(self.signer.signer_index(), partial_sig)?;
 
         let url = format!("{}/session/signature", self.config.url);
-        let headers = self.create_request_headers(Some(&sig_pair))?;
+        let headers = self.create_request_headers()?;
         let resp = self
             .client
             .post(&url)
@@ -344,7 +335,7 @@ impl ViaWithdrawalVerifier {
 
     async fn create_new_session(&mut self) -> anyhow::Result<()> {
         let url = format!("{}/session/new", self.config.url);
-        let headers = self.create_request_headers(None::<&()>)?;
+        let headers = self.create_request_headers()?;
         let resp = self
             .client
             .post(&url)

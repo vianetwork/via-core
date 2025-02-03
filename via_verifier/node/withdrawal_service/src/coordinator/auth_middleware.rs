@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
 use axum::{
-    body::{self, Body, Bytes},
+    body::{self, Body},
     extract::{Request, State},
     middleware::Next,
     response::Response,
 };
-use serde_json::Value;
 
 use crate::coordinator::{api_decl::RestApi, error::ApiError};
 
@@ -17,7 +16,7 @@ pub async fn auth_middleware(
 ) -> Result<Response, ApiError> {
     let headers = request.headers();
 
-    // Extract required headers.
+    // Extract required headers
     let timestamp = headers
         .get("X-Timestamp")
         .and_then(|h| h.to_str().ok())
@@ -34,37 +33,29 @@ pub async fn auth_middleware(
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| ApiError::Unauthorized("Missing signature header".into()))?;
 
-    // Validate the verifier index.
+    // Validate the verifier index
     if verifier_index >= state.state.verifiers_pub_keys.len() {
         return Err(ApiError::Unauthorized("Invalid verifier index".into()));
     }
 
-    // Get the public key for this verifier.
+    let timestamp_now = chrono::Utc::now().timestamp();
+    let timestamp_diff = timestamp_now - timestamp.parse::<i64>().unwrap();
+
+    //Todo: move this to config
+    if timestamp_diff > 10 {
+        return Err(ApiError::Unauthorized("Timestamp is too old".into()));
+    }
+
+    // Get the public key for this verifier
     let public_key = &state.state.verifiers_pub_keys[verifier_index];
 
-    // Create verification payload based on request method and body content
-    let payload = if request.method().is_safe()
-        || request
-            .extensions()
-            .get::<Bytes>()
-            .map_or(true, |b| b.is_empty())
-    {
-        // For GET requests or empty body requests, verify timestamp + verifier_index
-        serde_json::json!({
-            "timestamp": timestamp,
-            "verifier_index": verifier_index.to_string(),
-        })
-    } else {
-        // For POST/PUT requests with non-empty body, verify the body
-        let body_bytes = request
-            .extensions()
-            .get::<Bytes>()
-            .ok_or_else(|| ApiError::InternalServerError("Missing request body".into()))?;
-        serde_json::from_slice::<Value>(body_bytes)
-            .map_err(|_| ApiError::BadRequest("Invalid JSON body".into()))?
-    };
+    //  verify timestamp + verifier_index
+    let payload = serde_json::json!({
+        "timestamp": timestamp,
+        "verifier_index": verifier_index.to_string(),
+    });
 
-    // Verify the signature.
+    // Verify the signature
     if !crate::auth::verify_signature(&payload, signature, public_key)
         .map_err(|_| ApiError::InternalServerError("Signature verification failed".into()))?
     {
@@ -85,7 +76,7 @@ pub async fn extract_body(
     let bytes = body::to_bytes(body, usize::MAX)
         .await
         .map_err(|_| ApiError::InternalServerError("Failed to read body".into()))?;
-    let mut req = Request::from_parts(parts, Body::empty());
+    let mut req = Request::from_parts(parts, Body::from(bytes.clone()));
     req.extensions_mut().insert(bytes);
     Ok(next.run(req).await)
 }
