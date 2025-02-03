@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
+use axum::middleware;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use via_btc_client::withdrawal_builder::WithdrawalBuilder;
@@ -7,7 +8,10 @@ use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
 
-use crate::types::{SigningSession, ViaWithdrawalState};
+use crate::{
+    coordinator::auth_middleware,
+    types::{SigningSession, ViaWithdrawalState},
+};
 
 pub struct RestApi {
     pub master_connection_pool: ConnectionPool<Verifier>,
@@ -26,6 +30,11 @@ impl RestApi {
         let state = ViaWithdrawalState {
             signing_session: Arc::new(RwLock::new(SigningSession::default())),
             required_signers: config.required_signers,
+            verifiers_pub_keys: config
+                .verifiers_pub_keys_str
+                .iter()
+                .map(|s| bitcoin::secp256k1::PublicKey::from_str(s).unwrap())
+                .collect(),
         };
         Ok(Self {
             master_connection_pool,
@@ -49,7 +58,9 @@ impl RestApi {
             )
             .route("/nonce", axum::routing::post(Self::submit_nonce))
             .route("/nonce", axum::routing::get(Self::get_nonces))
-            .layer(CorsLayer::permissive());
+            .layer(CorsLayer::permissive())
+            .layer(middleware::from_fn(auth_middleware::extract_body))
+            .layer(middleware::from_fn(auth_middleware::auth_middleware));
 
         axum::Router::new()
             .nest("/session", router)
