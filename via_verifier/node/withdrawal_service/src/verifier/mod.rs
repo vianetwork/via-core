@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use bitcoin::{hashes::Hash, TapSighashType, Txid, Witness};
@@ -160,7 +160,8 @@ impl ViaWithdrawalVerifier {
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let verifier_index = self.signer.signer_index().to_string();
 
-        let secret_key = bitcoin::secp256k1::SecretKey::from_str(&self.config.private_key)?;
+        let private_key = bitcoin::PrivateKey::from_wif(&self.config.private_key)?;
+        let secret_key = private_key.inner;
 
         // Create signature based on whether there's a body
         let signature = if let Some(data) = body {
@@ -188,9 +189,20 @@ impl ViaWithdrawalVerifier {
     async fn get_session(&self) -> anyhow::Result<SigningSessionResponse> {
         let url = format!("{}/session", self.config.url);
         let headers = self.create_request_headers(None::<&()>)?;
-        let resp = self.client.get(&url).headers(headers).send().await?;
+        let resp = self
+            .client
+            .get(&url)
+            .headers(headers.clone())
+            .send()
+            .await?;
         if resp.status().as_u16() != StatusCode::OK.as_u16() {
-            anyhow::bail!("Error to fetch the session");
+            anyhow::bail!(
+                "Error to fetch the session, status: {}, url: {}, headers: {:?}, resp: {:?}",
+                resp.status(),
+                url,
+                headers,
+                resp.text().await?
+            );
         }
         let session_info: SigningSessionResponse = resp.json().await?;
         Ok(session_info)

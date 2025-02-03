@@ -45,6 +45,15 @@ impl RestApi {
     }
 
     pub fn into_router(self) -> axum::Router<()> {
+        // Wrap the API state in an Arc.
+        let shared_state = Arc::new(self);
+
+        // Create middleware layers using from_fn_with_state.
+        let auth_mw =
+            middleware::from_fn_with_state(shared_state.clone(), auth_middleware::auth_middleware);
+        let body_mw =
+            middleware::from_fn_with_state(shared_state.clone(), auth_middleware::extract_body);
+
         let router = axum::Router::new()
             .route("/new", axum::routing::post(Self::new_session))
             .route("/", axum::routing::get(Self::get_session))
@@ -58,12 +67,11 @@ impl RestApi {
             )
             .route("/nonce", axum::routing::post(Self::submit_nonce))
             .route("/nonce", axum::routing::get(Self::get_nonces))
-            .layer(CorsLayer::permissive())
-            .layer(middleware::from_fn(auth_middleware::extract_body))
-            .layer(middleware::from_fn(auth_middleware::auth_middleware));
+            .route_layer(body_mw)
+            .route_layer(auth_mw)
+            .with_state(shared_state.clone())
+            .layer(CorsLayer::permissive());
 
-        axum::Router::new()
-            .nest("/session", router)
-            .with_state(Arc::new(self))
+        axum::Router::new().nest("/session", router)
     }
 }
