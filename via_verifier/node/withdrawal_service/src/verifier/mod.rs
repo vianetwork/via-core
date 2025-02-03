@@ -105,13 +105,12 @@ impl ViaWithdrawalVerifier {
             return Ok(());
         }
 
-        if self.config.verifier_mode == VerifierMode::COORDINATOR {
-            if self
+        if self.config.verifier_mode == VerifierMode::COORDINATOR
+            && self
                 .build_and_broadcast_final_transaction(&session_info)
                 .await?
-            {
-                return Ok(());
-            }
+        {
+            return Ok(());
         }
 
         let session_signature = self.get_session_signatures().await?;
