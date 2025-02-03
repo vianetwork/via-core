@@ -134,15 +134,9 @@ impl Serializable for InscriptionMessage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct InscriptionConfig {
     pub fee_multiplier: u64,
-}
-
-impl Default for InscriptionConfig {
-    fn default() -> Self {
-        InscriptionConfig { fee_multiplier: 0 }
-    }
 }
 
 #[derive(Debug)]
