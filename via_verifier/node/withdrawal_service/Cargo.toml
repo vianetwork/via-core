@@ -33,5 +33,6 @@ musig2 = "0.2.0"
 base64 = "0.21"
 thiserror = "1.0.57"
 sha2.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
