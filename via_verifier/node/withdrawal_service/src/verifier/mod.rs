@@ -211,7 +211,22 @@ impl ViaWithdrawalVerifier {
     async fn get_session_nonces(&self) -> anyhow::Result<HashMap<usize, String>> {
         let nonces_url = format!("{}/session/nonce", self.config.url);
         let headers = self.create_request_headers(None::<&()>)?;
-        let resp = self.client.get(&nonces_url).headers(headers).send().await?;
+        let resp = self
+            .client
+            .get(&nonces_url)
+            .headers(headers.clone())
+            .send()
+            .await?;
+
+        if resp.status().as_u16() != StatusCode::OK.as_u16() {
+            anyhow::bail!(
+                "Error to fetch the session nonces, status: {}, url: {}, headers: {:?}, resp: {:?}",
+                resp.status(),
+                nonces_url,
+                headers,
+                resp.text().await?
+            );
+        }
         let nonces: HashMap<usize, String> = resp.json().await?;
         Ok(nonces)
     }
@@ -228,22 +243,44 @@ impl ViaWithdrawalVerifier {
         let res = self
             .client
             .post(&url)
-            .headers(headers)
+            .headers(headers.clone())
             .json(&nonce_pair)
             .send()
             .await?;
 
         if res.status().is_success() {
             self.signer.mark_nonce_submitted();
-            return Ok(());
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "Failed to submit nonce, response: {}, url: {}, headers: {:?}, body: {:?} ",
+                res.text().await?,
+                url,
+                headers,
+                nonce_pair
+            );
         }
-        Ok(())
     }
 
     async fn get_session_signatures(&self) -> anyhow::Result<HashMap<usize, PartialSignature>> {
         let url = format!("{}/session/signature", self.config.url);
         let headers = self.create_request_headers(None::<&()>)?;
-        let resp = self.client.get(&url).headers(headers).send().await?;
+        let resp = self
+            .client
+            .get(&url)
+            .headers(headers.clone())
+            .send()
+            .await?;
+
+        if resp.status().as_u16() != StatusCode::OK.as_u16() {
+            anyhow::bail!(
+                "Error to fetch the session signatures, status: {}, url: {}, headers: {:?}, resp: {:?}",
+                resp.status(),
+                url,
+                headers,
+                resp.text().await?
+            );
+        }
         let signatures: HashMap<usize, PartialSignaturePair> = resp.json().await?;
         let mut partial_sigs: HashMap<usize, PartialSignature> = HashMap::new();
         for (idx, sig) in signatures {
@@ -277,14 +314,22 @@ impl ViaWithdrawalVerifier {
         let resp = self
             .client
             .post(&url)
-            .headers(headers)
+            .headers(headers.clone())
             .json(&sig_pair)
             .send()
             .await?;
         if resp.status().is_success() {
             self.signer.mark_partial_sig_submitted();
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "Failed to submit partial signature, response: {}, url: {}, headers: {:?}, body: {:?} ",
+                resp.text().await?,
+                url,
+                headers,
+                sig_pair
+            );
         }
-        Ok(())
     }
 
     fn reinit_signer(&mut self) -> anyhow::Result<()> {
@@ -303,12 +348,18 @@ impl ViaWithdrawalVerifier {
         let resp = self
             .client
             .post(&url)
-            .headers(headers)
+            .headers(headers.clone())
             .header(header::CONTENT_TYPE, "application/json")
             .send()
             .await?;
 
         if !resp.status().is_success() {
+            tracing::warn!(
+                "Failed to create a new session, response: {}, url: {}, headers: {:?}",
+                resp.text().await?,
+                url,
+                headers
+            );
             self.reinit_signer()?;
         }
         Ok(())

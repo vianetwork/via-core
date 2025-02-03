@@ -42,15 +42,20 @@ pub async fn auth_middleware(
     // Get the public key for this verifier.
     let public_key = &state.state.verifiers_pub_keys[verifier_index];
 
-    // Create verification payload based on request method.
-    let payload = if request.method().is_safe() {
-        // For GET requests, verify timestamp + verifier_index.
+    // Create verification payload based on request method and body content
+    let payload = if request.method().is_safe()
+        || request
+            .extensions()
+            .get::<Bytes>()
+            .map_or(true, |b| b.is_empty())
+    {
+        // For GET requests or empty body requests, verify timestamp + verifier_index
         serde_json::json!({
             "timestamp": timestamp,
             "verifier_index": verifier_index.to_string(),
         })
     } else {
-        // For POST/PUT requests, verify the body.
+        // For POST/PUT requests with non-empty body, verify the body
         let body_bytes = request
             .extensions()
             .get::<Bytes>()
