@@ -68,7 +68,9 @@ pub async fn auth_middleware(
     if !crate::auth::verify_signature(&payload, signature, public_key)
         .map_err(|_| ApiError::InternalServerError("Signature verification failed".into()))?
     {
-        return Err(ApiError::Unauthorized("Invalid signature".into()));
+        return Err(ApiError::Unauthorized(
+            "Invalid authentication signature".into(),
+        ));
     }
 
     Ok(next.run(request).await)

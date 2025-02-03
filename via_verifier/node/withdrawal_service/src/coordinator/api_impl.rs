@@ -219,7 +219,11 @@ impl RestApi {
     ) -> anyhow::Result<Response<String>, ApiError> {
         let partial_sig = match decode_signature(sig_pair.signature) {
             Ok(sig) => sig,
-            Err(_) => return Err(ApiError::BadRequest("Invalid signature".to_string())),
+            Err(_) => {
+                return Err(ApiError::BadRequest(
+                    "Invalid partial signature submitted".to_string(),
+                ))
+            }
         };
 
         {
