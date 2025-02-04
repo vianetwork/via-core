@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
 
     let args: Vec<String> = env::args().collect();
     let amount = Amount::from_btc(args[1].parse::<f64>()?)?;
-    let fees = Amount::from_btc(0.03)?;
+    let fees = Amount::from_btc(0.0001)?;
     let receiver_l2_address = EVMAddress::from_str(&args[2])?;
     info!(
         "Depositing {} BTC to receiver L2 address {}",
