@@ -13,6 +13,9 @@ use bitcoin::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument};
+use utxo_manager::{TransactionContext, UtxoManager};
+
+mod utxo_manager;
 
 use crate::{
     client::BitcoinClient,
@@ -24,6 +27,7 @@ use crate::{
 pub struct WithdrawalBuilder {
     client: Arc<dyn BitcoinOps>,
     bridge_address: Address,
+    utxo_manager: UtxoManager,
 }
 
 #[derive(Debug)]
@@ -38,6 +42,7 @@ pub struct UnsignedWithdrawalTx {
     pub txid: Txid,
     pub utxos: Vec<(OutPoint, TxOut)>,
     pub change_amount: Amount,
+    pub merge_utxo_tx: Option<Transaction>,
 }
 
 impl Serializable for UnsignedWithdrawalTx {
@@ -62,23 +67,27 @@ impl WithdrawalBuilder {
         network: BitcoinNetwork,
         auth: bitcoincore_rpc::Auth,
         bridge_address: Address,
+        minimum_amount: Amount,
     ) -> Result<Self> {
         info!("Creating new WithdrawalBuilder");
         let client = Arc::new(BitcoinClient::new(rpc_url, network, auth)?);
 
         Ok(Self {
-            client,
-            bridge_address,
+            client: client.clone(),
+            bridge_address: bridge_address.clone(),
+            utxo_manager: UtxoManager::new(client, bridge_address, minimum_amount),
         })
     }
 
     #[instrument(skip(self, withdrawals, proof_txid), target = "bitcoin_withdrawal")]
     pub async fn create_unsigned_withdrawal_tx(
-        &self,
+        &mut self,
         withdrawals: Vec<WithdrawalRequest>,
         proof_txid: Txid,
     ) -> Result<UnsignedWithdrawalTx> {
         debug!("Creating unsigned withdrawal transaction");
+
+        println!("000000000");
 
         // Group withdrawals by address and sum amounts
         let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
@@ -89,18 +98,55 @@ impl WithdrawalBuilder {
                 .checked_add(w.amount)
                 .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
         }
+        println!("000000000");
 
         // Calculate total withdrawal amount from grouped withdrawals
         let total_withdrawal_amount: Amount = grouped_withdrawals
             .values()
             .try_fold(Amount::ZERO, |acc, amount| acc.checked_add(*amount))
             .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow"))?;
-
-        // Get available UTXOs first to estimate number of inputs
-        let available_utxos = self.get_available_utxos().await?;
+        println!("000000000");
 
         // Get fee rate
         let fee_rate = std::cmp::max(self.client.get_fee_rate(1).await?, 1);
+        println!("000000000");
+
+        // Sync UTXO manager with blockchain
+        self.utxo_manager.sync_context_with_blockchain().await?;
+        println!("000000000");
+
+        // Get merge UTXO transaction if available
+        let merge_utxo_metadata = self
+            .utxo_manager
+            .get_merge_utxo_unsigned_transaction(fee_rate)
+            .await?;
+        let mut available_utxos: Vec<(OutPoint, TxOut)> = Vec::new();
+        let mut merge_utxo_tx: Option<Transaction> = None;
+        let mut cpfp_fee: Amount = Amount::ZERO;
+        println!("000000000");
+
+        // If merge UTXO transaction is available, create a chained transaction else, get available UTXOs.
+        if let Some((merge_unsigned_tx, tx, fee)) = merge_utxo_metadata {
+            println!("000222");
+            for (i, outpoint) in tx.outpoints.iter().enumerate() {
+                available_utxos.push((outpoint.clone(), merge_unsigned_tx.output[i].clone()));
+            }
+            println!("000222");
+            merge_utxo_tx = Some(merge_unsigned_tx);
+            println!("000222");
+            cpfp_fee = fee;
+            self.utxo_manager.insert_transaction(tx);
+            println!("000222");
+        } else {
+            available_utxos = self
+                .utxo_manager
+                .get_available_utxos()
+                .await?
+                .iter()
+                .map(|(outpoint, txout)| (outpoint.clone(), txout.clone()))
+                .collect();
+        }
+        println!("000111");
 
         // Estimate initial fee with approximate input count
         // We'll estimate high initially to avoid underestimating
@@ -134,11 +180,14 @@ impl WithdrawalBuilder {
         };
 
         // Calculate actual fee with real input count
-        let actual_fee = self.estimate_fee(
+        let mut actual_fee = self.estimate_fee(
             selected_utxos.len() as u32,
             grouped_withdrawals.len() as u32 + 1, // +1 for OP_RETURN output
             fee_rate,
         )?;
+
+        // Add CPFP fee
+        actual_fee += cpfp_fee;
 
         // Verify we have enough funds with actual fee
         let total_needed = total_withdrawal_amount
@@ -193,10 +242,18 @@ impl WithdrawalBuilder {
             version: transaction::Version::TWO,
             lock_time: absolute::LockTime::ZERO,
             input: inputs,
-            output: outputs,
+            output: outputs.clone(),
         };
 
         let txid = unsigned_tx.compute_txid();
+
+        self.utxo_manager.insert_transaction(TransactionContext {
+            tx: unsigned_tx.clone(),
+            outpoints: vec![OutPoint {
+                txid,
+                vout: outputs.len() as u32 - 1,
+            }],
+        });
 
         debug!("Unsigned withdrawal transaction created successfully");
 
@@ -205,6 +262,7 @@ impl WithdrawalBuilder {
             txid,
             utxos: selected_utxos,
             change_amount,
+            merge_utxo_tx,
         })
     }
 
@@ -300,11 +358,14 @@ mod tests {
     use std::str::FromStr;
 
     use async_trait::async_trait;
-    use bitcoin::Network;
+    use bitcoin::{transaction::Version, Network};
     use mockall::{mock, predicate::*};
 
     use super::*;
-    use crate::types::BitcoinError;
+    use crate::{
+        inscriber::test_utils::{MockBitcoinOps, MockBitcoinOpsConfig},
+        types::BitcoinError,
+    };
 
     mock! {
         BitcoinOpsService {}
@@ -388,30 +449,59 @@ mod tests {
             };
             Ok(vec![(outpoint, txout)])
         });
-
+        println!("1111111111111111");
         mock_ops.expect_get_fee_rate().returning(|_| Ok(2));
 
-        // Use mock client
-        let builder = WithdrawalBuilder {
-            client: Arc::new(mock_ops),
-            bridge_address,
+        let client = Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig::default()));
+        let mut utxo_manager =
+            UtxoManager::new(client, bridge_address.clone(), Amount::from_sat(1));
+
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![TxOut {
+                value: Amount::from_sat(200000000),
+                script_pubkey: bridge_address.clone().script_pubkey(),
+            }],
         };
+        let tx_context = TransactionContext {
+            tx: tx.clone(),
+            outpoints: vec![OutPoint {
+                txid: tx.compute_txid(),
+                vout: 0,
+            }],
+        };
+
+        utxo_manager.insert_transaction(tx_context);
+
+        // Use mock client
+        let mut builder = WithdrawalBuilder {
+            client: Arc::new(MockBitcoinOpsService::new()),
+            bridge_address: bridge_address.clone(),
+            utxo_manager,
+        };
+        println!("1111111111111111");
 
         let withdrawal_address = "bcrt1pv6dtdf0vrrj6ntas926v8vw9u0j3mga29vmfnxh39zfxya83p89qz9ze3l";
         let withdrawal_amount = Amount::from_btc(0.1)?;
+        println!("1111111111111111");
 
         let withdrawals = vec![WithdrawalRequest {
             address: Address::from_str(withdrawal_address)?.require_network(network)?,
             amount: withdrawal_amount,
         }];
+        println!("1111111111111111");
 
         let proof_txid =
             Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")?;
+        println!("1111111111111111");
 
         let withdrawal_tx = builder
             .create_unsigned_withdrawal_tx(withdrawals, proof_txid)
             .await?;
         assert!(!withdrawal_tx.utxos.is_empty());
+        println!("1111111111111111");
 
         // Verify OP_RETURN output
         let op_return_output = withdrawal_tx
