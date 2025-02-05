@@ -1,11 +1,7 @@
 use anyhow::{Context, Result};
 use bincode::serialize;
 use tokio::sync::watch;
-use via_btc_client::{
-    inscriber::Inscriber,
-    traits::Serializable,
-    types::{InscriptionConfig, InscriptionMessage},
-};
+use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_types::btc_sender::ViaBtcInscriptionRequest;
@@ -116,22 +112,10 @@ impl ViaBtcInscriptionManager {
                         continue;
                     }
 
-                    let number_inscription_request_history = storage
-                        .via_btc_sender_dal()
-                        .get_total_inscription_request_history(inscription.id)
-                        .await?;
-
-                    let config = InscriptionConfig {
-                        fee_multiplier: number_inscription_request_history as u64 + 1,
-                    };
-
-                    tracing::info!(
-                        "Inscription {reveal_tx} stuck for more than {BLOCK_RESEND} block, retry sending the inscription.",
+                    tracing::warn!(
+                        "Inscription {reveal_tx} stuck for more than {BLOCK_RESEND} block.",
                         reveal_tx = last_inscription_history.reveal_tx_id
                     );
-
-                    self.send_inscription_tx(storage, &inscription, config)
-                        .await?;
                 }
             }
         }
@@ -171,8 +155,7 @@ impl ViaBtcInscriptionManager {
                 .await?;
 
             for inscription in list_new_inscription_request {
-                self.send_inscription_tx(storage, &inscription, InscriptionConfig::default())
-                    .await?;
+                self.send_inscription_tx(storage, &inscription).await?;
             }
         }
         Ok(())
@@ -182,7 +165,6 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
         tx: &ViaBtcInscriptionRequest,
-        config: InscriptionConfig,
     ) -> anyhow::Result<()> {
         let sent_at_block = self
             .inscriber
@@ -197,7 +179,7 @@ impl ViaBtcInscriptionManager {
 
         let inscribe_info = self
             .inscriber
-            .inscribe(input, config)
+            .inscribe(input)
             .await
             .context("Sent inscription tx")?;
 

@@ -135,17 +135,6 @@ impl Serializable for InscriptionMessage {
 }
 
 #[derive(Debug)]
-pub struct InscriptionConfig {
-    pub fee_multiplier: u64,
-}
-
-impl Default for InscriptionConfig {
-    fn default() -> Self {
-        InscriptionConfig { fee_multiplier: 0 }
-    }
-}
-
-#[derive(Debug)]
 pub struct Recipient {
     pub address: BitcoinAddress,
     pub amount: Amount,

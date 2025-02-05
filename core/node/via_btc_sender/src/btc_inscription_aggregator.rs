@@ -2,11 +2,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use tokio::sync::watch;
-use via_btc_client::{
-    inscriber::Inscriber,
-    traits::Serializable,
-    types::{InscriptionConfig, InscriptionMessage},
-};
+use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
@@ -94,7 +90,7 @@ impl ViaBtcInscriptionAggregator {
                 // Estimate the tx fee to execute the inscription request.
                 let inscribe_info = self
                     .inscriber
-                    .prepare_inscribe(&inscription_message, InscriptionConfig::default(), None)
+                    .prepare_inscribe(&inscription_message, None)
                     .await
                     .context("Via get inscriber info")?;
 
