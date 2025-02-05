@@ -1,22 +1,29 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
-use bitcoin::{hashes::Hash, TapSighashType, Txid, Witness};
+use bitcoin::{
+    hashes::Hash,
+    sighash::{Prevouts, SighashCache},
+    Amount, TapSighashType, Txid, Witness,
+};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
 use tokio::sync::watch;
 use via_btc_client::{
     traits::{BitcoinOps, Serializable},
-    withdrawal_builder::UnsignedWithdrawalTx,
+    withdrawal_builder::{UnsignedWithdrawalTx, WithdrawalBuilder},
 };
 use via_musig2::{verify_signature, Signer};
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
+use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::{VerifierMode, ViaVerifierConfig};
 use zksync_types::H256;
 
 use crate::{
     types::{NoncePair, PartialSignaturePair, SigningSessionResponse},
-    utils::{decode_nonce, decode_signature, encode_nonce, encode_signature, get_signer},
+    utils::{
+        decode_nonce, decode_signature, encode_nonce, encode_signature, get_signer, h256_to_txid,
+    },
 };
 
 pub struct ViaWithdrawalVerifier {
@@ -24,6 +31,7 @@ pub struct ViaWithdrawalVerifier {
     btc_client: Arc<dyn BitcoinOps>,
     config: ViaVerifierConfig,
     client: Client,
+    withdrawal_client: WithdrawalClient,
     signer: Signer,
     final_sig: Option<CompactSignature>,
 }
@@ -32,6 +40,7 @@ impl ViaWithdrawalVerifier {
     pub async fn new(
         master_connection_pool: ConnectionPool<Verifier>,
         btc_client: Arc<dyn BitcoinOps>,
+        withdrawal_client: WithdrawalClient,
         config: ViaVerifierConfig,
     ) -> anyhow::Result<Self> {
         let signer = get_signer(
@@ -44,6 +53,7 @@ impl ViaWithdrawalVerifier {
             btc_client,
             signer,
             client: Client::new(),
+            withdrawal_client,
             config,
             final_sig: None,
         })
@@ -136,6 +146,10 @@ impl ViaWithdrawalVerifier {
         if session_info.received_nonces < session_info.required_signers {
             let message = hex::decode(&session_info.message_to_sign)?;
 
+            if !self.verify_message(&session_info).await? {
+                anyhow::bail!("Error when verify the session message");
+            }
+
             if self.signer.has_not_started() {
                 self.signer.start_signing_session(message)?;
             }
@@ -161,6 +175,127 @@ impl ViaWithdrawalVerifier {
         }
         let session_info: SigningSessionResponse = resp.json().await?;
         Ok(session_info)
+    }
+
+    async fn verify_message(&self, session: &SigningSessionResponse) -> anyhow::Result<bool> {
+        // Get the l1 batches finilized but withdrawals not yet processed
+        if let Some((blob_id, proof_tx_id)) = self
+            .master_connection_pool
+            .connection_tagged("verifier")
+            .await?
+            .via_votes_dal()
+            .get_finalized_block_and_non_processed_withdrawal(session.l1_block_number)
+            .await?
+        {
+            if !self
+                ._verify_withdrawals(&session, &blob_id, proof_tx_id)
+                .await?
+            {
+                return Ok(false);
+            }
+
+            return self._verify_sighash(&session).await;
+        }
+        Ok(false)
+    }
+    async fn _verify_withdrawals(
+        &self,
+        session: &SigningSessionResponse,
+        blob_id: &str,
+        proof_tx_id: Vec<u8>,
+    ) -> anyhow::Result<bool> {
+        let withdrawals = self.withdrawal_client.get_withdrawals(blob_id).await?;
+        let unsigned_tx = UnsignedWithdrawalTx::from_bytes(&session.unsigned_tx);
+
+        // Group withdrawals by address and sum amounts
+        let mut grouped_withdrawals: HashMap<String, Amount> = HashMap::new();
+        for w in &withdrawals {
+            let key = w.address.script_pubkey().to_string();
+            *grouped_withdrawals.entry(key).or_insert(Amount::ZERO) = grouped_withdrawals
+                .get(&key)
+                .unwrap_or(&Amount::ZERO)
+                .checked_add(w.amount)
+                .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
+        }
+
+        let len = grouped_withdrawals.len();
+        if len == 0 {
+            tracing::error!(
+                "Invalid session, there are no withdrawals to process, l1 batch: {}",
+                session.l1_block_number
+            );
+            return Ok(false);
+        }
+        if len + 2 != unsigned_tx.tx.output.len() {
+            // Log an error
+            return Ok(false);
+        }
+
+        // Verify if all grouped_withdrawals are included with valid amount.
+        for (i, txout) in unsigned_tx
+            .tx
+            .output
+            .iter()
+            .enumerate()
+            .take(unsigned_tx.tx.output.len().saturating_sub(2))
+        {
+            let amount = &grouped_withdrawals[&txout.script_pubkey.to_string()];
+            if amount != &txout.value {
+                tracing::error!(
+                    "Invalid request withdrawal for batch {}, index: {}",
+                    session.l1_block_number,
+                    i
+                );
+                return Ok(false);
+            }
+        }
+        tracing::info!(
+            "All request withdrawals for batch {} are valid",
+            session.l1_block_number
+        );
+
+        // Verify the OP return
+        let tx_id = h256_to_txid(&proof_tx_id)?;
+        let op_return_data = WithdrawalBuilder::create_op_return_script(tx_id)?;
+        let op_return_tx_out = &unsigned_tx.tx.output[unsigned_tx.tx.output.len() - 2];
+
+        if op_return_tx_out.script_pubkey.to_string() != op_return_data.to_string()
+            || op_return_tx_out.value != Amount::ZERO
+        {
+            tracing::error!(
+                "Invalid op return data for l1 batch: {}",
+                session.l1_block_number
+            );
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+
+    async fn _verify_sighash(&self, session: &SigningSessionResponse) -> anyhow::Result<bool> {
+        // Verify the sighash
+        let unsigned_tx = UnsignedWithdrawalTx::from_bytes(&session.unsigned_tx);
+        let mut sighash_cache = SighashCache::new(&unsigned_tx.tx);
+
+        let sighash_type = TapSighashType::All;
+        let mut txout_list = Vec::with_capacity(unsigned_tx.utxos.len());
+
+        for (_, txout) in unsigned_tx.utxos.clone() {
+            txout_list.push(txout);
+        }
+        let sighash = sighash_cache
+            .taproot_key_spend_signature_hash(0, &Prevouts::All(&txout_list), sighash_type)
+            .context("Error taproot_key_spend_signature_hash")?;
+
+        if session.message_to_sign != sighash.to_string() {
+            tracing::error!(
+                "Invalid transaction sighash for session with block id {}",
+                session.l1_block_number
+            );
+            return Ok(false);
+        }
+        tracing::info!("Sighash for batch {} is valid", session.l1_block_number);
+        Ok(true)
     }
 
     async fn get_session_nonces(&self) -> anyhow::Result<HashMap<usize, String>> {

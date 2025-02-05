@@ -18,7 +18,7 @@ use zksync_types::H256;
 use super::{api_decl::RestApi, error::ApiError};
 use crate::{
     types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse},
-    utils::{decode_signature, encode_signature},
+    utils::{decode_signature, encode_signature, h256_to_txid},
 };
 
 fn ok_json<T: Serialize>(data: T) -> Response<String> {
@@ -80,14 +80,14 @@ impl RestApi {
         );
 
         for (block_number, blob_id, proof_tx_id) in blocks.iter() {
-            let withdrawals = self_
+            let withdrawals: Vec<WithdrawalRequest> = self_
                 .withdrawal_client
                 .get_withdrawals(blob_id)
                 .await
                 .context("Error to get withdrawals from DA")?;
 
             if !withdrawals.is_empty() {
-                proof_txid = Self::h256_to_txid(&proof_tx_id).context("Invalid proof tx id")?;
+                proof_txid = h256_to_txid(&proof_tx_id).context("Invalid proof tx id")?;
                 l1_block_number = *block_number;
                 withdrawals_to_process = withdrawals;
                 tracing::info!(
@@ -151,7 +151,7 @@ impl RestApi {
         }
         let sighash = sighash_cache
             .taproot_key_spend_signature_hash(0, &Prevouts::All(&txout_list), sighash_type)
-            .unwrap();
+            .context("Error taproot_key_spend_signature_hash")?;
 
         let new_sesssion = SigningSession {
             l1_block_number,
@@ -263,16 +263,5 @@ impl RestApi {
     pub async fn reset_session(&self) {
         let mut session = self.state.signing_session.write().await;
         *session = SigningSession::default();
-    }
-
-    // Todo: move this logic in a helper crate as it's used in multiple crates.
-    /// Converts H256 bytes (from the DB) to a Txid by reversing the byte order.
-    fn h256_to_txid(h256_bytes: &[u8]) -> anyhow::Result<Txid> {
-        if h256_bytes.len() != 32 {
-            return Err(anyhow::anyhow!("H256 must be 32 bytes"));
-        }
-        let mut reversed_bytes = h256_bytes.to_vec();
-        reversed_bytes.reverse();
-        Txid::from_slice(&reversed_bytes).context("Failed to convert H256 to Txid")
     }
 }

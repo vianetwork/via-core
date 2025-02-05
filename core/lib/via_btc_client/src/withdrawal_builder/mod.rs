@@ -127,7 +127,7 @@ impl WithdrawalBuilder {
             .ok_or_else(|| anyhow::anyhow!("Input amount overflow"))?;
 
         // Create OP_RETURN output with proof txid
-        let op_return_data = self.create_op_return_script(proof_txid)?;
+        let op_return_data = WithdrawalBuilder::create_op_return_script(proof_txid)?;
         let op_return_output = TxOut {
             value: Amount::ZERO,
             script_pubkey: op_return_data,
@@ -260,7 +260,7 @@ impl WithdrawalBuilder {
     }
 
     // Helper function to create OP_RETURN script
-    fn create_op_return_script(&self, proof_txid: Txid) -> Result<ScriptBuf> {
+    pub fn create_op_return_script(proof_txid: Txid) -> Result<ScriptBuf> {
         let mut data = Vec::with_capacity(OP_RETURN_PREFIX.len() + 32);
         data.extend_from_slice(OP_RETURN_PREFIX);
         data.extend_from_slice(&proof_txid.as_raw_hash().to_byte_array());
