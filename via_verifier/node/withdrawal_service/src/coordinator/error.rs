@@ -13,6 +13,8 @@ use via_verifier_dal::DalError;
 pub enum ApiError {
     #[error("Invalid input: {0}")]
     BadRequest(String),
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
     #[error("Unexpected error: {0}")]
     InternalServerError(String),
 }
@@ -33,6 +35,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, error_response) = match self {
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, ErrorResponse::new(&msg)),
+            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, ErrorResponse::new(&msg)),
             ApiError::InternalServerError(msg) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, ErrorResponse::new(&msg))
             }
