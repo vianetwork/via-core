@@ -27,7 +27,7 @@ use crate::{
     },
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
-    types::{BitcoinNetwork, InscriberContext, InscriptionConfig, InscriptionMessage, Recipient},
+    types::{BitcoinNetwork, InscriberContext, InscriptionMessage, Recipient},
 };
 
 mod fee;
@@ -101,7 +101,6 @@ impl Inscriber {
     pub async fn prepare_inscribe(
         &mut self,
         input: &InscriptionMessage,
-        config: InscriptionConfig,
         recipient: Option<Recipient>,
     ) -> Result<InscriberInfo> {
         self.sync_context_with_blockchain().await?;
@@ -133,7 +132,6 @@ impl Inscriber {
             .prepare_reveal_tx_output(
                 &reveal_tx_input_info,
                 &inscription_data,
-                config,
                 recipient,
                 commit_tx_output_info.commit_tx_fee,
             )
@@ -158,13 +156,12 @@ impl Inscriber {
     pub async fn inscribe_with_recipient(
         &mut self,
         input: InscriptionMessage,
-        config: InscriptionConfig,
         recipient: Option<Recipient>,
     ) -> Result<InscriberInfo> {
         info!("Starting inscription process");
 
         let inscriber_info = self
-            .prepare_inscribe(&input, config, recipient)
+            .prepare_inscribe(&input, recipient)
             .await
             .context("Error prepare inscriber infos")?;
 
@@ -181,12 +178,8 @@ impl Inscriber {
     }
 
     #[instrument(skip(self, input), target = "bitcoin_inscriber")]
-    pub async fn inscribe(
-        &mut self,
-        input: InscriptionMessage,
-        config: InscriptionConfig,
-    ) -> Result<InscriberInfo> {
-        self.inscribe_with_recipient(input, config, None).await
+    pub async fn inscribe(&mut self, input: InscriptionMessage) -> Result<InscriberInfo> {
+        self.inscribe_with_recipient(input, None).await
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
@@ -560,7 +553,6 @@ impl Inscriber {
         &self,
         tx_input_data: &RevealTxInputRes,
         inscription_data: &InscriptionData,
-        config: InscriptionConfig,
         recipient: Option<Recipient>,
         commit_tx_fee: Amount,
     ) -> Result<RevealTxOutputRes> {
@@ -588,12 +580,9 @@ impl Inscriber {
             fee_rate,
         )?;
 
-        // increase fee rate based on pending transactions in context
-        let retry_factor = FEE_RATE_INCREASE_PER_PENDING_TX * config.fee_multiplier;
-
         let txs_stuck_factor = FEE_RATE_INCREASE_PER_PENDING_TX * pending_tx_in_context as u64;
 
-        let increase_factor = retry_factor + txs_stuck_factor + FEE_RATE_INCENTIVE;
+        let increase_factor = txs_stuck_factor + FEE_RATE_INCENTIVE;
 
         fee_amount += (fee_amount * increase_factor) / 100;
         // Add the fee amount removed from the commit tx to reveal
@@ -975,10 +964,7 @@ mod tests {
 
         let inscribe_message = InscriptionMessage::L1BatchDAReference(l1_da_batch_ref);
 
-        let res = inscriber
-            .inscribe(inscribe_message, InscriptionConfig::default())
-            .await
-            .unwrap();
+        let res = inscriber.inscribe(inscribe_message).await.unwrap();
 
         assert_ne!(res.final_commit_tx.txid, Txid::all_zeros());
         assert_ne!(res.final_reveal_tx.txid, Txid::all_zeros());

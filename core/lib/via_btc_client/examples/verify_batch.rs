@@ -5,10 +5,7 @@ use bitcoin::Txid;
 use tracing::info;
 use via_btc_client::{
     inscriber::Inscriber,
-    types::{
-        BitcoinNetwork, InscriptionConfig, InscriptionMessage, NodeAuth, ValidatorAttestationInput,
-        Vote,
-    },
+    types::{BitcoinNetwork, InscriptionMessage, NodeAuth, ValidatorAttestationInput, Vote},
 };
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
@@ -63,10 +60,7 @@ async fn main() -> Result<()> {
 
     for (i, inscriber) in verifier_inscribers.iter_mut().enumerate() {
         let validator_info = inscriber
-            .inscribe(
-                InscriptionMessage::ValidatorAttestation(input.clone()),
-                InscriptionConfig::default(),
-            )
+            .inscribe(InscriptionMessage::ValidatorAttestation(input.clone()))
             .await?;
         info!(
             "Validator {} attestation tx sent: {:?}",

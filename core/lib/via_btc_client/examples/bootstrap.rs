@@ -10,8 +10,8 @@ use tracing::info;
 use via_btc_client::{
     inscriber::Inscriber,
     types::{
-        BitcoinAddress, BitcoinNetwork, InscriptionConfig, InscriptionMessage, NodeAuth,
-        ProposeSequencerInput, SystemBootstrappingInput, ValidatorAttestationInput, Vote,
+        BitcoinAddress, BitcoinNetwork, InscriptionMessage, NodeAuth, ProposeSequencerInput,
+        SystemBootstrappingInput, ValidatorAttestationInput, Vote,
     },
 };
 use zksync_basic_types::H256;
@@ -110,10 +110,7 @@ async fn main() -> Result<()> {
         abstract_account_hash: H256::random(),
     };
     let bootstrap_info = verifier_inscribers[0]
-        .inscribe(
-            InscriptionMessage::SystemBootstrapping(input),
-            InscriptionConfig::default(),
-        )
+        .inscribe(InscriptionMessage::SystemBootstrapping(input))
         .await?;
     info!(
         "Bootstrapping tx sent: {:?}",
@@ -127,10 +124,7 @@ async fn main() -> Result<()> {
         sequencer_new_p2wpkh_address: sequencer_p2wpkh_address,
     };
     let propose_info = verifier_inscribers[1]
-        .inscribe(
-            InscriptionMessage::ProposeSequencer(input),
-            InscriptionConfig::default(),
-        )
+        .inscribe(InscriptionMessage::ProposeSequencer(input))
         .await?;
     info!(
         "Propose sequencer tx sent: {:?}",
@@ -149,10 +143,7 @@ async fn main() -> Result<()> {
 
     for (i, inscriber) in verifier_inscribers.iter_mut().enumerate() {
         let validator_info = inscriber
-            .inscribe(
-                InscriptionMessage::ValidatorAttestation(input.clone()),
-                InscriptionConfig::default(),
-            )
+            .inscribe(InscriptionMessage::ValidatorAttestation(input.clone()))
             .await?;
         info!(
             "Validator {} attestation tx sent: {:?}",

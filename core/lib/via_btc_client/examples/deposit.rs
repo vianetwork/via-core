@@ -11,8 +11,8 @@ use tracing::info;
 use via_btc_client::{
     inscriber::Inscriber,
     types::{
-        BitcoinAddress, BitcoinNetwork, InscriberContext, InscriptionConfig, InscriptionMessage,
-        L1ToL2MessageInput, NodeAuth, Recipient,
+        BitcoinAddress, BitcoinNetwork, InscriberContext, InscriptionMessage, L1ToL2MessageInput,
+        NodeAuth, Recipient,
     },
 };
 use zksync_types::Address as EVMAddress;
@@ -85,7 +85,6 @@ async fn main() -> Result<()> {
     let deposit_info = inscriber
         .inscribe_with_recipient(
             InscriptionMessage::L1ToL2Message(input),
-            InscriptionConfig::default(),
             Some(Recipient {
                 address: bridge_musig2_address,
                 amount: Amount::from_btc(amount)?,

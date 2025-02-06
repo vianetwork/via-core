@@ -134,11 +134,6 @@ impl Serializable for InscriptionMessage {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct InscriptionConfig {
-    pub fee_multiplier: u64,
-}
-
 #[derive(Debug)]
 pub struct Recipient {
     pub address: BitcoinAddress,
