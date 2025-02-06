@@ -9,6 +9,7 @@ use via_btc_client::withdrawal_builder::UnsignedWithdrawalTx;
 pub struct ViaWithdrawalState {
     pub signing_session: Arc<RwLock<SigningSession>>,
     pub required_signers: usize,
+    pub verifiers_pub_keys: Vec<bitcoin::secp256k1::PublicKey>,
 }
 
 #[derive(Default, Debug, Clone)]
