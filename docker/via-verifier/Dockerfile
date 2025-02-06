@@ -17,6 +17,11 @@ ENV PATH=$PATH:/usr/local/bin
 
 EXPOSE 6060
 
+ARG PROTOCOL_VERSION=26
+COPY --from=builder /usr/src/via/via_verifier/lib/via_verification/keys/protocol_version/${PROTOCOL_VERSION}/scheduler_key.json \
+                    /keys/protocol_version/${PROTOCOL_VERSION}/scheduler_key.json
+ENV VIA_VK_KEY_PATH=/keys
+
 COPY --from=builder /usr/src/via/target/release/via_verifier /usr/bin
 
 ENTRYPOINT ["via_verifier"]

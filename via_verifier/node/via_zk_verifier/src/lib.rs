@@ -256,7 +256,11 @@ impl ViaVerifier {
                 via_verification::utils::load_verification_key_without_l1_check(protocol_version)
                     .await?;
 
-            Ok(via_proof.verify(vk_inner)?)
+            let is_valid = via_proof.verify(vk_inner)?;
+
+            tracing::info!("Proof verification result: {}", is_valid);
+
+            Ok(is_valid)
         }
     }
 }
