@@ -208,9 +208,22 @@ impl BitcoinInscriptionIndexer {
         let bridge_txs: Vec<BitcoinTransaction> = transactions
             .iter()
             .filter(|tx| {
+                // Check if bridge address is in outputs (deposit destination)
                 tx.output.iter().any(|output| {
                     let script_pubkey = &output.script_pubkey;
                     script_pubkey == &self.bridge_address.script_pubkey()
+                }) && !tx.output.iter().any(|output| {
+                    if output.script_pubkey.is_op_return() {
+                        // Extract OP_RETURN data
+                        if let Some(op_return_data) = output.script_pubkey.as_bytes().get(2..) {
+                            // Return true if it starts with withdrawal prefix (which will be negated)
+                            op_return_data.starts_with(b"VIA_PROTOCOL:WITHDRAWAL")
+                        } else {
+                            false
+                        }
+                    } else {
+                        false // Not an OP_RETURN output
+                    }
                 })
             })
             .cloned()
