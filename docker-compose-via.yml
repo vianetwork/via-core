@@ -50,6 +50,10 @@ services:
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${TEST_ADDRESS} 300
         echo "Sent 300 BTC to TEST_ADDRESS: $${TEST_ADDRESS}"
 
+        echo "TEST_ADDRESS_OP_RETURN: $${TEST_ADDRESS_OP_RETURN}"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${TEST_ADDRESS_OP_RETURN} 100
+        echo "Sent 100 BTC to TEST_ADDRESS_OP_RETURN: $${TEST_ADDRESS_OP_RETURN}"
+
         echo "VERIFIER_1_ADDRESS: $${VERIFIER_1_ADDRESS}"
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice sendtoaddress $${VERIFIER_1_ADDRESS} 300
         echo "Sent 300 BTC to VERIFIER_1_ADDRESS: $${VERIFIER_1_ADDRESS}"
@@ -93,6 +97,7 @@ services:
     environment:
       - BITCOIN_DATA=/home/bitcoin/.bitcoin
       - TEST_ADDRESS=bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
+      - TEST_ADDRESS_OP_RETURN=bcrt1qu7z4qrlwl33qqz8duph0k7hv8trvgx8dt8jzfz
       - VERIFIER_1_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
       - VERIFIER_2_ADDRESS=bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
       - VERIFIER_3_ADDRESS=bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm

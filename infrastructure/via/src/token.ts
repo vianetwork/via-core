@@ -4,6 +4,7 @@ import { ethers } from 'ethers';
 import * as utils from 'utils';
 
 const DEFAULT_DEPOSITOR_PRIVATE_KEY = 'cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R';
+const DEFAULT_DEPOSITOR_PRIVATE_KEY_OP_RETURN = 'cQa1WGJQWT5suej9XZRBoAe4JsFtvswq5N3LWu7QboLJuZJewJSp';
 const DEFAULT_NETWORK = 'regtest';
 const DEFAULT_RPC_URL = 'http://0.0.0.0:18443';
 const DEFAULT_RPC_USERNAME = 'rpcuser';
@@ -33,6 +34,24 @@ async function deposit(
     );
 }
 
+async function depositWithOpReturn(
+    amount: number,
+    receiverL2Address: string,
+    senderPrivateKey: string,
+    network: String,
+    rcpUrl: string,
+    rpcUsername: string,
+    rpcPassword: string
+) {
+    if (isNaN(amount)) {
+        console.error('Error: Invalid deposit amount. Please provide a valid number.');
+        return;
+    }
+    process.chdir(`${process.env.VIA_HOME}`);
+    await utils.spawn(
+        `cargo run --example deposit_opreturn -- ${amount} ${receiverL2Address} ${senderPrivateKey} ${network} ${rcpUrl} ${rpcUsername} ${rpcPassword}`
+    );
+}
 async function withdraw(amount: number, receiverL1Address: string, userL2PrivateKey: string, rpcUrl: string) {
     if (isNaN(amount)) {
         console.error('Error: Invalid withdraw amount. Please provide a valid number.');
@@ -100,6 +119,28 @@ command
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
     .action((cmd: Command) =>
         deposit(
+            cmd.amount,
+            cmd.receiverL2Address,
+            cmd.senderPrivateKey,
+            cmd.network,
+            cmd.rpcUrl,
+            cmd.rpcUsername,
+            cmd.rpcPassword
+        )
+    );
+
+command
+    .command('deposit-with-op-return')
+    .description('deposit BTC to l2 with op-return')
+    .requiredOption('--amount <amount>', 'amount of BTC to deposit', parseFloat)
+    .requiredOption('--receiver-l2-address <receiverL2Address>', 'receiver l2 address')
+    .option('--sender-private-key <senderPrivateKey>', 'sender private key', DEFAULT_DEPOSITOR_PRIVATE_KEY)
+    .option('--network <network>', 'network', DEFAULT_NETWORK)
+    .option('--rpc-url <rcpUrl>', 'RPC URL', DEFAULT_RPC_URL)
+    .option('--rpc-username <rcpUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
+    .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
+    .action((cmd: Command) =>
+        depositWithOpReturn(
             cmd.amount,
             cmd.receiverL2Address,
             cmd.senderPrivateKey,

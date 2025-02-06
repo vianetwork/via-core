@@ -104,11 +104,17 @@ impl MessageProcessor for VotableMessageProcessor {
                             attestation_msg.input.attestation,
                             via_btc_client::types::Vote::Ok
                         );
+
+                        let p2wpkh_address = attestation_msg
+                            .common
+                            .p2wpkh_address
+                            .as_ref()
+                            .expect("ValidatorAttestation message must have a p2wpkh address");
                         votes_dal
                             .insert_vote(
                                 l1_batch_number.0,
                                 reference_txid,
-                                &attestation_msg.common.p2wpkh_address.to_string(),
+                                &p2wpkh_address.to_string(),
                                 is_ok,
                             )
                             .await

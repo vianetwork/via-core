@@ -69,3 +69,7 @@ path = "examples/verify_batch.rs"
 [[example]]
 name = "fee_history"
 path = "examples/fee_history.rs"
+
+[[example]]
+name = "deposit_opreturn"
+path = "examples/deposit_opreturn.rs"
