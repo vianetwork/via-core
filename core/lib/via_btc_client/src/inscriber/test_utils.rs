@@ -86,7 +86,16 @@ impl BitcoinOps for MockBitcoinOps {
     }
 
     async fn fetch_utxos(&self, _address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>> {
-        BitcoinClientResult::Ok(self.utxos.clone())
+        BitcoinClientResult::Ok(vec![(
+            OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            },
+            TxOut {
+                value: Amount::from_btc(1.0).unwrap(),
+                script_pubkey: _address.script_pubkey(),
+            },
+        )])
     }
 
     async fn check_tx_confirmation(
