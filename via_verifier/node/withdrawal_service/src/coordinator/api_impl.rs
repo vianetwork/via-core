@@ -98,15 +98,12 @@ impl RestApi {
                 break;
             } else {
                 // If there is no withdrawals to process in a batch, update the status and mark it as processed
-                _ = self_
+                self_
                     .master_connection_pool
                     .connection_tagged("coordinator")
                     .await?
                     .via_votes_dal()
-                    .mark_vote_transaction_as_processed_withdrawals(
-                        H256::zero(),
-                        block_number.clone(),
-                    )
+                    .mark_vote_transaction_as_processed_withdrawals(H256::zero(), *block_number)
                     .await
                     .context("Error to mark a vote transaction as processed")?;
                 tracing::info!(

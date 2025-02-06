@@ -67,7 +67,7 @@ pub struct CommonFields {
     pub encoded_public_key: PushBytesBuf,
     pub block_height: u32,
     pub tx_id: Txid,
-    pub p2wpkh_address: BitcoinAddress,
+    pub p2wpkh_address: Option<BitcoinAddress>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -134,15 +134,9 @@ impl Serializable for InscriptionMessage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct InscriptionConfig {
     pub fee_multiplier: u64,
-}
-
-impl Default for InscriptionConfig {
-    fn default() -> Self {
-        InscriptionConfig { fee_multiplier: 0 }
-    }
 }
 
 #[derive(Debug)]
