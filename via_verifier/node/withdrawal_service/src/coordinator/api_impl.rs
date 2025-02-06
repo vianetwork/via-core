@@ -87,7 +87,7 @@ impl RestApi {
                 .context("Error to get withdrawals from DA")?;
 
             if !withdrawals.is_empty() {
-                proof_txid = h256_to_txid(&proof_tx_id).context("Invalid proof tx id")?;
+                proof_txid = h256_to_txid(proof_tx_id).context("Invalid proof tx id")?;
                 l1_block_number = *block_number;
                 withdrawals_to_process = withdrawals;
                 tracing::info!(
