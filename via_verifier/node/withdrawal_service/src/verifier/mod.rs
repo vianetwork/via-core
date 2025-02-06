@@ -224,13 +224,13 @@ impl ViaWithdrawalVerifier {
             .await?
         {
             if !self
-                ._verify_withdrawals(&session, &blob_id, proof_tx_id)
+                ._verify_withdrawals(session, &blob_id, proof_tx_id)
                 .await?
             {
                 return Ok(false);
             }
 
-            return self._verify_sighash(&session).await;
+            return self._verify_sighash(session).await;
         }
         Ok(false)
     }

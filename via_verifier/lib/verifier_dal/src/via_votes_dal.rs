@@ -311,7 +311,7 @@ impl ViaVotesDal<'_, '_> {
             l1_batch_number
         )
         .instrument("get_finalized_block_and_non_processed_withdrawal")
-        .fetch_optional(&mut self.storage) // Use fetch_optional to handle None results
+        .fetch_optional(self.storage) // Use fetch_optional to handle None results
         .await?;
 
         // Map the result into the desired output format
