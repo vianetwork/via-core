@@ -9527,6 +9527,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_da_client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "hex",
+ "rand 0.8.5",
+ "zksync_types",
+ "zksync_utils",
+]
+
+[[package]]
 name = "via_da_clients"
 version = "0.1.0"
 dependencies = [
@@ -9780,14 +9792,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
- "byteorder",
  "dotenv",
  "hex",
- "rand 0.8.5",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "via_btc_client",
+ "via_da_client",
  "via_da_clients",
  "zksync_basic_types",
  "zksync_config",
@@ -9841,6 +9852,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_da_client",
  "via_verification",
  "via_verifier_dal",
  "vise",
