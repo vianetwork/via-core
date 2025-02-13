@@ -1,23 +1,22 @@
-use std::{str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use axum::middleware;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use via_btc_client::withdrawal_builder::WithdrawalBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier};
-use via_withdrawal_client::client::WithdrawalClient;
+use via_withdrawal_client::{client::WithdrawalClient, withdrawal_builder::WithdrawalBuilder};
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
 
 use crate::{
     coordinator::auth_middleware,
-    types::{SigningSession, ViaWithdrawalState},
+    sessions::{session_manager::SessionManager, withdrawal::WithdrawalSession},
+    traits::ISession,
+    types::{SessionType, SigningSession, ViaWithdrawalState},
 };
 
 pub struct RestApi {
-    pub master_connection_pool: ConnectionPool<Verifier>,
     pub state: ViaWithdrawalState,
-    pub withdrawal_builder: WithdrawalBuilder,
-    pub withdrawal_client: WithdrawalClient,
+    pub session_manager: SessionManager,
 }
 
 impl RestApi {
@@ -36,11 +35,24 @@ impl RestApi {
                 .map(|s| bitcoin::secp256k1::PublicKey::from_str(s).unwrap())
                 .collect(),
         };
+        let withdrawal_session = WithdrawalSession::new(
+            master_connection_pool.clone(),
+            withdrawal_builder.clone(),
+            withdrawal_client.clone(),
+        );
+
+        // Add sessions type the verifier network can process
+        let sessions: HashMap<SessionType, Box<dyn ISession>> = [(
+            SessionType::Withdrawal,
+            Box::new(withdrawal_session) as Box<dyn ISession>,
+        )]
+        .into_iter()
+        .collect();
+
+        let session_manager = SessionManager::new(sessions);
         Ok(Self {
-            master_connection_pool,
+            session_manager,
             state,
-            withdrawal_builder,
-            withdrawal_client,
         })
     }
 
