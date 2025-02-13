@@ -1,0 +1,16 @@
+[package]
+name = "via_verifier_types"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde.workspace = true
+via_btc_client.workspace = true
+bitcoin = { version = "0.32.2", features = ["serde"] }
+bincode = "1.3"

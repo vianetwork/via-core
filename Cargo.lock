@@ -9620,6 +9620,8 @@ dependencies = [
  "tracing-subscriber",
  "uuid 1.10.0",
  "via_btc_client",
+ "via_verifier_types",
+ "via_withdrawal_client",
 ]
 
 [[package]]
@@ -9787,19 +9789,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier_types"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bitcoin",
+ "serde",
+ "via_btc_client",
+]
+
+[[package]]
 name = "via_withdrawal_client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "bincode",
  "bitcoin",
+ "bitcoincore-rpc",
+ "byteorder",
  "dotenv",
  "hex",
+ "mockall",
+ "serde",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "via_btc_client",
  "via_da_client",
  "via_da_clients",
+ "via_verifier_types",
  "zksync_basic_types",
  "zksync_config",
  "zksync_da_client",

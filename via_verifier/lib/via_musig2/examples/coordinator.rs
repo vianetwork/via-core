@@ -16,18 +16,17 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{info, instrument};
 use uuid::Uuid;
-use via_btc_client::{
-    types::BitcoinNetwork,
-    withdrawal_builder::{UnsignedWithdrawalTx, WithdrawalBuilder, WithdrawalRequest},
-};
+use via_btc_client::types::BitcoinNetwork;
 use via_musig2::{verify_signature, Signer};
+use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
+use via_withdrawal_client::withdrawal_builder::WithdrawalBuilder;
 
 #[derive(Clone)]
 #[allow(dead_code)]
 struct AppState {
     signer: Arc<RwLock<Signer>>,
     signing_sessions: Arc<RwLock<HashMap<String, SigningSession>>>,
-    unsigned_txs: Arc<RwLock<HashMap<String, UnsignedWithdrawalTx>>>,
+    unsigned_txs: Arc<RwLock<HashMap<String, UnsignedBridgeTx>>>,
     bridge_address: Address,
     all_pubkeys: Vec<PublicKey>,
     num_signers: usize,

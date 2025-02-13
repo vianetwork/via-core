@@ -104,6 +104,7 @@ members = [
     "via_verifier/node/via_btc_watch",
     "via_verifier/node/via_btc_sender",
     "via_verifier/lib/via_da_client",
+    "via_verifier/lib/via_verifier_types",
 ]
 
 resolver = "2"
@@ -339,6 +340,7 @@ via_state_keeper = { version = "0.1.0", path = "core/node/via_state_keeper" }
 via_withdrawal_client = { version = "0.1.0", path = "via_verifier/lib/via_withdrawal_client" }
 via_verification = { version = "0.1.0", path = "via_verifier/lib/via_verification" }
 via_musig2 = { version = "0.1.0", path = "via_verifier/lib/via_musig2" }
+via_verifier_types = { version = "0.1.0", path = "via_verifier/lib/via_verifier_types" }
 via_verifier_dal = { version = "0.1.0", path = "via_verifier/lib/verifier_dal" }
 via_da_client = { version = "0.1.0", path = "via_verifier/lib/via_da_client" }
 via_withdrawal_service = { version = "0.1.0", path = "via_verifier/node/withdrawal_service" }

@@ -1,9 +1,12 @@
 use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
-use via_btc_client::{client::BitcoinClient, types::NodeAuth};
+use via_btc_client::{
+    client::BitcoinClient,
+    types::{BitcoinAddress, NodeAuth},
+};
 use via_btc_watch::BitcoinNetwork;
-use via_withdrawal_client::client::WithdrawalClient;
+use via_withdrawal_client::{client::WithdrawalClient, withdrawal_builder::WithdrawalBuilder};
 use via_withdrawal_service::verifier::ViaWithdrawalVerifier;
 use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
 
