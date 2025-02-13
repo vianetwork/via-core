@@ -9641,6 +9641,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_loadnext"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "envy",
+ "futures 0.3.30",
+ "hex",
+ "num",
+ "once_cell",
+ "rand 0.8.5",
+ "regex",
+ "reqwest 0.12.7",
+ "serde",
+ "serde_json",
+ "static_assertions",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "vise",
+ "zksync_config",
+ "zksync_contracts",
+ "zksync_eth_client",
+ "zksync_eth_signer",
+ "zksync_system_constants",
+ "zksync_types",
+ "zksync_utils",
+ "zksync_vlog",
+ "zksync_web3_decl",
+]
+
+[[package]]
 name = "via_musig2"
 version = "0.1.0"
 dependencies = [
