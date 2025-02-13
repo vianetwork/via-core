@@ -23,9 +23,21 @@ export async function snapshots_creator() {
     await utils.spawn(`${logLevel} cargo run --bin snapshots_creator --release`);
 }
 
+export async function loadtest(...args: string[]) {
+    console.log(args);
+    await utils.spawn(`cargo run --release --bin via_loadnext -- ${args.join(' ')}`);
+}
 export const command = new Command('run').description('Run miscellaneous applications');
 
 command.command('yarn').description('Install all JS dependencies').action(yarn);
 command.command('cat-logs [exit_code]').description('Print server logs').action(catLogs);
 
 command.command('snapshots-creator').action(snapshots_creator);
+
+command
+    .command('loadtest [options...]')
+    .description('run the loadtest')
+    .allowUnknownOption()
+    .action(async (options: string[]) => {
+        await loadtest(...options);
+    });
