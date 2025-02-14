@@ -24,10 +24,10 @@ use crate::{
     utils::format_gwei,
 };
 
-mod api_request_executor;
-mod btc_deposit;
+pub mod api_request_executor;
+pub mod btc_deposit;
 mod pubsub_executor;
-mod tx_command_executor;
+pub mod tx_command_executor;
 
 /// Error returned when the load test is aborted.
 #[derive(Debug)]

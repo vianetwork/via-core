@@ -3,7 +3,7 @@ use std::{path::PathBuf, time::Duration};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 use zksync_contracts::test_contracts::LoadnextContractExecutionParams;
-use zksync_types::{network::Network, Address, L2ChainId, H160};
+use zksync_types::{network::Network, L2ChainId, H160};
 use zksync_utils::workspace_dir_or_current_dir;
 
 use crate::fs_utils::read_tokens;
@@ -18,10 +18,6 @@ use crate::fs_utils::read_tokens;
 /// take care of everything else.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoadtestConfig {
-    /// Address of the Ethereum RPC.
-    #[serde(default = "default_l1_rpc_address")]
-    pub l1_rpc_address: String,
-
     /// Address of the Bitcoin RPC.
     #[serde(default = "default_l1_btc_rpc_address")]
     pub l1_btc_rpc_address: String,
@@ -53,17 +49,6 @@ pub struct LoadtestConfig {
     /// Duration of the test. For proper results, this value should be at least 10 minutes.
     #[serde(default = "default_duration_sec")]
     pub duration_sec: u64,
-
-    /// Address of the ERC-20 token to be used in test.
-    ///
-    /// Token must satisfy two criteria:
-    /// - Be supported by ZKsync.
-    /// - Have `mint` operation.
-    ///
-    /// Note that we use ERC-20 token since we can't easily mint a lot of ETH on
-    /// Testnets without caring about collecting it back.
-    #[serde(default = "default_main_token")]
-    pub main_token: Address,
 
     /// Path to test contracts bytecode and ABI required for sending
     /// deploy and execute L2 transactions. Each folder in the path is expected

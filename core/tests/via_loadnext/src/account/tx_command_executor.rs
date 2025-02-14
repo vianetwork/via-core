@@ -15,15 +15,12 @@ use super::btc_deposit;
 use crate::{
     account::{AccountLifespan, ExecutionType},
     command::{IncorrectnessModifier, TxCommand, TxType},
-    constants::{
-        ETH_CONFIRMATION_TIMEOUT, ETH_POLLING_INTERVAL, MIN_ALLOWANCE_FOR_PAYMASTER_ESTIMATE,
-    },
+    constants::MIN_ALLOWANCE_FOR_PAYMASTER_ESTIMATE,
     corrupted_tx::Corrupted,
     report::ReportLabel,
     sdk::{
         error::ClientError,
         ethabi,
-        ethereum::PriorityOpHolder,
         utils::{
             get_approval_based_paymaster_input, get_approval_based_paymaster_input_for_estimation,
         },
@@ -131,28 +128,6 @@ impl AccountLifespan {
         // (for doing this we need to know current priority op id of network)
         // and for knowing that we need to add rpc call to get priority op id
         Ok(SubmitResult::ReportLabel(ReportLabel::done()))
-    }
-
-    async fn get_priority_op_l2_hash(
-        &self,
-        eth_tx_hash: H256,
-    ) -> Result<SubmitResult, ClientError> {
-        let wallet = &self.eth_wallet.wallet;
-
-        let mut ethereum = wallet.ethereum(&self.config.l1_rpc_address).await?;
-        ethereum.set_confirmation_timeout(ETH_CONFIRMATION_TIMEOUT);
-        ethereum.set_polling_interval(ETH_POLLING_INTERVAL);
-
-        let receipt = ethereum.wait_for_tx(eth_tx_hash).await?;
-
-        match receipt.priority_op() {
-            Some(tx_common_data) => Ok(SubmitResult::TxHash(tx_common_data.canonical_tx_hash)),
-            None => {
-                // Probably we did something wrong, no big deal.
-                let label = ReportLabel::skipped("Ethereum transaction for deposit failed");
-                Ok(SubmitResult::ReportLabel(label))
-            }
-        }
     }
 
     async fn execute_submit(
@@ -288,39 +263,8 @@ impl AccountLifespan {
 
         match execution_type {
             ExecutionType::L1 => {
-                let calldata = self.prepare_calldata_for_loadnext_contract();
-                let ethereum = self
-                    .eth_wallet
-                    .wallet
-                    .ethereum(&self.config.l1_rpc_address)
-                    .await?;
-                let response = ethereum
-                    .request_execute(
-                        contract_address,
-                        U256::zero(),
-                        calldata,
-                        L1_TRANSACTION_GAS_LIMIT.into(),
-                        Some(self.eth_wallet.test_contract.factory_deps.clone()),
-                        None,
-                        None,
-                        Default::default(),
-                    )
-                    .await;
-
-                let tx_hash = match response {
-                    Ok(hash) => hash,
-                    Err(ClientError::NetworkError(err)) if err.contains("insufficient funds") => {
-                        let reason =
-                            format!("L1 execution tx failed because of insufficient funds: {err}");
-                        let label = ReportLabel::skipped(reason);
-                        return Ok(SubmitResult::ReportLabel(label));
-                    }
-                    Err(err) => {
-                        let label = ReportLabel::failed(err.to_string());
-                        return Ok(SubmitResult::ReportLabel(label));
-                    }
-                };
-                self.get_priority_op_l2_hash(tx_hash).await
+                let label = ReportLabel::skipped("L1 execution is not supported yet");
+                Ok(SubmitResult::ReportLabel(label))
             }
 
             ExecutionType::L2 => {

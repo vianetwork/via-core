@@ -2,6 +2,11 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use futures::{channel::mpsc, future, SinkExt};
+use via_btc_client::{
+    client::BitcoinClient,
+    traits::BitcoinOps,
+    types::{BitcoinNetwork, NodeAuth},
+};
 use zksync_eth_client::Options;
 use zksync_eth_signer::PrivateKeySigner;
 use zksync_system_constants::MAX_L1_TRANSACTION_GAS_LIMIT;
@@ -11,7 +16,7 @@ use zksync_types::{
 };
 
 use crate::{
-    account::AccountLifespan,
+    account::{btc_deposit, AccountLifespan},
     account_pool::AccountPool,
     config::{ExecutionConfig, LoadtestConfig, RequestLimiters},
     constants::*,
@@ -43,7 +48,6 @@ use crate::{
 pub struct Executor {
     config: LoadtestConfig,
     execution_config: ExecutionConfig,
-    l2_main_token: Address,
     pool: AccountPool,
 }
 
@@ -55,21 +59,10 @@ impl Executor {
     ) -> anyhow::Result<Self> {
         let pool = AccountPool::new(&config).await?;
 
-        // derive L2 main token address
-        let l2_main_token = pool
-            .eth_master_wallet
-            .ethereum(&config.l1_rpc_address)
-            .await
-            .expect("Can't get Ethereum client")
-            .l2_token_address(config.main_token, None)
-            .await
-            .unwrap();
-
         Ok(Self {
             config,
             execution_config,
             pool,
-            l2_main_token,
         })
     }
 
@@ -89,184 +82,84 @@ impl Executor {
             "Running for MASTER {:?}",
             self.pool.eth_master_wallet.address()
         );
-        self.check_onchain_balance().await?;
-        self.mint().await?;
-        self.deposit_to_master().await?;
+        self.check_btc_balance().await?;
 
-        self.deposit_eth_to_paymaster().await?;
+        // Deposit BTC to the master account
+        self.deposit_btc_to_master().await?;
+
+        // Deposit BTC to the paymaster
+        self.deposit_btc_to_paymaster().await?;
+
+        // Distribute BTC on L1 to the accounts & Distribute BTC on L2 to the accounts
+        self.distribute_btc(self.config.accounts_amount).await?;
 
         let final_result = self.send_initial_transfers().await?;
         Ok(final_result)
     }
 
-    /// Verifies that onchain ETH balance for the main account is sufficient to run the loadtest.
-    async fn check_onchain_balance(&mut self) -> anyhow::Result<()> {
-        tracing::info!("Master Account: Checking onchain balance");
-        let master_wallet = &mut self.pool.eth_master_wallet;
-        let ethereum = master_wallet.ethereum(&self.config.l1_rpc_address).await?;
-        let eth_balance = ethereum.balance().await?;
-        if eth_balance < U256::from(MIN_MASTER_ACCOUNT_BALANCE) {
+    /// Checks if the master account has enough BTC balance to run the loadtest
+    async fn check_btc_balance(&mut self) -> anyhow::Result<()> {
+        tracing::info!("Master Account: Checking BTC balance");
+        let master_wallet = &mut self.pool.btc_master_wallet;
+
+        let btc_client = BitcoinClient::new(
+            &self.config.l1_btc_rpc_address,
+            BitcoinNetwork::Regtest,
+            NodeAuth::UserPass(
+                self.config.l1_btc_rpc_username.clone(),
+                self.config.l1_btc_rpc_password.clone(),
+            ),
+        )?;
+
+        let btc_balance = btc_client.get_balance(&master_wallet.btc_address).await?;
+        if btc_balance < bitcoin::Amount::from_btc(1.0).unwrap().to_sat() {
             anyhow::bail!(
-                "ETH balance on {:x} is too low to safely perform the loadtest: {} - at least {} is required",
-                ethereum.client().sender_account(),
-                format_eth(eth_balance),
-                format_eth(U256::from(MIN_MASTER_ACCOUNT_BALANCE))
+                "BTC balance on {} is too low to safely perform the loadtest: {} - at least 1 BTC is required",
+                master_wallet.btc_address,
+                btc_balance
             );
         }
         tracing::info!(
-            "Master Account {} L1 balance is {}",
-            self.pool.eth_master_wallet.address(),
-            format_eth(eth_balance)
+            "Master Account {} L1 BTC balance is {} sats",
+            master_wallet.btc_address,
+            btc_balance
         );
-        LOADTEST_METRICS
-            .master_account_balance
-            .set(eth_balance.as_u128() as f64);
 
         Ok(())
     }
 
-    /// Mints the ERC-20 token on the main wallet.
-    async fn mint(&mut self) -> anyhow::Result<()> {
-        tracing::info!("Master Account: Minting ERC20 token...");
-        let mint_amount = self.amount_to_deposit() + self.amount_for_l1_distribution();
+    /// Deposits BTC to the master account
+    async fn deposit_btc_to_master(&mut self) -> anyhow::Result<()> {
+        tracing::info!("Master Account: Depositing BTC");
+        let master_wallet = &mut self.pool.btc_master_wallet;
 
-        let master_wallet = &self.pool.eth_master_wallet;
-        let mut ethereum = master_wallet.ethereum(&self.config.l1_rpc_address).await?;
-        ethereum.set_confirmation_timeout(ETH_CONFIRMATION_TIMEOUT);
-        ethereum.set_polling_interval(ETH_POLLING_INTERVAL);
+        let deposit_amount = bitcoin::Amount::from_btc(0.1).unwrap().to_sat();
 
-        let token = self.config.main_token;
-
-        let eth_balance = ethereum
-            .erc20_balance(master_wallet.address(), token)
-            .await?;
-
-        // Only send the mint transaction if it's necessary.
-        if eth_balance > U256::from(mint_amount) {
-            tracing::info!("There is already enough money on the master balance");
-            return Ok(());
-        }
-
-        let mint_tx_hash = ethereum
-            .mint_erc20(token, U256::from(u128::MAX), master_wallet.address())
-            .await;
-
-        let mint_tx_hash = match mint_tx_hash {
-            Err(error) => {
-                let balance = ethereum.balance().await;
-                let gas_price = ethereum.query_client().get_gas_price().await;
-
-                anyhow::bail!(
-                    "{:?}, Balance: {:?}, Gas Price: {:?}",
-                    error,
-                    balance,
-                    gas_price
-                );
-            }
-            Ok(value) => value,
-        };
-
-        tracing::info!("Mint tx with hash {mint_tx_hash:?}");
-        let receipt = ethereum.wait_for_tx(mint_tx_hash).await?;
-        self.assert_eth_tx_success(&receipt).await;
-
-        let erc20_balance = ethereum
-            .erc20_balance(master_wallet.address(), token)
-            .await?;
-        assert!(
-            erc20_balance >= mint_amount.into(),
-            "Minting didn't result in tokens added to balance"
-        );
-
-        tracing::info!("Master Account: Minting is OK (balance: {erc20_balance})");
-        Ok(())
-    }
-
-    /// Deposits the ERC-20 token to main wallet in L2.
-    async fn deposit_to_master(&mut self) -> anyhow::Result<()> {
-        tracing::info!("Master Account: Performing an ERC-20 deposit to master");
-
-        let balance = self
-            .pool
-            .eth_master_wallet
-            .get_balance(BlockNumber::Latest, self.l2_main_token)
-            .await?;
-        let necessary_balance =
-            U256::from(self.erc20_transfer_amount() * self.config.accounts_amount as u128);
-
-        tracing::info!(
-            "Master account token balance on l2: {balance:?}, necessary balance \
-             for initial transfers {necessary_balance:?}"
-        );
-
-        if balance > necessary_balance {
-            tracing::info!(
-                "Master account has enough money on l2, nothing to deposit. Current balance \
-                 {balance:?}, necessary balance for initial transfers {necessary_balance:?}"
-            );
-            return Ok(());
-        }
-
-        let mut ethereum = self
-            .pool
-            .eth_master_wallet
-            .ethereum(&self.config.l1_rpc_address)
-            .await?;
-        ethereum.set_confirmation_timeout(ETH_CONFIRMATION_TIMEOUT);
-        ethereum.set_polling_interval(ETH_POLLING_INTERVAL);
-
-        let main_token = self.config.main_token;
-        let deposits_allowed = ethereum.is_erc20_deposit_approved(main_token, None).await?;
-        if !deposits_allowed {
-            // Approve ERC20 deposits.
-            let approve_tx_hash = ethereum
-                .approve_erc20_token_deposits(main_token, None)
-                .await?;
-            let receipt = ethereum.wait_for_tx(approve_tx_hash).await?;
-            self.assert_eth_tx_success(&receipt).await;
-        }
-
-        tracing::info!("Approved ERC20 deposits");
-        let receipt = deposit_with_attempts(
-            &ethereum,
+        let deposit_response = btc_deposit::deposit(
+            deposit_amount,
             self.pool.eth_master_wallet.address(),
-            main_token,
-            U256::from(self.amount_to_deposit()),
-            3,
+            master_wallet.btc_private_key,
+            self.config.l1_btc_rpc_address.clone(),
+            self.config.l1_btc_rpc_username.clone(),
+            self.config.l1_btc_rpc_password.clone(),
         )
-        .await?;
+        .await;
 
-        self.assert_eth_tx_success(&receipt).await;
-        let mut priority_op_handle = receipt
-            .priority_op_handle(&self.pool.eth_master_wallet.provider)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Can't get the handle for the deposit operation: {:?}",
-                    receipt
-                );
-            });
-
-        priority_op_handle
-            .polling_interval(POLLING_INTERVAL)
-            .unwrap();
-        priority_op_handle
-            .commit_timeout(COMMIT_TIMEOUT)
-            .wait_for_commit()
-            .await?;
-
-        tracing::info!("Master Account: ERC-20 deposit is OK");
-        Ok(())
+        match deposit_response {
+            Ok(hash) => {
+                tracing::info!("BTC deposit transaction sent with hash: {}", hash);
+                Ok(())
+            }
+            Err(err) => {
+                anyhow::bail!("Failed to deposit BTC to master account: {}", err);
+            }
+        }
     }
 
-    async fn deposit_eth_to_paymaster(&mut self) -> anyhow::Result<()> {
-        tracing::info!("Master Account: Checking paymaster balance");
-        let mut ethereum = self
-            .pool
-            .eth_master_wallet
-            .ethereum(&self.config.l1_rpc_address)
-            .await?;
-        ethereum.set_confirmation_timeout(ETH_CONFIRMATION_TIMEOUT);
-        ethereum.set_polling_interval(ETH_POLLING_INTERVAL);
+    /// Deposits BTC to the paymaster
+    async fn deposit_btc_to_paymaster(&mut self) -> anyhow::Result<()> {
+        tracing::info!("Master Account: Depositing BTC to paymaster");
+        let master_wallet = &mut self.pool.btc_master_wallet;
 
         let paymaster_address = self
             .pool
@@ -276,66 +169,270 @@ impl Executor {
             .await?
             .expect("No testnet paymaster is set");
 
-        let paymaster_balance: U256 = self
+        let deposit_amount = bitcoin::Amount::from_btc(0.05).unwrap().to_sat();
+
+        let deposit_response = btc_deposit::deposit(
+            deposit_amount,
+            paymaster_address,
+            master_wallet.btc_private_key,
+            self.config.l1_btc_rpc_address.clone(),
+            self.config.l1_btc_rpc_username.clone(),
+            self.config.l1_btc_rpc_password.clone(),
+        )
+        .await;
+
+        match deposit_response {
+            Ok(hash) => {
+                tracing::info!("BTC deposit to paymaster sent with hash: {}", hash);
+                Ok(())
+            }
+            Err(err) => {
+                anyhow::bail!("Failed to deposit BTC to paymaster: {}", err);
+            }
+        }
+    }
+
+    /// Distributes BTC to test accounts on L1 and L2
+    async fn distribute_btc(&mut self, accounts_to_process: usize) -> anyhow::Result<()> {
+        tracing::info!("Master Account: Distributing BTC to test accounts");
+        let master_wallet = &mut self.pool.btc_master_wallet;
+
+        let l1_transfer_amount = bitcoin::Amount::from_btc(0.01).unwrap().to_sat();
+        let l2_transfer_amount = bitcoin::Amount::from_btc(0.005).unwrap().to_sat();
+
+        for (eth_account, btc_account) in self
             .pool
-            .eth_master_wallet
-            .provider
-            .get_balance(paymaster_address, None)
-            .await?;
+            .eth_accounts
+            .iter()
+            .zip(self.pool.btc_accounts.iter())
+            .take(accounts_to_process)
+        {
+            // L1 BTC transfer
+            let deposit_response = btc_deposit::deposit(
+                l1_transfer_amount,
+                eth_account.address(),
+                master_wallet.btc_private_key,
+                self.config.l1_btc_rpc_address.clone(),
+                self.config.l1_btc_rpc_username.clone(),
+                self.config.l1_btc_rpc_password.clone(),
+            )
+            .await;
 
-        tracing::info!(
-            "Paymaster balance is {}. Minimum amount {}",
-            format_eth(paymaster_balance),
-            format_eth(U256::from(MIN_PAYMASTER_BALANCE))
-        );
+            match deposit_response {
+                Ok(hash) => {
+                    tracing::info!(
+                        "BTC L1 transfer sent with hash: {} to account {}",
+                        hash,
+                        eth_account.address()
+                    );
+                }
+                Err(err) => {
+                    anyhow::bail!("Failed to transfer BTC on L1: {}", err);
+                }
+            }
 
-        if paymaster_balance >= U256::from(MIN_PAYMASTER_BALANCE) {
-            return Ok(());
+            // L2 BTC deposit
+            let deposit_response = btc_deposit::deposit(
+                l2_transfer_amount,
+                eth_account.address(),
+                btc_account.btc_private_key,
+                self.config.l1_btc_rpc_address.clone(),
+                self.config.l1_btc_rpc_username.clone(),
+                self.config.l1_btc_rpc_password.clone(),
+            )
+            .await;
+
+            match deposit_response {
+                Ok(hash) => {
+                    tracing::info!(
+                        "BTC L2 deposit sent with hash: {} for account {}",
+                        hash,
+                        eth_account.address()
+                    );
+                }
+                Err(err) => {
+                    anyhow::bail!("Failed to deposit BTC to L2: {}", err);
+                }
+            }
         }
 
-        let deposit_amount = U256::from(TARGET_PAYMASTER_BALANCE) - paymaster_balance;
+        Ok(())
+    }
 
-        // Perform the deposit itself.
-        let receipt = deposit_with_attempts(
-            &ethereum,
-            paymaster_address,
-            ETHEREUM_ADDRESS,
-            deposit_amount,
-            3,
-        )
-        .await?;
+    /// Initializes the loadtest by doing the following:
+    ///
+    /// - Spawning the `ReportCollector`.
+    /// - Distributing ERC-20 token in L2 among test wallets via `Transfer` operation.
+    /// - Distributing ETH in L1 among test wallets in order to make them able to perform priority operations.
+    /// - Spawning test account routine futures.
+    /// - Completing all the spawned tasks and returning the result to the caller.
+    async fn send_initial_transfers(&mut self) -> anyhow::Result<LoadtestResult> {
+        tracing::info!("Master Account: Sending initial transfers");
+        // How many times we will resend a batch.
+        const MAX_RETRIES: usize = 3;
 
-        self.assert_eth_tx_success(&receipt).await;
-        let mut priority_op_handle = receipt
-            .priority_op_handle(&self.pool.eth_master_wallet.provider)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Can't get the handle for the deposit operation: {:?}",
-                    receipt
-                );
-            });
+        // Prepare channels for the report collector.
+        let (mut report_sender, report_receiver) = mpsc::channel(256);
 
-        priority_op_handle
-            .polling_interval(POLLING_INTERVAL)
-            .unwrap();
-        priority_op_handle
-            .commit_timeout(COMMIT_TIMEOUT)
-            .wait_for_commit()
-            .await?;
+        let report_collector = ReportCollector::new(
+            report_receiver,
+            self.config.expected_tx_count,
+            self.config.duration(),
+            self.config.prometheus_label.clone(),
+            self.config.fail_fast,
+        );
+        let report_collector_future = tokio::spawn(report_collector.run());
 
-        let paymaster_balance: U256 = self
+        let config = &self.config;
+        let accounts_amount = config.accounts_amount;
+        let addresses = self.pool.addresses.clone();
+        let paymaster_address = self
             .pool
             .eth_master_wallet
             .provider
-            .get_balance(paymaster_address, None)
+            .get_testnet_paymaster()
+            .await?
+            .expect("No testnet paymaster is set");
+
+        let mut retry_counter = 0;
+        let mut accounts_processed = 0;
+        let limiters = Arc::new(RequestLimiters::new(config));
+
+        let mut account_tasks = vec![];
+        while accounts_processed != accounts_amount {
+            if retry_counter > MAX_RETRIES {
+                anyhow::bail!("Reached max amount of retries when sending initial transfers");
+            }
+
+            let accounts_left = accounts_amount - accounts_processed;
+            let max_accounts_per_iter = MAX_OUTSTANDING_NONCE;
+            let accounts_to_process = std::cmp::min(accounts_left, max_accounts_per_iter);
+
+            let accounts_to_process = accounts_to_process;
+
+            if let Err(err) = self.send_initial_transfers_inner(accounts_to_process).await {
+                tracing::warn!("Iteration of the initial funds distribution failed: {err}");
+                retry_counter += 1;
+                continue;
+            }
+
+            accounts_processed += accounts_to_process;
+            tracing::info!("[{accounts_processed}/{accounts_amount}] Accounts processed");
+
+            retry_counter = 0;
+
+            let contract_execution_params = self.execution_config.contract_execution_params.clone();
+            // Spawn each account lifespan.
+            let main_token = self.l2_main_token;
+
+            anyhow::ensure!(
+                !report_sender.is_closed(),
+                "test aborted; see reporter logs for details"
+            );
+
+            let new_account_futures = self
+                .pool
+                .eth_accounts
+                .drain(..accounts_to_process)
+                .zip(self.pool.btc_accounts.drain(..accounts_to_process))
+                .map(|(eth_wallet, btc_wallet)| {
+                    let account = AccountLifespan::new(
+                        config,
+                        contract_execution_params.clone(),
+                        addresses.clone(),
+                        eth_wallet,
+                        btc_wallet,
+                        report_sender.clone(),
+                        main_token,
+                        paymaster_address,
+                    );
+                    let limiters = Arc::clone(&limiters);
+                    tokio::spawn(async move { account.run(&limiters).await })
+                });
+            account_tasks.extend(new_account_futures);
+        }
+
+        report_sender
+            .send(ReportBuilder::build_init_complete_report())
+            .await
+            .map_err(|_| anyhow!("test aborted; see reporter logs for details"))?;
+        drop(report_sender);
+        // ^ to terminate `report_collector_future` once all `account_futures` are finished
+
+        assert!(
+            self.pool.eth_accounts.is_empty(),
+            "Some accounts were not drained"
+        );
+        tracing::info!("All the initial transfers are completed");
+
+        tracing::info!("Waiting for the account futures to be completed...");
+        future::try_join_all(account_tasks).await?;
+        tracing::info!("All the spawned tasks are completed");
+
+        Ok(report_collector_future.await?)
+    }
+
+    /// Calculates amount of ETH to be distributed per account in order to make them
+    /// able to perform priority operations.
+    async fn eth_amount_to_distribute(&self) -> anyhow::Result<U256> {
+        let ethereum = self
+            .pool
+            .eth_master_wallet
+            .ethereum(&self.config.l1_rpc_address)
+            .await
+            .expect("Can't get Ethereum client");
+
+        // Assuming that gas prices on testnets are somewhat stable, we will consider it a constant.
+        let average_gas_price = ethereum.query_client().get_gas_price().await?;
+
+        let gas_price_with_priority = average_gas_price + U256::from(DEFAULT_PRIORITY_FEE);
+
+        // TODO (PLA-85): Add gas estimations for deposits in Rust SDK
+        let average_l1_to_l2_gas_limit = 5_000_000u32;
+        let average_price_for_l1_to_l2_execute = ethereum
+            .base_cost(
+                average_l1_to_l2_gas_limit.into(),
+                REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE as u32,
+                Some(gas_price_with_priority),
+            )
             .await?;
 
-        tracing::info!(
-            "Paymaster deposit complete. New balance: {}",
-            format_eth(paymaster_balance)
-        );
+        Ok(
+            gas_price_with_priority * MAX_L1_TRANSACTION_GAS_LIMIT * MAX_L1_TRANSACTIONS
+                + average_price_for_l1_to_l2_execute * MAX_L1_TRANSACTIONS,
+        )
+    }
 
-        Ok(())
+    /// Returns the amount of funds to be deposited on the main account in L2.
+    /// Amount is chosen to be big enough to not worry about precisely calculating the remaining balances on accounts,
+    /// but also to not be close to the supported limits in ZKsync.
+    fn amount_to_deposit(&self) -> u128 {
+        u128::MAX >> 32
+    }
+
+    /// Returns the amount of funds to be distributed between accounts on l1.
+    fn amount_for_l1_distribution(&self) -> u128 {
+        u128::MAX >> 29
+    }
+
+    /// Ensures that Ethereum transaction was successfully executed.
+    async fn assert_eth_tx_success(&self, receipt: &TransactionReceipt) {
+        if receipt.status != Some(1u64.into()) {
+            let master_wallet = &self.pool.eth_master_wallet;
+            let ethereum = master_wallet
+                .ethereum(&self.config.l1_rpc_address)
+                .await
+                .expect("Can't get Ethereum client");
+            let failure_reason = ethereum
+                .query_client()
+                .failure_reason(receipt.transaction_hash)
+                .await
+                .expect("Can't connect to the Ethereum node");
+            panic!(
+                "Ethereum transaction unexpectedly failed.\nReceipt: {:#?}\nFailure reason: {:#?}",
+                receipt, failure_reason
+            );
+        }
     }
 
     async fn send_initial_transfers_inner(&self, accounts_to_process: usize) -> anyhow::Result<()> {
@@ -494,180 +591,6 @@ impl Executor {
         let for_fees = u64::MAX; // Leave some spare funds on the master account for fees.
         let funds_to_distribute = account_balance - u128::from(for_fees);
         funds_to_distribute / accounts_amount as u128
-    }
-
-    /// Initializes the loadtest by doing the following:
-    ///
-    /// - Spawning the `ReportCollector`.
-    /// - Distributing ERC-20 token in L2 among test wallets via `Transfer` operation.
-    /// - Distributing ETH in L1 among test wallets in order to make them able to perform priority operations.
-    /// - Spawning test account routine futures.
-    /// - Completing all the spawned tasks and returning the result to the caller.
-    async fn send_initial_transfers(&mut self) -> anyhow::Result<LoadtestResult> {
-        tracing::info!("Master Account: Sending initial transfers");
-        // How many times we will resend a batch.
-        const MAX_RETRIES: usize = 3;
-
-        // Prepare channels for the report collector.
-        let (mut report_sender, report_receiver) = mpsc::channel(256);
-
-        let report_collector = ReportCollector::new(
-            report_receiver,
-            self.config.expected_tx_count,
-            self.config.duration(),
-            self.config.prometheus_label.clone(),
-            self.config.fail_fast,
-        );
-        let report_collector_future = tokio::spawn(report_collector.run());
-
-        let config = &self.config;
-        let accounts_amount = config.accounts_amount;
-        let addresses = self.pool.addresses.clone();
-        let paymaster_address = self
-            .pool
-            .eth_master_wallet
-            .provider
-            .get_testnet_paymaster()
-            .await?
-            .expect("No testnet paymaster is set");
-
-        let mut retry_counter = 0;
-        let mut accounts_processed = 0;
-        let limiters = Arc::new(RequestLimiters::new(config));
-
-        let mut account_tasks = vec![];
-        while accounts_processed != accounts_amount {
-            if retry_counter > MAX_RETRIES {
-                anyhow::bail!("Reached max amount of retries when sending initial transfers");
-            }
-
-            let accounts_left = accounts_amount - accounts_processed;
-            let max_accounts_per_iter = MAX_OUTSTANDING_NONCE;
-            let accounts_to_process = std::cmp::min(accounts_left, max_accounts_per_iter);
-
-            if let Err(err) = self.send_initial_transfers_inner(accounts_to_process).await {
-                tracing::warn!("Iteration of the initial funds distribution failed: {err}");
-                retry_counter += 1;
-                continue;
-            }
-
-            accounts_processed += accounts_to_process;
-            tracing::info!("[{accounts_processed}/{accounts_amount}] Accounts processed");
-
-            retry_counter = 0;
-
-            let contract_execution_params = self.execution_config.contract_execution_params.clone();
-            // Spawn each account lifespan.
-            let main_token = self.l2_main_token;
-
-            anyhow::ensure!(
-                !report_sender.is_closed(),
-                "test aborted; see reporter logs for details"
-            );
-
-            let new_account_futures = self
-                .pool
-                .eth_accounts
-                .drain(..accounts_to_process)
-                .zip(self.pool.btc_accounts.drain(..accounts_to_process))
-                .map(|(eth_wallet, btc_wallet)| {
-                    let account = AccountLifespan::new(
-                        config,
-                        contract_execution_params.clone(),
-                        addresses.clone(),
-                        eth_wallet,
-                        btc_wallet,
-                        report_sender.clone(),
-                        main_token,
-                        paymaster_address,
-                    );
-                    let limiters = Arc::clone(&limiters);
-                    tokio::spawn(async move { account.run(&limiters).await })
-                });
-            account_tasks.extend(new_account_futures);
-        }
-
-        report_sender
-            .send(ReportBuilder::build_init_complete_report())
-            .await
-            .map_err(|_| anyhow!("test aborted; see reporter logs for details"))?;
-        drop(report_sender);
-        // ^ to terminate `report_collector_future` once all `account_futures` are finished
-
-        assert!(
-            self.pool.eth_accounts.is_empty(),
-            "Some accounts were not drained"
-        );
-        tracing::info!("All the initial transfers are completed");
-
-        tracing::info!("Waiting for the account futures to be completed...");
-        future::try_join_all(account_tasks).await?;
-        tracing::info!("All the spawned tasks are completed");
-
-        Ok(report_collector_future.await?)
-    }
-
-    /// Calculates amount of ETH to be distributed per account in order to make them
-    /// able to perform priority operations.
-    async fn eth_amount_to_distribute(&self) -> anyhow::Result<U256> {
-        let ethereum = self
-            .pool
-            .eth_master_wallet
-            .ethereum(&self.config.l1_rpc_address)
-            .await
-            .expect("Can't get Ethereum client");
-
-        // Assuming that gas prices on testnets are somewhat stable, we will consider it a constant.
-        let average_gas_price = ethereum.query_client().get_gas_price().await?;
-
-        let gas_price_with_priority = average_gas_price + U256::from(DEFAULT_PRIORITY_FEE);
-
-        // TODO (PLA-85): Add gas estimations for deposits in Rust SDK
-        let average_l1_to_l2_gas_limit = 5_000_000u32;
-        let average_price_for_l1_to_l2_execute = ethereum
-            .base_cost(
-                average_l1_to_l2_gas_limit.into(),
-                REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE as u32,
-                Some(gas_price_with_priority),
-            )
-            .await?;
-
-        Ok(
-            gas_price_with_priority * MAX_L1_TRANSACTION_GAS_LIMIT * MAX_L1_TRANSACTIONS
-                + average_price_for_l1_to_l2_execute * MAX_L1_TRANSACTIONS,
-        )
-    }
-
-    /// Returns the amount of funds to be deposited on the main account in L2.
-    /// Amount is chosen to be big enough to not worry about precisely calculating the remaining balances on accounts,
-    /// but also to not be close to the supported limits in ZKsync.
-    fn amount_to_deposit(&self) -> u128 {
-        u128::MAX >> 32
-    }
-
-    /// Returns the amount of funds to be distributed between accounts on l1.
-    fn amount_for_l1_distribution(&self) -> u128 {
-        u128::MAX >> 29
-    }
-
-    /// Ensures that Ethereum transaction was successfully executed.
-    async fn assert_eth_tx_success(&self, receipt: &TransactionReceipt) {
-        if receipt.status != Some(1u64.into()) {
-            let master_wallet = &self.pool.eth_master_wallet;
-            let ethereum = master_wallet
-                .ethereum(&self.config.l1_rpc_address)
-                .await
-                .expect("Can't get Ethereum client");
-            let failure_reason = ethereum
-                .query_client()
-                .failure_reason(receipt.transaction_hash)
-                .await
-                .expect("Can't connect to the Ethereum node");
-            panic!(
-                "Ethereum transaction unexpectedly failed.\nReceipt: {:#?}\nFailure reason: {:#?}",
-                receipt, failure_reason
-            );
-        }
     }
 }
 
