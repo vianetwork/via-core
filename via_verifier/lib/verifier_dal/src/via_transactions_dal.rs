@@ -73,10 +73,10 @@ impl ViaTransactionsDal<'_, '_> {
         .fetch_all(self.storage)
         .await?;
 
-        let mut canonical_tx_hashs: Vec<Vec<u8>> = Vec::with_capacity(rows.len());
-        for row in rows {
-            canonical_tx_hashs.push(row.canonical_tx_hash);
-        }
+        let canonical_tx_hashs: Vec<Vec<u8>> = rows
+            .into_iter()
+            .map(|row| row.canonical_tx_hash)
+            .collect();
         Ok(canonical_tx_hashs)
     }
 
