@@ -294,7 +294,6 @@ impl ExecutionConfig {
 pub struct TransactionWeights {
     pub deposit: f32,
     pub withdrawal: f32,
-    pub l1_transactions: f32,
     pub l2_transactions: f32,
 }
 
@@ -309,7 +308,6 @@ impl Default for TransactionWeights {
         Self {
             deposit: 0.05,
             withdrawal: 0.5,
-            l1_transactions: 0.05,
             l2_transactions: 1.0,
         }
     }

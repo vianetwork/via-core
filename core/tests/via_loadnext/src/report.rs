@@ -143,9 +143,8 @@ impl From<TxType> for TxActionType {
     fn from(command: TxType) -> Self {
         match command {
             TxType::Deposit => Self::Deposit,
-            TxType::WithdrawToSelf | TxType::WithdrawToOther => Self::Withdraw,
+            TxType::Withdraw => Self::Withdraw,
             TxType::L2Execute => Self::Execute(ExecutionType::L2),
-            TxType::L1Execute => Self::Execute(ExecutionType::L1),
             TxType::DeployContract => Self::DeployContract,
         }
     }

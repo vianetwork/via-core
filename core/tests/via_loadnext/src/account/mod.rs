@@ -136,8 +136,7 @@ impl AccountLifespan {
         let mut l1_tx_count = 0;
         loop {
             let command = self.generate_command();
-            let is_l1_transaction =
-                matches!(command.command_type, TxType::L1Execute | TxType::Deposit);
+            let is_l1_transaction = matches!(command.command_type, TxType::Deposit);
             if is_l1_transaction && l1_tx_count >= MAX_L1_TRANSACTIONS {
                 continue; // Skip command to not run out of Ethereum on L1
             }

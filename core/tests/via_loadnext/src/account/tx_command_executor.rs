@@ -39,17 +39,11 @@ impl AccountLifespan {
         command: &TxCommand,
     ) -> Result<SubmitResult, ClientError> {
         match command.command_type {
-            TxType::WithdrawToOther | TxType::WithdrawToSelf => {
-                self.execute_withdraw(command).await
-            }
+            TxType::Withdraw => self.execute_withdraw(command).await,
             TxType::Deposit => self.execute_deposit(command).await,
             TxType::DeployContract => self.execute_deploy_contract(command).await,
             TxType::L2Execute => {
                 self.execute_loadnext_contract(command, ExecutionType::L2)
-                    .await
-            }
-            TxType::L1Execute => {
-                self.execute_loadnext_contract(command, ExecutionType::L1)
                     .await
             }
         }
