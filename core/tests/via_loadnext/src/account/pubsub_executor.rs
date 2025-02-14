@@ -25,13 +25,13 @@ use crate::{
 impl AccountLifespan {
     async fn run_single_subscription(mut self, limiters: &RequestLimiters) -> Result<(), Aborted> {
         let permit = limiters.subscriptions.acquire().await.unwrap();
-        let subscription_type = SubscriptionType::random(&mut self.wallet.rng);
+        let subscription_type = SubscriptionType::random(&mut self.eth_wallet.rng);
         let start = Instant::now();
 
         // Skip the action if the contract is not yet initialized for the account.
         let label = if let (SubscriptionType::Logs, None) = (
             subscription_type,
-            self.wallet.deployed_contract_address.get(),
+            self.eth_wallet.deployed_contract_address.get(),
         ) {
             ReportLabel::skipped("Contract not deployed yet")
         } else {
@@ -51,7 +51,7 @@ impl AccountLifespan {
             .action(subscription_type)
             .label(label)
             .time(start.elapsed())
-            .reporter(self.wallet.wallet.address())
+            .reporter(self.eth_wallet.wallet.address())
             .finish();
         self.send_report(report).await?;
         Ok(())
@@ -67,10 +67,10 @@ impl AccountLifespan {
         let params = match subscription_type {
             SubscriptionType::Logs => {
                 let topics = super::api_request_executor::random_topics(
-                    &self.wallet.test_contract.contract,
-                    &mut self.wallet.rng,
+                    &self.eth_wallet.test_contract.contract,
+                    &mut self.eth_wallet.rng,
                 );
-                let contract_address = self.wallet.deployed_contract_address.get().unwrap();
+                let contract_address = self.eth_wallet.deployed_contract_address.get().unwrap();
                 let filter = PubSubFilterBuilder::default()
                     .set_topics(Some(topics), None, None, None)
                     .set_address(vec![*contract_address])

@@ -15,7 +15,7 @@ use zksync_web3_decl::{
 
 use crate::{
     account::tx_command_executor::SubmitResult,
-    account_pool::{AddressPool, TestWallet},
+    account_pool::{AddressPool, BtcAccount, TestWallet},
     command::{ExpectedOutcome, IncorrectnessModifier, TxCommand, TxType},
     config::{LoadtestConfig, RequestLimiters},
     constants::{MAX_L1_TRANSACTIONS, POLLING_INTERVAL},
@@ -56,7 +56,8 @@ struct InflightTx {
 #[derive(Debug, Clone)]
 pub struct AccountLifespan {
     /// Wallet used to perform the test.
-    pub wallet: TestWallet,
+    pub eth_wallet: TestWallet,
+    pub btc_wallet: BtcAccount,
     config: LoadtestConfig,
     contract_execution_params: LoadnextContractExecutionParams,
     /// Pool of account addresses, used to generate commands.
@@ -78,17 +79,20 @@ pub struct AccountLifespan {
 }
 
 impl AccountLifespan {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: &LoadtestConfig,
         contract_execution_params: LoadnextContractExecutionParams,
         addresses: AddressPool,
-        test_account: TestWallet,
+        eth_test_account: TestWallet,
+        btc_test_account: BtcAccount,
         report_sink: mpsc::Sender<Report>,
         main_l2_token: Address,
         paymaster_address: Address,
     ) -> Self {
         Self {
-            wallet: test_account,
+            eth_wallet: eth_test_account,
+            btc_wallet: btc_test_account,
             config: config.clone(),
             contract_execution_params,
             addresses,
@@ -172,7 +176,7 @@ impl AccountLifespan {
         let start = Instant::now();
         tracing::trace!(
             "Account {:?}: check_inflight_txs len {:?}",
-            self.wallet.wallet.address(),
+            self.eth_wallet.wallet.address(),
             self.inflight_txs.len()
         );
 
@@ -191,7 +195,7 @@ impl AccountLifespan {
                     tracing::debug!(
                         "Account {:?}: tx included. Total fee: {}, gas used: {gas_used}gas, \
                          gas price: {effective_gas_price} WEI. Latency {:?} at attempt {:?}",
-                        self.wallet.wallet.address(),
+                        self.eth_wallet.wallet.address(),
                         format_gwei(gas_used * effective_gas_price),
                         tx.start.elapsed(),
                         tx.attempt,
@@ -202,7 +206,7 @@ impl AccountLifespan {
                 other => {
                     tracing::trace!(
                         "Account {:?}: check_inflight_txs tx not yet included: {other:?}",
-                        self.wallet.wallet.address()
+                        self.eth_wallet.wallet.address()
                     );
                     self.inflight_txs.push_front(tx);
                     break;
@@ -211,7 +215,7 @@ impl AccountLifespan {
         }
         tracing::trace!(
             "Account {:?}: check_inflight_txs complete {:?}",
-            self.wallet.wallet.address(),
+            self.eth_wallet.wallet.address(),
             start.elapsed()
         );
         Ok(())
@@ -228,7 +232,7 @@ impl AccountLifespan {
                 // address for subsequent usage by `Execute`.
                 if let Some(address) = transaction_receipt.contract_address {
                     // An error means that the contract is already initialized.
-                    self.wallet.deployed_contract_address.set(address).ok();
+                    self.eth_wallet.deployed_contract_address.set(address).ok();
                 }
 
                 // Transaction succeed and it should have.
@@ -316,7 +320,7 @@ impl AccountLifespan {
     }
 
     pub async fn reset_nonce(&mut self) {
-        let nonce = Nonce(self.wallet.wallet.get_nonce().await.unwrap());
+        let nonce = Nonce(self.eth_wallet.wallet.get_nonce().await.unwrap());
         self.current_nonce = Some(nonce);
     }
 
@@ -331,13 +335,13 @@ impl AccountLifespan {
         if let ReportLabel::ActionFailed { error } = &label {
             tracing::error!(
                 "Command failed: from {:?}, {command:#?} ({error})",
-                self.wallet.wallet.address()
+                self.eth_wallet.wallet.address()
             )
         }
 
         let report = ReportBuilder::default()
             .label(label)
-            .reporter(self.wallet.wallet.address())
+            .reporter(self.eth_wallet.wallet.address())
             .time(time)
             .retries(retries)
             .action(command)
@@ -400,8 +404,8 @@ impl AccountLifespan {
     /// Prepares a list of random operations to be executed by an account.
     fn generate_command(&mut self) -> TxCommand {
         TxCommand::random(
-            &mut self.wallet.rng,
-            self.wallet.wallet.address(),
+            &mut self.eth_wallet.rng,
+            self.eth_wallet.wallet.address(),
             &self.addresses,
         )
     }

@@ -31,7 +31,7 @@ impl AccountLifespan {
     }
 
     async fn execute_api_request_inner(&mut self, request: ApiRequest) -> Result<(), RpcError> {
-        let wallet = &self.wallet.wallet;
+        let wallet = &self.eth_wallet.wallet;
         let ApiRequest {
             request_type,
             block_number,
@@ -52,12 +52,14 @@ impl AccountLifespan {
                     err => RpcError::Custom(err.to_string()),
                 }),
             ApiRequestType::GetLogs => {
-                let topics =
-                    random_topics(&self.wallet.test_contract.contract, &mut self.wallet.rng);
+                let topics = random_topics(
+                    &self.eth_wallet.test_contract.contract,
+                    &mut self.eth_wallet.rng,
+                );
                 // `run_api_requests_task` checks whether the cell is initialized
                 // at every loop iteration and skips logs action if it's not. Thus,
                 // it's safe to unwrap it.
-                let contract_address = *self.wallet.deployed_contract_address.get().unwrap();
+                let contract_address = *self.eth_wallet.deployed_contract_address.get().unwrap();
 
                 let to_block_number = match block_number {
                     api::BlockNumber::Number(number) => {
@@ -99,13 +101,14 @@ impl AccountLifespan {
         loop {
             // The number of simultaneous requests is limited by semaphore.
             let permit = limiters.api_requests.acquire().await.unwrap();
-            let request = ApiRequest::random(&self.wallet.wallet, &mut self.wallet.rng).await;
+            let request =
+                ApiRequest::random(&self.eth_wallet.wallet, &mut self.eth_wallet.rng).await;
             let start = Instant::now();
 
             // Skip the action if the contract is not yet initialized for the account.
             let label = if let (ApiRequestType::GetLogs, None) = (
                 request.request_type,
-                self.wallet.deployed_contract_address.get(),
+                self.eth_wallet.deployed_contract_address.get(),
             ) {
                 ReportLabel::skipped("Contract not deployed yet")
             } else {
@@ -125,7 +128,7 @@ impl AccountLifespan {
                 .action(api_action_type)
                 .label(label)
                 .time(start.elapsed())
-                .reporter(self.wallet.wallet.address())
+                .reporter(self.eth_wallet.wallet.address())
                 .finish();
             self.send_report(report).await?;
         }

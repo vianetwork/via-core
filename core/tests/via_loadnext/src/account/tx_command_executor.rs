@@ -62,7 +62,7 @@ impl AccountLifespan {
     }
 
     async fn apply_modifier(&self, tx: L2Tx, modifier: IncorrectnessModifier) -> L2Tx {
-        let wallet = &self.wallet.wallet;
+        let wallet = &self.eth_wallet.wallet;
         tx.apply_modifier(modifier, &wallet.signer).await
     }
 
@@ -70,7 +70,7 @@ impl AccountLifespan {
     /// This function is used to check whether the L1 operation can be performed or should be
     /// skipped.
     async fn l1_balances(&self) -> Result<(U256, U256), ClientError> {
-        let wallet = &self.wallet.wallet;
+        let wallet = &self.eth_wallet.wallet;
         let ethereum = wallet.ethereum(&self.config.l1_rpc_address).await?;
         let eth_balance = ethereum.balance().await?;
         let erc20_balance = ethereum
@@ -81,7 +81,7 @@ impl AccountLifespan {
     }
 
     async fn execute_deposit(&self, command: &TxCommand) -> Result<SubmitResult, ClientError> {
-        let wallet = &self.wallet.wallet;
+        let wallet = &self.eth_wallet.wallet;
 
         let (eth_balance, erc20_balance) = self.l1_balances().await?;
         if eth_balance.is_zero() || erc20_balance < command.amount {
@@ -159,7 +159,7 @@ impl AccountLifespan {
         &self,
         eth_tx_hash: H256,
     ) -> Result<SubmitResult, ClientError> {
-        let wallet = &self.wallet.wallet;
+        let wallet = &self.eth_wallet.wallet;
 
         let mut ethereum = wallet.ethereum(&self.config.l1_rpc_address).await?;
         ethereum.set_confirmation_timeout(ETH_CONFIRMATION_TIMEOUT);
@@ -185,12 +185,12 @@ impl AccountLifespan {
         let nonce = tx.nonce();
         let result = match modifier {
             IncorrectnessModifier::IncorrectSignature => {
-                let wallet = self.wallet.corrupted_wallet.clone();
+                let wallet = self.eth_wallet.corrupted_wallet.clone();
                 self.submit(modifier, wallet.send_transaction(tx).await)
                     .await
             }
             _ => {
-                let wallet = self.wallet.wallet.clone();
+                let wallet = self.eth_wallet.wallet.clone();
                 self.submit(modifier, wallet.send_transaction(tx).await)
                     .await
             }
@@ -212,7 +212,7 @@ impl AccountLifespan {
     }
 
     pub(super) async fn build_withdraw(&self, command: &TxCommand) -> Result<L2Tx, ClientError> {
-        let wallet = self.wallet.wallet.clone();
+        let wallet = self.eth_wallet.wallet.clone();
 
         let mut builder = wallet
             .start_withdraw()
@@ -258,14 +258,14 @@ impl AccountLifespan {
         &self,
         command: &TxCommand,
     ) -> Result<L2Tx, ClientError> {
-        let wallet = self.wallet.wallet.clone();
+        let wallet = self.eth_wallet.wallet.clone();
         let constructor_calldata = ethabi::encode(&[ethabi::Token::Uint(U256::from(
             self.contract_execution_params.reads,
         ))]);
 
         let mut builder = wallet
             .start_deploy_contract()
-            .bytecode(self.wallet.test_contract.bytecode.clone())
+            .bytecode(self.eth_wallet.test_contract.bytecode.clone())
             .constructor_calldata(constructor_calldata);
 
         let fee = builder
@@ -302,7 +302,7 @@ impl AccountLifespan {
     ) -> Result<SubmitResult, ClientError> {
         const L1_TRANSACTION_GAS_LIMIT: u32 = 5_000_000;
 
-        let Some(&contract_address) = self.wallet.deployed_contract_address.get() else {
+        let Some(&contract_address) = self.eth_wallet.deployed_contract_address.get() else {
             let label =
                 ReportLabel::skipped("Account haven't successfully deployed a contract yet");
             return Ok(SubmitResult::ReportLabel(label));
@@ -312,7 +312,7 @@ impl AccountLifespan {
             ExecutionType::L1 => {
                 let calldata = self.prepare_calldata_for_loadnext_contract();
                 let ethereum = self
-                    .wallet
+                    .eth_wallet
                     .wallet
                     .ethereum(&self.config.l1_rpc_address)
                     .await?;
@@ -322,7 +322,7 @@ impl AccountLifespan {
                         U256::zero(),
                         calldata,
                         L1_TRANSACTION_GAS_LIMIT.into(),
-                        Some(self.wallet.test_contract.factory_deps.clone()),
+                        Some(self.eth_wallet.test_contract.factory_deps.clone()),
                         None,
                         None,
                         Default::default(),
@@ -352,14 +352,14 @@ impl AccountLifespan {
                     .await?;
                 tracing::trace!(
                     "Account {:?}: execute_loadnext_contract: tx built in {:?}",
-                    self.wallet.wallet.address(),
+                    self.eth_wallet.wallet.address(),
                     started_at.elapsed()
                 );
                 started_at = Instant::now();
                 let result = self.execute_submit(tx, command.modifier).await;
                 tracing::trace!(
                     "Account {:?}: execute_loadnext_contract: tx executed in {:?}",
-                    self.wallet.wallet.address(),
+                    self.eth_wallet.wallet.address(),
                     started_at.elapsed()
                 );
                 result
@@ -368,7 +368,7 @@ impl AccountLifespan {
     }
 
     fn prepare_calldata_for_loadnext_contract(&self) -> Vec<u8> {
-        let contract = &self.wallet.test_contract.contract;
+        let contract = &self.eth_wallet.test_contract.contract;
         let function = contract.function("execute").unwrap();
         function
             .encode_input(&vec![
@@ -387,14 +387,14 @@ impl AccountLifespan {
         command: &TxCommand,
         contract_address: Address,
     ) -> Result<L2Tx, ClientError> {
-        let wallet = &self.wallet.wallet;
+        let wallet = &self.eth_wallet.wallet;
 
         let calldata = self.prepare_calldata_for_loadnext_contract();
         let mut builder = wallet
             .start_execute_contract()
             .calldata(calldata)
             .contract_address(contract_address)
-            .factory_deps(self.wallet.test_contract.factory_deps.clone());
+            .factory_deps(self.eth_wallet.test_contract.factory_deps.clone());
 
         let fee = builder
             .estimate_fee(Some(get_approval_based_paymaster_input_for_estimation(
@@ -406,7 +406,7 @@ impl AccountLifespan {
         tracing::trace!(
             "Account {:?}: fee estimated. Max total fee: {}, gas limit: {}gas; Max gas price: {}WEI, \
              Gas per pubdata: {:?}gas",
-            self.wallet.wallet.address(),
+            self.eth_wallet.wallet.address(),
             format_gwei(fee.max_total_fee()),
             fee.gas_limit,
             fee.max_fee_per_gas,
@@ -437,7 +437,7 @@ impl AccountLifespan {
         tx_hash: H256,
     ) -> Result<Option<TransactionReceipt>, ClientError> {
         let response = self
-            .wallet
+            .eth_wallet
             .wallet
             .provider
             .get_transaction_receipt(tx_hash)
@@ -450,7 +450,7 @@ impl AccountLifespan {
         let block_number = receipt.block_number;
 
         let response = self
-            .wallet
+            .eth_wallet
             .wallet
             .provider
             .get_block_by_number(BlockNumber::Committed, false)

@@ -565,23 +565,25 @@ impl Executor {
                 "test aborted; see reporter logs for details"
             );
 
-            let new_account_futures =
-                self.pool
-                    .eth_accounts
-                    .drain(..accounts_to_process)
-                    .map(|wallet| {
-                        let account = AccountLifespan::new(
-                            config,
-                            contract_execution_params.clone(),
-                            addresses.clone(),
-                            wallet,
-                            report_sender.clone(),
-                            main_token,
-                            paymaster_address,
-                        );
-                        let limiters = Arc::clone(&limiters);
-                        tokio::spawn(async move { account.run(&limiters).await })
-                    });
+            let new_account_futures = self
+                .pool
+                .eth_accounts
+                .drain(..accounts_to_process)
+                .zip(self.pool.btc_accounts.drain(..accounts_to_process))
+                .map(|(eth_wallet, btc_wallet)| {
+                    let account = AccountLifespan::new(
+                        config,
+                        contract_execution_params.clone(),
+                        addresses.clone(),
+                        eth_wallet,
+                        btc_wallet,
+                        report_sender.clone(),
+                        main_token,
+                        paymaster_address,
+                    );
+                    let limiters = Arc::clone(&limiters);
+                    tokio::spawn(async move { account.run(&limiters).await })
+                });
             account_tasks.extend(new_account_futures);
         }
 
