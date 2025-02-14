@@ -343,8 +343,10 @@ impl Executor {
             self.amount_for_l1_distribution() / self.config.accounts_amount as u128;
         let l2_transfer_amount = self.erc20_transfer_amount();
 
-        let weight_of_l1_txs = self.execution_config.transaction_weights.l1_transactions
-            + self.execution_config.transaction_weights.deposit;
+        // let weight_of_l1_txs = self.execution_config.transaction_weights.l1_transactions
+        //     + self.execution_config.transaction_weights.deposit;
+
+        let weight_of_l1_txs = 0.0;
 
         let paymaster_address = self
             .pool

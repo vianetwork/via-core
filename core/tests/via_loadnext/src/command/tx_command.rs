@@ -10,17 +10,15 @@ use crate::{
     rng::{LoadtestRng, WeightedRandom},
 };
 
-static WEIGHTS: OnceCell<[(TxType, f32); 5]> = OnceCell::new();
+static WEIGHTS: OnceCell<[(TxType, f32); 3]> = OnceCell::new();
 
 /// Type of transaction. It doesn't copy the ZKsync operation list, because
 /// it divides some transactions in subcategories (e.g. to new account / to existing account; to self / to other; etc)/
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TxType {
     Deposit,
-    WithdrawToSelf,
-    WithdrawToOther,
+    Withdraw,
     DeployContract,
-    L1Execute,
     L2Execute,
 }
 
@@ -30,12 +28,7 @@ impl TxType {
             .set([
                 (TxType::Deposit, transaction_weights.deposit),
                 (TxType::L2Execute, transaction_weights.l2_transactions),
-                (TxType::L1Execute, transaction_weights.l1_transactions),
-                (TxType::WithdrawToSelf, transaction_weights.withdrawal / 2.0),
-                (
-                    TxType::WithdrawToOther,
-                    transaction_weights.withdrawal / 2.0,
-                ),
+                (TxType::Withdraw, transaction_weights.withdrawal),
             ])
             .unwrap();
     }
@@ -55,17 +48,11 @@ impl AllWeighted for TxType {
 
 impl TxType {
     const fn const_all() -> &'static [Self] {
-        &[
-            Self::Deposit,
-            Self::WithdrawToSelf,
-            Self::WithdrawToOther,
-            Self::L1Execute,
-            Self::L2Execute,
-        ]
+        &[Self::Deposit, Self::Withdraw, Self::L2Execute]
     }
 
     fn is_target_self(self) -> bool {
-        matches!(self, Self::WithdrawToSelf)
+        matches!(self, Self::Withdraw)
     }
 }
 
@@ -181,7 +168,7 @@ impl TxCommand {
 
         // Fix incorrectness modifier:
         // L1 txs should always have `None` modifier.
-        if matches!(command.command_type, TxType::Deposit | TxType::L1Execute) {
+        if matches!(command.command_type, TxType::Deposit) {
             command.modifier = IncorrectnessModifier::None;
         }
 
