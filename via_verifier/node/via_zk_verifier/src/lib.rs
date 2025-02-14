@@ -184,20 +184,25 @@ impl ViaVerifier {
             return Ok(true);
         }
 
-        for (i, raw_tx_id) in txs.iter().enumerate() {
-            let db_raw_tx_id = H256::from_slice(&raw_tx_id);
-            let log_raw_tx_id = deposit_logs[i].key;
-            if &db_raw_tx_id == &log_raw_tx_id {
-                let status = deposit_logs[i].value.is_zero();
-                storage
-                    .via_transactions_dal()
-                    .update_transaction(&log_raw_tx_id, !status)
-                    .await?;
-                continue;
+        for (raw_tx_id, deposit_log) in txs.iter().zip(deposit_logs.iter()) {
+            let db_raw_tx_id = H256::from_slice(raw_tx_id);
+            if db_raw_tx_id != deposit_log.key {
+                tracing::error!(
+                    "Sequencer did not process the deposit transactions in series for l1 batch {}, \
+                    invalid priority id for transaction hash {}", 
+                    l1_batch_number,
+                    db_raw_tx_id
+                );
+                return Ok(false);
             }
-            tracing::error!("Sequencer did not process the deposit transactions in series for l1 batch {}, invalid priority id for transaction hash {}", l1_batch_number, db_raw_tx_id);
-            return Ok(false);
+
+            let status = !deposit_log.value.is_zero();
+            storage
+                .via_transactions_dal()
+                .update_transaction(&deposit_log.key, status)
+                .await?;
         }
+
         tracing::info!(
             "Priority_id verified successfuly for l1 batch {}",
             l1_batch_number

@@ -73,10 +73,8 @@ impl ViaTransactionsDal<'_, '_> {
         .fetch_all(self.storage)
         .await?;
 
-        let canonical_tx_hashs: Vec<Vec<u8>> = rows
-            .into_iter()
-            .map(|row| row.canonical_tx_hash)
-            .collect();
+        let canonical_tx_hashs: Vec<Vec<u8>> =
+            rows.into_iter().map(|row| row.canonical_tx_hash).collect();
         Ok(canonical_tx_hashs)
     }
 
