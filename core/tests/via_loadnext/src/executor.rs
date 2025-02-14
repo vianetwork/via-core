@@ -57,7 +57,7 @@ impl Executor {
 
         // derive L2 main token address
         let l2_main_token = pool
-            .master_wallet
+            .eth_master_wallet
             .ethereum(&config.l1_rpc_address)
             .await
             .expect("Can't get Ethereum client")
@@ -85,7 +85,10 @@ impl Executor {
     /// Inner representation of `start` function which returns a `Result`, so it can conveniently use `?`.
     async fn start_inner(&mut self) -> anyhow::Result<LoadtestResult> {
         tracing::info!("Initializing accounts");
-        tracing::info!("Running for MASTER {:?}", self.pool.master_wallet.address());
+        tracing::info!(
+            "Running for MASTER {:?}",
+            self.pool.eth_master_wallet.address()
+        );
         self.check_onchain_balance().await?;
         self.mint().await?;
         self.deposit_to_master().await?;
@@ -99,7 +102,7 @@ impl Executor {
     /// Verifies that onchain ETH balance for the main account is sufficient to run the loadtest.
     async fn check_onchain_balance(&mut self) -> anyhow::Result<()> {
         tracing::info!("Master Account: Checking onchain balance");
-        let master_wallet = &mut self.pool.master_wallet;
+        let master_wallet = &mut self.pool.eth_master_wallet;
         let ethereum = master_wallet.ethereum(&self.config.l1_rpc_address).await?;
         let eth_balance = ethereum.balance().await?;
         if eth_balance < U256::from(MIN_MASTER_ACCOUNT_BALANCE) {
@@ -112,7 +115,7 @@ impl Executor {
         }
         tracing::info!(
             "Master Account {} L1 balance is {}",
-            self.pool.master_wallet.address(),
+            self.pool.eth_master_wallet.address(),
             format_eth(eth_balance)
         );
         LOADTEST_METRICS
@@ -127,7 +130,7 @@ impl Executor {
         tracing::info!("Master Account: Minting ERC20 token...");
         let mint_amount = self.amount_to_deposit() + self.amount_for_l1_distribution();
 
-        let master_wallet = &self.pool.master_wallet;
+        let master_wallet = &self.pool.eth_master_wallet;
         let mut ethereum = master_wallet.ethereum(&self.config.l1_rpc_address).await?;
         ethereum.set_confirmation_timeout(ETH_CONFIRMATION_TIMEOUT);
         ethereum.set_polling_interval(ETH_POLLING_INTERVAL);
@@ -185,7 +188,7 @@ impl Executor {
 
         let balance = self
             .pool
-            .master_wallet
+            .eth_master_wallet
             .get_balance(BlockNumber::Latest, self.l2_main_token)
             .await?;
         let necessary_balance =
@@ -206,7 +209,7 @@ impl Executor {
 
         let mut ethereum = self
             .pool
-            .master_wallet
+            .eth_master_wallet
             .ethereum(&self.config.l1_rpc_address)
             .await?;
         ethereum.set_confirmation_timeout(ETH_CONFIRMATION_TIMEOUT);
@@ -226,7 +229,7 @@ impl Executor {
         tracing::info!("Approved ERC20 deposits");
         let receipt = deposit_with_attempts(
             &ethereum,
-            self.pool.master_wallet.address(),
+            self.pool.eth_master_wallet.address(),
             main_token,
             U256::from(self.amount_to_deposit()),
             3,
@@ -235,7 +238,7 @@ impl Executor {
 
         self.assert_eth_tx_success(&receipt).await;
         let mut priority_op_handle = receipt
-            .priority_op_handle(&self.pool.master_wallet.provider)
+            .priority_op_handle(&self.pool.eth_master_wallet.provider)
             .unwrap_or_else(|| {
                 panic!(
                     "Can't get the handle for the deposit operation: {:?}",
@@ -259,7 +262,7 @@ impl Executor {
         tracing::info!("Master Account: Checking paymaster balance");
         let mut ethereum = self
             .pool
-            .master_wallet
+            .eth_master_wallet
             .ethereum(&self.config.l1_rpc_address)
             .await?;
         ethereum.set_confirmation_timeout(ETH_CONFIRMATION_TIMEOUT);
@@ -267,7 +270,7 @@ impl Executor {
 
         let paymaster_address = self
             .pool
-            .master_wallet
+            .eth_master_wallet
             .provider
             .get_testnet_paymaster()
             .await?
@@ -275,7 +278,7 @@ impl Executor {
 
         let paymaster_balance: U256 = self
             .pool
-            .master_wallet
+            .eth_master_wallet
             .provider
             .get_balance(paymaster_address, None)
             .await?;
@@ -304,7 +307,7 @@ impl Executor {
 
         self.assert_eth_tx_success(&receipt).await;
         let mut priority_op_handle = receipt
-            .priority_op_handle(&self.pool.master_wallet.provider)
+            .priority_op_handle(&self.pool.eth_master_wallet.provider)
             .unwrap_or_else(|| {
                 panic!(
                     "Can't get the handle for the deposit operation: {:?}",
@@ -322,7 +325,7 @@ impl Executor {
 
         let paymaster_balance: U256 = self
             .pool
-            .master_wallet
+            .eth_master_wallet
             .provider
             .get_balance(paymaster_address, None)
             .await?;
@@ -337,7 +340,7 @@ impl Executor {
 
     async fn send_initial_transfers_inner(&self, accounts_to_process: usize) -> anyhow::Result<()> {
         let eth_to_distribute = self.eth_amount_to_distribute().await?;
-        let master_wallet = &self.pool.master_wallet;
+        let master_wallet = &self.pool.eth_master_wallet;
 
         let l1_transfer_amount =
             self.amount_for_l1_distribution() / self.config.accounts_amount as u128;
@@ -350,7 +353,7 @@ impl Executor {
 
         let paymaster_address = self
             .pool
-            .master_wallet
+            .eth_master_wallet
             .provider
             .get_testnet_paymaster()
             .await?
@@ -373,7 +376,7 @@ impl Executor {
         let mut eth_txs = Vec::with_capacity(txs_amount * 2);
         let mut eth_nonce = ethereum.client().pending_nonce().await?;
 
-        for account in self.pool.accounts.iter().take(accounts_to_process) {
+        for account in self.pool.eth_accounts.iter().take(accounts_to_process) {
             let target_address = account.wallet.address();
 
             // Prior to sending funds in L2, we will send funds in L1 for accounts
@@ -522,7 +525,7 @@ impl Executor {
         let addresses = self.pool.addresses.clone();
         let paymaster_address = self
             .pool
-            .master_wallet
+            .eth_master_wallet
             .provider
             .get_testnet_paymaster()
             .await?
@@ -564,7 +567,7 @@ impl Executor {
 
             let new_account_futures =
                 self.pool
-                    .accounts
+                    .eth_accounts
                     .drain(..accounts_to_process)
                     .map(|wallet| {
                         let account = AccountLifespan::new(
@@ -590,7 +593,7 @@ impl Executor {
         // ^ to terminate `report_collector_future` once all `account_futures` are finished
 
         assert!(
-            self.pool.accounts.is_empty(),
+            self.pool.eth_accounts.is_empty(),
             "Some accounts were not drained"
         );
         tracing::info!("All the initial transfers are completed");
@@ -607,7 +610,7 @@ impl Executor {
     async fn eth_amount_to_distribute(&self) -> anyhow::Result<U256> {
         let ethereum = self
             .pool
-            .master_wallet
+            .eth_master_wallet
             .ethereum(&self.config.l1_rpc_address)
             .await
             .expect("Can't get Ethereum client");
@@ -648,7 +651,7 @@ impl Executor {
     /// Ensures that Ethereum transaction was successfully executed.
     async fn assert_eth_tx_success(&self, receipt: &TransactionReceipt) {
         if receipt.status != Some(1u64.into()) {
-            let master_wallet = &self.pool.master_wallet;
+            let master_wallet = &self.pool.eth_master_wallet;
             let ethereum = master_wallet
                 .ethereum(&self.config.l1_rpc_address)
                 .await

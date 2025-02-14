@@ -157,7 +157,7 @@ impl TxCommand {
         let mut command = Self {
             command_type,
             modifier: IncorrectnessModifier::random(rng),
-            to: addresses.random_address(rng),
+            to: addresses.random_evm_address(rng),
             amount: Self::random_amount(rng),
         };
 

@@ -1,11 +1,15 @@
 use std::collections::VecDeque;
 
 use bincode::{deserialize, serialize};
-use bitcoin::{
-    address::NetworkUnchecked, hashes::FromSliceError, script::PushBytesBuf,
-    taproot::Signature as TaprootSignature, Amount, TxIn, TxOut, Txid,
+pub use bitcoin::{
+    address::NetworkUnchecked, secp256k1 as BitcoinSecp256k1, Address as BitcoinAddress,
+    CompressedPublicKey, Network as BitcoinNetwork, PrivateKey as BitcoinPrivateKey,
+    Txid as BitcoinTxid,
 };
-pub use bitcoin::{Address as BitcoinAddress, Network as BitcoinNetwork, Txid as BitcoinTxid};
+use bitcoin::{
+    hashes::FromSliceError, script::PushBytesBuf, taproot::Signature as TaprootSignature, Amount,
+    TxIn, TxOut, Txid,
+};
 pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};

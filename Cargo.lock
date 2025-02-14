@@ -9606,6 +9606,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "via_btc_client",
  "vise",
  "zksync_config",
  "zksync_contracts",
