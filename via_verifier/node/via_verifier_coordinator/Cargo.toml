@@ -1,6 +1,6 @@
 [package]
-name = "via_withdrawal_service"
-description = "Via Withdrawal Service"
+name = "via_verifier_coordinator"
+description = "Via verifier coordinator"
 version.workspace = true
 edition.workspace = true
 authors = ["Via Network"]

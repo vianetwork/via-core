@@ -95,7 +95,7 @@ impl Task for ViaCoordinatorApiTask {
     }
 
     async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
-        via_withdrawal_service::coordinator::api::start_coordinator_server(
+        via_verifier_coordinator::coordinator::api::start_coordinator_server(
             self.config,
             self.master_pool,
             self.withdrawal_builder,

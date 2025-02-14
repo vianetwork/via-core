@@ -9773,6 +9773,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier_coordinator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "base64 0.21.7",
+ "bincode",
+ "bitcoin",
+ "chrono",
+ "hex",
+ "musig2",
+ "reqwest 0.12.7",
+ "secp256k1 0.30.0",
+ "serde",
+ "serde_json",
+ "sha2 0.10.8",
+ "thiserror",
+ "tokio",
+ "tower 0.4.13",
+ "tower-http",
+ "tracing",
+ "uuid 1.10.0",
+ "via_btc_client",
+ "via_musig2",
+ "via_verifier_dal",
+ "via_verifier_types",
+ "via_withdrawal_client",
+ "vise",
+ "zksync_config",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_verifier_dal"
 version = "0.1.0"
 dependencies = [
@@ -9825,37 +9858,6 @@ dependencies = [
  "zksync_dal",
  "zksync_types",
  "zksync_utils",
-]
-
-[[package]]
-name = "via_withdrawal_service"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum 0.7.9",
- "base64 0.21.7",
- "bitcoin",
- "chrono",
- "hex",
- "musig2",
- "reqwest 0.12.7",
- "secp256k1 0.30.0",
- "serde",
- "serde_json",
- "sha2 0.10.8",
- "thiserror",
- "tokio",
- "tower 0.4.13",
- "tower-http",
- "tracing",
- "uuid 1.10.0",
- "via_btc_client",
- "via_musig2",
- "via_verifier_dal",
- "via_withdrawal_client",
- "vise",
- "zksync_config",
- "zksync_types",
 ]
 
 [[package]]
@@ -11905,9 +11907,9 @@ dependencies = [
  "via_state_keeper",
  "via_verifier_btc_sender",
  "via_verifier_btc_watch",
+ "via_verifier_coordinator",
  "via_verifier_dal",
  "via_withdrawal_client",
- "via_withdrawal_service",
  "via_zk_verifier",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",
