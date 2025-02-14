@@ -43,9 +43,12 @@ impl SessionManager {
         })
     }
 
-    pub async fn pre_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
+    pub async fn before_process_session(
+        &self,
+        session_op: &SessionOperation,
+    ) -> anyhow::Result<bool> {
         Ok(match self.sessions.get(&session_op.get_session_type()) {
-            Some(s) => s.pre_process_session(session_op).await?,
+            Some(s) => s.before_process_session(session_op).await?,
             None => return Ok(false),
         })
     }

@@ -14,7 +14,7 @@ pub trait ISession: Send + Sync {
 
     async fn verify_message(&self, session_op: &SessionOperation) -> anyhow::Result<bool>;
 
-    async fn pre_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool>;
+    async fn before_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool>;
 
     async fn before_broadcast_final_transaction(
         &self,

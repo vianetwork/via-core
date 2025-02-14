@@ -185,7 +185,7 @@ impl ISession for WithdrawalSession {
         Ok(false)
     }
 
-    async fn pre_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
+    async fn before_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
         let l1_batche_number = session_op.get_l1_batche_number();
 
         if l1_batche_number != 0 {

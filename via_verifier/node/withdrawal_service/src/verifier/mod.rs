@@ -104,7 +104,7 @@ impl ViaWithdrawalVerifier {
 
             if !self
                 .session_manager
-                .pre_process_session(&session_op)
+                .before_process_session(&session_op)
                 .await?
             {
                 tracing::debug!("Empty session, nothing to process");
