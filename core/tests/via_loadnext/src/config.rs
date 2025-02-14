@@ -23,8 +23,12 @@ pub struct LoadtestConfig {
     pub l1_rpc_address: String,
 
     /// Ethereum private key of the wallet that has funds to perform a test.
-    #[serde(default = "default_master_wallet_pk")]
-    pub master_wallet_pk: String,
+    #[serde(default = "default_eth_master_wallet_pk")]
+    pub eth_master_wallet_pk: String,
+
+    /// Bitcoin private key of the wallet that has funds to perform a test.
+    #[serde(default = "default_btc_master_wallet_pk")]
+    pub btc_master_wallet_pk: String,
 
     /// Amount of accounts to be used in test.
     /// This option configures the "width" of the test:
@@ -151,12 +155,19 @@ fn default_l1_rpc_address() -> String {
     result
 }
 
-fn default_master_wallet_pk() -> String {
+fn default_eth_master_wallet_pk() -> String {
     // Use this key only for localhost because it is compromised!
     // Using this key for Testnet will result in losing Testnet ETH.
     // Corresponding wallet is `0x36615Cf349d7F6344891B1e7CA7C72883F5dc049`
     let result = "7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110".to_string();
     tracing::info!("Using default MASTER_WALLET_PK: {result}");
+    result
+}
+
+// bcrt1q8tuqv885kehnzucdfskuw6mrhxcj7cjs4gfk5z
+fn default_btc_master_wallet_pk() -> String {
+    let result = "cVn486kDX5Mr9MimMyiRNMR4ZsKaLbLho3MHZgqVriB5q3S8FKKF".to_string();
+    tracing::info!("Using default BTC_MASTER_WALLET_PK: {result}");
     result
 }
 
