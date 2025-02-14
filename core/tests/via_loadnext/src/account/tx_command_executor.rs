@@ -217,8 +217,7 @@ impl AccountLifespan {
         let mut builder = wallet
             .start_withdraw()
             .to(command.to)
-            .amount(command.amount)
-            .token(self.main_l2_token);
+            .amount(command.amount);
 
         let fee = builder
             .estimate_fee(Some(get_approval_based_paymaster_input_for_estimation(

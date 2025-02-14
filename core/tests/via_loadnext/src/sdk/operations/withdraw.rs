@@ -1,7 +1,7 @@
 use zksync_eth_signer::EthereumSigner;
 use zksync_types::{
-    ethabi, fee::Fee, l2::L2Tx, tokens::ETHEREUM_ADDRESS, transaction_request::PaymasterParams,
-    Address, Nonce, L2_BASE_TOKEN_ADDRESS, U256,
+    ethabi, fee::Fee, l2::L2Tx, transaction_request::PaymasterParams, Address, Nonce,
+    L2_BASE_TOKEN_ADDRESS, U256,
 };
 
 use crate::sdk::{
@@ -14,7 +14,6 @@ use crate::sdk::{
 pub struct WithdrawBuilder<'a, S: EthereumSigner, P> {
     wallet: &'a Wallet<S, P>,
     to: Option<Address>,
-    token: Option<Address>,
     amount: Option<U256>,
     fee: Option<Fee>,
     nonce: Option<Nonce>,
@@ -32,7 +31,6 @@ where
         Self {
             wallet,
             to: None,
-            token: None,
             amount: None,
             fee: None,
             nonce: None,
@@ -42,9 +40,6 @@ where
     }
 
     async fn get_execute_builder(&self) -> Result<ExecuteContractBuilder<'_, S, P>, ClientError> {
-        let token = self
-            .token
-            .ok_or_else(|| ClientError::MissingRequiredField("token".into()))?;
         let to = self
             .to
             .ok_or_else(|| ClientError::MissingRequiredField("to".into()))?;
@@ -52,43 +47,14 @@ where
             .amount
             .ok_or_else(|| ClientError::MissingRequiredField("amount".into()))?;
 
-        let (contract_address, calldata, value) = if token == ETHEREUM_ADDRESS {
-            // TODO (SMA-1608): Do not implement the ABI manually, introduce ABI files with an update script similarly to
-            //  how it's done for L1 part of SDK.
-            let calldata_params = vec![ethabi::ParamType::Address];
-            let mut calldata = ethabi::short_signature("withdraw", &calldata_params).to_vec();
-            calldata.append(&mut ethabi::encode(&[ethabi::Token::Address(to)]));
-            (L2_BASE_TOKEN_ADDRESS, calldata, amount)
-        } else {
-            let bridge_address = if let Some(bridge) = self.bridge {
-                bridge
-            } else {
-                // Use the default bridge if one was not specified.
-                let default_bridges = self
-                    .wallet
-                    .provider
-                    .get_bridge_contracts()
-                    .await
-                    .map_err(|err| ClientError::NetworkError(err.to_string()))?;
-                // Note, that this is safe, but only for Era
-                default_bridges.l2_erc20_default_bridge.unwrap()
-            };
+        let contract_address = L2_BASE_TOKEN_ADDRESS;
 
-            // TODO (SMA-1608): Do not implement the ABI manually, introduce ABI files with an update script similarly to
-            //  how it's done for L1 part of SDK.
-            let calldata_params = vec![
-                ethabi::ParamType::Address,
-                ethabi::ParamType::Address,
-                ethabi::ParamType::Uint(256),
-            ];
-            let mut calldata = ethabi::short_signature("withdraw", &calldata_params).to_vec();
-            calldata.append(&mut ethabi::encode(&[
-                ethabi::Token::Address(to),
-                ethabi::Token::Address(token),
-                ethabi::Token::Uint(amount),
-            ]));
-            (bridge_address, calldata, U256::zero())
-        };
+        let calldata_params = vec![ethabi::ParamType::Bytes];
+        let mut calldata = ethabi::short_signature("withdraw", &calldata_params).to_vec();
+        let mut to_bytes = ethabi::encode(&[ethabi::Token::Bytes(to.as_bytes().to_vec())]);
+        calldata.append(&mut to_bytes);
+
+        let value = amount;
 
         let paymaster_params = self.paymaster_params.clone().unwrap_or_default();
 
@@ -127,12 +93,6 @@ where
     /// For more details, see [utils](../utils/index.html) functions.
     pub fn amount(mut self, amount: U256) -> Self {
         self.amount = Some(amount);
-        self
-    }
-
-    /// Set the withdrawal token.
-    pub fn token(mut self, token: Address) -> Self {
-        self.token = Some(token);
         self
     }
 
