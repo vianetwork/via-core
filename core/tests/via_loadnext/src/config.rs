@@ -18,9 +18,21 @@ use crate::fs_utils::read_tokens;
 /// take care of everything else.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoadtestConfig {
-    /// Address of the Ethereum web3 API.
+    /// Address of the Ethereum RPC.
     #[serde(default = "default_l1_rpc_address")]
     pub l1_rpc_address: String,
+
+    /// Address of the Bitcoin RPC.
+    #[serde(default = "default_l1_btc_rpc_address")]
+    pub l1_btc_rpc_address: String,
+
+    /// Username of the Bitcoin RPC.
+    #[serde(default = "default_l1_btc_rpc_username")]
+    pub l1_btc_rpc_username: String,
+
+    /// Password of the Bitcoin RPC.
+    #[serde(default = "default_l1_btc_rpc_password")]
+    pub l1_btc_rpc_password: String,
 
     /// Ethereum private key of the wallet that has funds to perform a test.
     #[serde(default = "default_eth_master_wallet_pk")]
@@ -152,6 +164,24 @@ fn default_max_inflight_txs() -> usize {
 fn default_l1_rpc_address() -> String {
     let result = "http://127.0.0.1:8545".to_string();
     tracing::info!("Using default L1_RPC_ADDRESS: {result}");
+    result
+}
+
+fn default_l1_btc_rpc_address() -> String {
+    let result = "http://127.0.0.1:18443".to_string();
+    tracing::info!("Using default L1_BTC_RPC_ADDRESS: {result}");
+    result
+}
+
+fn default_l1_btc_rpc_username() -> String {
+    let result = "rpcuser".to_string();
+    tracing::info!("Using default L1_BTC_RPC_USERNAME: {result}");
+    result
+}
+
+fn default_l1_btc_rpc_password() -> String {
+    let result = "rpcpassword".to_string();
+    tracing::info!("Using default L1_BTC_RPC_PASSWORD: {result}");
     result
 }
 
