@@ -8,8 +8,11 @@ use zksync_utils::{u256_to_bytes_be, u256_to_h256};
 /// The function selector used in L2 to compute the message.
 pub const WITHDRAW_FUNC_SIG: &str = "finalizeEthWithdrawal(uint256,uint256,uint16,bytes,bytes32[])";
 
-/// The L2 system bridge address.
+/// The L2 BaseToken address.
 pub const L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR: &str = "000000000000000000000000000000000000800a";
+
+/// The L2 Bootloader address.
+pub const L2_BOOTLOADER_CONTRACT_ADDR: &str = "0x0000000000000000000000000000000000008001";
 
 #[derive(Clone, Debug, Default)]
 #[allow(unused)]

@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
@@ -9,6 +11,7 @@ use via_btc_client::{
     },
     utils::bytes_to_txid,
 };
+use via_da_client::{pubdata::Pubdata, types::L2_BOOTLOADER_CONTRACT_ADDR};
 use via_verification::proof::{
     Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
 };
@@ -16,7 +19,7 @@ use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaVerifierConfig;
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_types::{
-    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, H256,
+    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, H160, H256,
 };
 
 /// Copy of `zksync_l1_contract_interface::i_executor::methods::ProveBatches`
@@ -123,11 +126,20 @@ impl ViaVerifier {
                 }
             };
 
+            tracing::info!(
+                "Fetch l1 batch pubdata for blob id  {}",
+                batch_da.input.blob_id
+            );
+
             let (batch_blob, batch_hash) = self.process_batch_da_reference(batch_da).await?;
 
-            let is_verified = self
-                .verify_proof(batch_hash, &proof_blob.data, &batch_blob.data)
+            let mut is_verified = self
+                .verify_op_priority_id(storage, l1_batch_number, &batch_blob.data)
                 .await?;
+
+            if is_verified {
+                is_verified = self.verify_proof(batch_hash, &proof_blob.data).await?;
+            }
 
             storage
                 .via_votes_dal()
@@ -136,6 +148,67 @@ impl ViaVerifier {
         }
 
         Ok(())
+    }
+
+    pub async fn verify_op_priority_id(
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
+        l1_batch_number: i64,
+        pubdata: &[u8],
+    ) -> anyhow::Result<bool> {
+        let pubdata = Pubdata::decode_pubdata(pubdata.to_vec())?;
+        let mut deposit_logs = Vec::new();
+
+        for log in &pubdata.user_logs {
+            if log.sender == H160::from_str(L2_BOOTLOADER_CONTRACT_ADDR)? {
+                deposit_logs.push(log);
+            }
+        }
+
+        let txs = storage
+            .via_transactions_dal()
+            .list_transactions_not_processed(deposit_logs.len() as i64)
+            .await?;
+
+        if txs.len() != deposit_logs.len() {
+            tracing::error!(
+                "Verifier did not index all the deposits, expected {} found {}",
+                deposit_logs.len(),
+                txs.len()
+            );
+            return Ok(false);
+        }
+
+        if txs.is_empty() {
+            tracing::error!("There is no transactions to validate the op priority id",);
+            return Ok(true);
+        }
+
+        for (raw_tx_id, deposit_log) in txs.iter().zip(deposit_logs.iter()) {
+            let db_raw_tx_id = H256::from_slice(raw_tx_id);
+            if db_raw_tx_id != deposit_log.key {
+                tracing::error!(
+                    "Sequencer did not process the deposit transactions in series for l1 batch {}, \
+                    invalid priority id for transaction hash {}", 
+                    l1_batch_number,
+                    db_raw_tx_id
+                );
+                return Ok(false);
+            }
+
+            let status = !deposit_log.value.is_zero();
+            storage
+                .via_transactions_dal()
+                .update_transaction(&deposit_log.key, status)
+                .await?;
+        }
+
+        tracing::info!(
+            "Priority_id verified successfuly for l1 batch {}",
+            l1_batch_number
+        );
+
+        Ok(true)
     }
 
     /// Helper to ensure there's exactly one message in the array, or log an error.
@@ -185,16 +258,10 @@ impl ViaVerifier {
         Ok((blob, hash))
     }
 
-    async fn verify_proof(
-        &self,
-        batch_hash: H256,
-        proof_bytes: &[u8],
-        batch_bytes: &[u8],
-    ) -> anyhow::Result<bool> {
+    async fn verify_proof(&self, batch_hash: H256, proof_bytes: &[u8]) -> anyhow::Result<bool> {
         tracing::info!(
             ?batch_hash,
             proof_len = proof_bytes.len(),
-            batch_len = batch_bytes.len(),
             "Verifying proof"
         );
         let proof_data: ProveBatches = bincode::deserialize(proof_bytes)?;

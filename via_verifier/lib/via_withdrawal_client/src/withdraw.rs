@@ -3,9 +3,8 @@ use std::str::FromStr;
 use anyhow::Context;
 use bitcoin::{Address as BitcoinAddress, Amount, Network};
 use via_btc_client::withdrawal_builder::WithdrawalRequest;
+use via_da_client::types::WITHDRAW_FUNC_SIG;
 use zksync_basic_types::{web3::keccak256, U256};
-
-use crate::types::WITHDRAW_FUNC_SIG;
 
 pub fn parse_l2_withdrawal_message(
     l2_to_l1_message: Vec<u8>,

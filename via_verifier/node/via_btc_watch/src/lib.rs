@@ -18,7 +18,10 @@ use self::{
     message_processors::{MessageProcessor, MessageProcessorError},
     metrics::METRICS,
 };
-use crate::{message_processors::VerifierMessageProcessor, metrics::ErrorType};
+use crate::{
+    message_processors::{L1ToL2MessageProcessor, VerifierMessageProcessor},
+    metrics::ErrorType,
+};
 
 const DEFAULT_VOTING_THRESHOLD: f64 = 0.5;
 
@@ -60,9 +63,10 @@ impl VerifierBtcWatch {
 
         assert_eq!(actor_role, &ActorRole::Verifier);
 
-        let message_processors: Vec<Box<dyn MessageProcessor>> = vec![Box::new(
-            VerifierMessageProcessor::new(DEFAULT_VOTING_THRESHOLD),
-        )];
+        let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
+            Box::new(L1ToL2MessageProcessor::new(indexer.get_state().0)),
+            Box::new(VerifierMessageProcessor::new(DEFAULT_VOTING_THRESHOLD)),
+        ];
 
         let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);
 

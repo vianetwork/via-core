@@ -19,6 +19,7 @@ zksync_types.workspace = true
 zksync_config.workspace = true
 zksync_da_client.workspace = true
 zksync_prover_interface.workspace = true
+via_da_client.workspace = true
 
 tokio.workspace = true
 anyhow.workspace = true
