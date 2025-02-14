@@ -9592,6 +9592,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
  "envy",
  "futures 0.3.30",
  "hex",

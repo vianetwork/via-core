@@ -22,6 +22,8 @@ zksync_system_constants.workspace = true
 zksync_vlog.workspace = true
 via_btc_client.workspace = true
 
+bitcoin = { version = "0.32.2", features = ["serde"] }
+
 async-trait.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

@@ -1,12 +1,17 @@
 use std::time::Instant;
 
-use zksync_system_constants::MAX_L1_TRANSACTION_GAS_LIMIT;
+use via_btc_client::{
+    client::BitcoinClient,
+    traits::BitcoinOps,
+    types::{BitcoinError, BitcoinNetwork, NodeAuth},
+};
 use zksync_types::{
     api::{BlockNumber, TransactionReceipt},
     l2::L2Tx,
     Address, H256, U256,
 };
 
+use super::btc_deposit;
 use crate::{
     account::{AccountLifespan, ExecutionType},
     command::{IncorrectnessModifier, TxCommand, TxType},
@@ -27,6 +32,12 @@ use crate::{
     utils::format_gwei,
 };
 
+impl From<BitcoinError> for ClientError {
+    fn from(err: BitcoinError) -> Self {
+        ClientError::NetworkError(err.to_string())
+    }
+}
+
 #[derive(Debug)]
 pub enum SubmitResult {
     TxHash(H256),
@@ -40,7 +51,7 @@ impl AccountLifespan {
     ) -> Result<SubmitResult, ClientError> {
         match command.command_type {
             TxType::Withdraw => self.execute_withdraw(command).await,
-            TxType::Deposit => self.execute_deposit(command).await,
+            TxType::Deposit => self.execute_btc_deposit(command).await,
             TxType::DeployContract => self.execute_deploy_contract(command).await,
             TxType::L2Execute => {
                 self.execute_loadnext_contract(command, ExecutionType::L2)
@@ -66,93 +77,60 @@ impl AccountLifespan {
         tx.apply_modifier(modifier, &wallet.signer).await
     }
 
-    /// Returns the balances for ETH and the main token on the L1.
+    /// Returns the balances for BTC and the main token on the L1.
     /// This function is used to check whether the L1 operation can be performed or should be
     /// skipped.
-    async fn l1_balances(&self) -> Result<(U256, U256), ClientError> {
-        let wallet = &self.eth_wallet.wallet;
-        let ethereum = wallet.ethereum(&self.config.l1_rpc_address).await?;
-        let eth_balance = ethereum.balance().await?;
-        let erc20_balance = ethereum
-            .erc20_balance(wallet.address(), self.main_l1_token)
-            .await?;
+    async fn l1_btc_balances(&self) -> Result<U256, ClientError> {
+        let wallet = &self.btc_wallet;
 
-        Ok((eth_balance, erc20_balance))
+        let btc_client = BitcoinClient::new(
+            &self.config.l1_btc_rpc_address,
+            BitcoinNetwork::Regtest,
+            NodeAuth::UserPass(
+                self.config.l1_btc_rpc_username.clone(),
+                self.config.l1_btc_rpc_password.clone(),
+            ),
+        )?;
+
+        let balance = btc_client.get_balance(&wallet.btc_address).await?;
+        Ok(U256::from(balance))
     }
 
-    async fn execute_deposit(&self, command: &TxCommand) -> Result<SubmitResult, ClientError> {
-        let wallet = &self.eth_wallet.wallet;
-
-        let (eth_balance, erc20_balance) = self.l1_balances().await?;
-        if eth_balance.is_zero() || erc20_balance < command.amount {
+    async fn execute_btc_deposit(&self, command: &TxCommand) -> Result<SubmitResult, ClientError> {
+        let btc_balance = self.l1_btc_balances().await?;
+        if btc_balance.is_zero()
+            || btc_balance < command.amount
+            || bitcoin::Amount::from_sat(btc_balance.as_u64())
+                < bitcoin::Amount::from_btc(0.0001).unwrap()
+        {
             // We don't have either funds in L1 to pay for tx or to deposit.
             // It's not a problem with the server, thus we mark this operation as skipped.
             let label = ReportLabel::skipped("No L1 balance");
             return Ok(SubmitResult::ReportLabel(label));
         }
 
-        let mut ethereum = wallet.ethereum(&self.config.l1_rpc_address).await?;
-        ethereum.set_confirmation_timeout(ETH_CONFIRMATION_TIMEOUT);
-        ethereum.set_polling_interval(ETH_POLLING_INTERVAL);
-        let gas_price = ethereum
-            .client()
-            .as_ref()
-            .get_gas_price()
-            .await
-            .map_err(|_| ClientError::Other)?;
+        let deposit_response = btc_deposit::deposit(
+            command.amount.as_u64(),
+            command.to,
+            self.btc_wallet.btc_private_key,
+            self.config.l1_btc_rpc_address.clone(),
+            self.config.l1_btc_rpc_username.clone(),
+            self.config.l1_btc_rpc_password.clone(),
+        )
+        .await;
 
-        // We should check whether we've previously approved ERC-20 deposits.
-        let deposits_allowed = ethereum
-            .is_erc20_deposit_approved(self.main_l1_token, None)
-            .await?;
-        if !deposits_allowed {
-            let approve_tx_hash = ethereum
-                .approve_erc20_token_deposits(self.main_l1_token, None)
-                .await?;
-            // Before submitting the deposit, wait for the approve transaction confirmation.
-            match ethereum.wait_for_tx(approve_tx_hash).await {
-                Ok(receipt) => {
-                    if receipt.status != Some(1.into()) {
-                        let label = ReportLabel::skipped("Approve transaction failed");
-                        return Ok(SubmitResult::ReportLabel(label));
-                    }
-                }
-                Err(_) => {
-                    let label = ReportLabel::skipped("Approve transaction failed");
-                    return Ok(SubmitResult::ReportLabel(label));
-                }
-            }
-        }
-
-        let eth_balance = ethereum.balance().await?;
-        if eth_balance < gas_price * U256::from(MAX_L1_TRANSACTION_GAS_LIMIT) {
-            // We don't have either funds in L1 to pay for tx or to deposit.
-            // It's not a problem with the server, thus we mark this operation as skipped.
-            let label = ReportLabel::skipped("Not enough L1 balance");
-            return Ok(SubmitResult::ReportLabel(label));
-        }
-
-        let response = ethereum
-            .deposit(
-                self.main_l1_token,
-                command.amount,
-                wallet.address(),
-                None,
-                None,
-                None,
-            )
-            .await;
-        let eth_tx_hash = match response {
+        let _btc_tx_hash = match deposit_response {
             Ok(hash) => hash,
             Err(err) => {
-                // Most likely we don't have enough ETH to perform operations.
-                // Just mark the operations as skipped.
-                let reason = format!("Unable to perform an L1 operation. Reason: {err}");
+                let reason = format!("Unable to perform a BTC operation. Reason: {err}");
                 return Ok(SubmitResult::ReportLabel(ReportLabel::skipped(reason)));
             }
         };
 
-        self.get_priority_op_l2_hash(eth_tx_hash).await
+        // TODO: Add validation for canonical tx hash and return the hash if it's valid
+        // (for doing this we need to know current priority op id of network)
+        // and for knowing that we need to add rpc call to get priority op id
+        Ok(SubmitResult::ReportLabel(ReportLabel::done()))
     }
 
     async fn get_priority_op_l2_hash(

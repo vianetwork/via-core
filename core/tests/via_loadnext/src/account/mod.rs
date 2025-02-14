@@ -25,6 +25,7 @@ use crate::{
 };
 
 mod api_request_executor;
+mod btc_deposit;
 mod pubsub_executor;
 mod tx_command_executor;
 
@@ -64,8 +65,6 @@ pub struct AccountLifespan {
     addresses: AddressPool,
     /// Successful transactions, required for requesting API
     successfully_sent_txs: Arc<RwLock<Vec<H256>>>,
-    /// L1 ERC-20 token used in the test.
-    main_l1_token: Address,
     /// L2 ERC-20 token used in the test.
     main_l2_token: Address,
     /// Address of the paymaster used in the test.
@@ -97,7 +96,6 @@ impl AccountLifespan {
             contract_execution_params,
             addresses,
             successfully_sent_txs: Default::default(),
-            main_l1_token: config.main_token,
             main_l2_token,
             paymaster_address,
             report_sink,
