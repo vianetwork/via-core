@@ -101,25 +101,27 @@ impl ViaBlocksDal<'_, '_> {
             ViaBtcStorageL1BlockDetails,
             r#"
             SELECT
-                number,
+                l1_batches.number AS number,
                 l1_batches.timestamp AS timestamp,
-                hash,
+                l1_batches.hash AS hash,
                 '' AS commit_tx_id,
                 '' AS reveal_tx_id,
-                via_data_availability.blob_id
+                via_data_availability.blob_id,
+                prev_l1_batches.hash AS prev_l1_batch_hash
             FROM
                 l1_batches
+                LEFT JOIN l1_batches prev_l1_batches ON prev_l1_batches.number = l1_batches.number - 1
                 LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
                 LEFT JOIN commitments ON commitments.l1_batch_number = l1_batches.number
                 LEFT JOIN via_data_availability ON via_data_availability.l1_batch_number = l1_batches.number
                 JOIN protocol_versions ON protocol_versions.id = l1_batches.protocol_version
             WHERE
                 commit_l1_batch_inscription_id IS NULL
-                AND number != 0
+                AND l1_batches.number != 0
                 AND protocol_versions.bootloader_code_hash = $1
                 AND protocol_versions.default_account_code_hash = $2
                 AND via_data_availability.is_proof = FALSE
-                AND commitment IS NOT NULL
+                AND events_queue_commitment IS NOT NULL
                 AND (
                     protocol_versions.id = $3
                     OR protocol_versions.upgrade_tx_hash IS NULL
@@ -174,7 +176,8 @@ impl ViaBlocksDal<'_, '_> {
                 l1_batches.hash,
                 COALESCE(lh.commit_tx_id, '') AS commit_tx_id,
                 COALESCE(lh.reveal_tx_id, '') AS reveal_tx_id,
-                via_data_availability.blob_id
+                via_data_availability.blob_id,
+                ''::bytea AS prev_l1_batch_hash
             FROM
                 l1_batches
                 LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
