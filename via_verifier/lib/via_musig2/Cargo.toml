@@ -14,6 +14,7 @@ categories.workspace = true
 rand.workspace = true
 hex.workspace = true
 via_btc_client.workspace = true
+via_verifier_types.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -33,7 +34,17 @@ uuid = { version = "1.3", features = ["v4"] }
 hyper = { version = "0.14", features = ["full"] }
 base64 = "0.21"
 
+byteorder = "1.4"
+bincode = "1.3"
 
+[dev-dependencies]
+via_withdrawal_client.workspace = true
+zksync_dal.workspace = true
+dotenv = "0.15"
+via_da_clients.workspace = true
+async-trait.workspace = true
+mockall = "0.13.0"
+bitcoincore-rpc = "0.19.0"
 
 [[example]]
 name = "key_generation_setup"

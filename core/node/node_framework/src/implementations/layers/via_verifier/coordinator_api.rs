@@ -1,11 +1,9 @@
 use std::str::FromStr;
 
 use anyhow::Context;
-use via_btc_client::{
-    types::{BitcoinAddress, NodeAuth},
-    withdrawal_builder::WithdrawalBuilder,
-};
+use via_btc_client::types::{BitcoinAddress, NodeAuth};
 use via_btc_watch::BitcoinNetwork;
+use via_musig2::withdrawal_builder::WithdrawalBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
@@ -98,7 +96,7 @@ impl Task for ViaCoordinatorApiTask {
     }
 
     async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
-        via_withdrawal_service::coordinator::api::start_coordinator_server(
+        via_verifier_coordinator::coordinator::api::start_coordinator_server(
             self.config,
             self.master_pool,
             self.withdrawal_builder,

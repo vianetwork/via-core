@@ -6,6 +6,7 @@ use musig2::{
     SecNonceSpices, SecondRound,
 };
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
+pub mod withdrawal_builder;
 
 #[derive(Debug)]
 pub enum MusigError {

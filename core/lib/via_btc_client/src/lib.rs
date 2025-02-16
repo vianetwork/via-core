@@ -8,4 +8,3 @@ pub mod inscriber;
 pub mod regtest;
 pub(crate) mod signer;
 pub mod utils;
-pub mod withdrawal_builder;
