@@ -3,8 +3,9 @@ use std::str::FromStr;
 use anyhow::Context;
 use via_btc_client::types::{BitcoinAddress, NodeAuth};
 use via_btc_watch::BitcoinNetwork;
+use via_musig2::withdrawal_builder::WithdrawalBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier};
-use via_withdrawal_client::{client::WithdrawalClient, withdrawal_builder::WithdrawalBuilder};
+use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
 
 use crate::{

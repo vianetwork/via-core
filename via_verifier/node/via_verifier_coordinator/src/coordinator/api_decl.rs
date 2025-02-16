@@ -3,8 +3,9 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 use axum::middleware;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
+use via_musig2::withdrawal_builder::WithdrawalBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier};
-use via_withdrawal_client::{client::WithdrawalClient, withdrawal_builder::WithdrawalBuilder};
+use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
 
 use crate::{

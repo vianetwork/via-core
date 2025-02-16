@@ -17,9 +17,8 @@ use tokio::sync::RwLock;
 use tracing::{info, instrument};
 use uuid::Uuid;
 use via_btc_client::types::BitcoinNetwork;
-use via_musig2::{verify_signature, Signer};
+use via_musig2::{verify_signature, withdrawal_builder::WithdrawalBuilder, Signer};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
-use via_withdrawal_client::withdrawal_builder::WithdrawalBuilder;
 
 #[derive(Clone)]
 #[allow(dead_code)]

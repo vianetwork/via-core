@@ -9603,12 +9603,17 @@ name = "via_musig2"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum 0.6.20",
  "base64 0.21.7",
+ "bincode",
  "bitcoin",
  "bitcoincore-rpc",
+ "byteorder",
+ "dotenv",
  "hex",
  "hyper 0.14.30",
+ "mockall",
  "musig2",
  "rand 0.8.5",
  "reqwest 0.12.7",
@@ -9620,8 +9625,10 @@ dependencies = [
  "tracing-subscriber",
  "uuid 1.10.0",
  "via_btc_client",
+ "via_da_clients",
  "via_verifier_types",
  "via_withdrawal_client",
+ "zksync_dal",
 ]
 
 [[package]]
@@ -9836,14 +9843,8 @@ name = "via_withdrawal_client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
- "bincode",
  "bitcoin",
- "bitcoincore-rpc",
- "byteorder",
- "dotenv",
  "hex",
- "mockall",
  "serde",
  "tokio",
  "tracing",
@@ -11904,6 +11905,7 @@ dependencies = [
  "via_btc_watch",
  "via_da_dispatcher",
  "via_fee_model",
+ "via_musig2",
  "via_state_keeper",
  "via_verifier_btc_sender",
  "via_verifier_btc_watch",

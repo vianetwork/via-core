@@ -6,10 +6,10 @@ use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
 use tokio::sync::watch;
 use via_btc_client::traits::{BitcoinOps, Serializable};
-use via_musig2::{verify_signature, Signer};
+use via_musig2::{verify_signature, withdrawal_builder::WithdrawalBuilder, Signer};
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_verifier_types::transaction::UnsignedBridgeTx;
-use via_withdrawal_client::{client::WithdrawalClient, withdrawal_builder::WithdrawalBuilder};
+use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::{VerifierMode, ViaVerifierConfig};
 
 use crate::{
