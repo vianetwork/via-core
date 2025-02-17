@@ -1,0 +1,40 @@
+name: Run Via tests
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git reference (branch, commit, or tag) to build from"
+        type: string
+        required: false
+
+jobs:
+  tests:
+    name: Run tests
+    runs-on: [self-hosted, cpu]
+
+    steps:
+      - name: Set reference and fetch repo
+        run: |
+          if [[ -n "${{ inputs.ref }}" ]]; then
+            echo "REF=${{ inputs.ref }}" >> $GITHUB_ENV
+          else
+            REF="$(git rev-parse --abbrev-ref HEAD)"  # Get the current branch if not provided
+          fi  
+
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ env.REF }}
+          submodules: 'recursive'
+
+      - name: Setup env
+        run: |
+          echo VIA_HOME=$(pwd) >> $GITHUB_ENV
+          echo CI=1 >> $GITHUB_ENV
+          echo $(pwd)/bin >> $GITHUB_PATH
+          echo CI=1 >> .env
+          echo IN_DOCKER=1 >> .env
+
+      - name: Run tests
+        run: |
+          via
+          via test rust
