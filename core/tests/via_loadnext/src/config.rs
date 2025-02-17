@@ -3,10 +3,8 @@ use std::{path::PathBuf, time::Duration};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 use zksync_contracts::test_contracts::LoadnextContractExecutionParams;
-use zksync_types::{network::Network, L2ChainId, H160};
+use zksync_types::L2ChainId;
 use zksync_utils::workspace_dir_or_current_dir;
-
-use crate::fs_utils::read_tokens;
 
 /// Configuration for the loadtest.
 ///
@@ -146,12 +144,6 @@ fn default_max_inflight_txs() -> usize {
     result
 }
 
-fn default_l1_rpc_address() -> String {
-    let result = "http://127.0.0.1:8545".to_string();
-    tracing::info!("Using default L1_RPC_ADDRESS: {result}");
-    result
-}
-
 fn default_l1_btc_rpc_address() -> String {
     let result = "http://127.0.0.1:18443".to_string();
     tracing::info!("Using default L1_BTC_RPC_ADDRESS: {result}");
@@ -202,17 +194,6 @@ fn default_accounts_group_size() -> usize {
     let result = 40;
     tracing::info!("Using default ACCOUNTS_GROUP_SIZE: {result}");
     result
-}
-
-fn default_main_token() -> H160 {
-    // Read token addresses from `etc/tokens/localhost.json`. Use the first one
-    // as a main token since all of them are suitable.
-
-    // `0xeb8f08a975Ab53E34D8a0330E0D34de942C95926` for Rinkeby
-    let tokens = read_tokens(Network::Localhost).expect("Failed to parse tokens file");
-    let main_token = tokens.first().expect("Loaded tokens list is empty");
-    tracing::info!("Main token: {main_token:?}");
-    main_token.address
 }
 
 fn default_test_contracts_path() -> PathBuf {

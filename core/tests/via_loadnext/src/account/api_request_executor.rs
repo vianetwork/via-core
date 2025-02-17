@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use rand::seq::IteratorRandom;
 use regex::Regex;
-use zksync_types::{api, ethabi::Contract, H256, U64};
+use zksync_types::{api, ethabi::Contract, H256, L2_BASE_TOKEN_ADDRESS, U64};
 
 use super::{Aborted, AccountLifespan};
 use crate::{
@@ -44,7 +44,7 @@ impl AccountLifespan {
                 .await
                 .map(drop),
             ApiRequestType::Balance => wallet
-                .get_balance(block_number, self.main_l2_token)
+                .get_balance(block_number, L2_BASE_TOKEN_ADDRESS)
                 .await
                 .map(drop)
                 .map_err(|err| match err {
