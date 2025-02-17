@@ -8,7 +8,7 @@ use via_btc_client::{
 use zksync_types::{
     api::{BlockNumber, TransactionReceipt},
     l2::L2Tx,
-    Address, H256, U256,
+    Address, H256, L2_BASE_TOKEN_ADDRESS, U256,
 };
 
 use super::btc_deposit;
@@ -175,7 +175,7 @@ impl AccountLifespan {
         let fee = builder
             .estimate_fee(Some(get_approval_based_paymaster_input_for_estimation(
                 self.paymaster_address,
-                self.main_l2_token,
+                L2_BASE_TOKEN_ADDRESS,
                 MIN_ALLOWANCE_FOR_PAYMASTER_ESTIMATE.into(),
             )))
             .await?;
@@ -183,7 +183,7 @@ impl AccountLifespan {
 
         let paymaster_params = get_approval_based_paymaster_input(
             self.paymaster_address,
-            self.main_l2_token,
+            L2_BASE_TOKEN_ADDRESS,
             fee.max_total_fee(),
             Vec::new(),
         );
@@ -224,7 +224,7 @@ impl AccountLifespan {
         let fee = builder
             .estimate_fee(Some(get_approval_based_paymaster_input_for_estimation(
                 self.paymaster_address,
-                self.main_l2_token,
+                L2_BASE_TOKEN_ADDRESS,
                 MIN_ALLOWANCE_FOR_PAYMASTER_ESTIMATE.into(),
             )))
             .await?;
@@ -232,7 +232,7 @@ impl AccountLifespan {
 
         let paymaster_params = get_approval_based_paymaster_input(
             self.paymaster_address,
-            self.main_l2_token,
+            L2_BASE_TOKEN_ADDRESS,
             fee.max_total_fee(),
             Vec::new(),
         );
@@ -253,8 +253,6 @@ impl AccountLifespan {
         command: &TxCommand,
         execution_type: ExecutionType,
     ) -> Result<SubmitResult, ClientError> {
-        const L1_TRANSACTION_GAS_LIMIT: u32 = 5_000_000;
-
         let Some(&contract_address) = self.eth_wallet.deployed_contract_address.get() else {
             let label =
                 ReportLabel::skipped("Account haven't successfully deployed a contract yet");
@@ -321,7 +319,7 @@ impl AccountLifespan {
         let fee = builder
             .estimate_fee(Some(get_approval_based_paymaster_input_for_estimation(
                 self.paymaster_address,
-                self.main_l2_token,
+                L2_BASE_TOKEN_ADDRESS,
                 MIN_ALLOWANCE_FOR_PAYMASTER_ESTIMATE.into(),
             )))
             .await?;
@@ -338,7 +336,7 @@ impl AccountLifespan {
 
         let paymaster_params = get_approval_based_paymaster_input(
             self.paymaster_address,
-            self.main_l2_token,
+            L2_BASE_TOKEN_ADDRESS,
             fee.max_total_fee(),
             Vec::new(),
         );

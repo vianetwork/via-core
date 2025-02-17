@@ -601,6 +601,7 @@ impl<S: EthereumSigner> EthereumProvider<S> {
 }
 
 /// Trait describes the ability to receive the priority operation from this holder.
+#[allow(dead_code)]
 pub trait PriorityOpHolder {
     /// Returns the priority operation if exists.
     fn priority_op(&self) -> Option<L1TxCommonData>;

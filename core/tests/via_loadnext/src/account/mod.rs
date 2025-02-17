@@ -65,8 +65,6 @@ pub struct AccountLifespan {
     addresses: AddressPool,
     /// Successful transactions, required for requesting API
     successfully_sent_txs: Arc<RwLock<Vec<H256>>>,
-    /// L2 ERC-20 token used in the test.
-    main_l2_token: Address,
     /// Address of the paymaster used in the test.
     paymaster_address: Address,
     /// Channel for sending reports about performed operations.
@@ -86,7 +84,6 @@ impl AccountLifespan {
         eth_test_account: TestWallet,
         btc_test_account: BtcAccount,
         report_sink: mpsc::Sender<Report>,
-        main_l2_token: Address,
         paymaster_address: Address,
     ) -> Self {
         Self {
@@ -96,7 +93,6 @@ impl AccountLifespan {
             contract_execution_params,
             addresses,
             successfully_sent_txs: Default::default(),
-            main_l2_token,
             paymaster_address,
             report_sink,
             inflight_txs: Default::default(),
