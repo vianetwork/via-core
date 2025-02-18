@@ -147,7 +147,7 @@ impl AccountPool {
             }
         }
         if !server_alive {
-            anyhow::bail!("ZKsync server does not respond. Please check RPC address and whether server is launched");
+            anyhow::bail!("Via server does not respond. Please check RPC address and whether server is launched");
         }
 
         let test_contract = loadnext_contract(&config.test_contracts_path)?;
