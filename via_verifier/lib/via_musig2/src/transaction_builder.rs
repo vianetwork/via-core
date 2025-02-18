@@ -1,86 +1,78 @@
-// Withdrawal Builder Service
-// This service has main method, that receives a list of bitcoin address and amount to withdraw and also L1batch proofDaReference reveal transaction id
-// and then it will use client to get available utxo, and then perform utxo selection based on the total amount of the withdrawal
-// and now we know the number of input and output we can estimate the fee and perform final utxo selection
-// create a unsigned transaction and return it to the caller
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 use bitcoin::{
-    absolute, hashes::Hash, script::PushBytesBuf, transaction, Address, Amount, Network, OutPoint,
-    ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
+    absolute, script::PushBytesBuf, transaction, Address, Amount, OutPoint, ScriptBuf, Sequence,
+    Transaction, TxIn, TxOut, Witness,
 };
-use tracing::{debug, info, instrument};
-use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
-use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
+use tracing::{debug, instrument};
+use via_btc_client::traits::BitcoinOps;
+use via_verifier_types::transaction::UnsignedBridgeTx;
+
+use crate::utxo_manager::UtxoManager;
 
 #[derive(Debug, Clone)]
-pub struct WithdrawalBuilder {
-    client: Arc<dyn BitcoinOps>,
+pub struct TransactionBuilder {
+    btc_client: Arc<dyn BitcoinOps>,
+    pub utxo_manager: UtxoManager,
     bridge_address: Address,
 }
 
-const OP_RETURN_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
-
-impl WithdrawalBuilder {
-    #[instrument(skip(rpc_url, auth), target = "bitcoin_withdrawal")]
-    pub async fn new(
-        rpc_url: &str,
-        network: Network,
-        auth: NodeAuth,
-        bridge_address: Address,
-    ) -> Result<Self> {
-        info!("Creating new WithdrawalBuilder");
-        let client = Arc::new(BitcoinClient::new(rpc_url, network, auth)?);
+impl TransactionBuilder {
+    #[instrument(skip(btc_client), target = "bitcoin_transaction_builder")]
+    pub fn new(btc_client: Arc<dyn BitcoinOps>, bridge_address: Address) -> Result<Self> {
+        let utxo_manager = UtxoManager::new(
+            btc_client.clone(),
+            bridge_address.clone(),
+            Amount::from_sat(1000),
+            128,
+        );
 
         Ok(Self {
-            client,
+            btc_client,
+            utxo_manager,
             bridge_address,
         })
     }
 
-    #[instrument(skip(self, withdrawals, proof_txid), target = "bitcoin_withdrawal")]
-    pub async fn create_unsigned_withdrawal_tx(
+    #[instrument(
+        skip(self, outputs, op_return_data),
+        target = "bitcoin_transaction_builder"
+    )]
+    pub async fn build_transaction_with_op_return(
         &self,
-        withdrawals: Vec<WithdrawalRequest>,
-        proof_txid: Txid,
+        mut outputs: Vec<TxOut>,
+        op_return_prefix: &[u8],
+        op_return_data: Vec<[u8; 32]>,
     ) -> Result<UnsignedBridgeTx> {
-        debug!("Creating unsigned withdrawal transaction");
+        self.utxo_manager.sync_context_with_blockchain().await?;
 
-        // Group withdrawals by address and sum amounts
-        let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
-        for w in withdrawals {
-            *grouped_withdrawals.entry(w.address).or_insert(Amount::ZERO) = grouped_withdrawals
-                .get(&w.address)
-                .unwrap_or(&Amount::ZERO)
-                .checked_add(w.amount)
-                .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
+        // Calculate total rquired amount.
+        let mut total_required_amount: Amount = Amount::ZERO;
+        for output in &outputs {
+            total_required_amount = total_required_amount
+                .checked_add(output.value)
+                .ok_or_else(|| anyhow::anyhow!("Amount overflow"))?;
         }
 
-        // Calculate total withdrawal amount from grouped withdrawals
-        let total_withdrawal_amount: Amount = grouped_withdrawals
-            .values()
-            .try_fold(Amount::ZERO, |acc, amount| acc.checked_add(*amount))
-            .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow"))?;
-
         // Get available UTXOs first to estimate number of inputs
-        let available_utxos = self.get_available_utxos().await?;
+        let available_utxos = self.utxo_manager.get_available_utxos().await?;
 
         // Get fee rate
-        let fee_rate = std::cmp::max(self.client.get_fee_rate(1).await?, 1);
+        let fee_rate = std::cmp::max(self.btc_client.get_fee_rate(1).await?, 1);
 
         // Estimate initial fee with approximate input count
         // We'll estimate high initially to avoid underestimating
         let estimated_input_count =
-            self.estimate_input_count(&available_utxos, total_withdrawal_amount)?;
+            self.estimate_input_count(&available_utxos, total_required_amount)?;
         let initial_fee = self.estimate_fee(
             estimated_input_count,
-            grouped_withdrawals.len() as u32 + 2, // +1 for OP_RETURN, +1 for potential change
+            outputs.len() as u32 + 2, // +1 for OP_RETURN, +1 for potential change
             fee_rate,
         )?;
 
         // Calculate total amount needed including estimated fee
-        let total_needed = total_withdrawal_amount
+        let total_needed = total_required_amount
             .checked_add(initial_fee)
             .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
 
@@ -94,7 +86,9 @@ impl WithdrawalBuilder {
             .ok_or_else(|| anyhow::anyhow!("Input amount overflow"))?;
 
         // Create OP_RETURN output with proof txid
-        let op_return_data = WithdrawalBuilder::create_op_return_script(proof_txid)?;
+        let op_return_data =
+            TransactionBuilder::create_op_return_script(op_return_prefix, op_return_data)?;
+
         let op_return_output = TxOut {
             value: Amount::ZERO,
             script_pubkey: op_return_data,
@@ -103,12 +97,12 @@ impl WithdrawalBuilder {
         // Calculate actual fee with real input count
         let actual_fee = self.estimate_fee(
             selected_utxos.len() as u32,
-            grouped_withdrawals.len() as u32 + 1, // +1 for OP_RETURN output
+            outputs.len() as u32 + 1, // +1 for OP_RETURN output
             fee_rate,
         )?;
 
         // Verify we have enough funds with actual fee
-        let total_needed = total_withdrawal_amount
+        let total_needed = total_required_amount
             .checked_add(actual_fee)
             .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
 
@@ -128,15 +122,6 @@ impl WithdrawalBuilder {
                 script_sig: ScriptBuf::default(),
                 sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
                 witness: Witness::default(),
-            })
-            .collect();
-
-        // Create outputs for grouped withdrawals
-        let mut outputs: Vec<TxOut> = grouped_withdrawals
-            .into_iter()
-            .map(|(address, amount)| TxOut {
-                value: amount,
-                script_pubkey: address.script_pubkey(),
             })
             .collect();
 
@@ -160,12 +145,16 @@ impl WithdrawalBuilder {
             version: transaction::Version::TWO,
             lock_time: absolute::LockTime::ZERO,
             input: inputs,
-            output: outputs,
+            output: outputs.clone(),
         };
 
         let txid = unsigned_tx.compute_txid();
 
-        debug!("Unsigned withdrawal transaction created successfully");
+        self.utxo_manager
+            .insert_transaction(unsigned_tx.clone())
+            .await;
+
+        debug!("Unsigned created successfully");
 
         Ok(UnsignedBridgeTx {
             tx: unsigned_tx,
@@ -175,13 +164,21 @@ impl WithdrawalBuilder {
         })
     }
 
-    #[instrument(skip(self), target = "bitcoin_withdrawal")]
-    async fn get_available_utxos(&self) -> Result<Vec<(OutPoint, TxOut)>> {
-        let utxos = self.client.fetch_utxos(&self.bridge_address).await?;
-        Ok(utxos)
+    // Helper function to create OP_RETURN script
+    pub fn create_op_return_script(prefix: &[u8], inputs: Vec<[u8; 32]>) -> Result<ScriptBuf> {
+        let mut data = Vec::with_capacity(prefix.len() + 32);
+        data.extend_from_slice(prefix);
+        for input in inputs {
+            data.extend_from_slice(&input);
+        }
+
+        let mut encoded_data = PushBytesBuf::with_capacity(data.len());
+        encoded_data.extend_from_slice(&data).ok();
+
+        Ok(ScriptBuf::new_op_return(encoded_data))
     }
 
-    #[instrument(skip(self, utxos), target = "bitcoin_withdrawal")]
+    #[instrument(skip(self, utxos), target = "bitcoin_transaction_builder")]
     async fn select_utxos(
         &self,
         utxos: &[(OutPoint, TxOut)],
@@ -213,7 +210,7 @@ impl WithdrawalBuilder {
         Ok(selected)
     }
 
-    #[instrument(skip(self), target = "bitcoin_withdrawal")]
+    #[instrument(skip(self), target = "bitcoin_transaction_builder")]
     fn estimate_fee(&self, input_count: u32, output_count: u32, fee_rate: u64) -> Result<Amount> {
         // Estimate transaction size
         let base_size = 10_u64; // version + locktime
@@ -226,19 +223,7 @@ impl WithdrawalBuilder {
         Ok(Amount::from_sat(fee))
     }
 
-    // Helper function to create OP_RETURN script
-    pub fn create_op_return_script(proof_txid: Txid) -> Result<ScriptBuf> {
-        let mut data = Vec::with_capacity(OP_RETURN_PREFIX.len() + 32);
-        data.extend_from_slice(OP_RETURN_PREFIX);
-        data.extend_from_slice(&proof_txid.as_raw_hash().to_byte_array());
-
-        let mut encoded_data = PushBytesBuf::with_capacity(data.len());
-        encoded_data.extend_from_slice(&data).ok();
-
-        Ok(ScriptBuf::new_op_return(encoded_data))
-    }
-
-    #[instrument(skip(self, utxos), target = "bitcoin_withdrawal")]
+    #[instrument(skip(self, utxos), target = "bitcoin_transaction_builder")]
     fn estimate_input_count(
         &self,
         utxos: &[(OutPoint, TxOut)],
@@ -262,19 +247,20 @@ impl WithdrawalBuilder {
     }
 
     pub fn get_btc_client(&self) -> Arc<dyn BitcoinOps> {
-        self.client.clone()
+        self.btc_client.clone()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{collections::HashMap, str::FromStr};
 
     use async_trait::async_trait;
-    use bitcoin::Network;
+    use bitcoin::{hashes::Hash, Network, Txid};
     use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
     use via_btc_client::types::BitcoinError;
+    use via_verifier_types::withdrawal::WithdrawalRequest;
 
     use super::*;
 
@@ -363,9 +349,17 @@ mod tests {
 
         mock_ops.expect_get_fee_rate().returning(|_| Ok(2));
 
+        let btc_client = Arc::new(mock_ops);
+        let utxo_manager = UtxoManager::new(
+            btc_client.clone(),
+            bridge_address.clone(),
+            Amount::ZERO,
+            128,
+        );
         // Use mock client
-        let builder = WithdrawalBuilder {
-            client: Arc::new(mock_ops),
+        let builder = TransactionBuilder {
+            btc_client,
+            utxo_manager,
             bridge_address,
         };
 
@@ -377,11 +371,35 @@ mod tests {
             amount: withdrawal_amount,
         }];
 
+        let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
+        for w in withdrawals {
+            *grouped_withdrawals.entry(w.address).or_insert(Amount::ZERO) = grouped_withdrawals
+                .get(&w.address)
+                .unwrap_or(&Amount::ZERO)
+                .checked_add(w.amount)
+                .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
+        }
+
+        // Create outputs for grouped withdrawals
+        let outputs: Vec<TxOut> = grouped_withdrawals
+            .into_iter()
+            .map(|(address, amount)| TxOut {
+                value: amount,
+                script_pubkey: address.script_pubkey(),
+            })
+            .collect();
+
         let proof_txid =
             Txid::from_str("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")?;
 
+        const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
+
         let withdrawal_tx = builder
-            .create_unsigned_withdrawal_tx(withdrawals, proof_txid)
+            .build_transaction_with_op_return(
+                outputs,
+                OP_RETURN_WITHDRAW_PREFIX,
+                vec![proof_txid.as_raw_hash().to_byte_array()],
+            )
             .await?;
         assert!(!withdrawal_tx.utxos.is_empty());
 
@@ -396,8 +414,8 @@ mod tests {
         assert!(op_return_output
             .script_pubkey
             .as_bytes()
-            .windows(OP_RETURN_PREFIX.len())
-            .any(|window| window == OP_RETURN_PREFIX));
+            .windows(OP_RETURN_WITHDRAW_PREFIX.len())
+            .any(|window| window == OP_RETURN_WITHDRAW_PREFIX));
 
         Ok(())
     }
