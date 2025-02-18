@@ -189,32 +189,6 @@ impl ISession for WithdrawalSession {
     }
 
     async fn before_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
-        let l1_batche_number = session_op.get_l1_batche_number();
-
-        if l1_batche_number != 0 {
-            let withdrawal_txid = self
-                .master_connection_pool
-                .connection_tagged("verifier task")
-                .await?
-                .via_votes_dal()
-                .get_vote_transaction_withdrawal_tx(l1_batche_number)
-                .await?;
-            // TODO: refactore the transaction confirmation for the musig2, and implement utxo manager like in the inscriber
-            // Check if the previous batch musig2 transaction was minted before start a new session.
-            if let Some(tx) = withdrawal_txid {
-                let tx_id = Txid::from_slice(&tx)?;
-                let is_confirmed = self
-                    .transaction_builder
-                    .read()
-                    .await
-                    .get_btc_client()
-                    .check_tx_confirmation(&tx_id, 1)
-                    .await?;
-                if !is_confirmed {
-                    return Ok(false);
-                }
-            }
-        }
         return Ok(true);
     }
 
