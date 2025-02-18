@@ -99,7 +99,7 @@ impl Executor {
         let btc_balance = btc_client.get_balance(&master_wallet.btc_address).await?;
         if btc_balance < bitcoin::Amount::from_btc(600.0).unwrap().to_sat().into() {
             anyhow::bail!(
-                "BTC balance on {} is too low to safely perform the loadtest: {} - at least 300 BTC is required",
+                "BTC balance on {} is too low to safely perform the loadtest: {} - at least 600 BTC is required",
                 master_wallet.btc_address,
                 btc_balance
             );
