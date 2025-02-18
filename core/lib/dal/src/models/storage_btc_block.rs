@@ -11,6 +11,7 @@ pub struct ViaBtcStorageL1BlockDetails {
     pub commit_tx_id: Option<String>,
     pub reveal_tx_id: Option<String>,
     pub blob_id: Option<String>,
+    pub prev_l1_batch_hash: Option<Vec<u8>>,
 }
 
 impl From<ViaBtcStorageL1BlockDetails> for ViaBtcL1BlockDetails {
@@ -24,6 +25,7 @@ impl From<ViaBtcStorageL1BlockDetails> for ViaBtcL1BlockDetails {
             reveal_tx_id: Txid::from_str(&details.reveal_tx_id.clone().unwrap_or_default())
                 .unwrap_or(Txid::all_zeros()),
             blob_id: details.blob_id.unwrap_or_default(),
+            prev_l1_batch_hash: details.prev_l1_batch_hash,
         }
     }
 }

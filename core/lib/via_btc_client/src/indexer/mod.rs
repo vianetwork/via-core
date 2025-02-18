@@ -687,6 +687,7 @@ mod tests {
                     l1_batch_index: zksync_types::L1BatchNumber(0),
                     da_identifier: "test".to_string(),
                     blob_id: "test".to_string(),
+                    prev_l1_batch_hash: zksync_basic_types::H256::zero(),
                 },
             });
         // We didn't vote for the sequencer yet, so this message is invalid

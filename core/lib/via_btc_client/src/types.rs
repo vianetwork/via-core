@@ -28,6 +28,7 @@ pub struct L1BatchDAReferenceInput {
     pub l1_batch_index: L1BatchNumber,
     pub da_identifier: String,
     pub blob_id: String,
+    pub prev_l1_batch_hash: H256,
 }
 
 #[derive(Clone, Debug, PartialEq)]

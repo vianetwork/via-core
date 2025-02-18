@@ -9,6 +9,7 @@ pub struct ViaBtcL1BlockDetails {
     pub commit_tx_id: Txid,
     pub reveal_tx_id: Txid,
     pub blob_id: String,
+    pub prev_l1_batch_hash: Option<Vec<u8>>,
 }
 
 impl std::fmt::Debug for ViaBtcL1BlockDetails {
@@ -19,6 +20,8 @@ impl std::fmt::Debug for ViaBtcL1BlockDetails {
             .field("blob_id", &self.blob_id)
             .field("commit_tx_id", &self.commit_tx_id)
             .field("reveal_tx_id", &self.reveal_tx_id)
+            .field("hash", &self.hash)
+            .field("prev_l1_batch_hash", &self.prev_l1_batch_hash)
             .finish()
     }
 }

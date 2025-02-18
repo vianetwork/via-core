@@ -24,7 +24,7 @@ const MIN_WITNESS_LENGTH: usize = 3;
 const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 7;
 const MIN_PROPOSE_SEQUENCER_INSTRUCTIONS: usize = 3;
 const MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS: usize = 4;
-const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 6;
+const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 7;
 const MIN_PROOF_DA_REFERENCE_INSTRUCTIONS: usize = 5;
 const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
 
@@ -465,6 +465,9 @@ impl MessageParser {
             .to_string();
         debug!("Parsed blob ID: {}", blob_id);
 
+        let prev_l1_batch_hash = H256::from_slice(instructions.get(6)?.push_bytes()?.as_bytes());
+        debug!("Parsed previous L1 batch hash");
+
         Some(FullInscriptionMessage::L1BatchDAReference(
             L1BatchDAReference {
                 common: common_fields.clone(),
@@ -473,6 +476,7 @@ impl MessageParser {
                     l1_batch_index,
                     da_identifier,
                     blob_id,
+                    prev_l1_batch_hash,
                 },
             },
         ))

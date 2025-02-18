@@ -145,6 +145,12 @@ impl ViaAggregator {
                     l1_batch_index: batch.number,
                     da_identifier: self.config.da_identifier().to_string(),
                     blob_id: batch.blob_id.clone(),
+                    prev_l1_batch_hash: H256::from_slice(
+                        batch
+                            .prev_l1_batch_hash
+                            .as_ref()
+                            .ok_or_else(|| anyhow!("Via previous l1 batch hash is None"))?,
+                    ),
                 };
                 Ok(InscriptionMessage::L1BatchDAReference(input))
             }
