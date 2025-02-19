@@ -7,7 +7,6 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     Address, Amount, TapSighashType, TxOut, Txid,
 };
-use tokio::sync::RwLock;
 use via_musig2::transaction_builder::TransactionBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
@@ -21,14 +20,14 @@ const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
 #[derive(Debug, Clone)]
 pub struct WithdrawalSession {
     master_connection_pool: ConnectionPool<Verifier>,
-    transaction_builder: Arc<RwLock<TransactionBuilder>>,
+    transaction_builder: Arc<TransactionBuilder>,
     withdrawal_client: WithdrawalClient,
 }
 
 impl WithdrawalSession {
     pub fn new(
         master_connection_pool: ConnectionPool<Verifier>,
-        transaction_builder: Arc<RwLock<TransactionBuilder>>,
+        transaction_builder: Arc<TransactionBuilder>,
         withdrawal_client: WithdrawalClient,
     ) -> Self {
         Self {
@@ -188,7 +187,7 @@ impl ISession for WithdrawalSession {
         Ok(false)
     }
 
-    async fn before_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
+    async fn before_process_session(&self, _: &SessionOperation) -> anyhow::Result<bool> {
         return Ok(true);
     }
 
@@ -262,8 +261,6 @@ impl WithdrawalSession {
             .collect();
 
         self.transaction_builder
-            .write()
-            .await
             .build_transaction_with_op_return(
                 outputs,
                 OP_RETURN_WITHDRAW_PREFIX,

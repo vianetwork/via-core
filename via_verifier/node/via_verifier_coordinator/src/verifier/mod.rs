@@ -46,10 +46,8 @@ impl ViaWithdrawalVerifier {
             .context("Error parse bridge address")?
             .assume_checked();
 
-        let transaction_builder = Arc::new(RwLock::new(TransactionBuilder::new(
-            btc_client.clone(),
-            bridge_address,
-        )?));
+        let transaction_builder =
+            Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
 
         let withdrawal_session = WithdrawalSession::new(
             master_connection_pool,
