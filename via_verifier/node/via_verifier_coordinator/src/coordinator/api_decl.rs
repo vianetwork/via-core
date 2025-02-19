@@ -1,9 +1,12 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
+use anyhow::Context;
 use axum::middleware;
+use bitcoin::Address;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use via_musig2::withdrawal_builder::WithdrawalBuilder;
+use via_btc_client::traits::BitcoinOps;
+use via_musig2::transaction_builder::TransactionBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
@@ -24,7 +27,7 @@ impl RestApi {
     pub fn new(
         config: ViaVerifierConfig,
         master_connection_pool: ConnectionPool<Verifier>,
-        withdrawal_builder: WithdrawalBuilder,
+        btc_client: Arc<dyn BitcoinOps>,
         withdrawal_client: WithdrawalClient,
     ) -> anyhow::Result<Self> {
         let state = ViaWithdrawalState {
@@ -36,23 +39,30 @@ impl RestApi {
                 .map(|s| bitcoin::secp256k1::PublicKey::from_str(s).unwrap())
                 .collect(),
         };
+
+        let bridge_address = Address::from_str(config.bridge_address_str.as_str())
+            .context("Error parse bridge address")?
+            .assume_checked();
+
+        let transaction_builder =
+            Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
+
         let withdrawal_session = WithdrawalSession::new(
             master_connection_pool.clone(),
-            withdrawal_builder.clone(),
+            transaction_builder.clone(),
             withdrawal_client.clone(),
         );
 
         // Add sessions type the verifier network can process
-        let sessions: HashMap<SessionType, Box<dyn ISession>> = [(
+        let sessions: HashMap<SessionType, Arc<dyn ISession>> = [(
             SessionType::Withdrawal,
-            Box::new(withdrawal_session) as Box<dyn ISession>,
+            Arc::new(withdrawal_session) as Arc<dyn ISession>,
         )]
         .into_iter()
         .collect();
 
-        let session_manager = SessionManager::new(sessions);
         Ok(Self {
-            session_manager,
+            session_manager: SessionManager::new(sessions),
             state,
         })
     }

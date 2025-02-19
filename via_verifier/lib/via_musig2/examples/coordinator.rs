@@ -7,7 +7,7 @@ use axum::{
     Json, Router,
 };
 use base64::Engine;
-use bitcoin::{hashes::Hash, Address, Amount, Network, Txid};
+use bitcoin::{hashes::Hash, Address, Amount, Network, TxOut, Txid};
 use hyper::Server;
 use musig2::{BinaryEncoding, CompactSignature, PartialSignature, PubNonce};
 use rand::thread_rng;
@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{info, instrument};
 use uuid::Uuid;
-use via_btc_client::types::BitcoinNetwork;
-use via_musig2::{verify_signature, withdrawal_builder::WithdrawalBuilder, Signer};
+use via_btc_client::{client::BitcoinClient, types::BitcoinNetwork};
+use via_musig2::{transaction_builder::TransactionBuilder, verify_signature, Signer};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 
 #[derive(Clone)]
@@ -414,12 +414,36 @@ async fn get_final_signature(
 
 async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessionResponse> {
     let unsigned_tx = {
-        let withdrawal_builder = create_test_withdrawal_builder(&state.bridge_address).await?;
+        let transaction_builder = create_test_withdrawal_builder(&state.bridge_address).await?;
         let withdrawals = create_test_withdrawal_requests()?;
         let proof_txid = Txid::hash(&[0x42; 32]);
 
-        withdrawal_builder
-            .create_unsigned_withdrawal_tx(withdrawals, proof_txid)
+        let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
+        for w in withdrawals {
+            *grouped_withdrawals.entry(w.address).or_insert(Amount::ZERO) = grouped_withdrawals
+                .get(&w.address)
+                .unwrap_or(&Amount::ZERO)
+                .checked_add(w.amount)
+                .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
+        }
+
+        // Create outputs for grouped withdrawals
+        let outputs: Vec<TxOut> = grouped_withdrawals
+            .into_iter()
+            .map(|(address, amount)| TxOut {
+                value: amount,
+                script_pubkey: address.script_pubkey(),
+            })
+            .collect();
+
+        const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
+
+        transaction_builder
+            .build_transaction_with_op_return(
+                outputs,
+                OP_RETURN_WITHDRAW_PREFIX,
+                vec![proof_txid.as_raw_hash().to_byte_array()],
+            )
             .await?
     };
 
@@ -475,14 +499,16 @@ async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessi
     })
 }
 
-// Mock a WithdrawalBuilder
+// Mock a TransactionBuilder
 async fn create_test_withdrawal_builder(
     bridge_address: &Address,
-) -> anyhow::Result<WithdrawalBuilder> {
+) -> anyhow::Result<TransactionBuilder> {
     let rpc_url = "http://localhost:18443";
     let network = BitcoinNetwork::Regtest;
     let auth = bitcoincore_rpc::Auth::None;
-    let builder = WithdrawalBuilder::new(rpc_url, network, auth, bridge_address.clone()).await?;
+    let btc_client = Arc::new(BitcoinClient::new(rpc_url, network, auth).unwrap());
+
+    let builder = TransactionBuilder::new(btc_client, bridge_address.clone())?;
     Ok(builder)
 }
 

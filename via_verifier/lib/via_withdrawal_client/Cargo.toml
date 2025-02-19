@@ -28,6 +28,7 @@ serde.workspace = true
 via_verifier_types.workspace = true
 
 [dev-dependencies]
+dotenv = "0.15"
 zksync_dal.workspace = true
 via_da_clients.workspace = true
 

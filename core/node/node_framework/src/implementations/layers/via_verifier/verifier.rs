@@ -1,12 +1,8 @@
 use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
-use via_btc_client::{
-    client::BitcoinClient,
-    types::{BitcoinAddress, NodeAuth},
-};
+use via_btc_client::{client::BitcoinClient, types::NodeAuth};
 use via_btc_watch::BitcoinNetwork;
-use via_musig2::withdrawal_builder::WithdrawalBuilder;
 use via_verifier_coordinator::verifier::ViaWithdrawalVerifier;
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
@@ -60,34 +56,14 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
         );
         let network = BitcoinNetwork::from_str(self.btc_sender_config.network()).unwrap();
 
-        let btc_client = Arc::new(
-            BitcoinClient::new(self.btc_sender_config.rpc_url(), network, auth.clone())
-                .context("Error to init the btc client for verifier task")?,
-        );
-
         let withdrawal_client = WithdrawalClient::new(input.client.0, network);
 
-        let bridge_address = BitcoinAddress::from_str(self.config.bridge_address_str.as_str())
-            .context("Error parse bridge address")?
-            .assume_checked();
+        let btc_client =
+            Arc::new(BitcoinClient::new(self.btc_sender_config.rpc_url(), network, auth).unwrap());
 
-        let withdrawal_builder = WithdrawalBuilder::new(
-            self.btc_sender_config.rpc_url(),
-            network,
-            auth,
-            bridge_address,
-        )
-        .await?;
-
-        let via_withdrawal_verifier_task = ViaWithdrawalVerifier::new(
-            master_pool,
-            btc_client,
-            withdrawal_builder,
-            withdrawal_client,
-            self.config,
-        )
-        .await
-        .context("Error to init the via withdrawal verifier")?;
+        let via_withdrawal_verifier_task =
+            ViaWithdrawalVerifier::new(self.config, master_pool, btc_client, withdrawal_client)
+                .context("Error to init the via withdrawal verifier")?;
 
         Ok(Output {
             via_withdrawal_verifier_task,

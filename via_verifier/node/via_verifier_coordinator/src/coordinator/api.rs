@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use anyhow::Context as _;
 use tokio::sync::watch;
-use via_musig2::withdrawal_builder::WithdrawalBuilder;
+use via_btc_client::traits::BitcoinOps;
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
@@ -10,7 +12,7 @@ use crate::coordinator::api_decl::RestApi;
 pub async fn start_coordinator_server(
     config: ViaVerifierConfig,
     master_connection_pool: ConnectionPool<Verifier>,
-    withdrawal_builder: WithdrawalBuilder,
+    btc_client: Arc<dyn BitcoinOps>,
     withdrawal_client: WithdrawalClient,
     mut stop_receiver: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
@@ -18,7 +20,7 @@ pub async fn start_coordinator_server(
     let api = RestApi::new(
         config,
         master_connection_pool,
-        withdrawal_builder,
+        btc_client,
         withdrawal_client,
     )?
     .into_router();

@@ -43,6 +43,10 @@ impl MockBitcoinOpsConfig {
     pub fn set_fee_history(&mut self, fees: Vec<u64>) {
         self.fee_history = fees;
     }
+
+    pub fn set_utxos(&mut self, utxos: Vec<(OutPoint, TxOut)>) {
+        self.utxos = utxos;
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -86,7 +90,7 @@ impl BitcoinOps for MockBitcoinOps {
     }
 
     async fn fetch_utxos(&self, _address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>> {
-        BitcoinClientResult::Ok(vec![(
+        let default_utxos = vec![(
             OutPoint {
                 txid: Txid::all_zeros(),
                 vout: 0,
@@ -95,7 +99,11 @@ impl BitcoinOps for MockBitcoinOps {
                 value: Amount::from_btc(1.0).unwrap(),
                 script_pubkey: _address.script_pubkey(),
             },
-        )])
+        )];
+        if self.utxos.is_empty() {
+            return BitcoinClientResult::Ok(default_utxos);
+        }
+        BitcoinClientResult::Ok(self.utxos.clone())
     }
 
     async fn check_tx_confirmation(
