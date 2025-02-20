@@ -4,14 +4,15 @@ mod tests {
     use via_btc_client::{traits::Serializable, types::InscriptionMessage};
     use zksync_contracts::BaseSystemContractsHashes;
     use zksync_dal::{ConnectionPool, Core, CoreDal};
-    use zksync_node_test_utils::{create_l1_batch, l1_batch_metadata_to_commitment_artifacts};
+    use zksync_node_test_utils::l1_batch_metadata_to_commitment_artifacts;
     use zksync_types::{
         btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType,
         ProtocolVersionId,
     };
 
     use crate::tests::utils::{
-        default_l1_batch_metadata, generate_random_bytes, get_btc_sender_config, ViaAggregatorTest,
+        create_l1_batch, default_l1_batch_metadata, generate_random_bytes, get_btc_sender_config,
+        ViaAggregatorTest,
     };
 
     // Get the current operation (commitBatch or commitProof) to execute when there is no batches. Should return 'None'

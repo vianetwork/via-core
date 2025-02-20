@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::{
     bitcoincore_rpc_json::EstimateMode,
-    json::{EstimateSmartFeeResult, GetBlockchainInfoResult, ScanTxOutRequest},
+    json::{
+        EstimateSmartFeeResult, GetBlockStatsResult, GetBlockchainInfoResult, ScanTxOutRequest,
+    },
     Client, RpcApi,
 };
 use tracing::{debug, instrument};
@@ -218,6 +220,15 @@ impl BitcoinRpc for BitcoinRpcClient {
         Self::retry_rpc(|| {
             debug!("Getting blockchain info");
             self.client.get_blockchain_info().map_err(|e| e.into())
+        })
+        .await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
+    async fn get_block_stats(&self, height: u64) -> BitcoinRpcResult<GetBlockStatsResult> {
+        Self::retry_rpc(|| {
+            debug!("Getting block stats");
+            self.client.get_block_stats(height).map_err(|e| e.into())
         })
         .await
     }

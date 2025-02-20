@@ -45,11 +45,17 @@ impl FromEnv for DatabaseSecrets {
             .map(|s| s.parse())
             .transpose()?
             .or_else(|| server_url.clone());
+        let verifier_url = env::var("DATABASE_VERIFIER_URL")
+            .ok()
+            .map(|s| s.parse())
+            .transpose()?
+            .or_else(|| server_url.clone());
 
         Ok(Self {
             server_url,
             prover_url,
             server_replica_url,
+            verifier_url,
         })
     }
 }
@@ -217,6 +223,7 @@ mod tests {
             DATABASE_URL=postgres://postgres:notsecurepassword@localhost/zksync_local
             DATABASE_REPLICA_URL=postgres://postgres:notsecurepassword@localhost/zksync_replica_local
             DATABASE_PROVER_URL=postgres://postgres:notsecurepassword@localhost/zksync_prover_local
+            DATABASE_VERIFIER_URL=postgres://postgres:notsecurepassword@localhost/via_verifier_local
         "#;
         lock.set_env(config);
 
@@ -236,6 +243,12 @@ mod tests {
         assert_eq!(
             postgres_config.prover_url().unwrap(),
             "postgres://postgres:notsecurepassword@localhost/zksync_prover_local"
+                .parse()
+                .unwrap()
+        );
+        assert_eq!(
+            postgres_config.verifier_url().unwrap(),
+            "postgres://postgres:notsecurepassword@localhost/via_verifier_local"
                 .parse()
                 .unwrap()
         );

@@ -52,6 +52,7 @@ impl TryFrom<VmVersion> for MultiVMSubversion {
         match value {
             VmVersion::Vm1_5_0SmallBootloaderMemory => Ok(Self::SmallBootloaderMemory),
             VmVersion::Vm1_5_0IncreasedBootloaderMemory => Ok(Self::IncreasedBootloaderMemory),
+            VmVersion::VmBitcoin1_0_0 => Ok(Self::IncreasedBootloaderMemory),
             _ => Err(VmVersionIsNotVm150Error),
         }
     }

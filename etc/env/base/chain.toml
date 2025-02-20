@@ -53,7 +53,7 @@ reject_tx_at_gas_percentage = 0.95
 
 # The minimal acceptable L2 gas price, i.e. the price that should include the cost of computation/proving as well
 # as potentially premium for congestion.
-minimal_l2_gas_price = 100
+minimal_l2_gas_price = 10000000
 
 # The constant that represents the possibility that a batch can be sealed because of overuse of computation resources.
 # It has range from 0 to 1. If it is 0, the compute will not depend on the cost for closing the batch.
@@ -65,8 +65,8 @@ compute_overhead_part = 0.0
 # If it is 1, the pubdata limit per batch will have to cover the entire cost of closing the batch.
 pubdata_overhead_part = 1.0
 
-# The constant amount of L1 gas that is used as the overhead for the batch. It includes the price for batch verification, etc.
-batch_overhead_l1_gas = 800000
+# The constant L1 gas unit in vbyte required to finilize the L1 Batch. This cost includes the Pubdata, proof and verification inscriptions.
+batch_overhead_l1_gas = 5000
 
 # The maximum amount of gas that can be used by the batch. This value is derived from the circuits limitation per batch.
 max_gas_per_batch = 200000000
@@ -90,8 +90,8 @@ fee_model_version = "V2"
 validation_computational_gas_limit = 300000
 save_call_traces = true
 
-bootloader_hash = "0x010008e742608b21bf7eb23c1a9d0602047e3618b464c9b59c0fba3b3d7ab66e"
-default_aa_hash = "0x01000563374c277a2c1e34659a2a1e87371bb6d852ce142022d497bfb50b9e32"
+bootloader_hash = "0x010008e74e40a94b1c6e6eb5a1dfbbdbd9eb9e0ec90fd358d29e8c07c30d8491"
+default_aa_hash = "0x01000563426437b886b132bf5bcf9b0d98c3648f02a6e362893db4345078d09f"
 
 protective_reads_persistence_enabled = false
 

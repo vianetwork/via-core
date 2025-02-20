@@ -1,11 +1,7 @@
 use anyhow::{Context, Result};
 use bincode::serialize;
 use tokio::sync::watch;
-use via_btc_client::{
-    inscriber::Inscriber,
-    traits::Serializable,
-    types::{InscriptionConfig, InscriptionMessage},
-};
+use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::btc_sender::ViaBtcInscriptionRequest;
@@ -45,9 +41,7 @@ impl ViaBtcInscriptionManager {
             let mut storage = pool.connection_tagged("via_btc_sender").await?;
 
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => {
-                    tracing::info!("Inscription manager task finished");
-                }
+                Ok(()) => {}
                 Err(err) => {
                     tracing::error!("Failed to process btc_sender_inscription_manager: {err}");
                 }
@@ -112,23 +106,10 @@ impl ViaBtcInscriptionManager {
                     {
                         continue;
                     }
-
-                    let number_inscription_request_history = storage
-                        .btc_sender_dal()
-                        .get_total_inscription_request_history(inscription.id)
-                        .await?;
-
-                    let config = InscriptionConfig {
-                        fee_multiplier: number_inscription_request_history as u64 + 1,
-                    };
-
-                    tracing::info!(
-                        "Inscription {reveal_tx} stuck for more than {BLOCK_RESEND} block, retry sending the inscription.",
+                    tracing::warn!(
+                        "Inscription {reveal_tx} stuck for more than {BLOCK_RESEND} block.",
                         reveal_tx = last_inscription_history.reveal_tx_id
                     );
-
-                    self.send_inscription_tx(storage, &inscription, config)
-                        .await?;
                 }
             }
         }
@@ -168,8 +149,7 @@ impl ViaBtcInscriptionManager {
                 .await?;
 
             for inscription in list_new_inscription_request {
-                self.send_inscription_tx(storage, &inscription, InscriptionConfig::default())
-                    .await?;
+                self.send_inscription_tx(storage, &inscription).await?;
             }
         }
         Ok(())
@@ -179,7 +159,6 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
         tx: &ViaBtcInscriptionRequest,
-        config: InscriptionConfig,
     ) -> anyhow::Result<()> {
         let sent_at_block = self
             .inscriber
@@ -194,7 +173,7 @@ impl ViaBtcInscriptionManager {
 
         let inscribe_info = self
             .inscriber
-            .inscribe(input, config)
+            .inscribe(input)
             .await
             .context("Sent inscription tx")?;
 
@@ -204,7 +183,7 @@ impl ViaBtcInscriptionManager {
             serialize(&inscribe_info.final_reveal_tx.tx).context("Serilize the reveal tx")?;
 
         let actual_fees = inscribe_info.reveal_tx_output_info._reveal_fee
-            + inscribe_info.commit_tx_output_info._commit_tx_fee;
+            + inscribe_info.commit_tx_output_info.commit_tx_fee;
 
         tracing::info!(
             "New inscription created {commit_tx} {reveal_tx}",

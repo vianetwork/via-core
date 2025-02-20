@@ -1,4 +1,7 @@
-use via_btc_client::types::{BitcoinAddress, FullInscriptionMessage, L1ToL2Message};
+use via_btc_client::{
+    indexer::BitcoinInscriptionIndexer,
+    types::{BitcoinAddress, FullInscriptionMessage, L1ToL2Message},
+};
 use zksync_dal::{Connection, Core, CoreDal};
 use zksync_types::{
     abi::L2CanonicalTransaction,
@@ -33,6 +36,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         &mut self,
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
+        _: &mut BitcoinInscriptionIndexer,
     ) -> Result<(), MessageProcessorError> {
         let mut priority_ops = Vec::new();
         for msg in msgs {
@@ -96,9 +100,9 @@ impl L1ToL2MessageProcessor {
         let eth_address_l2 = msg.input.receiver_l2_address;
         let calldata = msg.input.call_data.clone();
 
-        let value = U256::from(amount);
-        let mantissa = U256::from(10_000_000_000u64); // scale down the cost Eth 18 decimals - BTC 8 decimals
-        let max_fee_per_gas = U256::from(100_000_000_000u64) / mantissa;
+        let mantissa = U256::from(10_000_000_000u64); // Eth 18 decimals - BTC 8 decimals
+        let value = U256::from(amount) * mantissa;
+        let max_fee_per_gas = U256::from(100_000_000u64);
         let gas_limit = U256::from(1_000_000u64);
         let gas_per_pubdata_limit = U256::from(800u64);
 

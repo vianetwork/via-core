@@ -1,4 +1,7 @@
+use bitcoin::{hashes::Hash, Txid};
 use tokio::time::Duration;
+
+use crate::types;
 
 pub(crate) async fn with_retry<F, T, E>(
     f: F,
@@ -27,4 +30,9 @@ where
             Err(e) => return Err(e),
         }
     }
+}
+
+pub fn bytes_to_txid(bytes: &[u8]) -> Result<Txid, types::IndexerError> {
+    let txid = Txid::from_slice(bytes).map_err(types::IndexerError::TxIdParsingError)?;
+    Ok(txid)
 }

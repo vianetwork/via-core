@@ -1,10 +1,7 @@
 use anyhow::Context;
 use bitcoin::hash_types::Txid;
 use zksync_db_connection::connection::Connection;
-use zksync_types::{
-    btc_inscription_operations::ViaBtcInscriptionRequestType,
-    btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory},
-};
+use zksync_types::btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
 
 use crate::{
     models::storage_btc_inscription_request::{
@@ -21,7 +18,7 @@ pub struct ViaBtcSenderDal<'a, 'c> {
 impl ViaBtcSenderDal<'_, '_> {
     pub async fn via_save_btc_inscriptions_request(
         &mut self,
-        inscription_request_type: ViaBtcInscriptionRequestType,
+        inscription_request_type: String,
         inscription_message: Vec<u8>,
         predicted_fee: u64,
     ) -> sqlx::Result<ViaBtcInscriptionRequest> {
@@ -35,7 +32,7 @@ impl ViaBtcSenderDal<'_, '_> {
             RETURNING
                 *
             "#,
-            inscription_request_type.to_string(),
+            inscription_request_type,
             inscription_message,
             predicted_fee as i64,
         )
@@ -172,28 +169,6 @@ impl ViaBtcSenderDal<'_, '_> {
         .await?;
 
         Ok(inscription_request_history.map(ViaBtcInscriptionRequestHistory::from))
-    }
-
-    pub async fn get_total_inscription_request_history(
-        &mut self,
-        inscription_request_id: i64,
-    ) -> sqlx::Result<i64> {
-        let total = sqlx::query!(
-            r#"
-            SELECT
-                COUNT(id) AS COUNT
-            FROM
-                via_btc_inscriptions_request_history
-            WHERE
-                inscription_request_id = $1
-            "#,
-            inscription_request_id
-        )
-        .fetch_one(self.storage.conn())
-        .await?;
-
-        // Return the count or 0 if no records were found
-        Ok(total.count.unwrap_or(0))
     }
 
     pub async fn confirm_inscription(

@@ -11,14 +11,18 @@ use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{BitcoinAddress, BitcoinTxid, NodeAuth},
 };
+use zksync_config::ActorRole;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::PriorityOpId;
 
 use self::{
-    message_processors::{L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError},
-    metrics::METRICS,
+    message_processors::{
+        L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError, VotableMessageProcessor,
+    },
+    metrics::{ErrorType, METRICS},
 };
-use crate::metrics::ErrorType;
+
+const DEFAULT_VOTING_THRESHOLD: f64 = 0.5;
 
 #[derive(Debug)]
 struct BtcWatchState {
@@ -49,6 +53,7 @@ impl BtcWatch {
         pool: ConnectionPool<Core>,
         poll_interval: Duration,
         btc_blocks_lag: u32,
+        actor_role: &ActorRole,
     ) -> anyhow::Result<Self> {
         let indexer =
             BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
@@ -57,12 +62,16 @@ impl BtcWatch {
         tracing::info!("initialized state: {state:?}");
         drop(storage);
 
-        // TODO: add other message processors if needed
-        let message_processors: Vec<Box<dyn MessageProcessor>> =
-            vec![Box::new(L1ToL2MessageProcessor::new(
+        assert_eq!(actor_role, &ActorRole::Sequencer);
+
+        // Only build message processors that match the actor role:
+        let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
+            Box::new(L1ToL2MessageProcessor::new(
                 state.bridge_address.clone(),
                 state.next_expected_priority_id,
-            ))];
+            )),
+            Box::new(VotableMessageProcessor::new(DEFAULT_VOTING_THRESHOLD)),
+        ];
 
         let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);
 
@@ -173,9 +182,11 @@ impl BtcWatch {
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?;
 
-        // temporary use only one processor to avoid cloning
-        if let Some(processor) = self.message_processors.first_mut() {
-            processor.process_messages(storage, messages).await?;
+        for processor in self.message_processors.iter_mut() {
+            processor
+                .process_messages(storage, messages.clone(), &mut self.indexer)
+                .await
+                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
         }
 
         self.last_processed_bitcoin_block = to_block;

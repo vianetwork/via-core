@@ -49,10 +49,10 @@ max_acceptable_priority_fee_in_gwei = 100000000000
 pubdata_sending_mode = "Blobs"
 
 [eth_sender.gas_adjuster]
-# Priority fee to be used by GasAdjuster (in wei).
-default_priority_fee_per_gas = 1_000_000_000
+# Priority fee to be used by GasAdjuster (in satoshi).
+default_priority_fee_per_gas = 1
 # Max number of base fees from previous blocks to be used to correctly price transactions.
-max_base_fee_samples = 10_000
+max_base_fee_samples = 10
 # These two are parameters of the base_fee_per_gas formula in GasAdjuster.
 # The possible formulas are:
 # 1. base_fee_median * (A + B * time_in_mempool)

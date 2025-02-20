@@ -3,7 +3,8 @@ bellman-cuda
 sdk/zksync-rs/CHANGELOG.md
 CHANGELOG.md
 core/lib/dal/.sqlx
-prover/lib/dal/.sqlx
+prover/lib/dal/.
+verifier/lib/verifier_dal/.sqlx
 node_modules
 
 # Ignore contract submodules

@@ -23,6 +23,8 @@ mod utils;
 mod via_btc_sender;
 mod via_celestia;
 
+mod via_verifier;
+
 mod base_token_adjuster;
 mod da_dispatcher;
 mod external_price_api_client;

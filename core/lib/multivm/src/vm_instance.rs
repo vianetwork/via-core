@@ -245,6 +245,15 @@ impl<S: ReadStorage, H: HistoryMode> VmInstance<S, H> {
                 );
                 VmInstance::Vm1_5_0(vm)
             }
+            VmVersion::VmBitcoin1_0_0 => {
+                let vm = crate::vm_latest::Vm::new_with_subversion(
+                    l1_batch_env,
+                    system_env,
+                    storage_view,
+                    crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+                );
+                VmInstance::Vm1_5_0(vm)
+            }
         }
     }
 

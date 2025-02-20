@@ -23,7 +23,7 @@ async function updateEnvVariable(envFilePath: string, variableName: string, newV
     await fs.writeFile(envFilePath, newEnvContent, 'utf-8');
 }
 
-async function updateBootstrapTxidsEnv() {
+export async function updateBootstrapTxidsEnv() {
     const txidsFilePath = path.join(process.env.VIA_HOME!, 'txids.via');
 
     const txidsContent = await fs.readFile(txidsFilePath, 'utf8');
@@ -34,13 +34,15 @@ async function updateBootstrapTxidsEnv() {
 
     const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);
 
+    console.log(`Updating file ${envFilePath}`);
+
     await updateEnvVariable(envFilePath, 'VIA_BTC_WATCH_BOOTSTRAP_TXIDS', newTxids);
 
     console.log(`Updated VIA_BTC_WATCH_BOOTSTRAP_TXIDS with: ${newTxids}`);
 
     try {
-        await fs.unlink(txidsFilePath);
-        console.log(`Deleted txids.via file.`);
+        // await fs.unlink(txidsFilePath);
+        console.log(`NOT Deleted txids.via file.`);
     } catch (error) {
         console.error(`Error deleting txids.via file`);
     }

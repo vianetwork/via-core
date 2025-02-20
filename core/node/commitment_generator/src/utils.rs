@@ -76,6 +76,14 @@ impl CommitmentComputer for RealCommitmentComputer {
                         .collect(),
                 ),
             )),
+            VmVersion::VmBitcoin1_0_0 => Ok(H256(
+                circuit_sequencer_api_1_5_0::commitments::events_queue_commitment_fixed(
+                    &events_queue
+                        .iter()
+                        .map(|x| to_log_query_1_5_0(*x))
+                        .collect(),
+                ),
+            )),
             _ => anyhow::bail!("Unsupported protocol version: {protocol_version:?}"),
         }
     }
@@ -107,6 +115,11 @@ impl CommitmentComputer for RealCommitmentComputer {
             )),
             VmVersion::Vm1_5_0SmallBootloaderMemory
             | VmVersion::Vm1_5_0IncreasedBootloaderMemory => Ok(H256(
+                circuit_sequencer_api_1_5_0::commitments::initial_heap_content_commitment_fixed(
+                    &full_bootloader_memory,
+                ),
+            )),
+            VmVersion::VmBitcoin1_0_0 => Ok(H256(
                 circuit_sequencer_api_1_5_0::commitments::initial_heap_content_commitment_fixed(
                     &full_bootloader_memory,
                 ),

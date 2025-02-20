@@ -21,11 +21,15 @@ export function createVolumes() {
     fs.mkdirSync(`${process.env.VIA_HOME}/volumes/btc-explorer/mysql`, {
         recursive: true
     });
+    fs.mkdirSync(`${process.env.VIA_HOME}/volumes/celestia-keys`, {
+        recursive: true
+    });
 }
 
-export async function up(composeFile?: string) {
+export async function up(composeFile?: string, envFilePath?: string) {
     if (composeFile) {
-        await utils.spawn(`docker compose -f ${composeFile} up -d`);
+        const envFile = envFilePath ? `--env-file ${envFilePath}` : '';
+        await utils.spawn(`docker compose ${envFile} -f ${composeFile} up -d`);
     } else {
         await utils.spawn('docker compose up -d');
     }

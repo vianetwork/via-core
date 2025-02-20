@@ -11,8 +11,8 @@ use tracing::info;
 use via_btc_client::{
     inscriber::Inscriber,
     types::{
-        BitcoinAddress, BitcoinNetwork, InscriberContext, InscriptionConfig, InscriptionMessage,
-        L1ToL2MessageInput, NodeAuth, Recipient,
+        BitcoinAddress, BitcoinNetwork, InscriberContext, InscriptionMessage, L1ToL2MessageInput,
+        NodeAuth, Recipient,
     },
 };
 use zksync_types::Address as EVMAddress;
@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
     let rpc_username = args[6].clone();
     let rpc_password = args[7].clone();
 
-    let bridge_p2wpkh_mpc_address = "bcrt1qdrzjq2mwlhrnhan94em5sl032zd95m73ud8ddw"
+    let bridge_musig2_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
         .require_network(network)?;
 
@@ -85,9 +85,8 @@ async fn main() -> Result<()> {
     let deposit_info = inscriber
         .inscribe_with_recipient(
             InscriptionMessage::L1ToL2Message(input),
-            InscriptionConfig::default(),
             Some(Recipient {
-                address: bridge_p2wpkh_mpc_address,
+                address: bridge_musig2_address,
                 amount: Amount::from_btc(amount)?,
             }),
         )

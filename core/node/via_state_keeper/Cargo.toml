@@ -46,5 +46,6 @@ assert_matches.workspace = true
 tempfile.workspace = true
 test-casing.workspace = true
 futures.workspace = true
+via_btc_client.workspace = true
 
 zksync_system_constants.workspace = true

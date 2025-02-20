@@ -13,7 +13,7 @@ pub struct CommitTxOutputRes {
     pub commit_tx_change_output: TxOut,
     pub commit_tx_tapscript_output: TxOut,
     pub commit_tx_fee_rate: u64,
-    pub _commit_tx_fee: Amount,
+    pub commit_tx_fee: Amount,
 }
 
 #[derive(Debug)]

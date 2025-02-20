@@ -2,8 +2,14 @@
 
 use std::{slice, sync::Arc, time::Duration};
 
-use via_fee_model::ViaMainNodeFeeInputProvider;
-use zksync_config::configs::{chain::StateKeeperConfig, wallets::Wallets};
+use via_btc_client::inscriber::test_utils::{
+    get_mock_inscriber_and_conditions, MockBitcoinOpsConfig,
+};
+use via_fee_model::{ViaGasAdjuster, ViaMainNodeFeeInputProvider};
+use zksync_config::{
+    configs::{chain::StateKeeperConfig, wallets::Wallets},
+    GasAdjusterConfig,
+};
 use zksync_contracts::BaseSystemContracts;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_multivm::{
@@ -44,9 +50,17 @@ impl Tester {
     }
 
     pub(super) async fn create_batch_fee_input_provider(&self) -> ViaMainNodeFeeInputProvider {
-        ViaMainNodeFeeInputProvider::new(FeeModelConfig::V1(FeeModelConfigV1 {
-            minimal_l2_gas_price: self.minimal_l2_gas_price(),
-        }))
+        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
+        ViaMainNodeFeeInputProvider::new(
+            Arc::new(
+                ViaGasAdjuster::new(GasAdjusterConfig::default(), inscriber)
+                    .await
+                    .unwrap(),
+            ),
+            FeeModelConfig::V1(FeeModelConfigV1 {
+                minimal_l2_gas_price: self.minimal_l2_gas_price(),
+            }),
+        )
         .unwrap()
     }
 
@@ -59,11 +73,7 @@ impl Tester {
         &self,
         pool: ConnectionPool<Core>,
     ) -> (MempoolIO, MempoolGuard) {
-        let batch_fee_input_provider =
-            ViaMainNodeFeeInputProvider::new(FeeModelConfig::V1(FeeModelConfigV1 {
-                minimal_l2_gas_price: self.minimal_l2_gas_price(),
-            }))
-            .unwrap();
+        let batch_fee_input_provider = self.create_batch_fee_input_provider().await;
 
         let mempool = MempoolGuard::new(PriorityOpId(0), 100);
         let config = StateKeeperConfig {
