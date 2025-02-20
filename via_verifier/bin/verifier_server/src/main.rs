@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use clap::Parser;
 use zksync_config::{
     configs::{DatabaseSecrets, L1Secrets, Secrets},
-    ContractsConfig, GenesisConfig, ViaGeneralConfig,
+    ContractsConfig, ViaGeneralConfig,
 };
 use zksync_env_config::FromEnv;
 
@@ -73,20 +73,6 @@ fn main() -> anyhow::Result<()> {
         },
     };
 
-    let genesis = match opt.genesis_path {
-        Some(_path) => {
-            todo!("Load genesis from file")
-        }
-        None => GenesisConfig::from_env().context("Failed to load genesis from env")?,
-    };
-
-    let wallets = match opt.wallets_path {
-        Some(_path) => {
-            todo!("Load config from file");
-        }
-        None => tmp_config.wallets(),
-    };
-
     let mut contracts_config = match opt.contracts_config_path {
         Some(_path) => {
             todo!("Load contracts from file")
@@ -102,8 +88,7 @@ fn main() -> anyhow::Result<()> {
         .clone()
         .context("Observability config missing")?;
 
-    let node_builder =
-        node_builder::ViaNodeBuilder::new(configs, wallets, secrets, genesis, contracts_config)?;
+    let node_builder = node_builder::ViaNodeBuilder::new(configs, secrets)?;
 
     let observability_guard = {
         // Observability initialization should be performed within tokio context.

@@ -92,6 +92,8 @@ members = [
     "core/node/via_fee_model",
     "core/node/via_state_keeper",
     "core/lib/via_da_clients",
+    "core/tests/via_loadnext",
+
 
     # VIA Verifier
     "via_verifier/bin/verifier_server",
