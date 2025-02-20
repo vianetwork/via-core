@@ -1,8 +1,8 @@
 use once_cell::sync::OnceCell;
 use rand::Rng;
 use static_assertions::const_assert;
-use zksync_types::{Address, U256};
 use via_btc_client::types::BitcoinAddress;
+use zksync_types::{Address, U256};
 
 use crate::{
     account_pool::AddressPool,

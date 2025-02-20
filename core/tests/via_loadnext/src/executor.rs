@@ -141,9 +141,12 @@ impl Executor {
 
         // print the balance of the master account on L2
         let block_number = BlockNumber::Latest;
-        let balance = self.pool.eth_master_wallet.get_balance(block_number, L2_BASE_TOKEN_ADDRESS).await?;
+        let balance = self
+            .pool
+            .eth_master_wallet
+            .get_balance(block_number, L2_BASE_TOKEN_ADDRESS)
+            .await?;
         tracing::info!("Master Account: L2 balance is {}", balance);
-
 
         match deposit_response {
             Ok(hash) => {
@@ -213,10 +216,7 @@ impl Executor {
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to estimate fee: {}", e))?;
 
-
             fee.gas_per_pubdata_limit = U256::from(1);
-
-
 
             let transfer = transfer_builder.fee(fee).send().await;
 
