@@ -1,3 +1,7 @@
+use std::str::FromStr;
+
+use bitcoin::Network;
+use via_btc_client::types::BitcoinAddress;
 use zksync_eth_signer::EthereumSigner;
 use zksync_types::{
     ethabi, fee::Fee, l2::L2Tx, transaction_request::PaymasterParams, Address, Nonce,
@@ -13,7 +17,7 @@ use crate::sdk::{
 
 pub struct WithdrawBuilder<'a, S: EthereumSigner, P> {
     wallet: &'a Wallet<S, P>,
-    to: Option<Address>,
+    to: Option<BitcoinAddress>,
     amount: Option<U256>,
     fee: Option<Fee>,
     nonce: Option<Nonce>,
@@ -42,6 +46,7 @@ where
     async fn get_execute_builder(&self) -> Result<ExecuteContractBuilder<'_, S, P>, ClientError> {
         let to = self
             .to
+            .clone()
             .ok_or_else(|| ClientError::MissingRequiredField("to".into()))?;
         let amount = self
             .amount
@@ -51,7 +56,8 @@ where
 
         let calldata_params = vec![ethabi::ParamType::Bytes];
         let mut calldata = ethabi::short_signature("withdraw", &calldata_params).to_vec();
-        let mut to_bytes = ethabi::encode(&[ethabi::Token::Bytes(to.as_bytes().to_vec())]);
+        let mut to_bytes =
+            ethabi::encode(&[ethabi::Token::Bytes(to.to_string().as_bytes().to_vec())]);
         calldata.append(&mut to_bytes);
 
         let value = amount;
@@ -106,7 +112,7 @@ where
     }
 
     /// Sets the address of Ethereum wallet to withdraw funds to.
-    pub fn to(mut self, to: Address) -> Self {
+    pub fn to(mut self, to: BitcoinAddress) -> Self {
         self.to = Some(to);
         self
     }
@@ -116,9 +122,9 @@ where
     /// Provided string value must be a correct address in a hexadecimal form,
     /// otherwise an error will be returned.
     pub fn str_to(mut self, to: impl AsRef<str>) -> Result<Self, ClientError> {
-        let to: Address = to
-            .as_ref()
-            .parse()
+        let to: BitcoinAddress = BitcoinAddress::from_str(to.as_ref())
+            .map_err(|_| ClientError::IncorrectAddress)?
+            .require_network(Network::Regtest)
             .map_err(|_| ClientError::IncorrectAddress)?;
 
         self.to = Some(to);
