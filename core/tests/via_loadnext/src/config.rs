@@ -179,7 +179,7 @@ fn default_btc_master_wallet_pk() -> String {
 }
 
 fn default_accounts_amount() -> usize {
-    let result = 80;
+    let result = 5;
     tracing::info!("Using default ACCOUNTS_AMOUNT: {result}");
     result
 }
@@ -191,7 +191,7 @@ fn default_duration_sec() -> u64 {
 }
 
 fn default_accounts_group_size() -> usize {
-    let result = 40;
+    let result = 1;
     tracing::info!("Using default ACCOUNTS_GROUP_SIZE: {result}");
     result
 }

@@ -7,6 +7,7 @@ use via_btc_client::{
     traits::BitcoinOps,
     types::{BitcoinNetwork, NodeAuth},
 };
+use zksync_types::{L2_BASE_TOKEN_ADDRESS, U256};
 
 use crate::{
     account::{btc_deposit, AccountLifespan},
@@ -183,39 +184,44 @@ impl Executor {
 
     /// Distributes BTC to test accounts on L2
     async fn distribute_btc(&mut self, accounts_to_process: usize) -> anyhow::Result<()> {
-        tracing::info!("Master Account: Distributing BTC to test accounts");
-        let master_wallet = &mut self.pool.btc_master_wallet;
+        tracing::info!("Master Account: Distributing BTC to test accounts on L2");
+        let master_eth_wallet = &mut self.pool.eth_master_wallet;
 
         let l2_transfer_amount = bitcoin::Amount::from_btc(0.01).unwrap().to_sat();
 
-        for (eth_account, _) in self
-            .pool
-            .eth_accounts
-            .iter()
-            .zip(self.pool.btc_accounts.iter())
-            .take(accounts_to_process)
-        {
+        for eth_account in self.pool.eth_accounts.iter().take(accounts_to_process) {
             // L2 BTC transfer
-            let deposit_response = btc_deposit::deposit(
-                l2_transfer_amount,
-                eth_account.wallet.address(),
-                master_wallet.btc_private_key,
-                self.config.l1_btc_rpc_address.clone(),
-                self.config.l1_btc_rpc_username.clone(),
-                self.config.l1_btc_rpc_password.clone(),
-            )
-            .await;
+            let transfer_builder = master_eth_wallet
+                .start_transfer()
+                .to(eth_account.wallet.address())
+                .token(L2_BASE_TOKEN_ADDRESS)
+                .amount(U256::from(l2_transfer_amount));
 
-            match deposit_response {
-                Ok(hash) => {
-                    tracing::info!(
-                        "BTC L1 transfer sent with hash: {} to account {}",
-                        hash,
-                        eth_account.wallet.address()
-                    );
+            // Estimate fee first
+            let fee = transfer_builder
+                .estimate_fee(None)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to estimate fee: {}", e))?;
+
+            let transfer = transfer_builder.fee(fee).send().await;
+
+            match transfer {
+                Ok(handle) => {
+                    let receipt = handle.wait_for_commit().await;
+                    match receipt {
+                        Ok(_) => {
+                            tracing::info!(
+                                "BTC L2 transfer sent to account {}",
+                                eth_account.wallet.address()
+                            );
+                        }
+                        Err(err) => {
+                            anyhow::bail!("Failed to get receipt for BTC L2 transfer: {}", err);
+                        }
+                    }
                 }
                 Err(err) => {
-                    anyhow::bail!("Failed to transfer BTC on L1: {}", err);
+                    anyhow::bail!("Failed to transfer BTC on L2: {}", err);
                 }
             }
         }
