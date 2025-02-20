@@ -200,7 +200,7 @@ impl Executor {
         tracing::info!("Master Account: Distributing BTC to test accounts on L2");
         let master_eth_wallet = &mut self.pool.eth_master_wallet;
 
-        let l2_transfer_amount = bitcoin::Amount::from_btc(0.01).unwrap().to_sat();
+        let l2_transfer_amount = bitcoin::Amount::from_btc(0.1).unwrap().to_sat();
 
         for eth_account in self.pool.eth_accounts.iter().take(accounts_to_process) {
             // L2 BTC transfer

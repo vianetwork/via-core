@@ -169,7 +169,7 @@ impl AccountLifespan {
 
         let mut builder = wallet
             .start_withdraw()
-            .to(command.to)
+            .to(command.to_btc.clone().unwrap())
             .amount(command.amount);
 
         let fee = builder
