@@ -1,5 +1,7 @@
 use std::{
-    collections::VecDeque, sync::Arc, time::{Duration, Instant}
+    collections::VecDeque,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use futures::{channel::mpsc, SinkExt};
