@@ -1,7 +1,5 @@
 use std::{
-    collections::VecDeque,
-    sync::Arc,
-    time::{Duration, Instant},
+    collections::VecDeque, sync::Arc, time::{Duration, Instant}
 };
 
 use futures::{channel::mpsc, SinkExt};
@@ -125,6 +123,7 @@ impl AccountLifespan {
             command_type: TxType::DeployContract,
             modifier: IncorrectnessModifier::None,
             to: Address::zero(),
+            to_btc: None,
             amount: U256::zero(),
         };
         self.execute_command(deploy_command.clone()).await?;
