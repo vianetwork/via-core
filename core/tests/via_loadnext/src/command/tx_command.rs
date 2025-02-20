@@ -2,6 +2,7 @@ use once_cell::sync::OnceCell;
 use rand::Rng;
 use static_assertions::const_assert;
 use zksync_types::{Address, U256};
+use via_btc_client::types::BitcoinAddress;
 
 use crate::{
     account_pool::AddressPool,
@@ -136,6 +137,7 @@ pub struct TxCommand {
     pub modifier: IncorrectnessModifier,
     /// Recipient address.
     pub to: Address,
+    pub to_btc: Option<BitcoinAddress>,
     /// Transaction amount (0 if not applicable).
     pub amount: U256,
 }
@@ -158,8 +160,13 @@ impl TxCommand {
             command_type,
             modifier: IncorrectnessModifier::random(rng),
             to: addresses.random_evm_address(rng),
+            to_btc: None,
             amount: Self::random_amount(rng),
         };
+
+        if matches!(command.command_type, TxType::Withdraw) {
+            command.to_btc = Some(addresses.random_btc_address(rng));
+        }
 
         // Check whether we should use a self as a target.
         if command.command_type.is_target_self() {

@@ -7,7 +7,7 @@ use via_btc_client::{
     traits::BitcoinOps,
     types::{BitcoinNetwork, NodeAuth},
 };
-use zksync_types::{L2_BASE_TOKEN_ADDRESS, U256};
+use zksync_types::{api::BlockNumber, L2_BASE_TOKEN_ADDRESS, U256};
 
 use crate::{
     account::{btc_deposit, AccountLifespan},
@@ -135,6 +135,16 @@ impl Executor {
         )
         .await;
 
+        // sleep for 20 seconds to wait for the deposit to be confirmed on L2
+        tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+        tracing::info!("Master Account: Waiting for the deposit to be confirmed on L2");
+
+        // print the balance of the master account on L2
+        let block_number = BlockNumber::Latest;
+        let balance = self.pool.eth_master_wallet.get_balance(block_number, L2_BASE_TOKEN_ADDRESS).await?;
+        tracing::info!("Master Account: L2 balance is {}", balance);
+
+
         match deposit_response {
             Ok(hash) => {
                 tracing::info!("BTC deposit transaction sent with hash: {}", hash);
@@ -198,10 +208,15 @@ impl Executor {
                 .amount(U256::from(l2_transfer_amount));
 
             // Estimate fee first
-            let fee = transfer_builder
+            let mut fee = transfer_builder
                 .estimate_fee(None)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to estimate fee: {}", e))?;
+
+
+            fee.gas_per_pubdata_limit = U256::from(1);
+
+
 
             let transfer = transfer_builder.fee(fee).send().await;
 
