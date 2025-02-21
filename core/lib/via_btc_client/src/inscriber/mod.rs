@@ -960,6 +960,7 @@ mod tests {
             l1_batch_index: zksync_basic_types::L1BatchNumber(0_u32),
             da_identifier: "da_identifier_celestia".to_string(),
             blob_id: "batch_temp_blob_id".to_string(),
+            prev_l1_batch_hash: zksync_basic_types::H256([0; 32]),
         };
 
         let inscribe_message = InscriptionMessage::L1BatchDAReference(l1_da_batch_ref);

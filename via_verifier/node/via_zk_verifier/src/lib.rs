@@ -180,7 +180,7 @@ impl ViaVerifier {
         }
 
         if txs.is_empty() {
-            tracing::error!("There is no transactions to validate the op priority id",);
+            tracing::info!("There is no transactions to validate the op priority id",);
             return Ok(true);
         }
 

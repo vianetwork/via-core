@@ -155,6 +155,8 @@ impl InscriptionData {
         let l1_batch_index_encoded = Self::encode_push_bytes(&input.l1_batch_index.to_be_bytes());
         let da_identifier_encoded = Self::encode_push_bytes(input.da_identifier.as_bytes());
         let da_reference_encoded = Self::encode_push_bytes(input.blob_id.as_bytes());
+        let prev_l1_batch_hash_encoded =
+            Self::encode_push_bytes(input.prev_l1_batch_hash.as_bytes());
 
         basic_script
             .push_slice(&*types::L1_BATCH_DA_REFERENCE_MSG)
@@ -162,6 +164,7 @@ impl InscriptionData {
             .push_slice(l1_batch_index_encoded)
             .push_slice(da_identifier_encoded)
             .push_slice(da_reference_encoded)
+            .push_slice(prev_l1_batch_hash_encoded)
     }
 
     #[instrument(
