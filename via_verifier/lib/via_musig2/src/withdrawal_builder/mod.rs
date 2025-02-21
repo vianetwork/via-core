@@ -6,51 +6,18 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
-use bincode::{deserialize, serialize};
 use bitcoin::{
-    absolute, hashes::Hash, script::PushBytesBuf, transaction, Address, Amount, OutPoint,
+    absolute, hashes::Hash, script::PushBytesBuf, transaction, Address, Amount, Network, OutPoint,
     ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument};
+use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
+use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 
-use crate::{
-    client::BitcoinClient,
-    traits::{BitcoinOps, Serializable},
-    types::BitcoinNetwork,
-};
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WithdrawalBuilder {
     client: Arc<dyn BitcoinOps>,
     bridge_address: Address,
-}
-
-#[derive(Debug)]
-pub struct WithdrawalRequest {
-    pub address: Address,
-    pub amount: Amount,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UnsignedWithdrawalTx {
-    pub tx: Transaction,
-    pub txid: Txid,
-    pub utxos: Vec<(OutPoint, TxOut)>,
-    pub change_amount: Amount,
-}
-
-impl Serializable for UnsignedWithdrawalTx {
-    fn to_bytes(&self) -> Vec<u8> {
-        serialize(self).expect("error serialize the UnsignedWithdrawalTx")
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self
-    where
-        Self: Sized,
-    {
-        deserialize(bytes).expect("error deserialize the UnsignedWithdrawalTx")
-    }
 }
 
 const OP_RETURN_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
@@ -59,8 +26,8 @@ impl WithdrawalBuilder {
     #[instrument(skip(rpc_url, auth), target = "bitcoin_withdrawal")]
     pub async fn new(
         rpc_url: &str,
-        network: BitcoinNetwork,
-        auth: bitcoincore_rpc::Auth,
+        network: Network,
+        auth: NodeAuth,
         bridge_address: Address,
     ) -> Result<Self> {
         info!("Creating new WithdrawalBuilder");
@@ -77,7 +44,7 @@ impl WithdrawalBuilder {
         &self,
         withdrawals: Vec<WithdrawalRequest>,
         proof_txid: Txid,
-    ) -> Result<UnsignedWithdrawalTx> {
+    ) -> Result<UnsignedBridgeTx> {
         debug!("Creating unsigned withdrawal transaction");
 
         // Group withdrawals by address and sum amounts
@@ -200,7 +167,7 @@ impl WithdrawalBuilder {
 
         debug!("Unsigned withdrawal transaction created successfully");
 
-        Ok(UnsignedWithdrawalTx {
+        Ok(UnsignedBridgeTx {
             tx: unsigned_tx,
             txid,
             utxos: selected_utxos,
@@ -293,6 +260,10 @@ impl WithdrawalBuilder {
         // Add one more to our estimate to be safe
         Ok(count.saturating_add(1))
     }
+
+    pub fn get_btc_client(&self) -> Arc<dyn BitcoinOps> {
+        self.client.clone()
+    }
 }
 
 #[cfg(test)]
@@ -301,10 +272,11 @@ mod tests {
 
     use async_trait::async_trait;
     use bitcoin::Network;
+    use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
+    use via_btc_client::types::BitcoinError;
 
     use super::*;
-    use crate::types::BitcoinError;
 
     mock! {
         BitcoinOpsService {}
@@ -358,7 +330,7 @@ mod tests {
                 Ok(bitcoin::Block::default())
             }
 
-            async fn get_block_stats(&self, _height: u64) -> Result<bitcoincore_rpc::json::GetBlockStatsResult, BitcoinError> {
+            async fn get_block_stats(&self, _height: u64) -> Result<GetBlockStatsResult, BitcoinError> {
                 todo!()
             }
 

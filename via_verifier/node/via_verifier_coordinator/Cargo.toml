@@ -1,6 +1,6 @@
 [package]
-name = "via_withdrawal_service"
-description = "Via Withdrawal Service"
+name = "via_verifier_coordinator"
+description = "Via verifier coordinator"
 version.workspace = true
 edition.workspace = true
 authors = ["Via Network"]
@@ -17,6 +17,7 @@ via_btc_client.workspace = true
 via_musig2.workspace = true
 reqwest.workspace = true
 via_withdrawal_client.workspace = true
+via_verifier_types.workspace = true
 
 anyhow.workspace = true
 axum.workspace = true
@@ -35,5 +36,6 @@ base64 = "0.21"
 thiserror = "1.0.57"
 sha2.workspace = true
 chrono.workspace = true
+bincode = "1.3"
 
 [dev-dependencies]

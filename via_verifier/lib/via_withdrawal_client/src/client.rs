@@ -1,17 +1,17 @@
 use std::{collections::HashMap, str::FromStr};
 
 use bitcoin::Network;
-use via_btc_client::withdrawal_builder::WithdrawalRequest;
 use via_da_client::{
     pubdata::Pubdata,
     types::{L2BridgeLogMetadata, L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR},
 };
+use via_verifier_types::withdrawal::WithdrawalRequest;
 use zksync_da_client::DataAvailabilityClient;
 use zksync_types::{web3::keccak256, H160, H256};
 
 use crate::withdraw::parse_l2_withdrawal_message;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WithdrawalClient {
     network: Network,
     client: Box<dyn DataAvailabilityClient>,
