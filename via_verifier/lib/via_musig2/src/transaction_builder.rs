@@ -13,7 +13,6 @@ use crate::utxo_manager::UtxoManager;
 
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
-    btc_client: Arc<dyn BitcoinOps>,
     pub utxo_manager: UtxoManager,
     bridge_address: Address,
 }
@@ -29,7 +28,6 @@ impl TransactionBuilder {
         );
 
         Ok(Self {
-            btc_client,
             utxo_manager,
             bridge_address,
         })
@@ -59,7 +57,7 @@ impl TransactionBuilder {
         let available_utxos = self.utxo_manager.get_available_utxos().await?;
 
         // Get fee rate
-        let fee_rate = std::cmp::max(self.btc_client.get_fee_rate(1).await?, 1);
+        let fee_rate = std::cmp::max(self.utxo_manager.get_btc_client().get_fee_rate(1).await?, 1);
 
         // Estimate initial fee with approximate input count
         // We'll estimate high initially to avoid underestimating
@@ -77,7 +75,10 @@ impl TransactionBuilder {
             .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
 
         // Select UTXOs for the total amount including fee
-        let selected_utxos = self.select_utxos(&available_utxos, total_needed).await?;
+        let selected_utxos = self
+            .utxo_manager
+            .select_utxos_by_target_value(&available_utxos, total_needed)
+            .await?;
 
         // Calculate total input amount
         let total_input_amount: Amount = selected_utxos
@@ -178,38 +179,6 @@ impl TransactionBuilder {
         Ok(ScriptBuf::new_op_return(encoded_data))
     }
 
-    #[instrument(skip(self, utxos), target = "bitcoin_transaction_builder")]
-    async fn select_utxos(
-        &self,
-        utxos: &[(OutPoint, TxOut)],
-        target_amount: Amount,
-    ) -> Result<Vec<(OutPoint, TxOut)>> {
-        // Simple implementation - could be improved with better UTXO selection algorithm
-        let mut selected = Vec::new();
-        let mut total = Amount::ZERO;
-
-        for utxo in utxos {
-            selected.push(utxo.clone());
-            total = total
-                .checked_add(utxo.1.value)
-                .ok_or_else(|| anyhow::anyhow!("Amount overflow during UTXO selection"))?;
-
-            if total >= target_amount {
-                break;
-            }
-        }
-
-        if total < target_amount {
-            return Err(anyhow::anyhow!(
-                "Insufficient funds: have {}, need {}",
-                total,
-                target_amount
-            ));
-        }
-
-        Ok(selected)
-    }
-
     #[instrument(skip(self), target = "bitcoin_transaction_builder")]
     fn estimate_fee(&self, input_count: u32, output_count: u32, fee_rate: u64) -> Result<Amount> {
         // Estimate transaction size
@@ -244,10 +213,6 @@ impl TransactionBuilder {
         }
         // Add one more to our estimate to be safe
         Ok(count.saturating_add(1))
-    }
-
-    pub fn get_btc_client(&self) -> Arc<dyn BitcoinOps> {
-        self.btc_client.clone()
     }
 }
 
@@ -358,7 +323,6 @@ mod tests {
         );
         // Use mock client
         let builder = TransactionBuilder {
-            btc_client,
             utxo_manager,
             bridge_address,
         };

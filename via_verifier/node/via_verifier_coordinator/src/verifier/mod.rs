@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use bitcoin::{Address, TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
-use tokio::sync::{watch, RwLock};
+use tokio::sync::watch;
 use via_btc_client::traits::{BitcoinOps, Serializable};
 use via_musig2::{transaction_builder::TransactionBuilder, verify_signature, Signer};
 use via_verifier_dal::{ConnectionPool, Verifier};

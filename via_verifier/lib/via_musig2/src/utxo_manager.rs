@@ -59,16 +59,50 @@ impl UtxoManager {
                     utxos.push((outpoint, out.clone()));
                 }
             }
-            
+
             // Remove the inputs used utxos
             for input in &tx.input {
-                if let Some(index) = utxos.iter().position(|(op, _)| op == &input.previous_output) {
+                if let Some(index) = utxos
+                    .iter()
+                    .position(|(op, _)| op == &input.previous_output)
+                {
                     utxos.remove(index);
                 }
             }
         }
 
         Ok(utxos)
+    }
+
+    pub async fn select_utxos_by_target_value(
+        &self,
+        utxos: &[(OutPoint, TxOut)],
+        target_amount: Amount,
+    ) -> anyhow::Result<Vec<(OutPoint, TxOut)>> {
+        // Simple implementation - could be improved with better UTXO selection algorithm
+        let mut selected = Vec::new();
+        let mut total = Amount::ZERO;
+
+        for utxo in utxos {
+            selected.push(utxo.clone());
+            total = total
+                .checked_add(utxo.1.value)
+                .ok_or_else(|| anyhow::anyhow!("Amount overflow during UTXO selection"))?;
+
+            if total >= target_amount {
+                break;
+            }
+        }
+
+        if total < target_amount {
+            return Err(anyhow::anyhow!(
+                "Insufficient funds: have {}, need {}",
+                total,
+                target_amount
+            ));
+        }
+
+        Ok(selected)
     }
 
     pub async fn get_utxos_to_merge(&self) -> anyhow::Result<Vec<(OutPoint, TxOut)>> {
@@ -116,6 +150,10 @@ impl UtxoManager {
             }
         }
         self.context.write().await.push_back(tx);
+    }
+
+    pub fn get_btc_client(&self) -> Arc<dyn BitcoinOps> {
+        self.btc_client.clone()
     }
 }
 
