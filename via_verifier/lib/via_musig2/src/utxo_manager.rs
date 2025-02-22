@@ -40,33 +40,29 @@ impl UtxoManager {
     pub async fn get_available_utxos(&self) -> anyhow::Result<Vec<(OutPoint, TxOut)>> {
         // fetch utxos from client
         let mut utxos = self.btc_client.fetch_utxos(&self.address).await?;
+        let context = self.context.read().await;
+
         {
-            if self.context.read().await.is_empty() {
+            if context.is_empty() {
                 return Ok(utxos);
             }
         }
 
-        // Add the output utxos to the list
-        for tx in self.context.read().await.iter() {
+        for tx in context.iter() {
+            // Add the output utxos to the list
             for (i, out) in tx.output.iter().enumerate() {
-                if out.script_pubkey != self.address.script_pubkey() {
-                    continue;
-                };
-
-                let outpoit = OutPoint {
-                    txid: tx.compute_txid(),
-                    vout: i as u32,
-                };
-                utxos.push((outpoit, tx.output[i].clone()));
+                if out.script_pubkey == self.address.script_pubkey() {
+                    let outpoint = OutPoint {
+                        txid: tx.compute_txid(),
+                        vout: i as u32,
+                    };
+                    utxos.push((outpoint, out.clone()));
+                }
             }
-        }
-
-        // Remove the inputs used utxos
-        for tx in self.context.read().await.iter() {
-            for input in tx.input.iter() {
-                let outpoint = input.previous_output;
-                let index = utxos.iter().position(|(op, _)| op == &outpoint);
-                if let Some(index) = index {
+            
+            // Remove the inputs used utxos
+            for input in &tx.input {
+                if let Some(index) = utxos.iter().position(|(op, _)| op == &input.previous_output) {
                     utxos.remove(index);
                 }
             }
