@@ -396,7 +396,7 @@ impl MessageParser {
         let attestation = match instructions.get(3)? {
             Instruction::PushBytes(bytes) => match bytes.as_bytes() {
                 b"OP_1" => Vote::Ok,
-                b"OP_0" => Vote::NotOk,
+                b"" => Vote::NotOk,
                 _ => {
                     warn!("Invalid attestation value");
                     return None;
@@ -405,8 +405,7 @@ impl MessageParser {
             Instruction::Op(op) => {
                 if op.to_u8() == 0x51 {
                     Vote::Ok
-                } else if op.to_u8() == 0x50 {
-                    // TODO: check this variant
+                } else if op.to_u8() == 0x00 {
                     Vote::NotOk
                 } else {
                     warn!("Invalid attestation value");
