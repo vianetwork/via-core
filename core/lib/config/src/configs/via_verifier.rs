@@ -29,6 +29,8 @@ pub struct ViaVerifierConfig {
     pub required_signers: usize,
     /// The role.
     pub verifier_mode: VerifierMode,
+    /// (TEST ONLY) returns the proof verification result.
+    pub test_zk_proof_invalid_l1_batch_numbers: Vec<i64>,
 }
 
 impl ViaVerifierConfig {
@@ -51,6 +53,7 @@ impl ViaVerifierConfig {
             bridge_address_str: "".to_string(),
             required_signers: 2,
             verifier_mode: VerifierMode::VERIFIER,
+            test_zk_proof_invalid_l1_batch_numbers: vec![],
         }
     }
 }
