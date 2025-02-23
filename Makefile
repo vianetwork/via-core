@@ -188,3 +188,14 @@ clean:
 	@echo "$(YELLOW)Cleaning the project, removing images, volumes, and generated files...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) clean
+
+# Require 'batch' args as input, ex: `make rollback batch=2`
+.PHONY: rollback
+rollback:
+	cargo run --bin via_block_reverter_cli -- rollback-db \
+		--rollback-postgres \
+		--l1-batch-number $(batch) \
+		--rollback-tree \
+		--rollback-sk-cache \
+		--rollback-vm-runners-cache \
+		--rollback-snapshots
