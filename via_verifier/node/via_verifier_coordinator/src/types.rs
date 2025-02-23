@@ -27,37 +27,43 @@ impl fmt::Display for SessionType {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SessionOperation {
-    Withdrawal(i64, UnsignedBridgeTx, Vec<u8>),
+    Withdrawal(i64, UnsignedBridgeTx, Vec<u8>, Vec<u8>),
 }
 
 impl SessionOperation {
     pub fn get_l1_batche_number(&self) -> i64 {
         match self {
-            Self::Withdrawal(l1_batch_number, _, _) => *l1_batch_number,
+            Self::Withdrawal(l1_batch_number, _, _, _) => *l1_batch_number,
         }
     }
 
     pub fn get_session_type(&self) -> SessionType {
         match self {
-            Self::Withdrawal(_, _, _) => SessionType::Withdrawal,
+            Self::Withdrawal(_, _, _, _) => SessionType::Withdrawal,
         }
     }
 
     pub fn get_message_to_sign(&self) -> Vec<u8> {
         match self {
-            Self::Withdrawal(_, _, message) => message.clone(),
+            Self::Withdrawal(_, _, message, _) => message.clone(),
         }
     }
 
     pub fn get_unsigned_bridge_tx(&self) -> &UnsignedBridgeTx {
         match self {
-            Self::Withdrawal(_, unsigned_tx, _) => unsigned_tx,
+            Self::Withdrawal(_, unsigned_tx, _, _) => unsigned_tx,
+        }
+    }
+
+    pub fn get_proof_tx_id(&self) -> Vec<u8> {
+        match self {
+            Self::Withdrawal(_, _, _, proof_tx_id) => proof_tx_id.clone(),
         }
     }
 
     pub fn session(&self) -> Option<(&UnsignedBridgeTx, &Vec<u8>)> {
         match self {
-            Self::Withdrawal(_, unsigned_tx, message) => Some((unsigned_tx, message)),
+            Self::Withdrawal(_, unsigned_tx, message, _) => Some((unsigned_tx, message)),
         }
     }
 }
