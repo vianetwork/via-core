@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                v1.l1_batch_number AS l1_batch_number,\n                v1.proof_reveal_tx_id AS proof_reveal_tx_id\n            FROM\n                via_votable_transactions v1\n            WHERE\n                l1_batch_status IS NULL\n                AND v1.is_finalized IS NULL\n                AND (\n                    v1.l1_batch_number = 1\n                    OR EXISTS (\n                        SELECT\n                            1\n                        FROM\n                            via_votable_transactions v2\n                        WHERE\n                            v2.l1_batch_hash = v1.prev_l1_batch_hash\n                            AND v2.l1_batch_number = v1.l1_batch_number - 1\n                            AND v2.l1_batch_status = TRUE\n                    )\n                )\n            ORDER BY\n                v1.l1_batch_number ASC\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "proof_reveal_tx_id",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a502aad2710578d455f4f69c9068f5d99a5ac93cf2e617bf8daff34b42f05f90"
+}

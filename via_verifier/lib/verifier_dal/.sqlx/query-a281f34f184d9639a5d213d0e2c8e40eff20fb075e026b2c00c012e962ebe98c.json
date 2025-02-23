@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                v1.l1_batch_number,\n                v1.l1_batch_hash\n            FROM\n                via_votable_transactions v1\n            WHERE\n                v1.is_finalized = FALSE\n                AND v1.l1_batch_status = FALSE\n                AND v1.bridge_tx_id IS NULL\n                AND (\n                    EXISTS (\n                        SELECT\n                            1\n                        FROM\n                            via_votable_transactions v2\n                        WHERE\n                            v1.prev_l1_batch_hash = v2.l1_batch_hash\n                            AND v2.is_finalized = TRUE\n                            AND v2.l1_batch_status = TRUE\n                            AND v2.bridge_tx_id IS NOT NULL\n                    )\n                )\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "l1_batch_hash",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a281f34f184d9639a5d213d0e2c8e40eff20fb075e026b2c00c012e962ebe98c"
+}

@@ -23,7 +23,7 @@ use crate::{
     metrics::ErrorType,
 };
 
-const DEFAULT_VOTING_THRESHOLD: f64 = 0.5;
+const DEFAULT_VOTING_THRESHOLD: f64 = 1.0;
 
 #[derive(Debug)]
 struct BtcWatchState {
@@ -94,15 +94,18 @@ impl VerifierBtcWatch {
         storage: &mut Connection<'_, Verifier>,
         btc_blocks_lag: u32,
     ) -> anyhow::Result<BtcWatchState> {
-        let last_processed_bitcoin_block =
-            match storage.via_votes_dal().get_last_inserted_block().await? {
-                Some(block) => block.saturating_sub(1),
-                None => indexer
-                    .fetch_block_height()
-                    .await
-                    .context("cannot get current Bitcoin block")?
-                    .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
-            };
+        let last_processed_bitcoin_block = match storage
+            .via_votes_dal()
+            .get_last_finilized_l1_batch()
+            .await?
+        {
+            Some(l1_batch_number) => l1_batch_number.saturating_sub(1),
+            None => indexer
+                .fetch_block_height()
+                .await
+                .context("cannot get current Bitcoin block")?
+                .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
+        };
 
         // TODO: get the bridge address from the database?
         let (_bridge_address, ..) = indexer.get_state();
