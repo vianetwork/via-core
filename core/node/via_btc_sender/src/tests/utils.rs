@@ -273,6 +273,7 @@ impl ViaAggregatorTest {
             .storage
             .btc_sender_dal()
             .via_save_btc_inscriptions_request(
+                batch.number,
                 ViaBtcInscriptionRequestType::CommitL1BatchOnchain.to_string(),
                 InscriptionMessage::to_bytes(&inscription_message),
                 0,

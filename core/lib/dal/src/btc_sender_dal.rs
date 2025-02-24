@@ -1,7 +1,10 @@
 use anyhow::Context;
 use bitcoin::hash_types::Txid;
 use zksync_db_connection::connection::Connection;
-use zksync_types::btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
+use zksync_types::{
+    btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory},
+    L1BatchNumber,
+};
 
 use crate::{
     models::storage_btc_inscription_request::{
@@ -18,27 +21,36 @@ pub struct ViaBtcSenderDal<'a, 'c> {
 impl ViaBtcSenderDal<'_, '_> {
     pub async fn via_save_btc_inscriptions_request(
         &mut self,
+        l1_batch_number: L1BatchNumber,
         inscription_request_type: String,
         inscription_message: Vec<u8>,
         predicted_fee: u64,
     ) -> sqlx::Result<ViaBtcInscriptionRequest> {
         let inscription_request = sqlx::query_as!(
-            ViaBtcInscriptionRequest,
+            ViaStorageBtcInscriptionRequest,
             r#"
             INSERT INTO
-                via_btc_inscriptions_request (request_type, inscription_message, predicted_fee, created_at, updated_at)
+                via_btc_inscriptions_request (
+                    l1_batch_number,
+                    request_type,
+                    inscription_message,
+                    predicted_fee,
+                    created_at,
+                    updated_at
+                )
             VALUES
-                ($1, $2, $3, NOW(), NOW())
+                ($1, $2, $3, $4, NOW(), NOW())
             RETURNING
                 *
             "#,
+            i64::from(l1_batch_number.0),
             inscription_request_type,
             inscription_message,
             predicted_fee as i64,
         )
         .fetch_one(self.storage.conn())
         .await?;
-        Ok(inscription_request)
+        Ok(inscription_request.into())
     }
 
     pub async fn get_inflight_inscriptions(
