@@ -45,6 +45,7 @@ pub struct ViaVerifier {
     indexer: BitcoinInscriptionIndexer,
     test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
     config: ViaVerifierConfig,
+    zk_agreement_threshold: f64,
 }
 
 impl ViaVerifier {
@@ -56,6 +57,7 @@ impl ViaVerifier {
         pool: ConnectionPool<Verifier>,
         client: Box<dyn DataAvailabilityClient>,
         config: ViaVerifierConfig,
+        zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
         let indexer =
             BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
@@ -67,6 +69,7 @@ impl ViaVerifier {
                 config.test_zk_proof_invalid_l1_batch_numbers.clone(),
             )),
             config,
+            zk_agreement_threshold,
         })
     }
 
