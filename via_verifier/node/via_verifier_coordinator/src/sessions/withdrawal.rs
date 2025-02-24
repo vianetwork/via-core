@@ -1,13 +1,13 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Ok};
 use axum::async_trait;
 use bitcoin::{
     hashes::Hash,
     sighash::{Prevouts, SighashCache},
-    Amount, TapSighashType, Txid,
+    Address, Amount, TapSighashType, TxOut, Txid,
 };
-use via_musig2::withdrawal_builder::WithdrawalBuilder;
+use via_musig2::transaction_builder::TransactionBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 use via_withdrawal_client::client::WithdrawalClient;
@@ -15,23 +15,25 @@ use zksync_types::H256;
 
 use crate::{traits::ISession, types::SessionOperation, utils::h256_to_txid};
 
+const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
+
 #[derive(Debug, Clone)]
 pub struct WithdrawalSession {
     master_connection_pool: ConnectionPool<Verifier>,
+    transaction_builder: Arc<TransactionBuilder>,
     withdrawal_client: WithdrawalClient,
-    withdrawal_builder: WithdrawalBuilder,
 }
 
 impl WithdrawalSession {
     pub fn new(
         master_connection_pool: ConnectionPool<Verifier>,
-        withdrawal_builder: WithdrawalBuilder,
+        transaction_builder: Arc<TransactionBuilder>,
         withdrawal_client: WithdrawalClient,
     ) -> Self {
         Self {
             master_connection_pool,
             withdrawal_client,
-            withdrawal_builder,
+            transaction_builder,
         }
     }
 }
@@ -105,7 +107,6 @@ impl ISession for WithdrawalSession {
         );
 
         let unsigned_tx = self
-            .withdrawal_builder
             .create_unsigned_withdrawal_tx(withdrawals_to_process, proof_txid)
             .await
             .map_err(|e| {
@@ -186,31 +187,7 @@ impl ISession for WithdrawalSession {
         Ok(false)
     }
 
-    async fn before_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
-        let l1_batche_number = session_op.get_l1_batche_number();
-
-        if l1_batche_number != 0 {
-            let withdrawal_txid = self
-                .master_connection_pool
-                .connection_tagged("verifier task")
-                .await?
-                .via_votes_dal()
-                .get_vote_transaction_withdrawal_tx(l1_batche_number)
-                .await?;
-            // TODO: refactore the transaction confirmation for the musig2, and implement utxo manager like in the inscriber
-            // Check if the previous batch musig2 transaction was minted before start a new session.
-            if let Some(tx) = withdrawal_txid {
-                let tx_id = Txid::from_slice(&tx)?;
-                let is_confirmed = self
-                    .withdrawal_builder
-                    .get_btc_client()
-                    .check_tx_confirmation(&tx_id, 1)
-                    .await?;
-                if !is_confirmed {
-                    return Ok(false);
-                }
-            }
-        }
+    async fn before_process_session(&self, _: &SessionOperation) -> anyhow::Result<bool> {
         return Ok(true);
     }
 
@@ -259,6 +236,39 @@ impl ISession for WithdrawalSession {
 }
 
 impl WithdrawalSession {
+    pub async fn create_unsigned_withdrawal_tx(
+        &self,
+        withdrawals: Vec<WithdrawalRequest>,
+        proof_txid: Txid,
+    ) -> anyhow::Result<UnsignedBridgeTx> {
+        // Group withdrawals by address and sum amounts
+        let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
+        for w in withdrawals {
+            *grouped_withdrawals.entry(w.address).or_insert(Amount::ZERO) = grouped_withdrawals
+                .get(&w.address)
+                .unwrap_or(&Amount::ZERO)
+                .checked_add(w.amount)
+                .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
+        }
+
+        // Create outputs for grouped withdrawals
+        let outputs: Vec<TxOut> = grouped_withdrawals
+            .into_iter()
+            .map(|(address, amount)| TxOut {
+                value: amount,
+                script_pubkey: address.script_pubkey(),
+            })
+            .collect();
+
+        self.transaction_builder
+            .build_transaction_with_op_return(
+                outputs,
+                OP_RETURN_WITHDRAW_PREFIX,
+                vec![proof_txid.as_raw_hash().to_byte_array()],
+            )
+            .await
+    }
+
     async fn _verify_withdrawals(
         &self,
         l1_batch_number: i64,
@@ -317,7 +327,10 @@ impl WithdrawalSession {
 
         // Verify the OP return
         let tx_id = h256_to_txid(&proof_tx_id)?;
-        let op_return_data = WithdrawalBuilder::create_op_return_script(tx_id)?;
+        let op_return_data = TransactionBuilder::create_op_return_script(
+            OP_RETURN_WITHDRAW_PREFIX,
+            vec![*tx_id.as_raw_hash().as_byte_array()],
+        )?;
         let op_return_tx_out = &unsigned_tx.tx.output[unsigned_tx.tx.output.len() - 2];
 
         if op_return_tx_out.script_pubkey.to_string() != op_return_data.to_string()

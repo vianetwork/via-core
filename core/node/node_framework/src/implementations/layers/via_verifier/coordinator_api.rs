@@ -1,9 +1,7 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
-use anyhow::Context;
-use via_btc_client::types::{BitcoinAddress, NodeAuth};
+use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
 use via_btc_watch::BitcoinNetwork;
-use via_musig2::withdrawal_builder::WithdrawalBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
@@ -56,23 +54,16 @@ impl WiringLayer for ViaCoordinatorApiLayer {
             self.btc_sender_config.rpc_password().to_string(),
         );
         let network = BitcoinNetwork::from_str(self.btc_sender_config.network()).unwrap();
-        let bridge_address = BitcoinAddress::from_str(self.config.bridge_address_str.as_str())
-            .context("Error parse bridge address")?
-            .assume_checked();
 
-        let withdrawal_builder = WithdrawalBuilder::new(
-            self.btc_sender_config.rpc_url(),
-            network,
-            auth,
-            bridge_address,
-        )
-        .await?;
+        let btc_client =
+            Arc::new(BitcoinClient::new(self.btc_sender_config.rpc_url(), network, auth).unwrap());
 
         let withdrawal_client = WithdrawalClient::new(input.client.0, network);
+
         let via_coordinator_api_task = ViaCoordinatorApiTask {
             master_pool,
             config: self.config,
-            withdrawal_builder,
+            btc_client,
             withdrawal_client,
         };
         Ok(Output {
@@ -85,7 +76,7 @@ impl WiringLayer for ViaCoordinatorApiLayer {
 pub struct ViaCoordinatorApiTask {
     master_pool: ConnectionPool<Verifier>,
     config: ViaVerifierConfig,
-    withdrawal_builder: WithdrawalBuilder,
+    btc_client: Arc<dyn BitcoinOps>,
     withdrawal_client: WithdrawalClient,
 }
 
@@ -99,7 +90,7 @@ impl Task for ViaCoordinatorApiTask {
         via_verifier_coordinator::coordinator::api::start_coordinator_server(
             self.config,
             self.master_pool,
-            self.withdrawal_builder,
+            self.btc_client,
             self.withdrawal_client,
             stop_receiver.0,
         )

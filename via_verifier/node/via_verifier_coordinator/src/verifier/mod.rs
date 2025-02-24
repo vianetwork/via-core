@@ -1,12 +1,12 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use anyhow::Result;
-use bitcoin::{TapSighashType, Witness};
+use anyhow::{Context, Result};
+use bitcoin::{Address, TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
 use tokio::sync::watch;
 use via_btc_client::traits::{BitcoinOps, Serializable};
-use via_musig2::{verify_signature, withdrawal_builder::WithdrawalBuilder, Signer};
+use via_musig2::{transaction_builder::TransactionBuilder, verify_signature, Signer};
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_verifier_types::transaction::UnsignedBridgeTx;
 use via_withdrawal_client::client::WithdrawalClient;
@@ -31,28 +31,34 @@ pub struct ViaWithdrawalVerifier {
 }
 
 impl ViaWithdrawalVerifier {
-    pub async fn new(
+    pub fn new(
+        config: ViaVerifierConfig,
         master_connection_pool: ConnectionPool<Verifier>,
         btc_client: Arc<dyn BitcoinOps>,
-        withdrawal_builder: WithdrawalBuilder,
         withdrawal_client: WithdrawalClient,
-        config: ViaVerifierConfig,
     ) -> anyhow::Result<Self> {
         let signer = get_signer(
             &config.private_key.clone(),
             config.verifiers_pub_keys_str.clone(),
         )?;
 
+        let bridge_address = Address::from_str(config.bridge_address_str.as_str())
+            .context("Error parse bridge address")?
+            .assume_checked();
+
+        let transaction_builder =
+            Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
+
         let withdrawal_session = WithdrawalSession::new(
             master_connection_pool,
-            withdrawal_builder,
+            transaction_builder.clone(),
             withdrawal_client,
         );
 
         // Add sessions type the verifier network can process
-        let sessions: HashMap<SessionType, Box<dyn ISession>> = [(
+        let sessions: HashMap<SessionType, Arc<dyn ISession>> = [(
             SessionType::Withdrawal,
-            Box::new(withdrawal_session) as Box<dyn ISession>,
+            Arc::new(withdrawal_session) as Arc<dyn ISession>,
         )]
         .into_iter()
         .collect();
