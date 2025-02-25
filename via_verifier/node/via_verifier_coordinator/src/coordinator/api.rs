@@ -27,7 +27,7 @@ pub async fn start_coordinator_server(
 
     let listener = tokio::net::TcpListener::bind(bind_address)
         .await
-        .context("Cannot bind to the specified address")?;
+        .with_context(|| "Cannot bind to the specified address")?;
     axum::serve(listener, api)
         .with_graceful_shutdown(async move {
             if stop_receiver.changed().await.is_err() {
@@ -36,7 +36,7 @@ pub async fn start_coordinator_server(
             tracing::info!("Stop signal received, coordinator server is shutting down");
         })
         .await
-        .context("coordinator handler server failed")?;
+        .with_context(|| "coordinator handler server failed")?;
     tracing::info!("coordinator handler server shut down");
     Ok(())
 }

@@ -179,7 +179,7 @@ impl TransactionBuilder {
         }
         let sighash = sighash_cache
             .taproot_key_spend_signature_hash(0, &Prevouts::All(&txout_list), sighash_type)
-            .context("Error taproot_key_spend_signature_hash")?;
+            .with_context(|| "Error taproot_key_spend_signature_hash")?;
 
         Ok(sighash)
     }

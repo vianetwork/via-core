@@ -41,7 +41,8 @@ impl Pubdata {
         // Decode user L2->L1 logs
         let num_user_logs = cursor
             .read_u32::<BigEndian>()
-            .context("Failed to decode num user logs")? as usize;
+            .with_context(|| "Failed to decode num user logs")?
+            as usize;
         for _ in 0..num_user_logs {
             let log = L1MessengerL2ToL1Log::decode_packed(&mut cursor)?;
             user_logs.push(log);
@@ -54,7 +55,7 @@ impl Pubdata {
             let mut message = vec![0u8; message_len];
             cursor
                 .read_exact(&mut message)
-                .context("Read l2 to l1 message")?;
+                .with_context(|| "Error read l2 to l1 message")?;
             l2_to_l1_messages.push(message);
         }
 

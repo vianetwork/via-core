@@ -67,8 +67,7 @@ impl ViaVoteInscription {
                     InscriptionMessage::to_bytes(&inscription_message),
                     0,
                 )
-                .await
-                .context("Via save btc inscriptions request")?;
+                .await?;
 
             transaction
                 .via_block_dal()
@@ -77,8 +76,7 @@ impl ViaVoteInscription {
                     inscription_request.id,
                     ViaVerifierBtcInscriptionRequestType::VoteOnchain,
                 )
-                .await
-                .context("Via set inscription request id")?;
+                .await?;
             transaction.commit().await?;
         }
         Ok(())
@@ -137,6 +135,6 @@ impl ViaVoteInscription {
         }
         let mut reversed_bytes = h256_bytes.to_vec();
         reversed_bytes.reverse();
-        Txid::from_slice(&reversed_bytes).context("Failed to convert H256 to Txid")
+        Txid::from_slice(&reversed_bytes).with_context(|| "Failed to convert H256 to Txid")
     }
 }

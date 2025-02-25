@@ -107,7 +107,7 @@ impl ViaVerifier {
             tracing::info!("New non executed block ready to be processed");
 
             raw_tx_id.reverse();
-            let proof_txid = bytes_to_txid(&raw_tx_id).context("Failed to parse tx_id")?;
+            let proof_txid = bytes_to_txid(&raw_tx_id).with_context(|| "Failed to parse tx_id")?;
             tracing::info!("trying to get proof_txid: {}", proof_txid);
             let proof_msgs = self.indexer.parse_transaction(&proof_txid).await?;
             let proof_msg = self.expect_single_msg(&proof_msgs, "ProofDAReference")?;
@@ -254,7 +254,7 @@ impl ViaVerifier {
             .da_client
             .get_inclusion_data(&proof_msg.input.blob_id)
             .await
-            .context("Failed to get blob")?
+            .with_context(|| "Failed to fetch the blob")?
             .ok_or_else(|| anyhow::anyhow!("Blob not found"))?;
         let batch_tx_id = proof_msg.input.l1_batch_reveal_txid;
 
@@ -270,7 +270,7 @@ impl ViaVerifier {
             .da_client
             .get_inclusion_data(&batch_msg.input.blob_id)
             .await
-            .context("Failed to get blob")?
+            .with_context(|| "Failed to fetch the blob")?
             .ok_or_else(|| anyhow::anyhow!("Blob not found"))?;
         let hash = batch_msg.input.l1_batch_hash;
 

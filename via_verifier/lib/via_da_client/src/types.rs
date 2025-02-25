@@ -64,30 +64,34 @@ impl L1MessengerL2ToL1Log {
 
     pub fn decode_packed<R: Read>(reader: &mut R) -> anyhow::Result<Self> {
         // Read `l2_shard_id` (1 byte)
-        let l2_shard_id = reader.read_u8().context("Failed to read l2_shard_id")?;
+        let l2_shard_id = reader
+            .read_u8()
+            .with_context(|| "Failed to read l2_shard_id")?;
 
         // Read `is_service` (1 byte, a boolean stored as 0 or 1)
-        let is_service_byte = reader.read_u8().context("Failed to read is_service byte")?;
+        let is_service_byte = reader
+            .read_u8()
+            .with_context(|| "Failed to read is_service byte")?;
         let is_service = is_service_byte != 0; // 0 -> false, non-zero -> true
 
         // Read `tx_number_in_block` (2 bytes, u16)
         let tx_number_in_block = reader
             .read_u16::<BigEndian>()
-            .context("Failed to read tx_number_in_block")?;
+            .with_context(|| "Failed to read tx_number_in_block")?;
 
         // Read `sender` (address is 20 bytes)
         let mut sender_bytes = [0u8; 20];
         reader
             .read_exact(&mut sender_bytes)
-            .context("Failed to read sender address")?;
+            .with_context(|| "Failed to read sender address")?;
         let sender = Address::from(sender_bytes);
 
         // Read `key` (U256 is 32 bytes)
-        let key_bytes = _read_bytes(reader, 32).context("Failed to read key bytes")?;
+        let key_bytes = _read_bytes(reader, 32).with_context(|| "Failed to read key bytes")?;
         let key = u256_to_h256(U256::from_big_endian(&key_bytes));
 
         // Read `value` (U256 is 32 bytes)
-        let value_bytes = _read_bytes(reader, 32).context("Failed to read value bytes")?;
+        let value_bytes = _read_bytes(reader, 32).with_context(|| "Failed to read value bytes")?;
         let value = u256_to_h256(U256::from_big_endian(&value_bytes));
 
         Ok(L1MessengerL2ToL1Log {

@@ -98,8 +98,7 @@ impl ViaBtcInscriptionManager {
                         .get_client()
                         .await
                         .fetch_block_height()
-                        .await
-                        .context("context")?;
+                        .await?;
 
                     if last_inscription_history.sent_at_block + BLOCK_RESEND as i64
                         > current_block as i64
@@ -165,22 +164,18 @@ impl ViaBtcInscriptionManager {
             .get_client()
             .await
             .fetch_block_height()
-            .await
-            .context("Error to fetch current block number")? as i64;
+            .await? as i64;
 
         let input =
             InscriptionMessage::from_bytes(&tx.inscription_message.clone().unwrap_or_default());
 
-        let inscribe_info = self
-            .inscriber
-            .inscribe(input)
-            .await
-            .context("Sent inscription tx")?;
+        let inscribe_info = self.inscriber.inscribe(input).await?;
 
-        let signed_commit_tx =
-            serialize(&inscribe_info.final_commit_tx.tx).context("Serilize the commit tx")?;
-        let signed_reveal_tx =
-            serialize(&inscribe_info.final_reveal_tx.tx).context("Serilize the reveal tx")?;
+        let signed_commit_tx = serialize(&inscribe_info.final_commit_tx.tx)
+            .with_context(|| format!("Error serializing the commit tx"))?;
+
+        let signed_reveal_tx = serialize(&inscribe_info.final_reveal_tx.tx)
+            .with_context(|| format!("Error serializing the reveal tx"))?;
 
         let actual_fees = inscribe_info.reveal_tx_output_info._reveal_fee
             + inscribe_info.commit_tx_output_info.commit_tx_fee;
