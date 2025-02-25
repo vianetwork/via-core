@@ -1,4 +1,4 @@
-name: Build Via server
+name: Build Via verifier
 on:
   workflow_dispatch:
     inputs:
@@ -54,10 +54,10 @@ jobs:
 
       - name: Build image
         run: |
-          docker buildx build -t via-server:${{ env.DOCKER_TAG }} -f docker/server/Dockerfile .       
+          docker buildx build -t via-verifier:${{ env.DOCKER_TAG }} -f docker/via-verifier/Dockerfile .       
 
       - name: Publish image to registry
         run: | 
-          docker tag via-server:${{ env.DOCKER_TAG }} europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-server:${{ env.DOCKER_TAG }}
-          docker push europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-server:${{ env.DOCKER_TAG }}
-          echo "Image: europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-server:${{ env.DOCKER_TAG }}"
+          docker tag via-verifier:${{ env.DOCKER_TAG }} europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-verifier:${{ env.DOCKER_TAG }}
+          docker push europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-verifier:${{ env.DOCKER_TAG }}
+          echo "Image: europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-verifier:${{ env.DOCKER_TAG }}"
