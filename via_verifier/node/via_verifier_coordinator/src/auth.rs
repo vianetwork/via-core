@@ -9,9 +9,11 @@ pub fn sign_request<T: Serialize>(payload: &T, secret_key: &SecretKey) -> anyhow
     let secp = Secp256k1::new();
 
     // Serialize and hash the payload.
-    let payload_bytes = serde_json::to_vec(payload).context("Failed to serialize payload")?;
+    let payload_bytes =
+        serde_json::to_vec(payload).with_context(|| "Failed to serialize payload")?;
     let hash = Sha256::digest(&payload_bytes);
-    let message = Message::from_digest_slice(hash.as_ref()).context("Hash is not 32 bytes")?;
+    let message =
+        Message::from_digest_slice(hash.as_ref()).with_context(|| "Hash is not 32 bytes")?;
 
     // Sign the message.
     let sig = secp.sign_ecdsa(&message, secret_key);
@@ -31,14 +33,16 @@ pub fn verify_signature<T: Serialize>(
     // Decode the base64 signature.
     let sig_bytes = base64::engine::general_purpose::STANDARD
         .decode(signature_b64)
-        .context("Failed to decode base64 signature")?;
+        .with_context(|| "Failed to decode base64 signature")?;
     let sig = bitcoin::secp256k1::ecdsa::Signature::from_compact(&sig_bytes)
-        .context("Failed to parse signature from compact form")?;
+        .with_context(|| "Failed to parse signature from compact form")?;
 
     // Serialize and hash the payload.
-    let payload_bytes = serde_json::to_vec(payload).context("Failed to serialize payload")?;
+    let payload_bytes =
+        serde_json::to_vec(payload).with_context(|| "Failed to serialize payload")?;
     let hash = Sha256::digest(&payload_bytes);
-    let message = Message::from_digest_slice(hash.as_ref()).context("Hash is not 32 bytes")?;
+    let message =
+        Message::from_digest_slice(hash.as_ref()).with_context(|| "Hash is not 32 bytes")?;
 
     // Verify the signature.
     Ok(secp.verify_ecdsa(&message, &sig, public_key).is_ok())
