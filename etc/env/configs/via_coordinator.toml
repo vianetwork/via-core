@@ -23,6 +23,10 @@ verifiers_pub_keys_str = [
 bridge_address_str = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
 # The minimum required signers.
 required_signers = 2
+
+# Verifier Request Timeout (in seconds)
+verifier_request_timeout = 10
+
 # The verifier_mode can be simple verifier or coordinator.
 verifier_mode = "COORDINATOR"
 # (TEST ONLY) returns the proof verification result.

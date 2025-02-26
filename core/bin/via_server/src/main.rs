@@ -44,15 +44,17 @@ fn main() -> anyhow::Result<()> {
     let opt = Cli::parse();
 
     // Load env config
-    let tmp_config = config::load_env_config()?;
+    let env_config = config::load_env_config()?;
 
     // Load configurations
     let configs = match opt.config_path {
         Some(_path) => {
-            todo!("Load config from file")
+            return Err(anyhow::anyhow!(
+                "The Via Server does not support configuration files at this point. Please use env variables."
+            ));
         }
         None => {
-            let general = tmp_config.general();
+            let general = env_config.general();
             let mut via_general = ViaGeneralConfig::from(general);
 
             // Load the rest of the configs
@@ -66,7 +68,9 @@ fn main() -> anyhow::Result<()> {
 
     let secrets = match opt.secrets_path {
         Some(_path) => {
-            todo!("Load secrets from file")
+            return Err(anyhow::anyhow!(
+                "The Via Server does not support configuration files at this point. Please use env variables."
+            ));
         }
         None => Secrets {
             consensus: config::read_consensus_secrets().context("read_consensus_secrets()")?,
@@ -77,21 +81,27 @@ fn main() -> anyhow::Result<()> {
 
     let genesis = match opt.genesis_path {
         Some(_path) => {
-            todo!("Load genesis from file")
+            return Err(anyhow::anyhow!(
+                "The Via Server does not support configuration files at this point. Please use env variables."
+            ));
         }
         None => GenesisConfig::from_env().context("Failed to load genesis from env")?,
     };
 
     let wallets = match opt.wallets_path {
         Some(_path) => {
-            todo!("Load config from file");
+            return Err(anyhow::anyhow!(
+                "The Via Server does not support configuration files at this point. Please use env variables."
+            ));
         }
-        None => tmp_config.wallets(),
+        None => env_config.wallets(),
     };
 
     let mut contracts_config = match opt.contracts_config_path {
         Some(_path) => {
-            todo!("Load contracts from file")
+            return Err(anyhow::anyhow!(
+                "The Via Server does not support configuration files at this point. Please use env variables."
+            ));
         }
         None => ContractsConfig::from_env().context("contracts_config")?,
     };

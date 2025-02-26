@@ -95,19 +95,20 @@ impl VerifierBtcWatch {
     ) -> anyhow::Result<BtcWatchState> {
         let last_processed_bitcoin_block = match storage
             .via_votes_dal()
-            .get_last_finilized_l1_batch()
+            .get_last_finalized_l1_batch()
             .await?
         {
-            Some(l1_batch_number) => l1_batch_number.saturating_sub(1),
-            None => indexer
-                .fetch_block_height()
-                .await
-                .with_context(|| "Error to get current Bitcoin block")?
-                .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
-        };
+            Some(block) => block.saturating_sub(1),
+            None => {
+                let current_block = indexer
+                    .fetch_block_height()
+                    .await
+                    .with_context(|| "cannot get current Bitcoin block")?
+                    as u32;
 
-        // TODO: get the bridge address from the database?
-        let (_bridge_address, ..) = indexer.get_state();
+                current_block.saturating_sub(btc_blocks_lag)
+            }
+        };
 
         Ok(BtcWatchState {
             last_processed_bitcoin_block,
@@ -156,7 +157,7 @@ impl VerifierBtcWatch {
             .fetch_block_height()
             .await
             .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
-            .saturating_sub(self.confirmations_for_btc_msg as u128) as u32;
+            .saturating_sub(self.confirmations_for_btc_msg) as u32;
         if to_block <= self.last_processed_bitcoin_block {
             return Ok(());
         }

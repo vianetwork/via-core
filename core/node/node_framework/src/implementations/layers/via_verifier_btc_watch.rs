@@ -19,7 +19,6 @@ use crate::{
 /// Responsible for initializing and running of [`VerifierBtcWatch`] component, that polls the Bitcoin node for the relevant events.
 #[derive(Debug)]
 pub struct VerifierBtcWatchLayer {
-    // TODO: divide into multiple configs
     btc_watch_config: ViaBtcWatchConfig,
 }
 

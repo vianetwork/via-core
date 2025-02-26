@@ -38,6 +38,7 @@ impl RestApi {
                 .iter()
                 .map(|s| bitcoin::secp256k1::PublicKey::from_str(s).unwrap())
                 .collect(),
+            verifier_request_timeout: config.verifier_request_timeout,
         };
 
         let bridge_address = Address::from_str(config.bridge_address_str.as_str())

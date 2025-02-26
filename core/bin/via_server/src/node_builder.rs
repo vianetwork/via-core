@@ -62,10 +62,6 @@ macro_rules! try_load_config {
     };
 }
 
-// TODO: list of upcoming layers
-// - prometheus_exporter
-//
-
 pub struct ViaNodeBuilder {
     node: ZkStackServiceBuilder,
     configs: ViaGeneralConfig,

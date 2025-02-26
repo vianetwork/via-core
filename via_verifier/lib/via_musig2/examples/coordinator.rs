@@ -456,7 +456,6 @@ async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessi
         utxos.insert(tx_id.clone(), unsigned_tx.clone());
     }
 
-    // TODO: extract sighash and sign it and broadcast in last step
     let message = unsigned_tx.tx.compute_txid().as_byte_array().to_vec();
     {
         let mut signer = state.signer.write().await;

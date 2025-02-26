@@ -41,8 +41,7 @@ pub async fn auth_middleware(
     let timestamp_now = chrono::Utc::now().timestamp();
     let timestamp_diff = timestamp_now - timestamp.parse::<i64>().unwrap();
 
-    //Todo: move this to config
-    if timestamp_diff > 10 {
+    if timestamp_diff > state.state.verifier_request_timeout.into() {
         return Err(ApiError::Unauthorized("Timestamp is too old".into()));
     }
 

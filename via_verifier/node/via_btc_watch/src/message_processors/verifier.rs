@@ -31,7 +31,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                         let mut votes_dal = storage.via_votes_dal();
 
                         let last_finilized_l1_batch = votes_dal
-                            .get_last_finilized_l1_batch()
+                            .get_last_finalized_l1_batch()
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                             .unwrap_or(0);
