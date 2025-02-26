@@ -2,9 +2,6 @@ import { Command } from 'commander';
 import * as utils from 'utils';
 import * as env from './env';
 import { updateBootstrapTxidsEnv } from './bootstrap';
-import { updateEnvVariable } from './helpers';
-import path from 'path';
-import { load_from_file } from './env';
 
 export async function verifier() {
     await updateBootstrapTxidsEnv();
@@ -20,7 +17,6 @@ export const verifierCommand = new Command('verifier')
     .description('start via verifier node')
     .action(async (cmd: Command) => {
         cmd.chainName ? env.reload(cmd.chainName) : env.load();
-        await env.load();
         env.get(true);
         await verifier();
     });

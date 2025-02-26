@@ -27,6 +27,8 @@ pub struct ViaVerifierConfig {
     pub bridge_address_str: String,
     /// The minimum required signers.
     pub required_signers: usize,
+    /// Verifier Request Timeout (in seconds)
+    pub verifier_request_timeout: u8,
     /// The role.
     pub verifier_mode: VerifierMode,
 }
@@ -50,6 +52,7 @@ impl ViaVerifierConfig {
             verifiers_pub_keys_str: Vec::new(),
             bridge_address_str: "".to_string(),
             required_signers: 2,
+            verifier_request_timeout: 10,
             verifier_mode: VerifierMode::VERIFIER,
         }
     }

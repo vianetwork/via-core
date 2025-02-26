@@ -80,6 +80,7 @@ pub struct ViaWithdrawalState {
     pub signing_session: Arc<RwLock<SigningSession>>,
     pub required_signers: usize,
     pub verifiers_pub_keys: Vec<bitcoin::secp256k1::PublicKey>,
+    pub verifier_request_timeout: u8,
 }
 
 #[derive(Default, Debug, Clone)]
