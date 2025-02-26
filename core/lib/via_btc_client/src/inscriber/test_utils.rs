@@ -24,7 +24,7 @@ pub struct MockBitcoinOpsConfig {
     pub balance: u128,
     pub utxos: Vec<(OutPoint, TxOut)>,
     pub fee_rate: u64,
-    pub block_height: u128,
+    pub block_height: u64,
     pub tx_confirmation: bool,
     pub transaction: Option<Transaction>,
     pub block: Option<Block>,
@@ -32,7 +32,7 @@ pub struct MockBitcoinOpsConfig {
 }
 
 impl MockBitcoinOpsConfig {
-    pub fn set_block_height(&mut self, block_height: u128) {
+    pub fn set_block_height(&mut self, block_height: u64) {
         self.block_height = block_height;
     }
 
@@ -54,7 +54,7 @@ pub struct MockBitcoinOps {
     pub balance: u128,
     pub utxos: Vec<(OutPoint, TxOut)>,
     pub fee_rate: u64,
-    pub block_height: u128,
+    pub block_height: u64,
     pub tx_confirmation: bool,
     pub transaction: Option<Transaction>,
     pub block: Option<Block>,
@@ -114,7 +114,7 @@ impl BitcoinOps for MockBitcoinOps {
         BitcoinClientResult::Ok(self.tx_confirmation)
     }
 
-    async fn fetch_block_height(&self) -> BitcoinClientResult<u128> {
+    async fn fetch_block_height(&self) -> BitcoinClientResult<u64> {
         BitcoinClientResult::Ok(self.block_height)
     }
 

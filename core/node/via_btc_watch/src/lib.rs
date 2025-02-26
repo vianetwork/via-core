@@ -105,14 +105,17 @@ impl BtcWatch {
             .await?
         {
             Some(block) => block.0.saturating_sub(1),
-            None => indexer
-                .fetch_block_height()
-                .await
-                .context("cannot get current Bitcoin block")?
-                .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
+            None => {
+                let current_block = indexer
+                    .fetch_block_height()
+                    .await
+                    .context("cannot get current Bitcoin block")?
+                    as u32;
+
+                current_block.saturating_sub(btc_blocks_lag)
+            }
         };
 
-        // TODO: get the bridge address from the database?
         let (bridge_address, ..) = indexer.get_state();
 
         let next_expected_priority_id = storage
@@ -171,7 +174,7 @@ impl BtcWatch {
             .fetch_block_height()
             .await
             .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
-            .saturating_sub(self.confirmations_for_btc_msg as u128) as u32;
+            .saturating_sub(self.confirmations_for_btc_msg) as u32;
         if to_block <= self.last_processed_bitcoin_block {
             return Ok(());
         }

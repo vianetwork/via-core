@@ -30,7 +30,7 @@ pub trait BitcoinOps: Send + Sync {
         txid: &Txid,
         conf_num: u32,
     ) -> types::BitcoinClientResult<bool>;
-    async fn fetch_block_height(&self) -> types::BitcoinClientResult<u128>;
+    async fn fetch_block_height(&self) -> types::BitcoinClientResult<u64>;
     async fn get_fee_rate(&self, conf_target: u16) -> types::BitcoinClientResult<u64>;
     fn get_network(&self) -> Network;
     async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;

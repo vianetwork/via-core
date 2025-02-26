@@ -99,10 +99,10 @@ impl BitcoinOps for BitcoinClient {
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
-    async fn fetch_block_height(&self) -> BitcoinClientResult<u128> {
+    async fn fetch_block_height(&self) -> BitcoinClientResult<u64> {
         debug!("Fetching block height");
         let height = self.rpc.get_block_count().await?;
-        Ok(height as u128)
+        Ok(height)
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
