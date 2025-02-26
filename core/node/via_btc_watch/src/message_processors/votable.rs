@@ -5,12 +5,14 @@ use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 
 #[derive(Debug)]
 pub struct VotableMessageProcessor {
-    threshold: f64,
+    zk_agreement_threshold: f64,
 }
 
 impl VotableMessageProcessor {
-    pub fn new(threshold: f64) -> Self {
-        Self { threshold }
+    pub fn new(zk_agreement_threshold: f64) -> Self {
+        Self {
+            zk_agreement_threshold,
+        }
     }
 }
 
@@ -72,7 +74,7 @@ impl MessageProcessor for VotableMessageProcessor {
                             .via_votes_dal()
                             .finalize_transaction_if_needed(
                                 l1_batch_number.0,
-                                self.threshold,
+                                self.zk_agreement_threshold,
                                 indexer.get_number_of_verifiers(),
                             )
                             .await
