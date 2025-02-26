@@ -67,10 +67,6 @@ enum Command {
         #[arg(long)]
         allow_executed_block_reversion: bool,
     },
-
-    /// Clears failed L1 transactions.
-    #[command(name = "clear-failed-transactions")]
-    ClearFailedL1Transactions,
 }
 
 #[tokio::main]
@@ -253,9 +249,6 @@ async fn main() -> anyhow::Result<()> {
             block_reverter
                 .roll_back(L1BatchNumber(l1_batch_number))
                 .await?;
-        }
-        Command::ClearFailedL1Transactions => {
-            block_reverter.clear_failed_l1_transactions().await?;
         }
     }
     Ok(())

@@ -9,15 +9,11 @@ use zksync_object_store::{ObjectStore, ObjectStoreError};
 use zksync_state::RocksdbStorage;
 use zksync_storage::RocksDB;
 use zksync_types::{
-    // aggregated_operations::AggregatedActionType,
-    // ethabi::Token,
     snapshots::{
         SnapshotFactoryDependencies, SnapshotMetadata, SnapshotStorageLogsChunk,
         SnapshotStorageLogsStorageKey,
     },
-    // web3::BlockNumber,
-    L1BatchNumber,
-    H256,
+    L1BatchNumber, H256,
 };
 
 #[cfg(test)]
@@ -304,12 +300,6 @@ impl ViaBlockReverter {
             .storage_logs_dal()
             .roll_back_storage_logs(last_l2_block_to_keep)
             .await?;
-        tracing::info!("Rolling back Ethereum transactions");
-        transaction
-            .eth_sender_dal()
-            .delete_eth_txs(last_l1_batch_to_keep)
-            .await?;
-
         tracing::info!("Rolling back snapshots");
         let deleted_snapshots = transaction
             .snapshots_dal()
@@ -441,17 +431,5 @@ impl ViaBlockReverter {
             }
         }
         overall_result
-    }
-
-    /// Clears failed L1 transactions.
-    pub async fn clear_failed_l1_transactions(&self) -> anyhow::Result<()> {
-        tracing::info!("Clearing failed L1 transactions");
-        self.connection_pool
-            .connection()
-            .await?
-            .eth_sender_dal()
-            .clear_failed_transactions()
-            .await?;
-        Ok(())
     }
 }
