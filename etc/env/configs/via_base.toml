@@ -12,6 +12,8 @@ bootstrap_txids = []
 actor_role = "Sequencer"
 # Number of blocks that we should check when restarting the service.
 btc_blocks_lag = 1000
+# The agreement threshold required for the verifier to finalize an L1 batch.
+zk_agreement_threshold = 0.5
 
 [via_btc_sender]
 poll_interval = 2000

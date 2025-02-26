@@ -145,7 +145,8 @@ impl ViaVotesDal<'_, '_> {
         let row = sqlx::query!(
             r#"
             SELECT
-                is_finalized
+                is_finalized,
+                l1_batch_status
             FROM
                 via_votable_transactions
             WHERE
@@ -158,6 +159,11 @@ impl ViaVotesDal<'_, '_> {
         .await?;
 
         if row.is_finalized.is_some() {
+            return Ok(false);
+        }
+
+        // The verifier cannot finalize the block unless the zk verification has been successfully completed.
+        if row.l1_batch_status.is_none() {
             return Ok(false);
         }
 
@@ -216,8 +222,8 @@ impl ViaVotesDal<'_, '_> {
         l1_batch_number: i64,
         proof_reveal_tx_id: H256,
         l1_batch_status: bool,
-    ) -> DalResult<()> {
-        sqlx::query!(
+    ) -> DalResult<i64> {
+        let record = sqlx::query!(
             r#"
             UPDATE via_votable_transactions
             SET
@@ -226,15 +232,17 @@ impl ViaVotesDal<'_, '_> {
             WHERE
                 l1_batch_number = $1
                 AND proof_reveal_tx_id = $2
+            RETURNING
+                id
             "#,
             l1_batch_number,
             proof_reveal_tx_id.as_bytes(),
             l1_batch_status
         )
-        .instrument("verify_transaction")
-        .execute(self.storage)
+        .instrument("verify_votable_transaction")
+        .fetch_one(self.storage)
         .await?;
-        Ok(())
+        Ok(record.id)
     }
 
     pub async fn get_first_non_finalized_l1_batch_in_canonical_inscription_chain(

@@ -5,12 +5,14 @@ use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 
 #[derive(Debug)]
 pub struct VerifierMessageProcessor {
-    threshold: f64,
+    zk_agreement_threshold: f64,
 }
 
 impl VerifierMessageProcessor {
-    pub fn new(threshold: f64) -> Self {
-        Self { threshold }
+    pub fn new(zk_agreement_threshold: f64) -> Self {
+        Self {
+            zk_agreement_threshold,
+        }
     }
 }
 
@@ -121,7 +123,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                             if votes_dal
                                 .finalize_transaction_if_needed(
                                     votable_transaction_id,
-                                    self.threshold,
+                                    self.zk_agreement_threshold,
                                     indexer.get_number_of_verifiers(),
                                 )
                                 .await
