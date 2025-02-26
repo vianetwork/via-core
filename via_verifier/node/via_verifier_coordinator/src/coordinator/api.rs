@@ -36,7 +36,7 @@ pub async fn start_coordinator_server(
             tracing::info!("Stop signal received, coordinator server is shutting down");
         })
         .await
-        .context("coordinator handler server failed")?;
+        .with_context(|| "coordinator handler server failed")?;
     tracing::info!("coordinator handler server shut down");
     Ok(())
 }

@@ -3,7 +3,6 @@ mod metrics;
 
 use std::time::Duration;
 
-use anyhow::Context as _;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
@@ -106,8 +105,7 @@ impl BtcWatch {
             Some(block) => block.0.saturating_sub(1),
             None => indexer
                 .fetch_block_height()
-                .await
-                .context("cannot get current Bitcoin block")?
+                .await?
                 .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
         };
 

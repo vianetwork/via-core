@@ -43,7 +43,7 @@ impl ViaWithdrawalVerifier {
         )?;
 
         let bridge_address = Address::from_str(config.bridge_address_str.as_str())
-            .context("Error parse bridge address")?
+            .with_context(|| "Error parse bridge address")?
             .assume_checked();
 
         let transaction_builder =

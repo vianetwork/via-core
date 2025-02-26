@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tokio::sync::watch;
 use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
@@ -47,9 +47,7 @@ impl ViaBtcInscriptionAggregator {
                 .await?;
 
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => {
-                    tracing::info!("Inscription aggregation task finished");
-                }
+                Ok(()) => {}
                 Err(err) => {
                     tracing::error!("Failed to process btc_sender_inscription_aggregator: {err}");
                 }
@@ -89,8 +87,7 @@ impl ViaBtcInscriptionAggregator {
                 let inscribe_info = self
                     .inscriber
                     .prepare_inscribe(&inscription_message, None)
-                    .await
-                    .context("Via get inscriber info")?;
+                    .await?;
 
                 let prediction_fee = inscribe_info.reveal_tx_output_info._reveal_fee
                     + inscribe_info.commit_tx_output_info.commit_tx_fee;
@@ -103,8 +100,7 @@ impl ViaBtcInscriptionAggregator {
                         InscriptionMessage::to_bytes(&inscription_message),
                         prediction_fee.to_sat(),
                     )
-                    .await
-                    .context("Via save btc inscriptions request")?;
+                    .await?;
 
                 transaction
                     .via_blocks_dal()
@@ -113,8 +109,7 @@ impl ViaBtcInscriptionAggregator {
                         inscription_request.id,
                         operation.get_inscription_request_type(),
                     )
-                    .await
-                    .context("Via set inscription request id")?;
+                    .await?;
             }
             transaction.commit().await?;
         }
@@ -129,8 +124,7 @@ impl ViaBtcInscriptionAggregator {
         let base_system_contracts = storage
             .protocol_versions_dal()
             .load_base_system_contracts_by_version_id(protocol_version as u16)
-            .await
-            .context("failed loading base system contracts")?;
+            .await?;
         if let Some(contracts) = base_system_contracts {
             return Ok(BaseSystemContractsHashes {
                 bootloader: contracts.bootloader.hash,

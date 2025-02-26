@@ -68,7 +68,7 @@ impl ISession for WithdrawalSession {
                 .withdrawal_client
                 .get_withdrawals(blob_id)
                 .await
-                .context("Error to get withdrawals from DA")?;
+                .with_context(|| "Error to get withdrawals from DA")?;
             raw_proof_tx_id = proof_tx_id.clone();
 
             if !withdrawals.is_empty() {
@@ -91,8 +91,7 @@ impl ISession for WithdrawalSession {
                         &raw_proof_tx_id,
                         *batch_number,
                     )
-                    .await
-                    .context("Error to mark a vote transaction as processed")?;
+                    .await?;
                 tracing::info!(
                     "There is no withdrawal to process in l1 batch {}",
                     batch_number.clone()
@@ -110,7 +109,7 @@ impl ISession for WithdrawalSession {
             withdrawals_to_process.len()
         );
 
-        let proof_txid = h256_to_txid(&raw_proof_tx_id).context("Invalid proof tx id")?;
+        let proof_txid = h256_to_txid(&raw_proof_tx_id).with_context(|| "Invalid proof tx id")?;
         let unsigned_tx = self
             .create_unsigned_tx(withdrawals_to_process, proof_txid)
             .await
@@ -127,7 +126,7 @@ impl ISession for WithdrawalSession {
         }
         let sighash = sighash_cache
             .taproot_key_spend_signature_hash(0, &Prevouts::All(&txout_list), sighash_type)
-            .context("Error taproot_key_spend_signature_hash")?;
+            .with_context(|| "Error taproot_key_spend_signature_hash")?;
 
         tracing::info!("New withdrawal session found for l1 batch {l1_batch_number}");
 
