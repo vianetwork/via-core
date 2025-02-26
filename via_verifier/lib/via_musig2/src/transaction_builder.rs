@@ -301,7 +301,7 @@ mod tests {
             }
 
             async fn get_block_stats(&self, _height: u64) -> Result<GetBlockStatsResult, BitcoinError> {
-                todo!()
+                Ok(GetBlockStatsResult::default())
             }
 
             async fn get_fee_history(&self, _start: usize, _end: usize) -> Result<Vec<u64>, BitcoinError> {

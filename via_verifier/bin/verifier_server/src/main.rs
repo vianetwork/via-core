@@ -54,7 +54,9 @@ fn main() -> anyhow::Result<()> {
 
     let secrets = match opt.secrets_path {
         Some(_path) => {
-            todo!("Load secrets from file")
+            return Err(anyhow::anyhow!(
+                "The Verifier Server does not support config files at this time. Please use env variables."
+            ));
         }
         None => Secrets {
             consensus: config::read_consensus_secrets().context("read_verifier_secrets()")?,

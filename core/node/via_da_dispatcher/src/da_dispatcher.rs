@@ -205,8 +205,6 @@ impl ViaDataAvailabilityDispatcher {
         Ok(())
     }
 
-    // TODO: fix dal logic for loading real proofs
-    /// Dispatches proofs to the data availability layer, and saves the blob_id in the database.
     async fn dispatch_real_proofs(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 

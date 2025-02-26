@@ -83,7 +83,7 @@ pub(crate) fn load_env_config() -> anyhow::Result<TempConfigStore> {
     })
 }
 
-// TODO: temporary solution, should be removed after the config is refactored
+// TODO: We should also add support for file-based configuration.
 pub(crate) fn via_load_env_config() -> anyhow::Result<(
     ViaBtcWatchConfig,
     ViaBtcSenderConfig,
