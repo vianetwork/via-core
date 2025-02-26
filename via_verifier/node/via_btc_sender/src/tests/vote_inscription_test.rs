@@ -8,7 +8,7 @@ mod tests {
     };
     use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
     use zksync_config::ViaBtcSenderConfig;
-    use zksync_types::{L1BatchNumber, H256};
+    use zksync_types::H256;
 
     use crate::{
         btc_vote_inscription::ViaVoteInscription,
@@ -53,8 +53,10 @@ mod tests {
             .via_votes_dal()
             .insert_votable_transaction(
                 1,
-                tx_id,
+                H256::random(),
+                H256::random(),
                 "".to_string(),
+                tx_id,
                 "".to_string(),
                 "".to_string(),
                 "".to_string(),
@@ -80,8 +82,8 @@ mod tests {
             .await
             .unwrap();
         assert!(op.is_some());
-        let (l1_block_number, vote, tx_id_vec) = op.unwrap();
-        assert_eq!(l1_block_number, L1BatchNumber::from(1));
+        let (votable_transaction_id, vote, tx_id_vec) = op.unwrap();
+        assert_eq!(votable_transaction_id, 1);
         assert!(vote);
         assert_eq!(H256::from_slice(&tx_id_vec), tx_id);
 
@@ -133,8 +135,10 @@ mod tests {
             .via_votes_dal()
             .insert_votable_transaction(
                 1,
-                tx_id,
+                H256::random(),
+                H256::random(),
                 "".to_string(),
+                tx_id,
                 "".to_string(),
                 "".to_string(),
                 "".to_string(),

@@ -73,7 +73,6 @@ impl ViaNodeBuilder {
 
     fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
         let celestia_config = try_load_config!(self.configs.via_celestia_config);
-        println!("{:?}", celestia_config);
         self.node
             .add_layer(ViaCelestiaClientWiringLayer::new(celestia_config));
         Ok(self)

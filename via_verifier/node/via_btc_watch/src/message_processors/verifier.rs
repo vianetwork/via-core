@@ -28,21 +28,21 @@ impl MessageProcessor for VerifierMessageProcessor {
                     if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
                         let mut votes_dal = storage.via_votes_dal();
 
-                        let last_inserted_block = votes_dal
-                            .get_last_inserted_block()
+                        let last_finilized_l1_batch = votes_dal
+                            .get_last_finilized_l1_batch()
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                             .unwrap_or(0);
 
-                        if l1_batch_number.0 != last_inserted_block + 1 {
+                        if l1_batch_number.0 < last_finilized_l1_batch {
                             tracing::warn!(
                                 "Skipping ProofDAReference message with l1_batch_number: {:?}. Last inserted block: {:?}",
-                                l1_batch_number, last_inserted_block
+                                l1_batch_number, last_finilized_l1_batch
                             );
                             continue;
                         }
 
-                        let tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
+                        let proof_reveal_tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
 
                         let pubdata_msgs = indexer
                             .parse_transaction(&proof_msg.input.l1_batch_reveal_txid)
@@ -68,8 +68,10 @@ impl MessageProcessor for VerifierMessageProcessor {
                         votes_dal
                             .insert_votable_transaction(
                                 l1_batch_number.0,
-                                tx_id,
+                                l1_batch_da_ref_inscription.input.l1_batch_hash,
+                                l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
                                 proof_msg.input.da_identifier.clone(),
+                                proof_reveal_tx_id,
                                 proof_msg.input.blob_id.clone(),
                                 proof_msg.input.l1_batch_reveal_txid.to_string(),
                                 l1_batch_da_ref_inscription.input.blob_id,
@@ -87,7 +89,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                     if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
                         let mut votes_dal = storage.via_votes_dal();
 
-                        let reference_txid =
+                        let reveal_proof_txid =
                             convert_txid_to_h256(attestation_msg.input.reference_txid);
                         let tx_id = convert_txid_to_h256(attestation_msg.common.tx_id);
 
@@ -97,37 +99,40 @@ impl MessageProcessor for VerifierMessageProcessor {
                             via_btc_client::types::Vote::Ok
                         );
 
-                        let p2wpkh_address = attestation_msg
-                            .common
-                            .p2wpkh_address
-                            .as_ref()
-                            .expect("ValidatorAttestation message must have a p2wpkh address");
-                        votes_dal
-                            .insert_vote(
-                                l1_batch_number.0,
-                                reference_txid,
-                                &p2wpkh_address.to_string(),
-                                is_ok,
-                            )
-                            .await
-                            .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
-
-                        // Check finalization
-                        if votes_dal
-                            .finalize_transaction_if_needed(
-                                l1_batch_number.0,
-                                reference_txid,
-                                self.threshold,
-                                indexer.get_number_of_verifiers(),
-                            )
+                        if let Some(votable_transaction_id) = votes_dal
+                            .get_votable_transaction_id(reveal_proof_txid)
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                         {
-                            tracing::info!(
-                                "Finalizing transaction with tx_id: {:?} and block number: {:?}",
-                                tx_id,
-                                l1_batch_number
-                            );
+                            let p2wpkh_address =
+                                attestation_msg.common.p2wpkh_address.as_ref().expect(
+                                    "ValidatorAttestation message must have a p2wpkh address",
+                                );
+                            votes_dal
+                                .insert_vote(
+                                    votable_transaction_id,
+                                    &p2wpkh_address.to_string(),
+                                    is_ok,
+                                )
+                                .await
+                                .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+
+                            // Check finalization
+                            if votes_dal
+                                .finalize_transaction_if_needed(
+                                    votable_transaction_id,
+                                    self.threshold,
+                                    indexer.get_number_of_verifiers(),
+                                )
+                                .await
+                                .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
+                            {
+                                tracing::info!(
+                                    "Finalizing transaction with tx_id: {:?} and block number: {:?}",
+                                    tx_id,
+                                    l1_batch_number
+                                );
+                            }
                         }
                     }
                 }

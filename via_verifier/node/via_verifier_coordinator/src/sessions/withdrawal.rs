@@ -47,7 +47,7 @@ impl ISession for WithdrawalSession {
             .connection_tagged("withdrawal session")
             .await?
             .via_votes_dal()
-            .get_finalized_blocks_and_non_processed_withdrawals()
+            .list_finalized_blocks_and_non_processed_withdrawals()
             .await?;
 
         if l1_batches.is_empty() {
@@ -55,7 +55,7 @@ impl ISession for WithdrawalSession {
         }
 
         let mut withdrawals_to_process: Vec<WithdrawalRequest> = Vec::new();
-        let mut proof_txid = Txid::all_zeros();
+        let mut raw_proof_tx_id: Vec<u8> = vec![];
 
         tracing::info!(
             "Found {} finalized unprocessed L1 batch(es) with withdrawals waiting to be processed",
@@ -69,9 +69,9 @@ impl ISession for WithdrawalSession {
                 .get_withdrawals(blob_id)
                 .await
                 .context("Error to get withdrawals from DA")?;
+            raw_proof_tx_id = proof_tx_id.clone();
 
             if !withdrawals.is_empty() {
-                proof_txid = h256_to_txid(proof_tx_id).context("Invalid proof tx id")?;
                 l1_batch_number = *batch_number;
                 withdrawals_to_process = withdrawals;
                 tracing::info!(
@@ -86,7 +86,11 @@ impl ISession for WithdrawalSession {
                     .connection_tagged("coordinator")
                     .await?
                     .via_votes_dal()
-                    .mark_vote_transaction_as_processed_withdrawals(H256::zero(), *batch_number)
+                    .mark_vote_transaction_as_processed(
+                        H256::zero(),
+                        &raw_proof_tx_id,
+                        *batch_number,
+                    )
                     .await
                     .context("Error to mark a vote transaction as processed")?;
                 tracing::info!(
@@ -106,8 +110,9 @@ impl ISession for WithdrawalSession {
             withdrawals_to_process.len()
         );
 
+        let proof_txid = h256_to_txid(&raw_proof_tx_id).context("Invalid proof tx id")?;
         let unsigned_tx = self
-            .create_unsigned_withdrawal_tx(withdrawals_to_process, proof_txid)
+            .create_unsigned_tx(withdrawals_to_process, proof_txid)
             .await
             .map_err(|e| {
                 anyhow::format_err!("Invalid unsigned tx for batch {l1_batch_number}: {e}")
@@ -130,23 +135,21 @@ impl ISession for WithdrawalSession {
             l1_batch_number,
             unsigned_tx,
             sighash.to_byte_array().to_vec(),
+            raw_proof_tx_id,
         )))
     }
 
     async fn is_session_in_progress(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
         if session_op.get_l1_batche_number() != 0 {
-            let withdrawal_tx = self
+            let bridge_tx = self
                 .master_connection_pool
-                .connection_tagged("coordinator api")
+                .connection_tagged("verifier withdrawal session")
                 .await?
                 .via_votes_dal()
-                .get_vote_transaction_withdrawal_tx(session_op.get_l1_batche_number())
+                .get_vote_transaction_bridge_tx_id(session_op.get_l1_batche_number())
                 .await?;
 
-            if withdrawal_tx.is_none() {
-                // The withdrawal process is in progress
-                return Ok(true);
-            }
+            return Ok(bridge_tx.is_none());
         }
         Ok(false)
     }
@@ -156,7 +159,7 @@ impl ISession for WithdrawalSession {
             // Get the l1 batches finilized but withdrawals not yet processed
             if let Some((blob_id, proof_tx_id)) = self
                 .master_connection_pool
-                .connection_tagged("verifier task")
+                .connection_tagged("verifier withdrawal session verify message")
                 .await?
                 .via_votes_dal()
                 .get_finalized_block_and_non_processed_withdrawal(session_op.get_l1_batche_number())
@@ -195,19 +198,15 @@ impl ISession for WithdrawalSession {
         &self,
         session_op: &SessionOperation,
     ) -> anyhow::Result<bool> {
-        let withdrawal_txid = self
+        let bridge_txid = self
             .master_connection_pool
             .connection_tagged("verifier task")
             .await?
             .via_votes_dal()
-            .get_vote_transaction_withdrawal_tx(session_op.get_l1_batche_number())
+            .get_vote_transaction_bridge_tx_id(session_op.get_l1_batche_number())
             .await?;
 
-        if withdrawal_txid.is_some() {
-            return Ok(false);
-        }
-
-        Ok(true)
+        Ok(bridge_txid.is_none())
     }
 
     async fn after_broadcast_final_transaction(
@@ -219,8 +218,9 @@ impl ISession for WithdrawalSession {
             .connection_tagged("verifier task")
             .await?
             .via_votes_dal()
-            .mark_vote_transaction_as_processed_withdrawals(
+            .mark_vote_transaction_as_processed(
                 H256::from_slice(&txid.as_raw_hash().to_byte_array()),
+                &session_op.get_proof_tx_id(),
                 session_op.get_l1_batche_number(),
             )
             .await?;
@@ -236,7 +236,7 @@ impl ISession for WithdrawalSession {
 }
 
 impl WithdrawalSession {
-    pub async fn create_unsigned_withdrawal_tx(
+    pub async fn create_unsigned_tx(
         &self,
         withdrawals: Vec<WithdrawalRequest>,
         proof_txid: Txid,
@@ -298,7 +298,7 @@ impl WithdrawalSession {
             return Ok(false);
         }
         if len + 2 != unsigned_tx.tx.output.len() {
-            // Log an error
+            tracing::error!("Invalid unsigned withdrawal tx output lenght");
             return Ok(false);
         }
 
@@ -349,20 +349,12 @@ impl WithdrawalSession {
         unsigned_tx: &UnsignedBridgeTx,
         message: String,
     ) -> anyhow::Result<bool> {
-        // Verify the sighash
-        let mut sighash_cache = SighashCache::new(&unsigned_tx.tx);
-
-        let sighash_type = TapSighashType::All;
-        let mut txout_list = Vec::with_capacity(unsigned_tx.utxos.len());
-
-        for (_, txout) in unsigned_tx.utxos.clone() {
-            txout_list.push(txout);
-        }
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(0, &Prevouts::All(&txout_list), sighash_type)
-            .context("Error taproot_key_spend_signature_hash")?;
-
-        if message != sighash.to_string() {
+        if message
+            != self
+                .transaction_builder
+                .get_tr_sighash(unsigned_tx)?
+                .to_string()
+        {
             tracing::error!(
                 "Invalid transaction sighash for session with block id {}",
                 l1_batch_number

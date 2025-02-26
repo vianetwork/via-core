@@ -1,8 +1,8 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::sync::{watch, RwLock};
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{
@@ -43,6 +43,7 @@ pub struct ViaVerifier {
     pool: ConnectionPool<Verifier>,
     da_client: Box<dyn DataAvailabilityClient>,
     indexer: BitcoinInscriptionIndexer,
+    test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
     config: ViaVerifierConfig,
 }
 
@@ -62,6 +63,9 @@ impl ViaVerifier {
             pool,
             da_client: client,
             indexer,
+            test_zk_proof_invalid_l1_batch_numbers: Arc::new(RwLock::new(
+                config.test_zk_proof_invalid_l1_batch_numbers.clone(),
+            )),
             config,
         })
     }
@@ -93,7 +97,7 @@ impl ViaVerifier {
     ) -> anyhow::Result<()> {
         if let Some((l1_batch_number, mut raw_tx_id)) = storage
             .via_votes_dal()
-            .get_first_not_verified_block()
+            .get_first_not_verified_l1_batch_in_canonical_inscription_chain()
             .await?
         {
             let db_raw_tx_id = H256::from_slice(&raw_tx_id);
@@ -138,12 +142,15 @@ impl ViaVerifier {
                 .await?;
 
             if is_verified {
-                is_verified = self.verify_proof(batch_hash, &proof_blob.data).await?;
+                tracing::info!("Successfuly verfied the op priority id");
+                is_verified = self
+                    .verify_proof(l1_batch_number, batch_hash, &proof_blob.data)
+                    .await?;
             }
 
             storage
                 .via_votes_dal()
-                .verify_votable_transaction(l1_batch_number as u32, db_raw_tx_id, is_verified)
+                .verify_votable_transaction(l1_batch_number, db_raw_tx_id, is_verified)
                 .await?;
         }
 
@@ -258,7 +265,12 @@ impl ViaVerifier {
         Ok((blob, hash))
     }
 
-    async fn verify_proof(&self, batch_hash: H256, proof_bytes: &[u8]) -> anyhow::Result<bool> {
+    async fn verify_proof(
+        &self,
+        l1_batch_number: i64,
+        batch_hash: H256,
+        proof_bytes: &[u8],
+    ) -> anyhow::Result<bool> {
         tracing::info!(
             ?batch_hash,
             proof_len = proof_bytes.len(),
@@ -274,10 +286,6 @@ impl ViaVerifier {
             );
             return Ok(false);
         }
-
-        // TODO: decide if we need to verify the batch data (already have batch data from ProofDAReference inscription)
-        // let batch: PubData... = bincode::deserialize(&batch)
-        //     .context("Failed to deserialize L1BatchWithMetadata")?;
 
         let protocol_version = proof_data.l1_batches[0]
             .header
@@ -295,7 +303,8 @@ impl ViaVerifier {
                 protocol_version
             );
             tracing::info!("Skipping verification");
-            Ok(true)
+            self.verification_invalid_l1_batch_numbers(l1_batch_number)
+                .await
         } else {
             if proof_data.proofs.len() != 1 {
                 tracing::error!(
@@ -329,5 +338,18 @@ impl ViaVerifier {
 
             Ok(is_valid)
         }
+    }
+
+    // This code is triggred only when dev.
+    async fn verification_invalid_l1_batch_numbers(
+        &self,
+        l1_batch_number: i64,
+    ) -> anyhow::Result<bool> {
+        let mut l1_batches = self.test_zk_proof_invalid_l1_batch_numbers.write().await;
+        if let Some(pos) = l1_batches.iter().position(|&x| x == l1_batch_number) {
+            l1_batches.remove(pos);
+            return Ok(false);
+        }
+        Ok(true)
     }
 }

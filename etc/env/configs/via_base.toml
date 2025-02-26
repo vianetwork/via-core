@@ -70,4 +70,9 @@ via_btc_sender=debug,\
 via_da_dispatcher=debug,\
 via_da_clients=debug,\
 via_zk_verifier=info,\
+via_musig2=info,\
+via_verifier_coordinator=info,\
+via_verifier_btc_sender=info,\
+via_verifier_btc_watch=info,\
+via_verifier_dal=info,\
 """
