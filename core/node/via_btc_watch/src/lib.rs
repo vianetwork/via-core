@@ -3,7 +3,6 @@ mod metrics;
 
 use std::time::Duration;
 
-use anyhow::Context as _;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
@@ -21,8 +20,6 @@ use self::{
     },
     metrics::{ErrorType, METRICS},
 };
-
-const DEFAULT_VOTING_THRESHOLD: f64 = 0.5;
 
 #[derive(Debug)]
 struct BtcWatchState {
@@ -54,6 +51,7 @@ impl BtcWatch {
         poll_interval: Duration,
         btc_blocks_lag: u32,
         actor_role: &ActorRole,
+        zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
         let indexer =
             BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
@@ -70,7 +68,7 @@ impl BtcWatch {
                 state.bridge_address.clone(),
                 state.next_expected_priority_id,
             )),
-            Box::new(VotableMessageProcessor::new(DEFAULT_VOTING_THRESHOLD)),
+            Box::new(VotableMessageProcessor::new(zk_agreement_threshold)),
         ];
 
         let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);
@@ -107,8 +105,7 @@ impl BtcWatch {
             Some(block) => block.0.saturating_sub(1),
             None => indexer
                 .fetch_block_height()
-                .await
-                .context("cannot get current Bitcoin block")?
+                .await?
                 .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
         };
 

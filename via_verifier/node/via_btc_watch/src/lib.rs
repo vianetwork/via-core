@@ -3,7 +3,7 @@ mod metrics;
 
 use std::time::Duration;
 
-use anyhow::Context as _;
+use anyhow::Context;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
@@ -22,8 +22,6 @@ use crate::{
     message_processors::{L1ToL2MessageProcessor, VerifierMessageProcessor},
     metrics::ErrorType,
 };
-
-const DEFAULT_VOTING_THRESHOLD: f64 = 1.0;
 
 #[derive(Debug)]
 struct BtcWatchState {
@@ -53,6 +51,7 @@ impl VerifierBtcWatch {
         poll_interval: Duration,
         btc_blocks_lag: u32,
         actor_role: &ActorRole,
+        zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
         let indexer =
             BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
@@ -65,7 +64,7 @@ impl VerifierBtcWatch {
 
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(L1ToL2MessageProcessor::new(indexer.get_state().0)),
-            Box::new(VerifierMessageProcessor::new(DEFAULT_VOTING_THRESHOLD)),
+            Box::new(VerifierMessageProcessor::new(zk_agreement_threshold)),
         ];
 
         let confirmations_for_btc_msg = confirmations_for_btc_msg.unwrap_or(0);
@@ -103,7 +102,7 @@ impl VerifierBtcWatch {
             None => indexer
                 .fetch_block_height()
                 .await
-                .context("cannot get current Bitcoin block")?
+                .with_context(|| "Error to get current Bitcoin block")?
                 .saturating_sub(btc_blocks_lag as u128) as u32, // TODO: remove cast
         };
 

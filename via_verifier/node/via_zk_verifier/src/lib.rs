@@ -45,9 +45,11 @@ pub struct ViaVerifier {
     indexer: BitcoinInscriptionIndexer,
     test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
     config: ViaVerifierConfig,
+    zk_agreement_threshold: f64,
 }
 
 impl ViaVerifier {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         rpc_url: &str,
         network: BitcoinNetwork,
@@ -56,6 +58,7 @@ impl ViaVerifier {
         pool: ConnectionPool<Verifier>,
         client: Box<dyn DataAvailabilityClient>,
         config: ViaVerifierConfig,
+        zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
         let indexer =
             BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
@@ -67,6 +70,7 @@ impl ViaVerifier {
                 config.test_zk_proof_invalid_l1_batch_numbers.clone(),
             )),
             config,
+            zk_agreement_threshold,
         })
     }
 
@@ -104,7 +108,7 @@ impl ViaVerifier {
             tracing::info!("New non executed block ready to be processed");
 
             raw_tx_id.reverse();
-            let proof_txid = bytes_to_txid(&raw_tx_id).context("Failed to parse tx_id")?;
+            let proof_txid = bytes_to_txid(&raw_tx_id).with_context(|| "Failed to parse tx_id")?;
             tracing::info!("trying to get proof_txid: {}", proof_txid);
             let proof_msgs = self.indexer.parse_transaction(&proof_txid).await?;
             let proof_msg = self.expect_single_msg(&proof_msgs, "ProofDAReference")?;
@@ -148,9 +152,18 @@ impl ViaVerifier {
                     .await?;
             }
 
-            storage
+            let votable_transaction_id = storage
                 .via_votes_dal()
                 .verify_votable_transaction(l1_batch_number, db_raw_tx_id, is_verified)
+                .await?;
+
+            storage
+                .via_votes_dal()
+                .finalize_transaction_if_needed(
+                    votable_transaction_id,
+                    self.zk_agreement_threshold,
+                    self.indexer.get_number_of_verifiers(),
+                )
                 .await?;
         }
 
@@ -242,7 +255,7 @@ impl ViaVerifier {
             .da_client
             .get_inclusion_data(&proof_msg.input.blob_id)
             .await
-            .context("Failed to get blob")?
+            .with_context(|| "Failed to fetch the blob")?
             .ok_or_else(|| anyhow::anyhow!("Blob not found"))?;
         let batch_tx_id = proof_msg.input.l1_batch_reveal_txid;
 
@@ -258,7 +271,7 @@ impl ViaVerifier {
             .da_client
             .get_inclusion_data(&batch_msg.input.blob_id)
             .await
-            .context("Failed to get blob")?
+            .with_context(|| "Failed to fetch the blob")?
             .ok_or_else(|| anyhow::anyhow!("Blob not found"))?;
         let hash = batch_msg.input.l1_batch_hash;
 
