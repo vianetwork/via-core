@@ -2,29 +2,34 @@
 
 [![Banner](viaBanner.png)](https://onvia.org/)
 
-Via is the Bitcoin layer 2 solution leveraging Bitcoin’s security while enabling scalable off-chain execution. By
-utilising modular ZK Stack framework, Via network provides an EVM-compatible execution environment, allowing EVM
-developers to deploy and execute smart contracts, while enforcing the transactions integrity via Zero-Knowlegde (ZK)
-Proofs.
+Via is a Bitcoin layer 2 solution that leverages Bitcoin's security while enhancing it's scalability. By utilizing the
+modular [ZK Stack](https://docs.zksync.io/zk-stack) framework, the Via network provides an EVM-compatible execution
+environment, allowing developers to deploy and execute smart contracts while ensuring transaction integrity through
+Zero-Knowledge (ZK) Proofs.
 
-In Ethereum terms, Via is a Validium that extends Bitcoin’s capabilities by introducing an off-chain execution layer
-where transactions are processed efficiently before being finalized on Bitcoin, while the transaction data is stored on
-Celestia. This allows for improved throughput and reduced fees while maintaining cryptographic guarantees with Validity
-Proofs.
+As a Bitcoin rollup with a dedicated Verifier Network serving as the settlement layer, Via extends Bitcoin's
+capabilities by introducing a scalable execution layer where transactions are processed efficiently before being
+finalized. While the transaction data is published to [Celestia](https://celestia.org/), validity proofs verified on the
+Via's Verifier Network ensure correctness and security. Unlike fully decentralized sovereign rollups, Via's Verifier
+Network is currently permissioned, relying on a designated set of nodes for verification and settlement rather than the
+open participation, making it a permissioned Sovereign Rollup.
+
+This architecture is designed for the MVP, and we plan to make the network more trust-minimized and open to participants
+in the future.
 
 ## Knowledge Index
 
 The following questions are addressed in the resources below:
 
-| Question                                                | Resource                                         |
-| ------------------------------------------------------- | ------------------------------------------------ |
-| What do I need to develop the project locally?          | [development.md](docs/via_guides/development.md) |
-| How can I set up my dev environment?                    | [setup-dev.md](docs/guides/setup-dev.md)         |
-| How can I run the project?                              | [launch.md](docs/guides/launch.md)               |
-| What is the logical project structure and architecture? | [architecture.md](docs/guides/architecture.md)   |
-| Via Network Guides                                      | [guides](docs/via_guides/)                       |
-| Where can I find protocol specs?                        | Ping Via Team Members                            |
-| Where can I find developer docs?                        | Ping Via Team Members                            |
+| Question                                                | Resource                                           |
+| ------------------------------------------------------- | -------------------------------------------------- |
+| Via Protocol Guides                                     | [guides](docs/via_guides/)                         |
+| What do I need to develop the project locally?          | [development.md](docs/via_guides/development.md)   |
+| How can I set up my dev environment?                    | [setup-dev.md](docs/guides/setup-dev.md)           |
+| How can I run the project?                              | [launch.md](docs/guides/launch.md)                 |
+| What is the logical project structure and architecture? | [architecture.md](docs/via_guides/architecture.md) |
+| Where can I find protocol specs?                        | Ping Via Team Members                              |
+| Where can I find developer docs?                        | Ping Via Team Members                              |
 
 ## High Level Overview
 
