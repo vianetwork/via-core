@@ -78,6 +78,7 @@ impl WiringLayer for ViaBtcProofVerificationLayer {
             main_pool,
             input.da_client.0,
             self.config.clone(),
+            self.btc_watcher_config.zk_agreement_threshold,
         )
         .await
         .map_err(WiringError::internal)?;

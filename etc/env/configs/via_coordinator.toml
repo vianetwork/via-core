@@ -29,6 +29,8 @@ verifier_request_timeout = 10
 
 # The verifier_mode can be simple verifier or coordinator.
 verifier_mode = "COORDINATOR"
+# (TEST ONLY) returns the proof verification result.
+test_zk_proof_invalid_l1_batch_numbers = [3]
 
 [via_btc_watch]
 actor_role = "Verifier"

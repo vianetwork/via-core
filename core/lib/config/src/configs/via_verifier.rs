@@ -31,6 +31,8 @@ pub struct ViaVerifierConfig {
     pub verifier_request_timeout: u8,
     /// The role.
     pub verifier_mode: VerifierMode,
+    /// (TEST ONLY) returns the proof verification result.
+    pub test_zk_proof_invalid_l1_batch_numbers: Vec<i64>,
 }
 
 impl ViaVerifierConfig {
@@ -54,6 +56,7 @@ impl ViaVerifierConfig {
             required_signers: 2,
             verifier_request_timeout: 10,
             verifier_mode: VerifierMode::VERIFIER,
+            test_zk_proof_invalid_l1_batch_numbers: vec![],
         }
     }
 }

@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bitcoin::{
-    absolute, script::PushBytesBuf, transaction, Address, Amount, OutPoint, ScriptBuf, Sequence,
+    absolute,
+    script::PushBytesBuf,
+    sighash::{Prevouts, SighashCache},
+    transaction, Address, Amount, OutPoint, ScriptBuf, Sequence, TapSighash, TapSighashType,
     Transaction, TxIn, TxOut, Witness,
 };
 use tracing::{debug, instrument};
@@ -163,6 +166,22 @@ impl TransactionBuilder {
             utxos: selected_utxos,
             change_amount,
         })
+    }
+
+    #[instrument(skip(self, unsigned_tx), target = "bitcoin_transaction_builder")]
+    pub fn get_tr_sighash(&self, unsigned_tx: &UnsignedBridgeTx) -> anyhow::Result<TapSighash> {
+        let mut sighash_cache = SighashCache::new(&unsigned_tx.tx);
+        let sighash_type = TapSighashType::All;
+        let mut txout_list = Vec::with_capacity(unsigned_tx.utxos.len());
+
+        for (_, txout) in unsigned_tx.utxos.clone() {
+            txout_list.push(txout);
+        }
+        let sighash = sighash_cache
+            .taproot_key_spend_signature_hash(0, &Prevouts::All(&txout_list), sighash_type)
+            .with_context(|| "Error taproot_key_spend_signature_hash")?;
+
+        Ok(sighash)
     }
 
     // Helper function to create OP_RETURN script

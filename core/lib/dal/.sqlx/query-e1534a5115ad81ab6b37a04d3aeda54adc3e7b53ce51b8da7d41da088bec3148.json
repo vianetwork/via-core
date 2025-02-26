@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                MIN(l1_batch_number) AS l1_batch_number\n            FROM\n                via_l1_batch_inscription_request\n            WHERE\n                is_finalized = FALSE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e1534a5115ad81ab6b37a04d3aeda54adc3e7b53ce51b8da7d41da088bec3148"
+}

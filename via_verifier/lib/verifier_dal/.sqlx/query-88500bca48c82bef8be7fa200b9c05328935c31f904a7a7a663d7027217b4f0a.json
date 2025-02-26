@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO\n                        via_l1_batch_vote_inscription_request (votable_transaction_id, vote_l1_batch_inscription_id, created_at, updated_at)\n                    VALUES\n                        ($1, $2, NOW(), NOW())\n                    ON CONFLICT DO NOTHING\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "88500bca48c82bef8be7fa200b9c05328935c31f904a7a7a663d7027217b4f0a"
+}

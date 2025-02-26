@@ -9,7 +9,7 @@ use zksync_da_client::{
     types::{DAError, InclusionData},
     DataAvailabilityClient,
 };
-use zksync_dal::{ConnectionPool, Core, CoreDal};
+use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_l1_contract_interface::i_executor::methods::ProveBatches;
 use zksync_object_store::{ObjectStore, ObjectStoreError};
 use zksync_prover_interface::outputs::L1BatchProofForL1;
@@ -90,6 +90,10 @@ impl ViaDataAvailabilityDispatcher {
     /// Dispatches the blobs to the data availability layer, and saves the blob_id in the database.
     async fn dispatch(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("via_da_dispatcher").await?;
+        if self.is_rollback_required(&mut conn).await? {
+            return Ok(());
+        }
+
         let batches = conn
             .via_data_availability_dal()
             .get_ready_for_da_dispatch_l1_batches(self.config.max_rows_to_dispatch() as usize)
@@ -149,6 +153,9 @@ impl ViaDataAvailabilityDispatcher {
 
     async fn dispatch_dummy_proofs(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
+        if self.is_rollback_required(&mut conn).await? {
+            return Ok(());
+        }
 
         let batches = conn
             .via_data_availability_dal()
@@ -202,6 +209,10 @@ impl ViaDataAvailabilityDispatcher {
     /// Dispatches proofs to the data availability layer, and saves the blob_id in the database.
     async fn dispatch_real_proofs(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
+
+        if self.is_rollback_required(&mut conn).await? {
+            return Ok(());
+        }
 
         let proofs = conn
             .via_data_availability_dal()
@@ -649,6 +660,21 @@ impl ViaDataAvailabilityDispatcher {
         );
 
         Ok(())
+    }
+
+    async fn is_rollback_required(&self, conn: &mut Connection<'_, Core>) -> anyhow::Result<bool> {
+        if let Some(l1_batch_number) = conn
+            .via_blocks_dal()
+            .get_reverted_batch_by_verifier_network()
+            .await?
+        {
+            tracing::warn!(
+                "Can not dispatch data to DA, the l1 batch: {} is invalid. Roll back process should be executed on the Sequencer",
+                l1_batch_number.0,
+            );
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 

@@ -15,7 +15,7 @@ pub fn get_signer(
 ) -> anyhow::Result<Signer> {
     let private_key = PrivateKey::from_wif(private_key_wif)?;
     let secret_key = SecretKey::from_byte_array(&private_key.inner.secret_bytes())
-        .context("Error to compute the coordinator sk")?;
+        .with_context(|| "Error to compute the coordinator sk")?;
     let secp = Secp256k1::new();
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
@@ -38,7 +38,7 @@ pub fn get_signer(
 pub fn decode_signature(signature: String) -> anyhow::Result<PartialSignature> {
     let decoded_sig = base64::engine::general_purpose::STANDARD
         .decode(&signature)
-        .context("error to decode signature")?;
+        .with_context(|| "Error to decode signature")?;
     Ok(PartialSignature::from_slice(&decoded_sig)?)
 }
 
@@ -65,7 +65,7 @@ pub fn encode_nonce(signer_index: usize, nonce: PubNonce) -> anyhow::Result<Nonc
 pub fn decode_nonce(nonce_pair: NoncePair) -> anyhow::Result<PubNonce> {
     let decoded_nonce = base64::engine::general_purpose::STANDARD
         .decode(&nonce_pair.nonce)
-        .context("error to encode nonde")?;
+        .with_context(|| "Error to encode nonce")?;
     let pub_nonce = PubNonce::from_bytes(&decoded_nonce)?;
     Ok(pub_nonce)
 }
@@ -77,5 +77,5 @@ pub(crate) fn h256_to_txid(h256_bytes: &[u8]) -> anyhow::Result<Txid> {
     }
     let mut reversed_bytes = h256_bytes.to_vec();
     reversed_bytes.reverse();
-    Txid::from_slice(&reversed_bytes).context("Failed to convert H256 to Txid")
+    Txid::from_slice(&reversed_bytes).with_context(|| "Failed to convert H256 to Txid")
 }

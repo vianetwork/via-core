@@ -2,7 +2,10 @@ use anyhow::{Context, Result};
 use bitcoin::{
     hashes::Hash,
     key::UntweakedPublicKey,
-    opcodes::{all, OP_0, OP_FALSE},
+    opcodes::{
+        all::{self},
+        OP_FALSE, OP_TRUE,
+    },
     script::{Builder as ScriptBuilder, PushBytesBuf},
     secp256k1::{Secp256k1, Signing, Verification},
     taproot::{TaprootBuilder, TaprootSpendInfo},
@@ -205,8 +208,8 @@ impl InscriptionData {
             .push_slice(reference_txid_encoded);
 
         match input.attestation {
-            types::Vote::Ok => script.push_opcode(all::OP_PUSHNUM_1),
-            types::Vote::NotOk => script.push_opcode(OP_0),
+            types::Vote::Ok => script.push_opcode(OP_TRUE),
+            types::Vote::NotOk => script.push_opcode(OP_FALSE),
         }
     }
 

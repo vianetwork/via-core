@@ -50,6 +50,7 @@ help:
 	@echo "  server-genesis     - Populate the genesis block data if no genesis block exists."
 	@echo "  server             - Run the sequencer software."
 	@echo "  clean              - Clean the project, remove Docker images, volumes, and generated files."
+	@echo "  rollback           - Initiate a sequencer rollback by specifying the target 'to_batch' number."
 	@echo "  help               - Show this help message (default target)."
 	@echo ""
 	@echo "Requirements:"
@@ -188,3 +189,14 @@ clean:
 	@echo "$(YELLOW)Cleaning the project, removing images, volumes, and generated files...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) clean
+
+# Require 'to_batch' args as input, ex: `make rollback to_batch=2`
+.PHONY: rollback
+rollback:
+	cargo run --bin via_block_reverter_cli -- rollback-db \
+		--rollback-postgres \
+		--l1-batch-number $(to_batch) \
+		--rollback-tree \
+		--rollback-sk-cache \
+		--rollback-vm-runners-cache \
+		--rollback-snapshots

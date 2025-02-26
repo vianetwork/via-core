@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                v1.id as id\n            FROM\n                via_votable_transactions v1\n            WHERE\n                v1.is_finalized IS NULL\n                AND (\n                    v1.l1_batch_number = 1\n                    OR EXISTS (\n                        SELECT\n                            1\n                        FROM\n                            via_votable_transactions v2\n                        WHERE\n                            v2.l1_batch_hash = v1.prev_l1_batch_hash\n                            AND v2.l1_batch_number = v1.l1_batch_number - 1\n                            AND v2.is_finalized = TRUE\n                    )\n                )\n            ORDER BY\n                v1.l1_batch_number ASC\n            LIMIT\n                1 \n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e3220871cb724c8c5e9bccda21c199066b28fd7d1e0620ca621e16b171fb2d4b"
+}

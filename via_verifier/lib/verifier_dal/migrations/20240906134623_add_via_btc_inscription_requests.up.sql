@@ -23,7 +23,7 @@ CREATE TABLE "via_btc_inscriptions_request_history" (
 );
 
 CREATE TABLE "via_l1_batch_vote_inscription_request" (
-  "l1_batch_number" bigint UNIQUE NOT NULL,
+  "votable_transaction_id" bigint UNIQUE NOT NULL,
   "vote_l1_batch_inscription_id" bigint UNIQUE NOT NULL,
   "created_at" timestamp NOT NULL DEFAULT 'now()',
   "updated_at" timestamp NOT NULL
