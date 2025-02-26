@@ -93,20 +93,22 @@ impl VerifierBtcWatch {
         storage: &mut Connection<'_, Verifier>,
         btc_blocks_lag: u32,
     ) -> anyhow::Result<BtcWatchState> {
-        let last_processed_bitcoin_block =
-            match storage.via_votes_dal().get_last_inserted_block().await? {
-                Some(block) => block.saturating_sub(1),
-                None => {
-                    let current_block = indexer
-                        .fetch_block_height()
-                        .await
-                        .context("cannot get current Bitcoin block")?
-                        as u32;
+        let last_processed_bitcoin_block = match storage
+            .via_votes_dal()
+            .get_last_finalized_l1_batch()
+            .await?
+        {
+            Some(block) => block.saturating_sub(1),
+            None => {
+                let current_block = indexer
+                    .fetch_block_height()
+                    .await
+                    .with_context(|| "cannot get current Bitcoin block")?
+                    as u32;
 
-                    current_block.saturating_sub(btc_blocks_lag)
-                }
-            };
-
+                current_block.saturating_sub(btc_blocks_lag)
+            }
+        };
 
         Ok(BtcWatchState {
             last_processed_bitcoin_block,

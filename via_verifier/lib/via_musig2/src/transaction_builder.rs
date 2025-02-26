@@ -277,7 +277,7 @@ mod tests {
                 Ok(true)
             }
 
-            async fn fetch_block_height(&self) -> Result<u128, BitcoinError> {
+            async fn fetch_block_height(&self) -> Result<u64, BitcoinError> {
                 Ok(100000)
             }
 

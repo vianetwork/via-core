@@ -199,7 +199,7 @@ impl ViaVotesDal<'_, '_> {
         Ok(is_finalized)
     }
 
-    pub async fn get_last_finilized_l1_batch(&mut self) -> DalResult<Option<u32>> {
+    pub async fn get_last_finalized_l1_batch(&mut self) -> DalResult<Option<u32>> {
         let row = sqlx::query!(
             r#"
             SELECT
