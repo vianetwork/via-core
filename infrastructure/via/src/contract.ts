@@ -2,8 +2,6 @@ import { Command } from 'commander';
 import * as utils from 'utils';
 import * as env from './env';
 import fs from 'fs';
-import { Wallet } from 'ethers';
-import path from 'path';
 
 export async function build(): Promise<void> {
     await utils.spawn('yarn l2-contracts build');

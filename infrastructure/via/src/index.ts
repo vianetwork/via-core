@@ -19,6 +19,7 @@ import { verifierCommand as verifier } from './verifier';
 import { command as celestia } from './celestia';
 import { command as btc_explorer } from './btc_explorer';
 import { command as token } from './token';
+import { command as contract } from './contract';
 
 const COMMANDS = [
     server,
@@ -37,6 +38,7 @@ const COMMANDS = [
     celestia,
     btc_explorer,
     token,
+    contract,
     completion(program as Command)
 ];
 
