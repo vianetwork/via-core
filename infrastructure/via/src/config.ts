@@ -157,7 +157,7 @@ export async function pushConfig(environment?: string, diff?: string) {
         env.modify('DATABASE_URL', `postgres://postgres:notsecurepassword@localhost/${environment}`, l2InitFile, false);
         env.modify(
             'TEST_DATABASE_URL',
-            `postgres://postgres:notsecurepassword@localhost/${environment}_test`,
+            `postgres://postgres:notsecurepassword@localhost:5433/${environment}_test`,
             l2InitFile,
             false
         );
@@ -170,7 +170,7 @@ export async function pushConfig(environment?: string, diff?: string) {
         );
         env.modify(
             'TEST_DATABASE_PROVER_URL',
-            `postgres://postgres:notsecurepassword@localhost/prover_${environment}_test`,
+            `postgres://postgres:notsecurepassword@localhost:5433/prover_${environment}_test`,
             l2InitFile,
             false
         );
@@ -183,7 +183,7 @@ export async function pushConfig(environment?: string, diff?: string) {
         );
         env.modify(
             `TEST_DATABASE_VERIFIER_URL`,
-            `postgres://postgres:notsecurepassword@localhost/verifier_${environment}_test`,
+            `postgres://postgres:notsecurepassword@localhost:5433/verifier_${environment}_test`,
             l2InitFile,
             false
         );
@@ -201,7 +201,7 @@ const fetchCelestiaTrustedHash = async () => {
     let environment = process.env.VIA_ENV!;
     const l2InitFile = `etc/env/l2-inits/${environment}.init.env`;
 
-    const response = await (await fetch('http://celestia-testnet-consensus.itrocket.net:26657/header')).json();
+    const response = await (await fetch('http://public-celestia-mocha4-consensus.numia.xyz/header')).json();
     const { last_block_id, height } = response.result.header;
 
     const envFilePath1 = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);

@@ -2,7 +2,10 @@ use anyhow::{Context, Result};
 use bitcoin::{
     hashes::Hash,
     key::UntweakedPublicKey,
-    opcodes::{all, OP_0, OP_FALSE},
+    opcodes::{
+        all::{self},
+        OP_FALSE, OP_TRUE,
+    },
     script::{Builder as ScriptBuilder, PushBytesBuf},
     secp256k1::{Secp256k1, Signing, Verification},
     taproot::{TaprootBuilder, TaprootSpendInfo},
@@ -155,6 +158,8 @@ impl InscriptionData {
         let l1_batch_index_encoded = Self::encode_push_bytes(&input.l1_batch_index.to_be_bytes());
         let da_identifier_encoded = Self::encode_push_bytes(input.da_identifier.as_bytes());
         let da_reference_encoded = Self::encode_push_bytes(input.blob_id.as_bytes());
+        let prev_l1_batch_hash_encoded =
+            Self::encode_push_bytes(input.prev_l1_batch_hash.as_bytes());
 
         basic_script
             .push_slice(&*types::L1_BATCH_DA_REFERENCE_MSG)
@@ -162,6 +167,7 @@ impl InscriptionData {
             .push_slice(l1_batch_index_encoded)
             .push_slice(da_identifier_encoded)
             .push_slice(da_reference_encoded)
+            .push_slice(prev_l1_batch_hash_encoded)
     }
 
     #[instrument(
@@ -202,8 +208,8 @@ impl InscriptionData {
             .push_slice(reference_txid_encoded);
 
         match input.attestation {
-            types::Vote::Ok => script.push_opcode(all::OP_PUSHNUM_1),
-            types::Vote::NotOk => script.push_opcode(OP_0),
+            types::Vote::Ok => script.push_opcode(OP_TRUE),
+            types::Vote::NotOk => script.push_opcode(OP_FALSE),
         }
     }
 

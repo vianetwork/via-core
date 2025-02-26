@@ -1,8 +1,8 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::sync::{watch, RwLock};
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{
@@ -43,10 +43,13 @@ pub struct ViaVerifier {
     pool: ConnectionPool<Verifier>,
     da_client: Box<dyn DataAvailabilityClient>,
     indexer: BitcoinInscriptionIndexer,
+    test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
     config: ViaVerifierConfig,
+    zk_agreement_threshold: f64,
 }
 
 impl ViaVerifier {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         rpc_url: &str,
         network: BitcoinNetwork,
@@ -55,6 +58,7 @@ impl ViaVerifier {
         pool: ConnectionPool<Verifier>,
         client: Box<dyn DataAvailabilityClient>,
         config: ViaVerifierConfig,
+        zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
         let indexer =
             BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
@@ -62,7 +66,11 @@ impl ViaVerifier {
             pool,
             da_client: client,
             indexer,
+            test_zk_proof_invalid_l1_batch_numbers: Arc::new(RwLock::new(
+                config.test_zk_proof_invalid_l1_batch_numbers.clone(),
+            )),
             config,
+            zk_agreement_threshold,
         })
     }
 
@@ -93,14 +101,14 @@ impl ViaVerifier {
     ) -> anyhow::Result<()> {
         if let Some((l1_batch_number, mut raw_tx_id)) = storage
             .via_votes_dal()
-            .get_first_not_verified_block()
+            .get_first_not_verified_l1_batch_in_canonical_inscription_chain()
             .await?
         {
             let db_raw_tx_id = H256::from_slice(&raw_tx_id);
             tracing::info!("New non executed block ready to be processed");
 
             raw_tx_id.reverse();
-            let proof_txid = bytes_to_txid(&raw_tx_id).context("Failed to parse tx_id")?;
+            let proof_txid = bytes_to_txid(&raw_tx_id).with_context(|| "Failed to parse tx_id")?;
             tracing::info!("trying to get proof_txid: {}", proof_txid);
             let proof_msgs = self.indexer.parse_transaction(&proof_txid).await?;
             let proof_msg = self.expect_single_msg(&proof_msgs, "ProofDAReference")?;
@@ -138,12 +146,24 @@ impl ViaVerifier {
                 .await?;
 
             if is_verified {
-                is_verified = self.verify_proof(batch_hash, &proof_blob.data).await?;
+                tracing::info!("Successfuly verfied the op priority id");
+                is_verified = self
+                    .verify_proof(l1_batch_number, batch_hash, &proof_blob.data)
+                    .await?;
             }
+
+            let votable_transaction_id = storage
+                .via_votes_dal()
+                .verify_votable_transaction(l1_batch_number, db_raw_tx_id, is_verified)
+                .await?;
 
             storage
                 .via_votes_dal()
-                .verify_votable_transaction(l1_batch_number as u32, db_raw_tx_id, is_verified)
+                .finalize_transaction_if_needed(
+                    votable_transaction_id,
+                    self.zk_agreement_threshold,
+                    self.indexer.get_number_of_verifiers(),
+                )
                 .await?;
         }
 
@@ -180,7 +200,7 @@ impl ViaVerifier {
         }
 
         if txs.is_empty() {
-            tracing::error!("There is no transactions to validate the op priority id",);
+            tracing::info!("There is no transactions to validate the op priority id",);
             return Ok(true);
         }
 
@@ -235,7 +255,7 @@ impl ViaVerifier {
             .da_client
             .get_inclusion_data(&proof_msg.input.blob_id)
             .await
-            .context("Failed to get blob")?
+            .with_context(|| "Failed to fetch the blob")?
             .ok_or_else(|| anyhow::anyhow!("Blob not found"))?;
         let batch_tx_id = proof_msg.input.l1_batch_reveal_txid;
 
@@ -251,14 +271,19 @@ impl ViaVerifier {
             .da_client
             .get_inclusion_data(&batch_msg.input.blob_id)
             .await
-            .context("Failed to get blob")?
+            .with_context(|| "Failed to fetch the blob")?
             .ok_or_else(|| anyhow::anyhow!("Blob not found"))?;
         let hash = batch_msg.input.l1_batch_hash;
 
         Ok((blob, hash))
     }
 
-    async fn verify_proof(&self, batch_hash: H256, proof_bytes: &[u8]) -> anyhow::Result<bool> {
+    async fn verify_proof(
+        &self,
+        l1_batch_number: i64,
+        batch_hash: H256,
+        proof_bytes: &[u8],
+    ) -> anyhow::Result<bool> {
         tracing::info!(
             ?batch_hash,
             proof_len = proof_bytes.len(),
@@ -274,10 +299,6 @@ impl ViaVerifier {
             );
             return Ok(false);
         }
-
-        // TODO: decide if we need to verify the batch data (already have batch data from ProofDAReference inscription)
-        // let batch: PubData... = bincode::deserialize(&batch)
-        //     .context("Failed to deserialize L1BatchWithMetadata")?;
 
         let protocol_version = proof_data.l1_batches[0]
             .header
@@ -295,7 +316,8 @@ impl ViaVerifier {
                 protocol_version
             );
             tracing::info!("Skipping verification");
-            Ok(true)
+            self.verification_invalid_l1_batch_numbers(l1_batch_number)
+                .await
         } else {
             if proof_data.proofs.len() != 1 {
                 tracing::error!(
@@ -329,5 +351,18 @@ impl ViaVerifier {
 
             Ok(is_valid)
         }
+    }
+
+    // This code is triggred only when dev.
+    async fn verification_invalid_l1_batch_numbers(
+        &self,
+        l1_batch_number: i64,
+    ) -> anyhow::Result<bool> {
+        let mut l1_batches = self.test_zk_proof_invalid_l1_batch_numbers.write().await;
+        if let Some(pos) = l1_batches.iter().position(|&x| x == l1_batch_number) {
+            l1_batches.remove(pos);
+            return Ok(false);
+        }
+        Ok(true)
     }
 }

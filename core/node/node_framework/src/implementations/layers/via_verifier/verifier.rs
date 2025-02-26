@@ -3,8 +3,8 @@ use std::{str::FromStr, sync::Arc};
 use anyhow::Context;
 use via_btc_client::{client::BitcoinClient, types::NodeAuth};
 use via_btc_watch::BitcoinNetwork;
+use via_verifier_coordinator::verifier::ViaWithdrawalVerifier;
 use via_withdrawal_client::client::WithdrawalClient;
-use via_withdrawal_service::verifier::ViaWithdrawalVerifier;
 use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
 
 use crate::{
@@ -56,16 +56,13 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
         );
         let network = BitcoinNetwork::from_str(self.btc_sender_config.network()).unwrap();
 
-        let btc_client = Arc::new(
-            BitcoinClient::new(self.btc_sender_config.rpc_url(), network, auth)
-                .context("Error to init the btc client for verifier task")?,
-        );
-
         let withdrawal_client = WithdrawalClient::new(input.client.0, network);
 
+        let btc_client =
+            Arc::new(BitcoinClient::new(self.btc_sender_config.rpc_url(), network, auth).unwrap());
+
         let via_withdrawal_verifier_task =
-            ViaWithdrawalVerifier::new(master_pool, btc_client, withdrawal_client, self.config)
-                .await
+            ViaWithdrawalVerifier::new(self.config, master_pool, btc_client, withdrawal_client)
                 .context("Error to init the via withdrawal verifier")?;
 
         Ok(Output {

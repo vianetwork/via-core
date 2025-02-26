@@ -102,6 +102,7 @@ pub fn create_btc_l1_batch_details(number: L1BatchNumber, timestamp: i64) -> Via
         blob_id: "blob_id".to_string(),
         commit_tx_id: Txid::all_zeros(),
         reveal_tx_id: Txid::all_zeros(),
+        prev_l1_batch_hash: None,
     }
 }
 
@@ -258,6 +259,7 @@ impl ViaAggregatorTest {
             commit_tx_id: Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()),
             reveal_tx_id: Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()),
             timestamp: 0,
+            prev_l1_batch_hash: Some(generate_random_bytes(32)),
         };
         let inscription_message = self
             .aggregator
@@ -271,6 +273,7 @@ impl ViaAggregatorTest {
             .storage
             .btc_sender_dal()
             .via_save_btc_inscriptions_request(
+                batch.number,
                 ViaBtcInscriptionRequestType::CommitL1BatchOnchain.to_string(),
                 InscriptionMessage::to_bytes(&inscription_message),
                 0,

@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use anyhow::Context;
 use bitcoin::{Address as BitcoinAddress, Amount, Network};
-use via_btc_client::withdrawal_builder::WithdrawalRequest;
 use via_da_client::types::WITHDRAW_FUNC_SIG;
+use via_verifier_types::withdrawal::WithdrawalRequest;
 use zksync_basic_types::{web3::keccak256, U256};
 
 pub fn parse_l2_withdrawal_message(
@@ -28,9 +28,9 @@ pub fn parse_l2_withdrawal_message(
     // The address bytes represent the l1 receiver
     let address_bytes = &l2_to_l1_message[4..4 + address_size];
     let address_str =
-        String::from_utf8(address_bytes.to_vec()).context("Parse address to string")?;
+        String::from_utf8(address_bytes.to_vec()).with_context(|| "Parse address to string")?;
     let address = BitcoinAddress::from_str(&address_str)
-        .context("parse bitcoin address")?
+        .with_context(|| "parse bitcoin address")?
         .require_network(network)?;
 
     // The last 32 bytes represent the amount (uint256)

@@ -9455,6 +9455,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "via_block_reverter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_matches",
+ "async-trait",
+ "futures 0.3.30",
+ "tempfile",
+ "test-casing",
+ "tokio",
+ "tracing",
+ "zksync_dal",
+ "zksync_merkle_tree",
+ "zksync_object_store",
+ "zksync_state",
+ "zksync_storage",
+ "zksync_types",
+]
+
+[[package]]
+name = "via_block_reverter_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.5.16",
+ "serde_json",
+ "tokio",
+ "via_block_reverter",
+ "zksync_config",
+ "zksync_core_leftovers",
+ "zksync_dal",
+ "zksync_env_config",
+ "zksync_object_store",
+ "zksync_protobuf_config",
+ "zksync_types",
+ "zksync_vlog",
+]
+
+[[package]]
 name = "via_btc_client"
 version = "0.1.0"
 dependencies = [
@@ -9603,12 +9642,17 @@ name = "via_musig2"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum 0.6.20",
  "base64 0.21.7",
+ "bincode",
  "bitcoin",
  "bitcoincore-rpc",
+ "byteorder",
+ "dotenv",
  "hex",
  "hyper 0.14.30",
+ "mockall",
  "musig2",
  "rand 0.8.5",
  "reqwest 0.12.7",
@@ -9620,6 +9664,10 @@ dependencies = [
  "tracing-subscriber",
  "uuid 1.10.0",
  "via_btc_client",
+ "via_da_clients",
+ "via_verifier_types",
+ "via_withdrawal_client",
+ "zksync_dal",
 ]
 
 [[package]]
@@ -9771,50 +9819,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "via_verifier_dal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bitcoin",
- "rand 0.8.5",
- "sqlx",
- "strum 0.26.3",
- "thiserror",
- "tokio",
- "zksync_basic_types",
- "zksync_db_connection",
- "zksync_types",
-]
-
-[[package]]
-name = "via_withdrawal_client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bitcoin",
- "dotenv",
- "hex",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "via_btc_client",
- "via_da_client",
- "via_da_clients",
- "zksync_basic_types",
- "zksync_config",
- "zksync_da_client",
- "zksync_dal",
- "zksync_types",
- "zksync_utils",
-]
-
-[[package]]
-name = "via_withdrawal_service"
+name = "via_verifier_coordinator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
  "base64 0.21.7",
+ "bincode",
  "bitcoin",
  "chrono",
  "hex",
@@ -9833,10 +9844,61 @@ dependencies = [
  "via_btc_client",
  "via_musig2",
  "via_verifier_dal",
+ "via_verifier_types",
  "via_withdrawal_client",
  "vise",
  "zksync_config",
  "zksync_types",
+]
+
+[[package]]
+name = "via_verifier_dal"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "rand 0.8.5",
+ "sqlx",
+ "strum 0.26.3",
+ "thiserror",
+ "tokio",
+ "zksync_basic_types",
+ "zksync_db_connection",
+ "zksync_types",
+]
+
+[[package]]
+name = "via_verifier_types"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bitcoin",
+ "serde",
+ "via_btc_client",
+]
+
+[[package]]
+name = "via_withdrawal_client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "dotenv",
+ "hex",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "via_btc_client",
+ "via_da_client",
+ "via_da_clients",
+ "via_verifier_types",
+ "zksync_basic_types",
+ "zksync_config",
+ "zksync_da_client",
+ "zksync_dal",
+ "zksync_types",
+ "zksync_utils",
 ]
 
 [[package]]
@@ -11883,12 +11945,13 @@ dependencies = [
  "via_btc_watch",
  "via_da_dispatcher",
  "via_fee_model",
+ "via_musig2",
  "via_state_keeper",
  "via_verifier_btc_sender",
  "via_verifier_btc_watch",
+ "via_verifier_coordinator",
  "via_verifier_dal",
  "via_withdrawal_client",
- "via_withdrawal_service",
  "via_zk_verifier",
  "zksync_base_token_adjuster",
  "zksync_block_reverter",

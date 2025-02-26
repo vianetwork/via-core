@@ -179,7 +179,7 @@ impl ViaBtcSenderDal<'_, '_> {
             .storage
             .start_transaction()
             .await
-            .context("start_transaction")?;
+            .with_context(|| "start_transaction")?;
 
         sqlx::query!(
             r#"
@@ -210,6 +210,9 @@ impl ViaBtcSenderDal<'_, '_> {
         .execute(transaction.conn())
         .await?;
 
-        transaction.commit().await.context("commit()")
+        transaction
+            .commit()
+            .await
+            .with_context(|| "Error commit and confirm transaction")
     }
 }

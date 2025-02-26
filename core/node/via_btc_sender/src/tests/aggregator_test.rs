@@ -340,6 +340,7 @@ mod tests {
             commit_tx_id: Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()),
             reveal_tx_id: Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()),
             timestamp: header.timestamp as i64,
+            prev_l1_batch_hash: Some(generate_random_bytes(32)),
         };
 
         let message: via_btc_client::types::InscriptionMessage = aggregator_test

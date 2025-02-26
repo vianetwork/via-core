@@ -1,8 +1,8 @@
 use anyhow::Context;
 use via_da_clients::celestia::wiring_layer::ViaCelestiaClientWiringLayer;
 use zksync_config::{
-    configs::{via_verifier::VerifierMode, wallets::Wallets, Secrets},
-    ActorRole, ContractsConfig, GenesisConfig, ViaGeneralConfig,
+    configs::{via_verifier::VerifierMode, Secrets},
+    ActorRole, ViaGeneralConfig,
 };
 use zksync_node_framework::{
     implementations::layers::{
@@ -13,7 +13,6 @@ use zksync_node_framework::{
         via_btc_sender::{
             vote::ViaBtcVoteInscriptionLayer, vote_manager::ViaInscriptionManagerLayer,
         },
-        via_btc_watch::BtcWatchLayer,
         via_verifier::{
             coordinator_api::ViaCoordinatorApiLayer, verifier::ViaWithdrawalVerifierLayer,
         },
@@ -35,29 +34,17 @@ pub struct ViaNodeBuilder {
     is_coordinator: bool,
     node: ZkStackServiceBuilder,
     configs: ViaGeneralConfig,
-    wallets: Wallets,
-    genesis_config: GenesisConfig,
-    contracts_config: ContractsConfig,
     secrets: Secrets,
 }
 
 impl ViaNodeBuilder {
-    pub fn new(
-        via_general_config: ViaGeneralConfig,
-        wallets: Wallets,
-        secrets: Secrets,
-        genesis_config: GenesisConfig,
-        contracts_config: ContractsConfig,
-    ) -> anyhow::Result<Self> {
+    pub fn new(via_general_config: ViaGeneralConfig, secrets: Secrets) -> anyhow::Result<Self> {
         let via_verifier_config = try_load_config!(via_general_config.via_verifier_config);
         let is_coordinator = via_verifier_config.verifier_mode == VerifierMode::COORDINATOR;
         Ok(Self {
             is_coordinator,
             node: ZkStackServiceBuilder::new().context("Cannot create ZkStackServiceBuilder")?,
             configs: via_general_config,
-            wallets,
-            genesis_config,
-            contracts_config,
             secrets,
         })
     }
@@ -73,7 +60,6 @@ impl ViaNodeBuilder {
 
     fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
         let celestia_config = try_load_config!(self.configs.via_celestia_config);
-        println!("{:?}", celestia_config);
         self.node
             .add_layer(ViaCelestiaClientWiringLayer::new(celestia_config));
         Ok(self)
@@ -103,7 +89,7 @@ impl ViaNodeBuilder {
 
     // VIA related layers
     fn add_verifier_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
-        let mut btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
+        let btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
         assert_eq!(
             btc_watch_config.actor_role,
             ActorRole::Verifier,

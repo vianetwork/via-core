@@ -7,9 +7,7 @@ use via_btc_client::{
 };
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
-use zksync_types::{
-    via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType, L1BatchNumber,
-};
+use zksync_types::via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType;
 
 #[derive(Debug)]
 pub struct ViaVoteInscription {
@@ -40,9 +38,7 @@ impl ViaVoteInscription {
                 .await?;
 
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => {
-                    tracing::info!("Verifier vote inscription task finished");
-                }
+                Ok(()) => {}
                 Err(err) => {
                     tracing::error!("Failed to process Verifier btc_sender_inscription: {err}");
                 }
@@ -57,7 +53,9 @@ impl ViaVoteInscription {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
-        if let Some((l1_batch_number, vote, tx_id)) = self.get_voting_operation(storage).await? {
+        if let Some((votable_transaction_id, vote, tx_id)) =
+            self.get_voting_operation(storage).await?
+        {
             tracing::info!("New voting operation ready to be processed");
             let mut transaction = storage.start_transaction().await?;
             let inscription_message = self.construct_voting_inscription_message(vote, tx_id)?;
@@ -69,18 +67,16 @@ impl ViaVoteInscription {
                     InscriptionMessage::to_bytes(&inscription_message),
                     0,
                 )
-                .await
-                .context("Via save btc inscriptions request")?;
+                .await?;
 
             transaction
                 .via_block_dal()
                 .insert_vote_l1_batch_inscription_request_id(
-                    l1_batch_number,
+                    votable_transaction_id,
                     inscription_request.id,
                     ViaVerifierBtcInscriptionRequestType::VoteOnchain,
                 )
-                .await
-                .context("Via set inscription request id")?;
+                .await?;
             transaction.commit().await?;
         }
         Ok(())
@@ -89,31 +85,27 @@ impl ViaVoteInscription {
     pub async fn get_voting_operation(
         &mut self,
         storage: &mut Connection<'_, Verifier>,
-    ) -> anyhow::Result<Option<(L1BatchNumber, bool, Vec<u8>)>> {
-        if let Some(batch_number) = storage
+    ) -> anyhow::Result<Option<(i64, bool, Vec<u8>)>> {
+        if let Some(votable_transaction_id) = storage
             .via_votes_dal()
-            .get_first_non_finalized_block()
+            .get_first_non_finalized_l1_batch_in_canonical_inscription_chain()
             .await?
         {
             // Check if already created a voting inscription
-            let exists = storage
+            if storage
                 .via_block_dal()
-                .check_vote_l1_batch_inscription_request_if_exists(batch_number)
-                .await?;
-            if exists {
+                .check_vote_l1_batch_inscription_request_if_exists(votable_transaction_id)
+                .await?
+            {
                 return Ok(None);
             }
 
             if let Some((vote, tx_id)) = storage
                 .via_votes_dal()
-                .get_verifier_vote_status(batch_number)
+                .get_verifier_vote_status(votable_transaction_id)
                 .await?
             {
-                return Ok(Some((
-                    L1BatchNumber::from(batch_number as u32),
-                    vote,
-                    tx_id,
-                )));
+                return Ok(Some((votable_transaction_id, vote, tx_id)));
             }
         }
         Ok(None)
@@ -143,6 +135,6 @@ impl ViaVoteInscription {
         }
         let mut reversed_bytes = h256_bytes.to_vec();
         reversed_bytes.reverse();
-        Txid::from_slice(&reversed_bytes).context("Failed to convert H256 to Txid")
+        Txid::from_slice(&reversed_bytes).with_context(|| "Failed to convert H256 to Txid")
     }
 }

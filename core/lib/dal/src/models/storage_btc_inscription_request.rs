@@ -7,6 +7,7 @@ use zksync_types::btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionReques
 #[derive(Debug, Clone)]
 pub struct ViaStorageBtcInscriptionRequest {
     pub id: i64,
+    pub l1_batch_number: i64,
     pub request_type: String,
     pub inscription_message: Option<Vec<u8>>,
     pub predicted_fee: Option<i64>,

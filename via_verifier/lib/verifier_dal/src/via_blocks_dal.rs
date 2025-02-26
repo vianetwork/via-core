@@ -3,9 +3,7 @@ use zksync_db_connection::{
     error::DalResult,
     instrument::{InstrumentExt, Instrumented},
 };
-use zksync_types::{
-    via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType, L1BatchNumber,
-};
+use zksync_types::via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType;
 
 use crate::Verifier;
 
@@ -17,25 +15,25 @@ pub struct ViaBlocksDal<'a, 'c> {
 impl ViaBlocksDal<'_, '_> {
     pub async fn insert_vote_l1_batch_inscription_request_id(
         &mut self,
-        batch_number: L1BatchNumber,
+        votable_transaction_id: i64,
         inscription_request_id: i64,
         inscription_request: ViaVerifierBtcInscriptionRequestType,
     ) -> DalResult<()> {
         match inscription_request {
             ViaVerifierBtcInscriptionRequestType::VoteOnchain => {
                 let instrumentation = Instrumented::new("set_inscription_request_tx_id#commit")
-                    .with_arg("batch_number", &batch_number)
+                    .with_arg("votable_transaction_id", &votable_transaction_id)
                     .with_arg("inscription_request_id", &inscription_request_id);
 
                 let query = sqlx::query!(
                     r#"
                     INSERT INTO
-                        via_l1_batch_vote_inscription_request (l1_batch_number, vote_l1_batch_inscription_id, created_at, updated_at)
+                        via_l1_batch_vote_inscription_request (votable_transaction_id, vote_l1_batch_inscription_id, created_at, updated_at)
                     VALUES
                         ($1, $2, NOW(), NOW())
                     ON CONFLICT DO NOTHING
                     "#,
-                    i64::from(batch_number.0),
+                    votable_transaction_id,
                     inscription_request_id as i32,
                 );
                 let result = instrumentation
@@ -48,8 +46,8 @@ impl ViaBlocksDal<'_, '_> {
                     let err = instrumentation.constraint_error(anyhow::anyhow!(
                         "Failed to insert into 'via_l1_batch_vote_inscription_request': \
                         No rows were affected. This could be due to a conflict or invalid input values. \
-                        batch_number: {:?}, inscription_request_id: {:?}",
-                        i64::from(batch_number.0),
+                        votable_transaction_id: {:?}, inscription_request_id: {:?}",
+                        votable_transaction_id,
                         inscription_request_id as i32
                     ));
                     return Err(err);
@@ -68,7 +66,7 @@ impl ViaBlocksDal<'_, '_> {
             SELECT EXISTS(
                 SELECT 1
                 FROM via_l1_batch_vote_inscription_request
-                WHERE l1_batch_number = $1
+                WHERE votable_transaction_id = $1
             )
             "#,
             batch_number
