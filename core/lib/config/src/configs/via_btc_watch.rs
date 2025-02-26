@@ -104,7 +104,7 @@ impl ViaBtcWatchConfig {
             bootstrap_txids: vec![],
             actor_role: ActorRole::Sequencer,
             btc_blocks_lag: 1,
-            zk_agreement_threshold: 1.0,
+            zk_agreement_threshold: 0.5,
         }
     }
 }
