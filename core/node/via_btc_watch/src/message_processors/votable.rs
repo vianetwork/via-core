@@ -28,9 +28,7 @@ impl MessageProcessor for VotableMessageProcessor {
             match msg {
                 ref f @ FullInscriptionMessage::ValidatorAttestation(ref attestation_msg) => {
                     if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
-                        let proof_reveal_txid =
-                            convert_txid_to_h256(attestation_msg.input.reference_txid);
-                        let tx_id = convert_txid_to_h256(attestation_msg.common.tx_id);
+                        let proof_reveal_txid = attestation_msg.input.reference_txid[..].to_vec();
 
                         // Vote = true if attestation_msg.input.attestation == Vote::Ok
                         let is_ok = matches!(
@@ -62,7 +60,7 @@ impl MessageProcessor for VotableMessageProcessor {
                             .via_votes_dal()
                             .insert_vote(
                                 l1_batch_number.0,
-                                proof_reveal_txid,
+                                &proof_reveal_txid,
                                 &p2wpkh_address.to_string(),
                                 is_ok,
                             )
@@ -82,7 +80,7 @@ impl MessageProcessor for VotableMessageProcessor {
                         {
                             tracing::info!(
                                 "Finalizing transaction with tx_id: {:?} and block number: {:?}",
-                                tx_id,
+                                convert_txid_to_h256(attestation_msg.common.tx_id),
                                 l1_batch_number
                             );
                         }

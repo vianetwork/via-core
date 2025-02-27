@@ -1,6 +1,6 @@
 use anyhow::Context;
 use zksync_db_connection::connection::Connection;
-use zksync_types::btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
+use zksync_types::via_btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
 
 use crate::{
     models::storage_btc_inscription_request::{

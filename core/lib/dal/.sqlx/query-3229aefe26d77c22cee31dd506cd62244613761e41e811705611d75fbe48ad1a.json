@@ -11,8 +11,8 @@
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
+        "Bytea",
+        "Bytea",
         "Int8",
         "Bytea",
         "Bytea",

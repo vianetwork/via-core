@@ -75,8 +75,8 @@ impl ViaAggregator {
             .via_blocks_dal()
             .get_ready_for_commit_l1_batches(
                 self.config.max_aggregated_blocks_to_commit() as usize,
-                base_system_contracts_hashes.bootloader,
-                base_system_contracts_hashes.default_aa,
+                &base_system_contracts_hashes.bootloader,
+                &base_system_contracts_hashes.default_aa,
                 protocol_version_id,
             )
             .await?;

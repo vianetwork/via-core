@@ -1,8 +1,6 @@
-use std::str::FromStr;
-
-use bitcoin::Txid;
+use bitcoin::{hashes::Hash, Txid};
 use sqlx::types::chrono::NaiveDateTime;
-use zksync_types::btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
+use zksync_types::via_btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
 
 #[derive(Debug, Clone)]
 pub struct ViaStorageBtcInscriptionRequest {
@@ -19,8 +17,8 @@ pub struct ViaStorageBtcInscriptionRequest {
 #[derive(Clone, Debug)]
 pub struct ViaStorageBtcInscriptionRequestHistory {
     pub id: i64,
-    pub commit_tx_id: String,
-    pub reveal_tx_id: String,
+    pub commit_tx_id: Vec<u8>,
+    pub reveal_tx_id: Vec<u8>,
     pub inscription_request_id: i64,
     pub signed_commit_tx: Option<Vec<u8>>,
     pub signed_reveal_tx: Option<Vec<u8>>,
@@ -50,8 +48,8 @@ impl From<ViaStorageBtcInscriptionRequestHistory> for ViaBtcInscriptionRequestHi
     fn from(history: ViaStorageBtcInscriptionRequestHistory) -> ViaBtcInscriptionRequestHistory {
         ViaBtcInscriptionRequestHistory {
             id: history.id,
-            commit_tx_id: Txid::from_str(&history.commit_tx_id).unwrap(),
-            reveal_tx_id: Txid::from_str(&history.reveal_tx_id).unwrap(),
+            commit_tx_id: Txid::from_slice(&history.commit_tx_id).unwrap(),
+            reveal_tx_id: Txid::from_slice(&history.reveal_tx_id).unwrap(),
             inscription_request_id: history.inscription_request_id,
             sent_at_block: history.sent_at_block,
             signed_commit_tx: history.signed_commit_tx,

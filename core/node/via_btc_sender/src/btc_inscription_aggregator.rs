@@ -92,7 +92,7 @@ impl ViaBtcInscriptionAggregator {
                 let prediction_fee = inscribe_info.reveal_tx_output_info._reveal_fee
                     + inscribe_info.commit_tx_output_info.commit_tx_fee;
 
-                let inscription_request = transaction
+                let inscription_request_id = transaction
                     .btc_sender_dal()
                     .via_save_btc_inscriptions_request(
                         batch.number,
@@ -106,7 +106,7 @@ impl ViaBtcInscriptionAggregator {
                     .via_blocks_dal()
                     .insert_l1_batch_inscription_request_id(
                         batch.number,
-                        inscription_request.id,
+                        inscription_request_id,
                         operation.get_inscription_request_type(),
                     )
                     .await?;

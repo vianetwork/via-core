@@ -1,5 +1,4 @@
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
-use zksync_types::H256;
 
 use crate::Core;
 
@@ -8,12 +7,11 @@ pub struct ViaVotesDal<'c, 'a> {
 }
 
 impl ViaVotesDal<'_, '_> {
-    /// Inserts a new vote row in `via_votes`.
-    /// Now requires `l1_batch_number` as part of the primary key / FK.
+    /// Inserts a new vote for an l1 batch.
     pub async fn insert_vote(
         &mut self,
         l1_batch_number: u32,
-        proof_reveal_tx_id: H256,
+        proof_reveal_tx_id: &[u8],
         verifier_address: &str,
         vote: bool,
     ) -> DalResult<()> {
@@ -26,7 +24,7 @@ impl ViaVotesDal<'_, '_> {
             ON CONFLICT (l1_batch_number, proof_reveal_tx_id, verifier_address) DO NOTHING
             "#,
             l1_batch_number as i32,
-            proof_reveal_tx_id.as_bytes(),
+            proof_reveal_tx_id,
             verifier_address,
             vote
         )
@@ -38,8 +36,7 @@ impl ViaVotesDal<'_, '_> {
         Ok(())
     }
 
-    /// Returns (not_ok_votes, ok_votes, total_votes) for the given `(l1_batch_number)`.
-    /// Must also filter on `l1_batch_number`.
+    /// Get the voting statistics for a specific L1 batch as (rejections, approvals, total).
     pub async fn get_vote_count(&mut self, l1_batch_number: u32) -> DalResult<(i64, i64, i64)> {
         let row = sqlx::query!(
             r#"
@@ -71,8 +68,9 @@ impl ViaVotesDal<'_, '_> {
         Ok((not_ok_votes, ok_votes, total_votes))
     }
 
-    /// Marks the transaction as finalized if #ok_votes / #total_votes >= threshold.
-    /// Must use `(l1_batch_number, tx_id)` in both vote counting and the UPDATE statement.
+    /// Attempts to finalize a batch inscription request based on voting results.
+    /// Returns true if the threshold of agreeing votes was reached and the batch was finalized.
+    /// Returns false if the batch was already finalized or the threshold hasn't been reached.
     pub async fn finalize_transaction_if_needed(
         &mut self,
         l1_batch_number: u32,
