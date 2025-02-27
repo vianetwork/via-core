@@ -10,7 +10,7 @@ mod tests {
     use zksync_node_test_utils::l1_batch_metadata_to_commitment_artifacts;
     use zksync_types::{
         block::L1BatchHeader, btc_inscription_operations::ViaBtcInscriptionRequestType,
-        btc_sender::ViaBtcInscriptionRequest, ProtocolVersionId, H256,
+        via_btc_sender::ViaBtcInscriptionRequest, ProtocolVersionId, H256,
     };
 
     use crate::tests::utils::{
@@ -49,6 +49,8 @@ mod tests {
             Some(config.clone()),
         )
         .await;
+
+        aggregator_test.create_genesis_l1_batch().await.unwrap();
 
         for header in l1_headers {
             aggregator_test

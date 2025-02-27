@@ -60,6 +60,8 @@ mod tests {
         )
         .await;
 
+        aggregator_test.create_genesis_l1_batch().await.unwrap();
+
         for header in l1_headers {
             aggregator_test
                 .insert_l1_batch(
@@ -88,7 +90,7 @@ mod tests {
         let inflight_inscriptions = aggregator_test
             .storage
             .btc_sender_dal()
-            .get_inflight_inscriptions()
+            .list_inflight_inscription_ids()
             .await
             .unwrap();
 
@@ -96,19 +98,28 @@ mod tests {
 
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
-        let inflight_inscriptions = aggregator_test
+        let inflight_inscription_ids = aggregator_test
             .storage
             .btc_sender_dal()
-            .get_inflight_inscriptions()
+            .list_inflight_inscription_ids()
             .await
             .unwrap();
 
-        assert_eq!(inflight_inscriptions.len(), 1);
-        assert!(inflight_inscriptions[0]
+        assert_eq!(inflight_inscription_ids.len(), 1);
+
+        let inscription_request = aggregator_test
+            .storage
+            .btc_sender_dal()
+            .get_inscription_request(inflight_inscription_ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(inscription_request
             .confirmed_inscriptions_request_history_id
             .is_none());
         assert_eq!(
-            inflight_inscriptions[0].request_type,
+            inscription_request.request_type,
             ViaBtcInscriptionRequestType::CommitL1BatchOnchain.to_string()
         );
 
@@ -120,13 +131,13 @@ mod tests {
 
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
-        let inflight_inscriptions = aggregator_test
+        let inflight_inscription_ids = aggregator_test
             .storage
             .btc_sender_dal()
-            .get_inflight_inscriptions()
+            .list_inflight_inscription_ids()
             .await
             .unwrap();
-        assert_eq!(inflight_inscriptions.len(), 0);
+        assert_eq!(inflight_inscription_ids.len(), 0);
 
         // Start the manager
 
@@ -138,20 +149,28 @@ mod tests {
 
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
-        let inflight_inscriptions = aggregator_test
+        let inflight_inscription_ids = aggregator_test
             .storage
             .btc_sender_dal()
-            .get_inflight_inscriptions()
+            .list_inflight_inscription_ids()
             .await
             .unwrap();
 
-        assert_eq!(inflight_inscriptions.len(), 1);
+        assert_eq!(inflight_inscription_ids.len(), 1);
 
-        assert!(inflight_inscriptions[0]
+        let inscription_request = aggregator_test
+            .storage
+            .btc_sender_dal()
+            .get_inscription_request(inflight_inscription_ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(inscription_request
             .confirmed_inscriptions_request_history_id
             .is_none());
         assert_eq!(
-            inflight_inscriptions[0].request_type,
+            inscription_request.request_type,
             ViaBtcInscriptionRequestType::CommitProofOnchain.to_string()
         );
     }

@@ -15,13 +15,14 @@ use zksync_config::{configs::via_btc_sender::ProofSendingMode, ViaBtcSenderConfi
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::{
-    block::{L1BatchHeader, L1BatchTreeData},
+    block::{BlockGasCount, L1BatchHeader, L1BatchTreeData, L2BlockHasher, L2BlockHeader},
     btc_block::ViaBtcL1BlockDetails,
     btc_inscription_operations::ViaBtcInscriptionRequestType,
     commitment::{L1BatchCommitmentArtifacts, L1BatchMetaParameters, L1BatchMetadata},
+    fee_model::BatchFeeInput,
     l2_to_l1_log::{L2ToL1Log, UserL2ToL1Log},
     protocol_version::{L1VerifierConfig, ProtocolSemanticVersion},
-    L1BatchNumber, ProtocolVersion, ProtocolVersionId, H160, H256,
+    Bloom, L1BatchNumber, L2BlockNumber, ProtocolVersion, ProtocolVersionId, H160, H256,
 };
 
 use crate::{
@@ -269,7 +270,7 @@ impl ViaAggregatorTest {
             )
             .unwrap();
 
-        let inscription = self
+        let inscription_id = self
             .storage
             .btc_sender_dal()
             .via_save_btc_inscriptions_request(
@@ -285,23 +286,22 @@ impl ViaAggregatorTest {
             .storage
             .btc_sender_dal()
             .insert_inscription_request_history(
-                batch.commit_tx_id,
-                batch.reveal_tx_id,
-                inscription.id,
-                generate_random_bytes(32),
-                generate_random_bytes(32),
+                batch.commit_tx_id.as_byte_array(),
+                batch.reveal_tx_id.as_byte_array(),
+                inscription_id,
+                &generate_random_bytes(32).to_vec(),
+                &generate_random_bytes(32).to_vec(),
                 0,
                 0,
             )
             .await
-            .unwrap()
             .unwrap();
 
         self.storage
             .via_blocks_dal()
             .insert_l1_batch_inscription_request_id(
                 batch.number,
-                inscription.id,
+                inscription_id,
                 ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
             )
             .await
@@ -314,7 +314,7 @@ impl ViaAggregatorTest {
             .insert_proof_da(batch.number, "blob_id", sent_at)
             .await;
 
-        (inscription.id, inscription_request_history_id as i64)
+        (inscription_id, inscription_request_history_id as i64)
     }
 
     pub async fn confirme_inscription_request(&mut self, inscription_request_id: i64) {
@@ -322,16 +322,17 @@ impl ViaAggregatorTest {
             .storage
             .btc_sender_dal()
             .insert_inscription_request_history(
-                Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()),
-                Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()),
+                Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap())
+                    .as_byte_array(),
+                Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap())
+                    .as_byte_array(),
                 inscription_request_id,
-                vec![],
-                vec![],
+                &[],
+                &[],
                 0,
                 1,
             )
             .await
-            .unwrap()
             .unwrap();
 
         self.storage
@@ -342,5 +343,84 @@ impl ViaAggregatorTest {
             )
             .await
             .unwrap();
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_genesis_l1_batch(&mut self) -> anyhow::Result<()> {
+        let genesis_l1_batch_header = L1BatchHeader::new(
+            L1BatchNumber(0),
+            0,
+            self.protocol_version.base_system_contracts_hashes,
+            self.protocol_version.version.minor,
+        );
+
+        let genesis_l2_block_header = L2BlockHeader {
+            number: L2BlockNumber(0),
+            timestamp: 0,
+            hash: L2BlockHasher::legacy_hash(L2BlockNumber(0)),
+            l1_tx_count: 0,
+            l2_tx_count: 0,
+            fee_account_address: Default::default(),
+            base_fee_per_gas: 0,
+            gas_per_pubdata_limit: 0,
+            batch_fee_input: BatchFeeInput::l1_pegged(0, 0),
+            base_system_contracts_hashes: self.protocol_version.base_system_contracts_hashes,
+            protocol_version: Some(self.protocol_version.version.minor),
+            virtual_blocks: 0,
+            gas_limit: 0,
+            logs_bloom: Bloom::zero(),
+        };
+
+        let mut transaction = self.storage.start_transaction().await?;
+
+        transaction
+            .protocol_versions_dal()
+            .save_protocol_version_with_tx(&self.protocol_version)
+            .await?;
+        transaction
+            .blocks_dal()
+            .insert_l1_batch(
+                &genesis_l1_batch_header,
+                &[],
+                BlockGasCount::default(),
+                &[],
+                &[],
+                Default::default(),
+            )
+            .await?;
+        transaction
+            .blocks_dal()
+            .insert_l2_block(&genesis_l2_block_header)
+            .await?;
+        transaction
+            .blocks_dal()
+            .mark_l2_blocks_as_executed_in_l1_batch(L1BatchNumber(0))
+            .await?;
+
+        let factory_deps = [BOOTLOADER_CODE_HASH_TEST, DEFAULT_AA_CODE_HASH_TEST]
+            .iter()
+            .map(|c| (H256::from_str(c).unwrap(), vec![]))
+            .collect();
+
+        transaction
+            .factory_deps_dal()
+            .insert_factory_deps(L2BlockNumber(0), &factory_deps)
+            .await
+            .unwrap();
+
+        transaction
+            .blocks_dal()
+            .save_l1_batch_tree_data(
+                L1BatchNumber::from(0),
+                &L1BatchTreeData {
+                    hash: H256::random(),
+                    rollup_last_leaf_index: 1,
+                },
+            )
+            .await
+            .unwrap();
+
+        transaction.commit().await?;
+        Ok(())
     }
 }
