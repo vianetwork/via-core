@@ -345,7 +345,6 @@ impl ViaAggregatorTest {
             .unwrap();
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn create_genesis_l1_batch(&mut self) -> anyhow::Result<()> {
         let genesis_l1_batch_header = L1BatchHeader::new(
             L1BatchNumber(0),
