@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
-use bitcoincore_rpc::json::EstimateMode;
+use bitcoincore_rpc::json::{EstimateMode, GetBlockStatsResult};
+use futures::future::join_all;
 use tracing::{debug, error, instrument};
 
 mod rpc_client;
@@ -98,10 +99,10 @@ impl BitcoinOps for BitcoinClient {
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
-    async fn fetch_block_height(&self) -> BitcoinClientResult<u128> {
+    async fn fetch_block_height(&self) -> BitcoinClientResult<u64> {
         debug!("Fetching block height");
         let height = self.rpc.get_block_count().await?;
-        Ok(height as u128)
+        Ok(height)
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
@@ -156,6 +157,42 @@ impl BitcoinOps for BitcoinClient {
         debug!("Fetching block by hash");
         self.rpc.get_block_by_hash(block_hash).await
     }
+
+    #[instrument(skip(self), target = "bitcoin_client")]
+    async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult> {
+        debug!("Fetching block by hash");
+        self.rpc.get_block_stats(height).await
+    }
+
+    /// Retrieve the "fee_history" for the Bitcoin blockchain between provided blocks 'from_block_height' and 'to_block_height'.
+    #[instrument(skip(self), target = "bitcoin_client")]
+    async fn get_fee_history(
+        &self,
+        from_block_height: usize,
+        to_block_height: usize,
+    ) -> BitcoinClientResult<Vec<u64>> {
+        debug!("Fetching blocks fee history");
+
+        let mut fetch_blocks_futures = Vec::new();
+        for block_height in from_block_height..to_block_height {
+            fetch_blocks_futures.push(self.get_block_stats(block_height as u64));
+        }
+
+        let blocks = join_all(fetch_blocks_futures).await;
+        let mut fee_history: Vec<u64> = Vec::new();
+
+        for block_result in blocks {
+            match block_result {
+                Ok(block) => {
+                    fee_history.push(std::cmp::max(block.min_fee_rate.to_sat(), 1));
+                }
+                Err(err) => {
+                    return BitcoinClientResult::Err(err.clone());
+                }
+            }
+        }
+        Ok(fee_history)
+    }
 }
 
 impl Clone for BitcoinClient {
@@ -198,6 +235,7 @@ mod tests {
             async fn get_raw_transaction_info(&self, txid: &Txid) -> BitcoinClientResult<GetRawTransactionResult>;
             async fn estimate_smart_fee(&self, conf_target: u16, estimate_mode: Option<EstimateMode>) -> BitcoinClientResult<EstimateSmartFeeResult>;
             async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
+            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
         }
     }
 

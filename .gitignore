@@ -36,6 +36,7 @@ Cargo.lock
 /etc/env/.current
 /etc/env/configs/*
 !/etc/env/configs/dev.toml
+!/etc/env/configs/via*.toml
 !/etc/env/configs/dev_validium.toml
 !/etc/env/configs/dev_validium_docker.toml
 !/etc/env/configs/ext-node.toml
@@ -117,3 +118,7 @@ configs/*
 era-observability/
 core/tests/ts-integration/deployments-zk
 .env
+
+*.via
+
+celestia-keys/*

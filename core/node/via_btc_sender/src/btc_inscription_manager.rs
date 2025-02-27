@@ -1,14 +1,11 @@
 use anyhow::{Context, Result};
 use bincode::serialize;
+use bitcoin::hashes::Hash;
 use tokio::sync::watch;
-use via_btc_client::{
-    inscriber::Inscriber,
-    traits::Serializable,
-    types::{InscriptionConfig, InscriptionMessage},
-};
+use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::btc_sender::ViaBtcInscriptionRequest;
+use zksync_types::via_btc_sender::ViaBtcInscriptionRequest;
 
 use crate::config::BLOCK_RESEND;
 
@@ -45,9 +42,7 @@ impl ViaBtcInscriptionManager {
             let mut storage = pool.connection_tagged("via_btc_sender").await?;
 
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => {
-                    tracing::info!("Inscription manager task finished");
-                }
+                Ok(()) => {}
                 Err(err) => {
                     tracing::error!("Failed to process btc_sender_inscription_manager: {err}");
                 }
@@ -71,12 +66,15 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> anyhow::Result<()> {
-        let inflight_inscriptions = storage.btc_sender_dal().get_inflight_inscriptions().await?;
+        let inflight_inscriptions_ids = storage
+            .btc_sender_dal()
+            .list_inflight_inscription_ids()
+            .await?;
 
-        for inscription in inflight_inscriptions {
+        for inscription_id in inflight_inscriptions_ids {
             if let Some(last_inscription_history) = storage
                 .btc_sender_dal()
-                .get_last_inscription_request_history(inscription.id)
+                .get_last_inscription_request_history(inscription_id)
                 .await?
             {
                 let is_confirmed = self
@@ -92,7 +90,7 @@ impl ViaBtcInscriptionManager {
                 if is_confirmed {
                     storage
                         .btc_sender_dal()
-                        .confirm_inscription(inscription.id, last_inscription_history.id)
+                        .confirm_inscription(inscription_id, last_inscription_history.id)
                         .await?;
                     tracing::info!(
                         "Inscription confirmed {reveal_tx}",
@@ -104,31 +102,17 @@ impl ViaBtcInscriptionManager {
                         .get_client()
                         .await
                         .fetch_block_height()
-                        .await
-                        .context("context")?;
+                        .await?;
 
                     if last_inscription_history.sent_at_block + BLOCK_RESEND as i64
                         > current_block as i64
                     {
                         continue;
                     }
-
-                    let number_inscription_request_history = storage
-                        .btc_sender_dal()
-                        .get_total_inscription_request_history(inscription.id)
-                        .await?;
-
-                    let config = InscriptionConfig {
-                        fee_multiplier: number_inscription_request_history as u64 + 1,
-                    };
-
-                    tracing::info!(
-                        "Inscription {reveal_tx} stuck for more than {BLOCK_RESEND} block, retry sending the inscription.",
+                    tracing::warn!(
+                        "Inscription {reveal_tx} stuck for more than {BLOCK_RESEND} block.",
                         reveal_tx = last_inscription_history.reveal_tx_id
                     );
-
-                    self.send_inscription_tx(storage, &inscription, config)
-                        .await?;
                 }
             }
         }
@@ -142,7 +126,7 @@ impl ViaBtcInscriptionManager {
     ) -> anyhow::Result<()> {
         let number_inflight_txs = storage
             .btc_sender_dal()
-            .get_inflight_inscriptions()
+            .list_inflight_inscription_ids()
             .await?
             .len();
 
@@ -168,8 +152,7 @@ impl ViaBtcInscriptionManager {
                 .await?;
 
             for inscription in list_new_inscription_request {
-                self.send_inscription_tx(storage, &inscription, InscriptionConfig::default())
-                    .await?;
+                self.send_inscription_tx(storage, &inscription).await?;
             }
         }
         Ok(())
@@ -179,32 +162,27 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
         tx: &ViaBtcInscriptionRequest,
-        config: InscriptionConfig,
     ) -> anyhow::Result<()> {
         let sent_at_block = self
             .inscriber
             .get_client()
             .await
             .fetch_block_height()
-            .await
-            .context("Error to fetch current block number")? as i64;
+            .await? as i64;
 
         let input =
             InscriptionMessage::from_bytes(&tx.inscription_message.clone().unwrap_or_default());
 
-        let inscribe_info = self
-            .inscriber
-            .inscribe(input, config)
-            .await
-            .context("Sent inscription tx")?;
+        let inscribe_info = self.inscriber.inscribe(input).await?;
 
-        let signed_commit_tx =
-            serialize(&inscribe_info.final_commit_tx.tx).context("Serilize the commit tx")?;
-        let signed_reveal_tx =
-            serialize(&inscribe_info.final_reveal_tx.tx).context("Serilize the reveal tx")?;
+        let signed_commit_tx = serialize(&inscribe_info.final_commit_tx.tx)
+            .with_context(|| "Error serializing the commit tx")?;
+
+        let signed_reveal_tx = serialize(&inscribe_info.final_reveal_tx.tx)
+            .with_context(|| "Error serializing the reveal tx")?;
 
         let actual_fees = inscribe_info.reveal_tx_output_info._reveal_fee
-            + inscribe_info.commit_tx_output_info._commit_tx_fee;
+            + inscribe_info.commit_tx_output_info.commit_tx_fee;
 
         tracing::info!(
             "New inscription created {commit_tx} {reveal_tx}",
@@ -215,11 +193,19 @@ impl ViaBtcInscriptionManager {
         storage
             .btc_sender_dal()
             .insert_inscription_request_history(
-                inscribe_info.final_commit_tx.txid,
-                inscribe_info.final_reveal_tx.txid,
+                &inscribe_info
+                    .final_commit_tx
+                    .txid
+                    .as_raw_hash()
+                    .to_byte_array(),
+                &inscribe_info
+                    .final_reveal_tx
+                    .txid
+                    .as_raw_hash()
+                    .to_byte_array(),
                 tx.id,
-                signed_commit_tx,
-                signed_reveal_tx,
+                &signed_commit_tx,
+                &signed_reveal_tx,
                 actual_fees.to_sat() as i64,
                 sent_at_block,
             )

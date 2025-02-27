@@ -6,7 +6,7 @@ WORKDIR /usr/src/via
 
 COPY . .
 
-RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y protobuf-compiler git && rm -rf /var/lib/apt/lists/*
 RUN cargo build --release #--features=rocksdb/io-uring <-- investigate what is this
 
 FROM debian:bookworm-slim

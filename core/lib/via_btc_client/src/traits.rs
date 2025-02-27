@@ -6,7 +6,7 @@ use bitcoin::{
     secp256k1::{All, Secp256k1},
     Address, Block, BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid,
 };
-use bitcoincore_rpc::bitcoincore_rpc_json::GetBlockchainInfoResult;
+use bitcoincore_rpc::{bitcoincore_rpc_json::GetBlockchainInfoResult, json::GetBlockStatsResult};
 use secp256k1::{
     ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, Message, PublicKey,
 };
@@ -30,13 +30,19 @@ pub trait BitcoinOps: Send + Sync {
         txid: &Txid,
         conf_num: u32,
     ) -> types::BitcoinClientResult<bool>;
-    async fn fetch_block_height(&self) -> types::BitcoinClientResult<u128>;
+    async fn fetch_block_height(&self) -> types::BitcoinClientResult<u64>;
     async fn get_fee_rate(&self, conf_target: u16) -> types::BitcoinClientResult<u64>;
     fn get_network(&self) -> Network;
     async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
 
     async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
     async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
+    async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
+    async fn get_fee_history(
+        &self,
+        from_block_height: usize,
+        to_block_height: usize,
+    ) -> BitcoinClientResult<Vec<u64>>;
 }
 
 impl std::fmt::Debug for dyn BitcoinOps + 'static {
@@ -61,6 +67,7 @@ pub trait BitcoinRpc: Send + Sync {
 
     async fn get_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinRpcResult<Block>;
     async fn get_best_block_hash(&self) -> BitcoinRpcResult<bitcoin::BlockHash>;
+    async fn get_block_stats(&self, height: u64) -> BitcoinRpcResult<GetBlockStatsResult>;
     async fn get_raw_transaction_info(
         &self,
         txid: &Txid,

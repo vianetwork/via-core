@@ -18,7 +18,6 @@ use crate::{
 /// Responsible for initializing and running of [`BtcWatch`] component, that polls the Bitcoin node for the relevant events.
 #[derive(Debug)]
 pub struct BtcWatchLayer {
-    // TODO: divide into multiple configs
     btc_watch_config: ViaBtcWatchConfig,
 }
 
@@ -89,6 +88,8 @@ impl WiringLayer for BtcWatchLayer {
             main_pool,
             self.btc_watch_config.poll_interval(),
             btc_blocks_lag,
+            self.btc_watch_config.actor_role(),
+            self.btc_watch_config.zk_agreement_threshold,
         )
         .await?;
 

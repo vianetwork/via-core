@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                canonical_tx_hash\n            FROM\n                via_transactions\n            WHERE\n                status IS NULL\n            ORDER BY\n                priority_id ASC\n            LIMIT\n                $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "canonical_tx_hash",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "175807bfd3b6618ab60ede8cb56ddc773bf8e85190606d1b6f2203ce8b5aba2e"
+}

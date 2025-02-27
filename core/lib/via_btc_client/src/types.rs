@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 
 use bincode::{deserialize, serialize};
 use bitcoin::{
-    address::NetworkUnchecked, script::PushBytesBuf, taproot::Signature as TaprootSignature,
-    Amount, TxIn, TxOut, Txid,
+    address::NetworkUnchecked, hashes::FromSliceError, script::PushBytesBuf,
+    taproot::Signature as TaprootSignature, Amount, TxIn, TxOut, Txid,
 };
 pub use bitcoin::{Address as BitcoinAddress, Network as BitcoinNetwork, Txid as BitcoinTxid};
 pub use bitcoincore_rpc::Auth as NodeAuth;
@@ -28,6 +28,7 @@ pub struct L1BatchDAReferenceInput {
     pub l1_batch_index: L1BatchNumber,
     pub da_identifier: String,
     pub blob_id: String,
+    pub prev_l1_batch_hash: H256,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,14 +68,14 @@ pub struct CommonFields {
     pub encoded_public_key: PushBytesBuf,
     pub block_height: u32,
     pub tx_id: Txid,
-    pub p2wpkh_address: BitcoinAddress,
+    pub p2wpkh_address: Option<BitcoinAddress>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SystemBootstrappingInput {
     pub start_block_height: u32,
     pub verifier_p2wpkh_addresses: Vec<BitcoinAddress<NetworkUnchecked>>,
-    pub bridge_p2wpkh_mpc_address: BitcoinAddress<NetworkUnchecked>,
+    pub bridge_musig2_address: BitcoinAddress<NetworkUnchecked>,
     pub bootloader_hash: H256,
     pub abstract_account_hash: H256,
 }
@@ -131,17 +132,6 @@ impl Serializable for InscriptionMessage {
         Self: Sized,
     {
         deserialize(bytes).expect("error deserialize the InscriptionMessage")
-    }
-}
-
-#[derive(Debug)]
-pub struct InscriptionConfig {
-    pub fee_multiplier: u64,
-}
-
-impl Default for InscriptionConfig {
-    fn default() -> Self {
-        InscriptionConfig { fee_multiplier: 1 }
     }
 }
 
@@ -246,7 +236,7 @@ pub struct InscriberOutput {
     pub is_broadcasted: bool,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum BitcoinError {
     #[error("RPC error: {0}")]
     Rpc(String),
@@ -323,6 +313,8 @@ pub enum IndexerError {
     InvalidBlockHeight(u32),
     #[error("Bitcoin client error: {0}")]
     BitcoinClientError(#[from] BitcoinError),
+    #[error("Tx_id parsing error: {0}")]
+    TxIdParsingError(#[from] FromSliceError),
 }
 
 pub type BitcoinIndexerResult<T> = std::result::Result<T, IndexerError>;

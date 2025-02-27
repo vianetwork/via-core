@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Copy)]
 pub enum ActorRole {
     Sequencer,
     Verifier,
@@ -38,6 +38,9 @@ pub struct ViaBtcWatchConfig {
 
     /// Number of blocks that we should wait before processing the new blocks.
     pub btc_blocks_lag: u32,
+
+    /// The agreement threshold required for the verifier to finalize an L1 batch.
+    pub zk_agreement_threshold: f64,
 }
 
 impl ViaBtcWatchConfig {
@@ -101,6 +104,7 @@ impl ViaBtcWatchConfig {
             bootstrap_txids: vec![],
             actor_role: ActorRole::Sequencer,
             btc_blocks_lag: 1,
+            zk_agreement_threshold: 0.5,
         }
     }
 }

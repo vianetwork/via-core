@@ -3,7 +3,6 @@
 // Linter settings.
 #![warn(clippy::cast_lossless)]
 
-use btc_sender_dal::ViaBtcSenderDal;
 pub use sqlx::{types::BigDecimal, Error as SqlxError};
 use zksync_db_connection::connection::DbMarker;
 pub use zksync_db_connection::{
@@ -26,14 +25,14 @@ use crate::{
     tee_verifier_input_producer_dal::TeeVerifierInputProducerDal, tokens_dal::TokensDal,
     tokens_web3_dal::TokensWeb3Dal, transactions_dal::TransactionsDal,
     transactions_web3_dal::TransactionsWeb3Dal, via_blocks_dal::ViaBlocksDal,
-    via_data_availability_dal::ViaDataAvailabilityDal, via_transactions_dal::ViaTransactionsDal,
+    via_btc_sender_dal::ViaBtcSenderDal, via_data_availability_dal::ViaDataAvailabilityDal,
+    via_transactions_dal::ViaTransactionsDal, via_votes_dal::ViaVotesDal,
     vm_runner_dal::VmRunnerDal,
 };
 
 pub mod base_token_dal;
 pub mod blocks_dal;
 pub mod blocks_web3_dal;
-pub mod btc_sender_dal;
 pub mod consensus;
 pub mod consensus_dal;
 pub mod contract_verification_dal;
@@ -64,8 +63,10 @@ pub mod tokens_web3_dal;
 pub mod transactions_dal;
 pub mod transactions_web3_dal;
 pub mod via_blocks_dal;
+pub mod via_btc_sender_dal;
 pub mod via_data_availability_dal;
 pub mod via_transactions_dal;
+pub mod via_votes_dal;
 pub mod vm_runner_dal;
 
 #[cfg(test)]
@@ -85,6 +86,8 @@ where
     fn transactions_dal(&mut self) -> TransactionsDal<'_, 'a>;
 
     fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a>;
+
+    fn via_votes_dal(&mut self) -> ViaVotesDal<'_, 'a>;
 
     fn transactions_web3_dal(&mut self) -> TransactionsWeb3Dal<'_, 'a>;
 
@@ -163,6 +166,10 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
 
     fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a> {
         ViaTransactionsDal { storage: self }
+    }
+
+    fn via_votes_dal(&mut self) -> ViaVotesDal<'_, 'a> {
+        ViaVotesDal { storage: self }
     }
 
     fn transactions_web3_dal(&mut self) -> TransactionsWeb3Dal<'_, 'a> {

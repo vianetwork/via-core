@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id\n            FROM\n                via_votable_transactions\n            WHERE\n                proof_reveal_tx_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a61d5f73a691ead552a75dd49d9e118d0ea012d67620a3f01ae34b31f902afbc"
+}

@@ -1,6 +1,6 @@
 # Via Playground 🌐
 
-This project demonstrates how to interact with via network.
+This project demonstrates how to interact with Via network.
 
 Try running some of the following tasks:
 
@@ -21,7 +21,7 @@ and replace it in `hardhat.config.ts`.
 3. Run the following command to bridge BTC to L2:
 
    ```shell
-   via verifier deposit \
+   via token deposit \
     --amount 100 \
     --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 \
     --sender-private-key <sender_private_key> \

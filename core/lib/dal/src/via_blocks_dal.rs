@@ -17,6 +17,8 @@ pub struct ViaBlocksDal<'a, 'c> {
 }
 
 impl ViaBlocksDal<'_, '_> {
+    /// Inserts an inscription request ID for a given L1 batch.
+    /// Handles both commit batch and commit proof inscription types.
     pub async fn insert_l1_batch_inscription_request_id(
         &mut self,
         batch_number: L1BatchNumber,
@@ -90,36 +92,40 @@ impl ViaBlocksDal<'_, '_> {
         }
     }
 
+    /// Retrieves L1 batches that are ready to have their pubdata committed to bitcoin chain.
+    /// Filters batches based on protocol version and required commitments.
     pub async fn get_ready_for_commit_l1_batches(
         &mut self,
         limit: usize,
-        bootloader_hash: H256,
-        default_aa_hash: H256,
+        bootloader_hash: &H256,
+        default_aa_hash: &H256,
         protocol_version_id: ProtocolVersionId,
-    ) -> anyhow::Result<Vec<ViaBtcL1BlockDetails>> {
+    ) -> DalResult<Vec<ViaBtcL1BlockDetails>> {
         let batches = sqlx::query_as!(
             ViaBtcStorageL1BlockDetails,
             r#"
             SELECT
-                number,
+                l1_batches.number AS number,
                 l1_batches.timestamp AS timestamp,
-                hash,
-                '' AS commit_tx_id,
-                '' AS reveal_tx_id,
-                via_data_availability.blob_id
+                l1_batches.hash AS hash,
+                ''::bytea AS commit_tx_id,
+                ''::bytea AS reveal_tx_id,
+                via_data_availability.blob_id,
+                prev_l1_batches.hash AS prev_l1_batch_hash
             FROM
                 l1_batches
+                LEFT JOIN l1_batches prev_l1_batches ON prev_l1_batches.number = l1_batches.number - 1
                 LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
                 LEFT JOIN commitments ON commitments.l1_batch_number = l1_batches.number
                 LEFT JOIN via_data_availability ON via_data_availability.l1_batch_number = l1_batches.number
                 JOIN protocol_versions ON protocol_versions.id = l1_batches.protocol_version
             WHERE
                 commit_l1_batch_inscription_id IS NULL
-                AND number != 0
+                AND l1_batches.number != 0
                 AND protocol_versions.bootloader_code_hash = $1
                 AND protocol_versions.default_account_code_hash = $2
                 AND via_data_availability.is_proof = FALSE
-                AND commitment IS NOT NULL
+                AND events_queue_commitment IS NOT NULL
                 AND (
                     protocol_versions.id = $3
                     OR protocol_versions.upgrade_tx_hash IS NULL
@@ -138,6 +144,7 @@ impl ViaBlocksDal<'_, '_> {
             limit as i64,
         )
         .instrument("get_ready_for_commit_l1_batches")
+        .report_latency()
         .with_arg("limit", &limit)
         .with_arg("bootloader_hash", &bootloader_hash)
         .with_arg("default_aa_hash", &default_aa_hash)
@@ -148,10 +155,11 @@ impl ViaBlocksDal<'_, '_> {
         Ok(batches.into_iter().map(|details| details.into()).collect())
     }
 
+    /// Retrieves L1 batches that are ready to have their proofs committed to bitcoin chain.
     pub async fn get_ready_for_commit_proof_l1_batches(
         &mut self,
         limit: usize,
-    ) -> anyhow::Result<Vec<ViaBtcL1BlockDetails>> {
+    ) -> DalResult<Vec<ViaBtcL1BlockDetails>> {
         let batches = sqlx::query_as!(
             ViaBtcStorageL1BlockDetails,
             r#"
@@ -174,7 +182,8 @@ impl ViaBlocksDal<'_, '_> {
                 l1_batches.hash,
                 COALESCE(lh.commit_tx_id, '') AS commit_tx_id,
                 COALESCE(lh.reveal_tx_id, '') AS reveal_tx_id,
-                via_data_availability.blob_id
+                via_data_availability.blob_id,
+                ''::bytea AS prev_l1_batch_hash
             FROM
                 l1_batches
                 LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
@@ -201,10 +210,103 @@ impl ViaBlocksDal<'_, '_> {
             limit as i64,
         )
         .instrument("get_ready_for_commit_proof_l1_batches")
+        .report_latency()
         .with_arg("limit", &limit)
         .fetch_all(self.storage)
         .await?;
 
         Ok(batches.into_iter().map(|details| details.into()).collect())
+    }
+
+    /// Returns the first L1 batch number that has been reverted by the verifier network.
+    /// Returns None if no batches have been reverted.
+    pub async fn get_reverted_batch_by_verifier_network(
+        &mut self,
+    ) -> DalResult<Option<L1BatchNumber>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                MIN(l1_batch_number) AS l1_batch_number
+            FROM
+                via_l1_batch_inscription_request
+            WHERE
+                is_finalized = FALSE
+            "#
+        )
+        .instrument("get_reverted_batch_by_verifier_network")
+        .report_latency()
+        .fetch_one(self.storage)
+        .await?;
+
+        if let Some(l1_batch_number) = row.l1_batch_number {
+            return Ok(Some(L1BatchNumber(l1_batch_number as u32)));
+        }
+        Ok(None)
+    }
+
+    /// Returns the first L1 batch number that doesn't have its proof committed.
+    /// Returns None if all batches have their proofs committed.
+    pub async fn get_l1_batch_proof_not_commited(&mut self) -> DalResult<Option<L1BatchNumber>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                MIN(l1_batch_number) AS l1_batch_number
+            FROM
+                via_l1_batch_inscription_request
+            WHERE
+                commit_proof_inscription_id IS NULL
+            "#
+        )
+        .instrument("get_l1_batch_proof_not_commited")
+        .report_latency()
+        .fetch_one(self.storage)
+        .await?;
+
+        if let Some(l1_batch_number) = row.l1_batch_number {
+            return Ok(Some(L1BatchNumber(l1_batch_number as u32)));
+        }
+        Ok(None)
+    }
+
+    /// Returns the first L1 batch that can be reverted, checking both verifier network
+    /// reverts and uncommitted proofs.
+    pub async fn get_first_l1_batch_can_be_reverted(&mut self) -> DalResult<Option<L1BatchNumber>> {
+        if let Some(l1_batch_number) = self.get_reverted_batch_by_verifier_network().await? {
+            return Ok(Some(l1_batch_number));
+        } else if let Some(l1_batch_number) = self.get_l1_batch_proof_not_commited().await? {
+            return Ok(Some(l1_batch_number));
+        }
+        Ok(None)
+    }
+
+    /// Checks if a proof transaction exists for a given L1 batch number.
+    pub async fn l1_batch_proof_tx_exists(
+        &mut self,
+        l1_batch_number: i64,
+        proof_reveal_tx_id: &[u8],
+    ) -> DalResult<bool> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                EXISTS (
+                    SELECT
+                        1
+                    FROM
+                        via_l1_batch_inscription_request ir
+                        LEFT JOIN via_btc_inscriptions_request_history irh ON irh.id = ir.commit_proof_inscription_id
+                    WHERE
+                        ir.l1_batch_number = $1
+                        AND irh.reveal_tx_id = $2
+                )
+            "#,
+            l1_batch_number,
+            proof_reveal_tx_id
+        )
+        .instrument("l1_batch_proof_tx_exists")
+        .report_latency()
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(row.exists.unwrap())
     }
 }

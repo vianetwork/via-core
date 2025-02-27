@@ -5,6 +5,29 @@ RESET = \033[0m
 # CLI tool
 CLI_TOOL = via
 
+
+CMD := $(firstword $(MAKECMDGOALS))
+VIA_ENV ?= via
+DIFF ?= 0
+MODE ?= sequencer
+
+# Select the via env
+ifeq ($(CMD), via-verifier)
+    VIA_ENV := via_verifier
+	DIFF := 1
+	MODE := verifier
+else ifeq ($(CMD), via-restart)
+    VIA_ENV := via
+else ifeq ($(CMD), via-restart-verifier)
+	VIA_ENV := via_verifier
+else ifeq ($(CMD), via-coordinator)
+	VIA_ENV := via_coordinator
+	DIFF := 2
+	MODE := coordinator
+else ifeq ($(CMD), via-restart-coordinator)
+	VIA_ENV := via_coordinator
+endif
+
 # Default target: Show help message
 .PHONY: help
 help:
@@ -27,6 +50,7 @@ help:
 	@echo "  server-genesis     - Populate the genesis block data if no genesis block exists."
 	@echo "  server             - Run the sequencer software."
 	@echo "  clean              - Clean the project, remove Docker images, volumes, and generated files."
+	@echo "  rollback           - Initiate a sequencer rollback by specifying the target 'to_batch' number."
 	@echo "  help               - Show this help message (default target)."
 	@echo ""
 	@echo "Requirements:"
@@ -38,13 +62,37 @@ help:
 # Default target: Redirect to help
 .DEFAULT_GOAL := help
 
+# Restart the sequence
+.PHONY: via-restart
+via-restart: env-soft server
+
 # Run the basic setup workflow in sequence
 .PHONY: via
-via: env config init transactions celestia bootstrap server-genesis server
+via: base transactions celestia bootstrap server-genesis server
 
 # Run the full setup workflow in sequence
 .PHONY: all
-all: env config init transactions celestia btc-explorer bootstrap server-genesis server
+all: base transactions celestia btc-explorer bootstrap server-genesis server
+
+# Run the basic setup workflow in verifier
+.PHONY: via-verifier
+via-verifier: base celestia verifier
+
+# Restart the verifier
+.PHONY: via-restart-verifier
+via-restart-verifier: env-soft verifier
+
+# Run the basic setup workflow for the coordinator
+.PHONY: via-coordinator
+via-coordinator: base celestia verifier
+
+# Restart the coordinator
+.PHONY: via-restart-coordinator
+via-restart-coordinator: env-soft verifier
+
+# Run minimal required setup
+.PHONY: base
+base: env config init
 
 # Run 'via env via'
 .PHONY: env
@@ -52,7 +100,15 @@ env:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Setting the environment...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) env via
+	@$(CLI_TOOL) env ${VIA_ENV}
+
+# Run 'via env via --soft'
+.PHONY: env-soft
+env-soft:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Setting the environment...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) env ${VIA_ENV} --soft
 
 # Run 'via config compile'
 .PHONY: config
@@ -60,7 +116,7 @@ config:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Creating environment configuration file...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) config compile
+	@$(CLI_TOOL) config compile ${VIA_ENV} ${DIFF}
 
 # Run 'via init'
 .PHONY: init
@@ -68,7 +124,7 @@ init:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Initializing the project...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) init
+	@$(CLI_TOOL) init --mode ${MODE}
 
 # Run 'via transactions'
 .PHONY: transactions
@@ -118,6 +174,14 @@ server:
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) server
 
+# Run 'via verifier'
+.PHONY: verifier
+verifier:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the verifier/coordinator software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) verifier
+
 # Run 'via clean'
 .PHONY: clean
 clean:
@@ -125,3 +189,14 @@ clean:
 	@echo "$(YELLOW)Cleaning the project, removing images, volumes, and generated files...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) clean
+
+# Require 'to_batch' args as input, ex: `make rollback to_batch=2`
+.PHONY: rollback
+rollback:
+	cargo run --bin via_block_reverter_cli -- rollback-db \
+		--rollback-postgres \
+		--l1-batch-number $(to_batch) \
+		--rollback-tree \
+		--rollback-sk-cache \
+		--rollback-vm-runners-cache \
+		--rollback-snapshots

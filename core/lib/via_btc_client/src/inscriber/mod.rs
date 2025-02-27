@@ -27,7 +27,7 @@ use crate::{
     },
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
-    types::{BitcoinNetwork, InscriberContext, InscriptionConfig, InscriptionMessage, Recipient},
+    types::{BitcoinNetwork, InscriberContext, InscriptionMessage, Recipient},
 };
 
 mod fee;
@@ -45,6 +45,10 @@ const REVEAL_TX_FEE_INPUT_INDEX: u32 = 0;
 const REVEAL_TX_TAPSCRIPT_REVEAL_INDEX: u32 = 1;
 
 const FEE_RATE_INCREASE_PER_PENDING_TX: u64 = 5; // percentage
+/// The fee percentage amount reduced from the commit transaction and added to the reveal transaction.
+const FEE_RATE_DECREASE_COMMIT_TX: u64 = 20;
+/// The additional fee percentage added to the base reveal transaction fee serves as an incentive for the minter to include commit and reveal transactions.
+const FEE_RATE_INCENTIVE: u64 = 5;
 
 const COMMIT_TX_P2TR_OUTPUT_COUNT: u32 = 1;
 const COMMIT_TX_P2WPKH_OUTPUT_COUNT: u32 = 1;
@@ -97,7 +101,6 @@ impl Inscriber {
     pub async fn prepare_inscribe(
         &mut self,
         input: &InscriptionMessage,
-        config: InscriptionConfig,
         recipient: Option<Recipient>,
     ) -> Result<InscriberInfo> {
         self.sync_context_with_blockchain().await?;
@@ -114,7 +117,6 @@ impl Inscriber {
             .prepare_commit_tx_output(
                 &commit_tx_input_info,
                 inscription_data.script_pubkey.clone(),
-                config,
             )
             .await?;
 
@@ -127,7 +129,12 @@ impl Inscriber {
         )?;
 
         let reveal_tx_output_info = self
-            .prepare_reveal_tx_output(&reveal_tx_input_info, &inscription_data, recipient)
+            .prepare_reveal_tx_output(
+                &reveal_tx_input_info,
+                &inscription_data,
+                recipient,
+                commit_tx_output_info.commit_tx_fee,
+            )
             .await?;
 
         let final_reveal_tx = self.sign_reveal_tx(
@@ -149,13 +156,12 @@ impl Inscriber {
     pub async fn inscribe_with_recipient(
         &mut self,
         input: InscriptionMessage,
-        config: InscriptionConfig,
         recipient: Option<Recipient>,
     ) -> Result<InscriberInfo> {
         info!("Starting inscription process");
 
         let inscriber_info = self
-            .prepare_inscribe(&input, config, recipient)
+            .prepare_inscribe(&input, recipient)
             .await
             .context("Error prepare inscriber infos")?;
 
@@ -172,12 +178,8 @@ impl Inscriber {
     }
 
     #[instrument(skip(self, input), target = "bitcoin_inscriber")]
-    pub async fn inscribe(
-        &mut self,
-        input: InscriptionMessage,
-        config: InscriptionConfig,
-    ) -> Result<InscriberInfo> {
-        self.inscribe_with_recipient(input, config, None).await
+    pub async fn inscribe(&mut self, input: InscriptionMessage) -> Result<InscriberInfo> {
+        self.inscribe_with_recipient(input, None).await
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
@@ -336,7 +338,6 @@ impl Inscriber {
         &self,
         tx_input_data: &CommitTxInputRes,
         inscription_pubkey: ScriptBuf,
-        config: InscriptionConfig,
     ) -> Result<CommitTxOutputRes> {
         debug!("Preparing commit transaction output");
         let inscription_commitment_output = TxOut {
@@ -344,16 +345,9 @@ impl Inscriber {
             script_pubkey: inscription_pubkey,
         };
 
-        let mut fee_rate = self.get_fee_rate().await?;
-        let pending_tx_in_context = self.context.fifo_queue.len();
+        let fee_rate = self.get_fee_rate().await?;
 
-        // increase fee rate based on pending transactions in context
-
-        let increase_factor = (FEE_RATE_INCREASE_PER_PENDING_TX * config.fee_multiplier)
-            * pending_tx_in_context as u64;
-        fee_rate += fee_rate * increase_factor / 100;
-
-        let fee_amount = InscriberFeeCalculator::estimate_fee(
+        let mut fee_amount = InscriberFeeCalculator::estimate_fee(
             tx_input_data.inputs_count,
             COMMIT_TX_P2TR_INPUT_COUNT,
             COMMIT_TX_P2WPKH_OUTPUT_COUNT,
@@ -361,6 +355,8 @@ impl Inscriber {
             vec![],
             fee_rate,
         )?;
+        let fee_amount_before_decrease = fee_amount;
+        fee_amount -= (fee_amount * FEE_RATE_DECREASE_COMMIT_TX) / 100;
 
         let commit_tx_change_output_value = tx_input_data
             .unlocked_value
@@ -384,7 +380,7 @@ impl Inscriber {
             commit_tx_change_output,
             commit_tx_tapscript_output: inscription_commitment_output,
             commit_tx_fee_rate: fee_rate,
-            _commit_tx_fee: fee_amount,
+            commit_tx_fee: fee_amount_before_decrease,
         };
 
         Ok(res)
@@ -395,7 +391,7 @@ impl Inscriber {
         debug!("Getting fee rate");
         let res = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await?;
         debug!("Fee rate obtained: {}", res);
-        Ok(res)
+        Ok(std::cmp::max(res, 1))
     }
 
     #[instrument(skip(self, input, output), target = "bitcoin_inscriber")]
@@ -558,18 +554,39 @@ impl Inscriber {
         tx_input_data: &RevealTxInputRes,
         inscription_data: &InscriptionData,
         recipient: Option<Recipient>,
+        commit_tx_fee: Amount,
     ) -> Result<RevealTxOutputRes> {
         debug!("Preparing reveal transaction output");
         let fee_rate = self.get_fee_rate().await?;
+        let pending_tx_in_context = self.context.fifo_queue.len();
 
-        let fee_amount = InscriberFeeCalculator::estimate_fee(
+        let mut reveal_tx_p2wpkh_output_count = REVEAL_TX_P2WPKH_OUTPUT_COUNT;
+        let mut reveal_tx_p2tr_output_count = REVEAL_TX_P2TR_OUTPUT_COUNT;
+
+        if let Some(r) = &recipient {
+            if r.address.script_pubkey().is_p2tr() {
+                reveal_tx_p2tr_output_count += 1;
+            } else {
+                reveal_tx_p2wpkh_output_count += 1;
+            };
+        }
+
+        let mut fee_amount = InscriberFeeCalculator::estimate_fee(
             REVEAL_TX_P2WPKH_INPUT_COUNT,
             REVEAL_TX_P2TR_INPUT_COUNT,
-            REVEAL_TX_P2WPKH_OUTPUT_COUNT + recipient.as_ref().map_or(0, |_| 1),
-            REVEAL_TX_P2TR_OUTPUT_COUNT,
+            reveal_tx_p2wpkh_output_count,
+            reveal_tx_p2tr_output_count,
             vec![inscription_data.script_size],
             fee_rate,
         )?;
+
+        let txs_stuck_factor = FEE_RATE_INCREASE_PER_PENDING_TX * pending_tx_in_context as u64;
+
+        let increase_factor = txs_stuck_factor + FEE_RATE_INCENTIVE;
+
+        fee_amount += (fee_amount * increase_factor) / 100;
+        // Add the fee amount removed from the commit tx to reveal
+        fee_amount += (commit_tx_fee * FEE_RATE_DECREASE_COMMIT_TX) / 100;
 
         let recipient_amount = recipient.as_ref().map_or(Amount::ZERO, |r| r.amount);
 
@@ -808,6 +825,7 @@ mod tests {
         Block, BlockHash, CompressedPublicKey, OutPoint, PrivateKey, ScriptBuf, Transaction, TxOut,
         Txid,
     };
+    use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
 
     use super::*;
@@ -826,9 +844,15 @@ mod tests {
             async fn broadcast_signed_transaction(&self, signed_transaction: &str) -> BitcoinClientResult<Txid>;
             async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>>;
             async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool>;
-            async fn fetch_block_height(&self) -> BitcoinClientResult<u128>;
+            async fn fetch_block_height(&self) -> BitcoinClientResult<u64>;
             async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
             fn get_network(&self) -> BitcoinNetwork;
+            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
+            async fn get_fee_history(
+                &self,
+                from_block_height: usize,
+                to_block_height: usize,
+            ) -> BitcoinClientResult<Vec<u64>>;
         }
     }
 
@@ -936,14 +960,12 @@ mod tests {
             l1_batch_index: zksync_basic_types::L1BatchNumber(0_u32),
             da_identifier: "da_identifier_celestia".to_string(),
             blob_id: "batch_temp_blob_id".to_string(),
+            prev_l1_batch_hash: zksync_basic_types::H256([0; 32]),
         };
 
         let inscribe_message = InscriptionMessage::L1BatchDAReference(l1_da_batch_ref);
 
-        let res = inscriber
-            .inscribe(inscribe_message, InscriptionConfig::default())
-            .await
-            .unwrap();
+        let res = inscriber.inscribe(inscribe_message).await.unwrap();
 
         assert_ne!(res.final_commit_tx.txid, Txid::all_zeros());
         assert_ne!(res.final_reveal_tx.txid, Txid::all_zeros());

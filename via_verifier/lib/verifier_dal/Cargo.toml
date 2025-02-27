@@ -1,0 +1,37 @@
+[package]
+name = "via_verifier_dal"
+description = "Via Verifier DAL"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+zksync_db_connection.workspace = true
+zksync_basic_types.workspace = true
+zksync_types.workspace = true
+thiserror.workspace = true
+
+bitcoin = { version = "0.32.2" }
+strum = { workspace = true, features = ["derive"] }
+sqlx = { workspace = true, features = [
+    "runtime-tokio",
+    "tls-native-tls",
+    "macros",
+    "postgres",
+    "bigdecimal",
+    "rust_decimal",
+    "chrono",
+    "json",
+    "migrate",
+    "ipnetwork",
+] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+rand = { workspace = true }

@@ -1,0 +1,41 @@
+__imports__ = [
+    "base",
+    "l2-inits/via_coordinator.init.env",
+    "configs/via_base.toml",
+]
+
+[via_verifier]
+# Interval between polling db for verification requests (in ms).
+poll_interval = 10000
+# Coordinator server port.
+port = 6060
+# Coordinator server url.
+url = "http://0.0.0.0:6060"
+# The signer private key.
+private_key = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm"
+# The verifiers public keys.
+verifiers_pub_keys_str = [
+    "03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b",
+    "02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662",
+]
+# The bridge address. Run the following cmd: `cargo run --example key_generation_setup coordinator 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b 02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662`
+# also update the bridge address in the via_btc_client/examples/deposit.rs
+bridge_address_str = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
+# The minimum required signers.
+required_signers = 2
+
+# Verifier Request Timeout (in seconds)
+verifier_request_timeout = 10
+
+# The verifier_mode can be simple verifier or coordinator.
+verifier_mode = "COORDINATOR"
+# (TEST ONLY) returns the proof verification result.
+test_zk_proof_invalid_l1_batch_numbers = [3]
+
+[via_btc_watch]
+actor_role = "Verifier"
+# Number of blocks that we should check when restarting the service.
+btc_blocks_lag = 1000
+
+[via_btc_sender]
+private_key = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm"

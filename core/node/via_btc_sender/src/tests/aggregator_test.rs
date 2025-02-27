@@ -4,14 +4,15 @@ mod tests {
     use via_btc_client::{traits::Serializable, types::InscriptionMessage};
     use zksync_contracts::BaseSystemContractsHashes;
     use zksync_dal::{ConnectionPool, Core, CoreDal};
-    use zksync_node_test_utils::{create_l1_batch, l1_batch_metadata_to_commitment_artifacts};
+    use zksync_node_test_utils::l1_batch_metadata_to_commitment_artifacts;
     use zksync_types::{
         btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType,
         ProtocolVersionId,
     };
 
     use crate::tests::utils::{
-        default_l1_batch_metadata, generate_random_bytes, get_btc_sender_config, ViaAggregatorTest,
+        create_l1_batch, default_l1_batch_metadata, generate_random_bytes, get_btc_sender_config,
+        ViaAggregatorTest,
     };
 
     // Get the current operation (commitBatch or commitProof) to execute when there is no batches. Should return 'None'
@@ -299,11 +300,11 @@ mod tests {
             .via_blocks_dal()
             .get_ready_for_commit_l1_batches(
                 5,
-                aggregator_test
+                &aggregator_test
                     .protocol_version
                     .base_system_contracts_hashes
                     .bootloader,
-                aggregator_test
+                &aggregator_test
                     .protocol_version
                     .base_system_contracts_hashes
                     .default_aa,
@@ -339,6 +340,7 @@ mod tests {
             commit_tx_id: Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()),
             reveal_tx_id: Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()),
             timestamp: header.timestamp as i64,
+            prev_l1_batch_hash: Some(generate_random_bytes(32)),
         };
 
         let message: via_btc_client::types::InscriptionMessage = aggregator_test

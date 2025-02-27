@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import * as utils from 'utils';
 import fs from 'fs';
+import { VIA_DOCKER_COMPOSE } from './docker';
 
 // Make sure that the volumes exists before starting the containers.
 export function createVolumes() {
@@ -21,11 +22,15 @@ export function createVolumes() {
     fs.mkdirSync(`${process.env.VIA_HOME}/volumes/btc-explorer/mysql`, {
         recursive: true
     });
+    fs.mkdirSync(`${process.env.VIA_HOME}/volumes/celestia-keys`, {
+        recursive: true
+    });
 }
 
-export async function up(composeFile?: string) {
+export async function up(composeFile?: string, envFilePath?: string) {
     if (composeFile) {
-        await utils.spawn(`docker compose -f ${composeFile} up -d`);
+        const envFile = envFilePath ? `--env-file ${envFilePath}` : '';
+        await utils.spawn(`docker compose ${envFile} -f ${composeFile} up -d`);
     } else {
         await utils.spawn('docker compose up -d');
     }
@@ -33,7 +38,7 @@ export async function up(composeFile?: string) {
 
 export const command = new Command('up')
     .description('start development containers')
-    .option('--docker-file <dockerFile>', 'path to a custom docker file')
+    .option('--docker-file <dockerFile>', 'path to a custom docker file', VIA_DOCKER_COMPOSE)
     .option('--run-observability', 'whether to run observability stack')
     .action(async (cmd) => {
         await up(cmd.dockerFile);

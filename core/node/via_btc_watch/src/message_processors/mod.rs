@@ -1,8 +1,14 @@
 pub(crate) use l1_to_l2::L1ToL2MessageProcessor;
-use via_btc_client::types::FullInscriptionMessage;
+use via_btc_client::{
+    indexer::BitcoinInscriptionIndexer,
+    types::{BitcoinTxid, FullInscriptionMessage},
+};
+pub(crate) use votable::VotableMessageProcessor;
 use zksync_dal::{Connection, Core};
+use zksync_types::H256;
 
 mod l1_to_l2;
+mod votable;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum MessageProcessorError {
@@ -18,5 +24,12 @@ pub(super) trait MessageProcessor: 'static + std::fmt::Debug + Send + Sync {
         &mut self,
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
+        indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<(), MessageProcessorError>;
+}
+
+pub(crate) fn convert_txid_to_h256(txid: BitcoinTxid) -> H256 {
+    let mut tx_id_bytes = txid.as_raw_hash()[..].to_vec();
+    tx_id_bytes.reverse();
+    H256::from_slice(&tx_id_bytes)
 }

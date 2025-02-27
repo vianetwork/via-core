@@ -3,7 +3,7 @@ use bitcoin::{
     hashes::Hash,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, Txid, Witness,
+    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, TxOut, Txid, Witness,
 };
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
@@ -12,10 +12,10 @@ use zksync_types::{Address as EVMAddress, L1BatchNumber};
 use crate::{
     types,
     types::{
-        CommonFields, FullInscriptionMessage as Message, L1BatchDAReference,
-        L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput, ProofDAReference,
-        ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput, SystemBootstrapping,
-        SystemBootstrappingInput, ValidatorAttestation, ValidatorAttestationInput, Vote,
+        CommonFields, FullInscriptionMessage, L1BatchDAReference, L1BatchDAReferenceInput,
+        L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput,
+        ProposeSequencer, ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput,
+        ValidatorAttestation, ValidatorAttestationInput, Vote,
     },
 };
 
@@ -24,7 +24,7 @@ const MIN_WITNESS_LENGTH: usize = 3;
 const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 7;
 const MIN_PROPOSE_SEQUENCER_INSTRUCTIONS: usize = 3;
 const MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS: usize = 4;
-const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 6;
+const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 7;
 const MIN_PROOF_DA_REFERENCE_INSTRUCTIONS: usize = 5;
 const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
 
@@ -43,7 +43,11 @@ impl MessageParser {
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
-    pub fn parse_transaction(&mut self, tx: &Transaction, block_height: u32) -> Vec<Message> {
+    pub fn parse_system_transaction(
+        &mut self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Vec<FullInscriptionMessage> {
         // parsing btc address
         let mut sender_addresses: Option<Address> = None;
         for input in tx.input.iter() {
@@ -58,7 +62,9 @@ impl MessageParser {
                 // parsing messages
                 tx.input
                     .iter()
-                    .filter_map(|input| self.parse_input(input, tx, block_height, address.clone()))
+                    .filter_map(|input| {
+                        self.parse_system_input(input, tx, block_height, address.clone())
+                    })
                     .collect()
             }
             None => {
@@ -67,14 +73,50 @@ impl MessageParser {
         }
     }
 
+    #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
+    pub fn parse_bridge_transaction(
+        &mut self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Vec<FullInscriptionMessage> {
+        let mut messages = Vec::new();
+
+        // Find bridge output and amount first
+        let bridge_output = match tx.output.iter().find(|output| {
+            if let Some(bridge_addr) = &self.bridge_address {
+                output.script_pubkey == bridge_addr.script_pubkey()
+            } else {
+                false
+            }
+        }) {
+            Some(output) => output,
+            None => return messages, // Not a bridge transaction
+        };
+
+        // Try to parse as inscription-based deposit first
+        if let Some(inscription_message) = self.parse_inscription_deposit(tx, block_height) {
+            messages.push(inscription_message);
+            return messages;
+        }
+
+        // If not an inscription, try to parse as OP_RETURN based deposit
+        if let Some(op_return_message) =
+            self.parse_op_return_deposit(tx, block_height, bridge_output)
+        {
+            messages.push(op_return_message);
+        }
+
+        messages
+    }
+
     #[instrument(skip(self, input, tx), target = "bitcoin_indexer::parser")]
-    fn parse_input(
+    fn parse_system_input(
         &mut self,
         input: &bitcoin::TxIn,
         tx: &Transaction,
         block_height: u32,
         address: Address,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
             return None;
@@ -111,14 +153,14 @@ impl MessageParser {
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
             block_height,
             tx_id: tx.compute_ntxid().into(),
-            p2wpkh_address: address,
+            p2wpkh_address: Some(address),
         };
 
-        self.parse_message(tx, &instructions[via_index..], &common_fields)
+        self.parse_system_message(tx, &instructions[via_index..], &common_fields)
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer::parser")]
-    fn parse_p2wpkh(&mut self, witness: &Witness) -> Option<Address> {
+    pub fn parse_p2wpkh(&self, witness: &Witness) -> Option<Address> {
         if witness.len() == 2 {
             let public_key = bitcoin::PublicKey::from_slice(&witness[1]).ok()?;
             let cm_pk = CompressedPublicKey::try_from(public_key).ok()?;
@@ -133,12 +175,12 @@ impl MessageParser {
         skip(self, tx, instructions, common_fields),
         target = "bitcoin_indexer::parser"
     )]
-    fn parse_message(
+    fn parse_system_message(
         &mut self,
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         let message_type = instructions.get(1)?;
 
         match message_type {
@@ -177,7 +219,7 @@ impl MessageParser {
                 self.parse_l1_to_l2_message(tx, instructions, common_fields)
             }
             Instruction::PushBytes(bytes) => {
-                warn!("Unknown message type");
+                warn!("Unknown message type for system transaction parser");
                 warn!(
                     "first instruction: {:?}",
                     String::from_utf8(bytes.as_bytes().to_vec())
@@ -200,7 +242,7 @@ impl MessageParser {
         &mut self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS {
             warn!("Insufficient instructions for system bootstrapping");
             return None;
@@ -275,16 +317,18 @@ impl MessageParser {
 
         debug!("Parsed abstract account hash");
 
-        Some(Message::SystemBootstrapping(SystemBootstrapping {
-            common: common_fields.clone(),
-            input: SystemBootstrappingInput {
-                start_block_height,
-                bridge_p2wpkh_mpc_address: network_unchecked_bridge_address,
-                verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
-                bootloader_hash,
-                abstract_account_hash,
+        Some(FullInscriptionMessage::SystemBootstrapping(
+            SystemBootstrapping {
+                common: common_fields.clone(),
+                input: SystemBootstrappingInput {
+                    start_block_height,
+                    bridge_musig2_address: network_unchecked_bridge_address,
+                    verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
+                    bootloader_hash,
+                    abstract_account_hash,
+                },
             },
-        }))
+        ))
     }
 
     #[instrument(
@@ -295,7 +339,7 @@ impl MessageParser {
         &self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_PROPOSE_SEQUENCER_INSTRUCTIONS {
             warn!("Insufficient instructions for propose sequencer");
             return None;
@@ -316,7 +360,7 @@ impl MessageParser {
 
         debug!("Parsed sequencer address");
 
-        Some(Message::ProposeSequencer(ProposeSequencer {
+        Some(FullInscriptionMessage::ProposeSequencer(ProposeSequencer {
             common: common_fields.clone(),
             input: ProposeSequencerInput {
                 sequencer_new_p2wpkh_address: sequencer_address.as_unchecked().clone(),
@@ -332,7 +376,7 @@ impl MessageParser {
         &self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS {
             warn!("Insufficient instructions for validator attestation");
             return None;
@@ -352,7 +396,7 @@ impl MessageParser {
         let attestation = match instructions.get(3)? {
             Instruction::PushBytes(bytes) => match bytes.as_bytes() {
                 b"OP_1" => Vote::Ok,
-                b"OP_0" => Vote::NotOk,
+                b"" => Vote::NotOk,
                 _ => {
                     warn!("Invalid attestation value");
                     return None;
@@ -361,8 +405,7 @@ impl MessageParser {
             Instruction::Op(op) => {
                 if op.to_u8() == 0x51 {
                     Vote::Ok
-                } else if op.to_u8() == 0x50 {
-                    // TODO: check this variant
+                } else if op.to_u8() == 0x00 {
                     Vote::NotOk
                 } else {
                     warn!("Invalid attestation value");
@@ -373,13 +416,15 @@ impl MessageParser {
 
         debug!("Parsed attestation: {:?}", attestation);
 
-        Some(Message::ValidatorAttestation(ValidatorAttestation {
-            common: common_fields.clone(),
-            input: ValidatorAttestationInput {
-                reference_txid,
-                attestation,
+        Some(FullInscriptionMessage::ValidatorAttestation(
+            ValidatorAttestation {
+                common: common_fields.clone(),
+                input: ValidatorAttestationInput {
+                    reference_txid,
+                    attestation,
+                },
             },
-        }))
+        ))
     }
 
     #[instrument(
@@ -390,7 +435,7 @@ impl MessageParser {
         &self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS {
             warn!("Insufficient instructions for L1 batch DA reference");
             return None;
@@ -419,15 +464,21 @@ impl MessageParser {
             .to_string();
         debug!("Parsed blob ID: {}", blob_id);
 
-        Some(Message::L1BatchDAReference(L1BatchDAReference {
-            common: common_fields.clone(),
-            input: L1BatchDAReferenceInput {
-                l1_batch_hash,
-                l1_batch_index,
-                da_identifier,
-                blob_id,
+        let prev_l1_batch_hash = H256::from_slice(instructions.get(6)?.push_bytes()?.as_bytes());
+        debug!("Parsed previous L1 batch hash");
+
+        Some(FullInscriptionMessage::L1BatchDAReference(
+            L1BatchDAReference {
+                common: common_fields.clone(),
+                input: L1BatchDAReferenceInput {
+                    l1_batch_hash,
+                    l1_batch_index,
+                    da_identifier,
+                    blob_id,
+                    prev_l1_batch_hash,
+                },
             },
-        }))
+        ))
     }
 
     #[instrument(
@@ -438,7 +489,7 @@ impl MessageParser {
         &self,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_PROOF_DA_REFERENCE_INSTRUCTIONS {
             warn!("Insufficient instructions for proof DA reference");
             return None;
@@ -466,7 +517,7 @@ impl MessageParser {
             .to_string();
         debug!("Parsed blob ID: {}", blob_id);
 
-        Some(Message::ProofDAReference(ProofDAReference {
+        Some(FullInscriptionMessage::ProofDAReference(ProofDAReference {
             common: common_fields.clone(),
             input: ProofDAReferenceInput {
                 l1_batch_reveal_txid,
@@ -485,7 +536,7 @@ impl MessageParser {
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
-    ) -> Option<Message> {
+    ) -> Option<FullInscriptionMessage> {
         if instructions.len() < MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS {
             warn!("Insufficient instructions for L1 to L2 message");
             return None;
@@ -507,7 +558,7 @@ impl MessageParser {
             .iter()
             .find(|output| {
                 if let Some(address) = self.bridge_address.as_ref() {
-                    output.script_pubkey.is_p2wpkh()
+                    output.script_pubkey.is_p2tr()
                         && output.script_pubkey == address.script_pubkey()
                 } else {
                     tracing::error!("Bridge address not found");
@@ -518,7 +569,7 @@ impl MessageParser {
             .unwrap_or(Amount::ZERO);
         debug!("Parsed amount: {}", amount);
 
-        Some(Message::L1ToL2Message(L1ToL2Message {
+        Some(FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
             common: common_fields.clone(),
             amount,
             input: L1ToL2MessageInput {
@@ -526,6 +577,95 @@ impl MessageParser {
                 l2_contract_address,
                 call_data,
             },
+            tx_outputs: tx.output.clone(),
+        }))
+    }
+
+    fn parse_inscription_deposit(
+        &self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Option<FullInscriptionMessage> {
+        // Try to find any witness data that contains a valid inscription
+        for input in tx.input.iter() {
+            let witness = &input.witness;
+            if witness.len() < MIN_WITNESS_LENGTH {
+                continue;
+            }
+
+            // Parse signature and control block
+            let signature = TaprootSignature::from_slice(&witness[0]).ok()?;
+            let script = ScriptBuf::from_bytes(witness[1].to_vec());
+            let control_block = ControlBlock::decode(&witness[2]).ok()?;
+
+            let instructions: Vec<_> = script.instructions().filter_map(Result::ok).collect();
+            let via_index = find_via_inscription_protocol(&instructions)?;
+
+            // Try to parse p2wpkh address if possible, but make it optional
+            let p2wpkh_address = self.parse_p2wpkh(witness);
+
+            let common_fields = CommonFields {
+                schnorr_signature: signature,
+                encoded_public_key: PushBytesBuf::from(control_block.internal_key.serialize()),
+                block_height,
+                tx_id: tx.compute_ntxid().into(),
+                p2wpkh_address,
+            };
+
+            // Parse L1ToL2Message from instructions
+            return self.parse_l1_to_l2_message(tx, &instructions[via_index..], &common_fields);
+        }
+
+        None
+    }
+
+    fn parse_op_return_deposit(
+        &self,
+        tx: &Transaction,
+        block_height: u32,
+        bridge_output: &TxOut,
+    ) -> Option<FullInscriptionMessage> {
+        // Find OP_RETURN output
+        let op_return_output = tx
+            .output
+            .iter()
+            .find(|output| output.script_pubkey.is_op_return())?;
+
+        // Parse OP_RETURN data
+        let op_return_data = op_return_output.script_pubkey.as_bytes();
+        if op_return_data.len() < 2 {
+            return None;
+        }
+
+        // Parse receiver address from OP_RETURN data
+
+        let receiver_l2_address = EVMAddress::from_slice(&op_return_data[2..22]);
+
+        let input = L1ToL2MessageInput {
+            receiver_l2_address,
+            l2_contract_address: EVMAddress::zero(),
+            call_data: vec![],
+        };
+
+        // Try to parse p2wpkh address from the first input if possible
+        let p2wpkh_address = tx
+            .input
+            .first()
+            .and_then(|input| self.parse_p2wpkh(&input.witness));
+
+        // Create common fields with empty signature for OP_RETURN
+        let common_fields = CommonFields {
+            schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
+            encoded_public_key: PushBytesBuf::new(),
+            block_height,
+            tx_id: tx.compute_ntxid().into(),
+            p2wpkh_address,
+        };
+
+        Some(FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
+            common: common_fields,
+            amount: bridge_output.value,
+            input,
             tx_outputs: tx.output.clone(),
         }))
     }
@@ -579,7 +719,7 @@ mod tests {
         let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        let messages = parser.parse_transaction(&tx, 0);
+        let messages = parser.parse_system_transaction(&tx, 0);
         assert_eq!(messages.len(), 1);
     }
 
@@ -590,8 +730,8 @@ mod tests {
         let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        if let Some(Message::SystemBootstrapping(bootstrapping)) =
-            parser.parse_transaction(&tx, 0).pop()
+        if let Some(FullInscriptionMessage::SystemBootstrapping(bootstrapping)) =
+            parser.parse_system_transaction(&tx, 0).pop()
         {
             assert_eq!(bootstrapping.input.start_block_height, 10);
             assert_eq!(bootstrapping.input.verifier_p2wpkh_addresses.len(), 1);

@@ -14,6 +14,7 @@ use zksync_node_framework::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
         commitment_generator::CommitmentGeneratorLayer,
         healtcheck_server::HealthCheckLayer,
+        house_keeper::HouseKeeperLayer,
         logs_bloom_backfill::LogsBloomBackfillLayer,
         metadata_calculator::MetadataCalculatorLayer,
         node_storage_init::{
@@ -23,6 +24,7 @@ use zksync_node_framework::{
         pools_layer::PoolsLayerBuilder,
         postgres_metrics::PostgresMetricsLayer,
         prometheus_exporter::PrometheusExporterLayer,
+        proof_data_handler::ProofDataHandlerLayer,
         query_eth_client::QueryEthClientLayer,
         sigint::SigintHandlerLayer,
         via_btc_sender::{
@@ -30,6 +32,7 @@ use zksync_node_framework::{
         },
         via_btc_watch::BtcWatchLayer,
         via_da_dispatcher::DataAvailabilityDispatcherLayer,
+        via_gas_adjuster::ViaGasAdjusterLayer,
         via_l1_gas::ViaL1GasLayer,
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
@@ -58,10 +61,6 @@ macro_rules! try_load_config {
         $path.as_ref().context(stringify!($path))?.clone()
     };
 }
-
-// TODO: list of upcoming layers
-// - prometheus_exporter
-//
 
 pub struct ViaNodeBuilder {
     node: ZkStackServiceBuilder,
@@ -187,6 +186,16 @@ impl ViaNodeBuilder {
         ));
         self.node
             .add_layer(ViaInscriptionManagerLayer::new(btc_sender_config));
+        Ok(self)
+    }
+
+    fn add_gas_adjuster_layer(mut self) -> anyhow::Result<Self> {
+        let gas_adjuster_config = try_load_config!(self.configs.eth)
+            .gas_adjuster
+            .context("Via gas adjuster")?;
+        let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
+        let gas_adjuster_layer = ViaGasAdjusterLayer::new(gas_adjuster_config, btc_sender_config);
+        self.node.add_layer(gas_adjuster_layer);
         Ok(self)
     }
 
@@ -367,6 +376,24 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_house_keeper_layer(mut self) -> anyhow::Result<Self> {
+        let house_keeper_config = try_load_config!(self.configs.house_keeper_config);
+        let fri_prover_config = try_load_config!(self.configs.prover_config);
+        let fri_witness_generator_config = try_load_config!(self.configs.witness_generator_config);
+        let fri_prover_group_config = try_load_config!(self.configs.prover_group_config);
+        let fri_proof_compressor_config = try_load_config!(self.configs.proof_compressor_config);
+
+        self.node.add_layer(HouseKeeperLayer::new(
+            house_keeper_config,
+            fri_prover_config,
+            fri_witness_generator_config,
+            fri_prover_group_config,
+            fri_proof_compressor_config,
+        ));
+
+        Ok(self)
+    }
+
     fn add_commitment_generator_layer(mut self) -> anyhow::Result<Self> {
         self.node.add_layer(CommitmentGeneratorLayer::new(
             self.genesis_config.l1_batch_commit_data_generator_mode,
@@ -398,6 +425,14 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_proof_data_handler_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ProofDataHandlerLayer::new(
+            try_load_config!(self.configs.proof_data_handler_config),
+            self.genesis_config.l1_batch_commit_data_generator_mode,
+        ));
+        Ok(self)
+    }
+
     /// Builds the node with the genesis initialization task only.
     pub fn only_genesis(mut self) -> anyhow::Result<ZkStackService> {
         self = self
@@ -422,6 +457,7 @@ impl ViaNodeBuilder {
             // VIA layers
             .add_btc_watcher_layer()?
             .add_btc_sender_layer()?
+            .add_gas_adjuster_layer()?
             .add_l1_gas_layer()?
             .add_tx_sender_layer()?
             .add_api_caches_layer()?
@@ -436,6 +472,8 @@ impl ViaNodeBuilder {
             .add_commitment_generator_layer()?
             .add_via_celestia_da_client_layer()?
             .add_da_dispatcher_layer()?
+            .add_proof_data_handler_layer()?
+            .add_house_keeper_layer()?
             .node
             .build())
     }

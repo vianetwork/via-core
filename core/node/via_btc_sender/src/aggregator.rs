@@ -75,20 +75,21 @@ impl ViaAggregator {
             .via_blocks_dal()
             .get_ready_for_commit_l1_batches(
                 self.config.max_aggregated_blocks_to_commit() as usize,
-                base_system_contracts_hashes.bootloader,
-                base_system_contracts_hashes.default_aa,
+                &base_system_contracts_hashes.bootloader,
+                &base_system_contracts_hashes.default_aa,
                 protocol_version_id,
             )
             .await?;
 
-        tracing::debug!(
-            "Found {} l1 batches ready for commit",
-            ready_for_commit_l1_batches.len()
-        );
+        if !ready_for_commit_l1_batches.is_empty() {
+            tracing::debug!(
+                "Found {} l1 batches ready for commit",
+                ready_for_commit_l1_batches.len()
+            );
+        }
 
         validate_l1_batch_sequence(&ready_for_commit_l1_batches);
 
-        tracing::debug!("Extracting ready subrange");
         if let Some(l1_batches) = extract_ready_subrange(
             &mut self.commit_l1_block_criteria,
             ready_for_commit_l1_batches,
@@ -144,6 +145,12 @@ impl ViaAggregator {
                     l1_batch_index: batch.number,
                     da_identifier: self.config.da_identifier().to_string(),
                     blob_id: batch.blob_id.clone(),
+                    prev_l1_batch_hash: H256::from_slice(
+                        batch
+                            .prev_l1_batch_hash
+                            .as_ref()
+                            .ok_or_else(|| anyhow!("Via previous l1 batch hash is None"))?,
+                    ),
                 };
                 Ok(InscriptionMessage::L1BatchDAReference(input))
             }

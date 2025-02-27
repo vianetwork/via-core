@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                EXISTS (\n                    SELECT\n                        1\n                    FROM\n                        via_l1_batch_inscription_request ir\n                        LEFT JOIN via_btc_inscriptions_request_history irh ON irh.id = ir.commit_proof_inscription_id\n                    WHERE\n                        ir.l1_batch_number = $1\n                        AND irh.reveal_tx_id = $2\n                )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "19e7ce055b5e5d394bcf82036e5f82ddd1ec26360c47ff369ea191029c0d34ca"
+}

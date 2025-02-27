@@ -1,16 +1,10 @@
-use std::str::FromStr;
-
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tokio::sync::watch;
-use via_btc_client::{
-    inscriber::Inscriber,
-    traits::Serializable,
-    types::{InscriptionConfig, InscriptionMessage},
-};
+use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::{ProtocolVersionId, H256};
+use zksync_types::ProtocolVersionId;
 
 use crate::aggregator::ViaAggregator;
 
@@ -53,9 +47,7 @@ impl ViaBtcInscriptionAggregator {
                 .await?;
 
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => {
-                    tracing::info!("Inscription aggregation task finished");
-                }
+                Ok(()) => {}
                 Err(err) => {
                     tracing::error!("Failed to process btc_sender_inscription_aggregator: {err}");
                 }
@@ -70,11 +62,11 @@ impl ViaBtcInscriptionAggregator {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
-        let base_system_contracts_hashes = BaseSystemContractsHashes {
-            bootloader: self.get_bootloader_code_hash().await?,
-            default_aa: self.get_aa_code_hash().await?,
-        };
         let protocol_version_id = self.get_protocol_version_id().await?;
+
+        let base_system_contracts_hashes = self
+            .load_base_system_contracts(storage, protocol_version_id)
+            .await?;
 
         if let Some(operation) = self
             .aggregator
@@ -94,51 +86,57 @@ impl ViaBtcInscriptionAggregator {
                 // Estimate the tx fee to execute the inscription request.
                 let inscribe_info = self
                     .inscriber
-                    .prepare_inscribe(&inscription_message, InscriptionConfig::default(), None)
-                    .await
-                    .context("Via get inscriber info")?;
+                    .prepare_inscribe(&inscription_message, None)
+                    .await?;
 
                 let prediction_fee = inscribe_info.reveal_tx_output_info._reveal_fee
-                    + inscribe_info.commit_tx_output_info._commit_tx_fee;
+                    + inscribe_info.commit_tx_output_info.commit_tx_fee;
 
-                let inscription_request = transaction
+                let inscription_request_id = transaction
                     .btc_sender_dal()
                     .via_save_btc_inscriptions_request(
-                        operation.get_inscription_request_type(),
+                        batch.number,
+                        operation.get_inscription_request_type().to_string(),
                         InscriptionMessage::to_bytes(&inscription_message),
                         prediction_fee.to_sat(),
                     )
-                    .await
-                    .context("Via save btc inscriptions request")?;
+                    .await?;
 
                 transaction
                     .via_blocks_dal()
                     .insert_l1_batch_inscription_request_id(
                         batch.number,
-                        inscription_request.id,
+                        inscription_request_id,
                         operation.get_inscription_request_type(),
                     )
-                    .await
-                    .context("Via set inscription request id")?;
+                    .await?;
             }
             transaction.commit().await?;
         }
         Ok(())
     }
 
-    // Todo: call indexer to fetch  the data
-    async fn get_bootloader_code_hash(&self) -> anyhow::Result<H256> {
-        let hex_str = "010008e742608b21bf7eb23c1a9d0602047e3618b464c9b59c0fba3b3d7ab66e";
-        Ok(H256::from_str(hex_str).unwrap())
+    async fn load_base_system_contracts(
+        &self,
+        storage: &mut Connection<'_, Core>,
+        protocol_version: ProtocolVersionId,
+    ) -> anyhow::Result<BaseSystemContractsHashes> {
+        let base_system_contracts = storage
+            .protocol_versions_dal()
+            .load_base_system_contracts_by_version_id(protocol_version as u16)
+            .await?;
+        if let Some(contracts) = base_system_contracts {
+            return Ok(BaseSystemContractsHashes {
+                bootloader: contracts.bootloader.hash,
+                default_aa: contracts.default_aa.hash,
+            });
+        }
+        anyhow::bail!(
+            "Failed to load the base system contracts for version {}",
+            protocol_version
+        )
     }
 
-    // Todo: call indexer to fetch  the data
-    async fn get_aa_code_hash(&self) -> anyhow::Result<H256> {
-        let hex_str = "01000563374c277a2c1e34659a2a1e87371bb6d852ce142022d497bfb50b9e32";
-        Ok(H256::from_str(hex_str).unwrap())
-    }
-
-    // Todo: call indexer to fetch  the data
     async fn get_protocol_version_id(&self) -> anyhow::Result<ProtocolVersionId> {
         Ok(ProtocolVersionId::latest())
     }

@@ -11,6 +11,7 @@ pub struct ViaTransactionsDal<'c, 'a> {
 }
 
 impl ViaTransactionsDal<'_, '_> {
+    /// Inserts an L1 transaction. If a transaction with the same hash already exists, the insert is skipped.
     pub async fn insert_transaction_l1(
         &mut self,
         tx: &L1Tx,
@@ -119,12 +120,15 @@ impl ViaTransactionsDal<'_, '_> {
             signature,
         )
         .instrument("insert_transaction_l1")
+        .report_latency()
         .with_arg("tx_hash", &tx_hash)
         .fetch_optional(self.storage)
         .await?;
         Ok(())
     }
 
+    /// Retrieves the L1 block number of the most recently processed priority transaction.
+    /// Queries transactions table ordered by priority operation ID in descending order.
     pub async fn get_last_processed_l1_block(&mut self) -> DalResult<Option<L1BlockNumber>> {
         let maybe_row = sqlx::query!(
             r#"
@@ -141,6 +145,7 @@ impl ViaTransactionsDal<'_, '_> {
             "#
         )
         .instrument("get_last_processed_l1_block")
+        .report_latency()
         .fetch_optional(self.storage)
         .await?;
 
@@ -149,6 +154,7 @@ impl ViaTransactionsDal<'_, '_> {
             .map(|number| L1BlockNumber(number as u32)))
     }
 
+    /// Returns the highest priority operation ID from all priority transactions in the database.
     pub async fn last_priority_id(&mut self) -> DalResult<Option<PriorityOpId>> {
         let maybe_row = sqlx::query!(
             r#"
@@ -161,6 +167,7 @@ impl ViaTransactionsDal<'_, '_> {
             "#
         )
         .instrument("last_priority_id")
+        .report_latency()
         .fetch_optional(self.storage)
         .await?;
 
@@ -169,6 +176,7 @@ impl ViaTransactionsDal<'_, '_> {
             .map(|op_id| PriorityOpId(op_id as u64)))
     }
 
+    /// Checks if a transaction with the given transaction ID exists in the database.
     pub async fn transaction_exists_with_txid(&mut self, tx_id: &H256) -> DalResult<bool> {
         let maybe_row = sqlx::query!(
             r#"
@@ -184,6 +192,7 @@ impl ViaTransactionsDal<'_, '_> {
             tx_id.as_bytes(),
         )
         .instrument("transaction_exists_with_txid")
+        .report_latency()
         .fetch_optional(self.storage)
         .await?;
 
