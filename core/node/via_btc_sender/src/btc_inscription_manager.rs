@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
 use bincode::serialize;
+use bitcoin::hashes::Hash;
 use tokio::sync::watch;
 use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::btc_sender::ViaBtcInscriptionRequest;
+use zksync_types::via_btc_sender::ViaBtcInscriptionRequest;
 
 use crate::config::BLOCK_RESEND;
 
@@ -65,12 +66,15 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> anyhow::Result<()> {
-        let inflight_inscriptions = storage.btc_sender_dal().get_inflight_inscriptions().await?;
+        let inflight_inscriptions_ids = storage
+            .btc_sender_dal()
+            .list_inflight_inscription_ids()
+            .await?;
 
-        for inscription in inflight_inscriptions {
+        for inscription_id in inflight_inscriptions_ids {
             if let Some(last_inscription_history) = storage
                 .btc_sender_dal()
-                .get_last_inscription_request_history(inscription.id)
+                .get_last_inscription_request_history(inscription_id)
                 .await?
             {
                 let is_confirmed = self
@@ -86,7 +90,7 @@ impl ViaBtcInscriptionManager {
                 if is_confirmed {
                     storage
                         .btc_sender_dal()
-                        .confirm_inscription(inscription.id, last_inscription_history.id)
+                        .confirm_inscription(inscription_id, last_inscription_history.id)
                         .await?;
                     tracing::info!(
                         "Inscription confirmed {reveal_tx}",
@@ -122,7 +126,7 @@ impl ViaBtcInscriptionManager {
     ) -> anyhow::Result<()> {
         let number_inflight_txs = storage
             .btc_sender_dal()
-            .get_inflight_inscriptions()
+            .list_inflight_inscription_ids()
             .await?
             .len();
 
@@ -189,11 +193,19 @@ impl ViaBtcInscriptionManager {
         storage
             .btc_sender_dal()
             .insert_inscription_request_history(
-                inscribe_info.final_commit_tx.txid,
-                inscribe_info.final_reveal_tx.txid,
+                &inscribe_info
+                    .final_commit_tx
+                    .txid
+                    .as_raw_hash()
+                    .to_byte_array(),
+                &inscribe_info
+                    .final_reveal_tx
+                    .txid
+                    .as_raw_hash()
+                    .to_byte_array(),
                 tx.id,
-                signed_commit_tx,
-                signed_reveal_tx,
+                &signed_commit_tx,
+                &signed_reveal_tx,
                 actual_fees.to_sat() as i64,
                 sent_at_block,
             )

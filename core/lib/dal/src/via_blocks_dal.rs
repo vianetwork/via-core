@@ -17,6 +17,8 @@ pub struct ViaBlocksDal<'a, 'c> {
 }
 
 impl ViaBlocksDal<'_, '_> {
+    /// Inserts an inscription request ID for a given L1 batch.
+    /// Handles both commit batch and commit proof inscription types.
     pub async fn insert_l1_batch_inscription_request_id(
         &mut self,
         batch_number: L1BatchNumber,
@@ -90,13 +92,15 @@ impl ViaBlocksDal<'_, '_> {
         }
     }
 
+    /// Retrieves L1 batches that are ready to have their pubdata committed to bitcoin chain.
+    /// Filters batches based on protocol version and required commitments.
     pub async fn get_ready_for_commit_l1_batches(
         &mut self,
         limit: usize,
-        bootloader_hash: H256,
-        default_aa_hash: H256,
+        bootloader_hash: &H256,
+        default_aa_hash: &H256,
         protocol_version_id: ProtocolVersionId,
-    ) -> anyhow::Result<Vec<ViaBtcL1BlockDetails>> {
+    ) -> DalResult<Vec<ViaBtcL1BlockDetails>> {
         let batches = sqlx::query_as!(
             ViaBtcStorageL1BlockDetails,
             r#"
@@ -104,8 +108,8 @@ impl ViaBlocksDal<'_, '_> {
                 l1_batches.number AS number,
                 l1_batches.timestamp AS timestamp,
                 l1_batches.hash AS hash,
-                '' AS commit_tx_id,
-                '' AS reveal_tx_id,
+                ''::bytea AS commit_tx_id,
+                ''::bytea AS reveal_tx_id,
                 via_data_availability.blob_id,
                 prev_l1_batches.hash AS prev_l1_batch_hash
             FROM
@@ -151,10 +155,11 @@ impl ViaBlocksDal<'_, '_> {
         Ok(batches.into_iter().map(|details| details.into()).collect())
     }
 
+    /// Retrieves L1 batches that are ready to have their proofs committed to bitcoin chain.
     pub async fn get_ready_for_commit_proof_l1_batches(
         &mut self,
         limit: usize,
-    ) -> anyhow::Result<Vec<ViaBtcL1BlockDetails>> {
+    ) -> DalResult<Vec<ViaBtcL1BlockDetails>> {
         let batches = sqlx::query_as!(
             ViaBtcStorageL1BlockDetails,
             r#"
@@ -213,9 +218,11 @@ impl ViaBlocksDal<'_, '_> {
         Ok(batches.into_iter().map(|details| details.into()).collect())
     }
 
+    /// Returns the first L1 batch number that has been reverted by the verifier network.
+    /// Returns None if no batches have been reverted.
     pub async fn get_reverted_batch_by_verifier_network(
         &mut self,
-    ) -> anyhow::Result<Option<L1BatchNumber>> {
+    ) -> DalResult<Option<L1BatchNumber>> {
         let row = sqlx::query!(
             r#"
             SELECT
@@ -237,9 +244,9 @@ impl ViaBlocksDal<'_, '_> {
         Ok(None)
     }
 
-    pub async fn get_l1_batch_proof_not_commited(
-        &mut self,
-    ) -> anyhow::Result<Option<L1BatchNumber>> {
+    /// Returns the first L1 batch number that doesn't have its proof committed.
+    /// Returns None if all batches have their proofs committed.
+    pub async fn get_l1_batch_proof_not_commited(&mut self) -> DalResult<Option<L1BatchNumber>> {
         let row = sqlx::query!(
             r#"
             SELECT
@@ -261,9 +268,9 @@ impl ViaBlocksDal<'_, '_> {
         Ok(None)
     }
 
-    pub async fn get_first_l1_batch_can_be_reverted(
-        &mut self,
-    ) -> anyhow::Result<Option<L1BatchNumber>> {
+    /// Returns the first L1 batch that can be reverted, checking both verifier network
+    /// reverts and uncommitted proofs.
+    pub async fn get_first_l1_batch_can_be_reverted(&mut self) -> DalResult<Option<L1BatchNumber>> {
         if let Some(l1_batch_number) = self.get_reverted_batch_by_verifier_network().await? {
             return Ok(Some(l1_batch_number));
         } else if let Some(l1_batch_number) = self.get_l1_batch_proof_not_commited().await? {
@@ -272,12 +279,12 @@ impl ViaBlocksDal<'_, '_> {
         Ok(None)
     }
 
+    /// Checks if a proof transaction exists for a given L1 batch number.
     pub async fn l1_batch_proof_tx_exists(
         &mut self,
         l1_batch_number: i64,
-        proof_reveal_tx_id: &H256,
-    ) -> anyhow::Result<bool> {
-        // Todo: change the db data type to for the proof_reveal_tx_id to BYTEA for easy query.
+        proof_reveal_tx_id: &[u8],
+    ) -> DalResult<bool> {
         let row = sqlx::query!(
             r#"
             SELECT
@@ -293,7 +300,7 @@ impl ViaBlocksDal<'_, '_> {
                 )
             "#,
             l1_batch_number,
-            &format!("{:?}", proof_reveal_tx_id).replace("0x", "")
+            proof_reveal_tx_id
         )
         .instrument("l1_batch_proof_tx_exists")
         .report_latency()

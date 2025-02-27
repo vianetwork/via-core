@@ -55,12 +55,12 @@ pub mod api;
 pub mod base_token_ratio;
 pub mod btc_block;
 pub mod btc_inscription_operations;
-pub mod btc_sender;
 pub mod eth_sender;
 pub mod helpers;
 pub mod proto;
 pub mod transaction_request;
 pub mod utils;
+pub mod via_btc_sender;
 pub mod via_verifier_btc_inscription_operations;
 
 /// Denotes the first byte of the special ZKsync's EIP-712-signed transaction.

@@ -21,12 +21,12 @@
       {
         "ordinal": 3,
         "name": "commit_tx_id",
-        "type_info": "Varchar"
+        "type_info": "Bytea"
       },
       {
         "ordinal": 4,
         "name": "reveal_tx_id",
-        "type_info": "Varchar"
+        "type_info": "Bytea"
       },
       {
         "ordinal": 5,

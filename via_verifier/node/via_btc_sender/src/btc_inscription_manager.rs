@@ -4,7 +4,7 @@ use tokio::sync::watch;
 use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
-use zksync_types::btc_sender::ViaBtcInscriptionRequest;
+use zksync_types::via_btc_sender::ViaBtcInscriptionRequest;
 
 use crate::config::BLOCK_RESEND;
 
