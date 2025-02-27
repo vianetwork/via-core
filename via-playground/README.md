@@ -1,6 +1,6 @@
 # Via Playground 🌐
 
-This project demonstrates how to interact with via network.
+This project demonstrates how to interact with Via network.
 
 Try running some of the following tasks:
 
