@@ -42,7 +42,7 @@ function getDals(opts: DbOpts): Map<DalPath, string> {
 
 function getTestDals(opts: DbOpts): Map<DalPath, string> {
     let dals = new Map<DalPath, string>();
-    if (!opts.prover && !opts.core) {
+    if (!opts.prover && !opts.core && !opts.verifier) {
         dals.set(DalPath.CoreDal, process.env.TEST_DATABASE_URL!);
         dals.set(DalPath.ProverDal, process.env.TEST_DATABASE_PROVER_URL!);
         dals.set(DalPath.ViaVerifierDal, process.env.TEST_DATABASE_VERIFIER_URL!);

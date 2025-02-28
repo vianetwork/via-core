@@ -49,6 +49,11 @@ async fn test_via_vote_workflow() {
         .insert_vote(votable_transaction_id, &verifier_address, vote)
         .await
         .unwrap();
+    storage
+        .via_votes_dal()
+        .verify_votable_transaction(i64::from(l1_batch_number), proof_reveal_tx_id, vote)
+        .await
+        .unwrap();
 
     // Test getting vote count
     let (_, ok_votes, total_votes) = storage
