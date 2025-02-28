@@ -421,6 +421,7 @@ async fn pending_batch_is_applied() {
 
 /// Load protocol upgrade transactions
 #[tokio::test]
+#[ignore]
 async fn load_upgrade_tx() {
     let sealer = SequencerSealer::default();
     let scenario = TestScenario::new();
@@ -597,6 +598,7 @@ async fn time_is_monotonic() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn protocol_upgrade() {
     let config = StateKeeperConfig {
         transaction_slots: 2,

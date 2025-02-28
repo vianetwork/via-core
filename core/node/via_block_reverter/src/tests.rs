@@ -12,12 +12,91 @@ use zksync_object_store::{Bucket, MockObjectStore};
 use zksync_state::interface::ReadStorage;
 use zksync_types::{
     block::{L1BatchHeader, L2BlockHeader},
+    btc_inscription_operations::ViaBtcInscriptionRequestType,
     snapshots::SnapshotVersion,
     AccountTreeId, Address, L2BlockNumber, ProtocolVersion, ProtocolVersionId, StorageKey,
     StorageLog,
 };
 
 use super::*;
+
+async fn create_inscriptions_and_verifier_votes_for_l1_batch(
+    storage: &mut Connection<'_, Core>,
+    number: u32,
+    vote: bool,
+) {
+    let id = storage
+        .btc_sender_dal()
+        .via_save_btc_inscriptions_request(
+            L1BatchNumber::from(number),
+            String::from(ViaBtcInscriptionRequestType::CommitL1BatchOnchain.as_str()),
+            vec![],
+            0,
+        )
+        .await
+        .unwrap();
+
+    storage
+        .via_blocks_dal()
+        .insert_l1_batch_inscription_request_id(
+            L1BatchNumber::from(number),
+            id,
+            ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
+        )
+        .await
+        .unwrap();
+
+    storage
+        .via_votes_dal()
+        .insert_vote(number, &[], "verifier_address", vote)
+        .await
+        .unwrap();
+
+    storage
+        .via_votes_dal()
+        .finalize_transaction_if_needed(number, 0.0, 1)
+        .await
+        .unwrap();
+}
+
+async fn create_inscriptions_for_l1_batch(
+    storage: &mut Connection<'_, Core>,
+    number: u32,
+    with_proof_inscription: bool,
+) {
+    let id = storage
+        .btc_sender_dal()
+        .via_save_btc_inscriptions_request(
+            L1BatchNumber::from(number),
+            String::from(ViaBtcInscriptionRequestType::CommitL1BatchOnchain.as_str()),
+            vec![],
+            0,
+        )
+        .await
+        .unwrap();
+
+    storage
+        .via_blocks_dal()
+        .insert_l1_batch_inscription_request_id(
+            L1BatchNumber::from(number),
+            id,
+            ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
+        )
+        .await
+        .unwrap();
+
+    if with_proof_inscription {
+        storage
+            .via_blocks_dal()
+            .insert_l1_batch_inscription_request_id(
+                L1BatchNumber::from(number),
+                id,
+                ViaBtcInscriptionRequestType::CommitProofOnchain,
+            )
+            .await
+            .unwrap();
+    }
+}
 
 fn gen_storage_logs() -> Vec<StorageLog> {
     (0..10)
@@ -135,6 +214,16 @@ async fn block_reverter_basics(sync_merkle_tree: bool) {
             .set_l1_batch_hash(L1BatchNumber(number), hash)
             .await
             .unwrap();
+
+        if number > 6 {
+            continue;
+        }
+
+        let mut vote = true;
+        if number == 6 {
+            vote = false;
+        }
+        create_inscriptions_and_verifier_votes_for_l1_batch(&mut storage, number, vote).await;
     }
 
     let sk_cache_path = temp_dir.path().join("sk_cache");
@@ -280,6 +369,20 @@ async fn reverting_snapshot(remove_objects: bool) {
     if remove_objects {
         block_reverter.enable_rolling_back_snapshot_objects(object_store.clone());
     }
+
+    for number in 0..7 {
+        println!("{}", number);
+        if number > 6 {
+            continue;
+        }
+
+        let mut vote = true;
+        if number == 6 {
+            vote = false;
+        }
+        create_inscriptions_and_verifier_votes_for_l1_batch(&mut storage, number, vote).await;
+    }
+
     block_reverter.roll_back(L1BatchNumber(5)).await.unwrap();
 
     // Check that snapshot has been removed.
@@ -340,6 +443,18 @@ async fn reverting_snapshot_ignores_not_found_object_store_errors() {
         .await
         .unwrap();
 
+    for number in 0..7 {
+        println!("{}", number);
+        if number > 6 {
+            continue;
+        }
+
+        let mut vote = true;
+        if number == 6 {
+            vote = false;
+        }
+        create_inscriptions_and_verifier_votes_for_l1_batch(&mut storage, number, vote).await;
+    }
     let mut block_reverter = ViaBlockReverter::new(NodeRole::External, pool.clone());
     block_reverter.enable_rolling_back_postgres();
     block_reverter.enable_rolling_back_snapshot_objects(object_store);
@@ -404,6 +519,19 @@ async fn reverting_snapshot_propagates_fatal_errors() {
     let object_store = Arc::new(ErroneousStore::default());
     create_mock_snapshot(&mut storage, &*object_store, L1BatchNumber(7), 0..5).await;
 
+    for number in 0..7 {
+        println!("{}", number);
+        if number > 6 {
+            continue;
+        }
+
+        let mut vote = true;
+        if number == 6 {
+            vote = false;
+        }
+        create_inscriptions_and_verifier_votes_for_l1_batch(&mut storage, number, vote).await;
+    }
+
     let mut block_reverter = ViaBlockReverter::new(NodeRole::External, pool.clone());
     block_reverter.enable_rolling_back_postgres();
     block_reverter.enable_rolling_back_snapshot_objects(object_store.clone());
@@ -448,6 +576,19 @@ async fn reverter_handles_incomplete_snapshot() {
         chunk_ids.clone(),
     )
     .await;
+
+    for number in 0..7 {
+        println!("{}", number);
+        if number > 6 {
+            continue;
+        }
+
+        let mut with_proof_inscription = true;
+        if number == 6 {
+            with_proof_inscription = false;
+        }
+        create_inscriptions_for_l1_batch(&mut storage, number, with_proof_inscription).await;
+    }
 
     let mut block_reverter = ViaBlockReverter::new(NodeRole::External, pool.clone());
     block_reverter.enable_rolling_back_postgres();
