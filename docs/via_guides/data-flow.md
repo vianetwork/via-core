@@ -249,7 +249,6 @@ onto the Bitcoin blockchain. This component:
 
 check [DEV.md](../../core/lib/via_btc_client/DEV.md) for more detail about the inscription data structure.
 
-
 The inscription process is handled by the
 [`btc_inscription_manager.rs`](../../core/node/via_btc_sender/src/btc_inscription_manager.rs), which implements the core
 logic for creating and managing inscriptions. It works in a loop that:
@@ -289,7 +288,7 @@ The actual inscription of commitment data on Bitcoin involves a two-transaction 
 2. **Reveal Transaction**: Contains the actual inscription data embedded in the transaction
 
 This process, implemented in [`via_btc_client/src/inscriber`](../../core/lib/via_btc_client/src/inscriber), utilizes
-Bitcoin's Taproot features to efficiently embed data. 
+Bitcoin's Taproot features to efficiently embed data.
 
 Once the inscription transactions are broadcast and confirmed on the Bitcoin network, the batch commitment is considered
 published, providing a secure, decentralized record of the L1 batch that can be verified by any observer.
@@ -818,7 +817,7 @@ pub struct UtxoManager {
 
 This component synchronizes with the blockchain before transactions are built:
 
-``` rust
+```rust
 self.utxo_manager.sync_context_with_blockchain().await?;
 ```
 
