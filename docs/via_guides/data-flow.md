@@ -475,7 +475,7 @@ match msg {
 }
 ```
 
-Please check the verifier network [README](../../via_verifier/README.md) for architecture details and related diagrams.
+> Please check the verifier network [README](../../via_verifier/README.md) for architecture details and related diagrams.
 
 #### Notification by Proof Commitment Inscription
 
