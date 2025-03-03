@@ -251,13 +251,7 @@ check [DEV.md](../../core/lib/via_btc_client/DEV.md) for more detail about the i
 
 The inscription process is handled by the
 [`btc_inscription_manager.rs`](../../core/node/via_btc_sender/src/btc_inscription_manager.rs), which implements the core
-logic for creating and managing inscriptions. It works in a loop that:
-
-1. Checks for pending inscription requests in the database
-2. Prepares inscription data from these requests
-3. Creates and signs Bitcoin transactions for the inscriptions
-4. Broadcasts the transactions to the Bitcoin network
-5. Updates the database with the transaction information
+logic for creating and managing inscriptions.
 
 **Implementation Details**:
 
