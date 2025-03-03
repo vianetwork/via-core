@@ -15,7 +15,8 @@ Before discussing the data flow, note the following codebase conventions and des
   - Services do not communicate directly. Instead, each service fetches required data from the database using
     `core/lib/dal` or `via_verifier/lib/via_dal`, processes the data, and writes the output back to the database as
     necessary. This pattern creates an indirect communication channel between different services.
-  - Database tables and specialized queries serve as the primary mechanism for task coordination. For example, components check for "ready" entries using SQL queries and create new entries to signal completion.
+  - Database tables and specialized queries serve as the primary mechanism for task coordination. For example,
+    components check for "ready" entries using SQL queries and create new entries to signal completion.
 - Service Loop:
   - Every service runs an infinite loop with a sleep interval. In each iteration, the service:
     - Checks the database for relevant data or tasks.
@@ -92,7 +93,8 @@ The state keeper implementation is more complex than described above. Its main e
 - When a batch is sealed, it immediately sets up for the next L2 block with a new timestamp
 - Carefully manages the transition between protocol versions by detecting version changes
 
-After sealing an L2 block within a batch, the state keeper immediately sets up for the next fictive L2 block, maintaining continuous state. This is visible in code with calls like:
+After sealing an L2 block within a batch, the state keeper immediately sets up for the next fictive L2 block,
+maintaining continuous state. This is visible in code with calls like:
 
 ```
 let new_l2_block_params = self.wait_for_new_l2_block_params(&updates_manager).await?;
@@ -152,8 +154,10 @@ component is responsible for:
 The commitment generator, as implemented in [`lib.rs`](../../core/node/commitment_generator/src/lib.rs), processes
 sealed batches asynchronously and prepares them for the next stage in the data flow.
 
-**Database Interaction**:
-The commitment generator doesn't receive direct tasks from state keeper. Instead, it polls the database for sealed batches that need commitments using queries that look for specific conditions. This indirect communication pattern is central to the system's architecture, allowing components to operate independently while maintaining a coherent workflow.
+**Database Interaction**: The commitment generator doesn't receive direct tasks from state keeper. Instead, it polls the
+database for sealed batches that need commitments using queries that look for specific conditions. This indirect
+communication pattern is central to the system's architecture, allowing components to operate independently while
+maintaining a coherent workflow.
 
 #### Creating Tasks for Downstream Components
 
@@ -207,7 +211,9 @@ Once the batch data is prepared, the dispatcher creates entries in the database 
 
 The DA dispatcher includes several important implementation features not covered in the high-level description:
 
-- **Robust Retry Mechanism**: The dispatcher implements a retry system for handling transient failures when dispatching blobs:
+- **Robust Retry Mechanism**: The dispatcher implements a retry system for handling transient failures when dispatching
+  blobs:
+
   ```
   let dispatch_response = retry(self.config.max_retries(), batch.l1_batch_number, || {
       self.client.dispatch_blob(batch.l1_batch_number.0, batch.pubdata.clone())
@@ -215,6 +221,7 @@ The DA dispatcher includes several important implementation features not covered
   ```
 
 - **Detailed Metrics Collection**: The dispatcher tracks extensive metrics about its operations:
+
   ```
   METRICS.last_dispatched_l1_batch.set(batch.l1_batch_number.0 as usize);
   METRICS.blob_size.observe(batch.pubdata.len());
@@ -257,15 +264,18 @@ logic for creating and managing inscriptions. It works in a loop that:
 The Bitcoin sender implementation includes several sophisticated components not mentioned in the high-level overview:
 
 - **Inscription Components**: The system actually uses multiple components for inscription handling:
+
   - `ViaBtcInscriptionAggregator` - Aggregates related batches for inscription
   - `ViaBtcInscriptionManager` - Manages the actual inscription process
 
 - **Fee Estimation and Tracking**: The system carefully calculates and tracks fees:
+
   ```
   let actual_fees = inscribe_info.reveal_tx_output_info._reveal_fee + inscribe_info.commit_tx_output_info.commit_tx_fee;
   ```
 
-- **Blockchain Synchronization**: Before creating inscriptions, the system synchronizes its state with the Bitcoin blockchain:
+- **Blockchain Synchronization**: Before creating inscriptions, the system synchronizes its state with the Bitcoin
+  blockchain:
   ```
   self.sync_context_with_blockchain().await?;
   ```
@@ -404,7 +414,8 @@ ORDER BY proof_generation_details.l1_batch_number
 LIMIT $1
 ```
 
-This query demonstrates how complex decision-making is encoded in database queries rather than direct component communication.
+This query demonstrates how complex decision-making is encoded in database queries rather than direct component
+communication.
 
 #### Bitcoin Inscription of Proofs
 
@@ -471,6 +482,7 @@ The `via_btc_watch` component contains specialized message processors for differ
 - `L1ToL2MessageProcessor` - Processes messages from L1 to L2
 
 The message processing system is designed to handle various inscription types:
+
 ```
 match msg {
     ref f @ FullInscriptionMessage::ProofDAReference(ref proof_msg) => {
@@ -557,6 +569,7 @@ consensus on the validity of batches.
 **Voting Details**:
 
 The attestation vote processing has specific logic for determining consensus:
+
 ```
 // Vote = true if attestation_msg.input.attestation == Vote::Ok
 let is_ok = matches!(
@@ -566,6 +579,7 @@ let is_ok = matches!(
 ```
 
 The verifier also records the attestation and checks if enough votes have been received:
+
 ```
 if votes_dal
     .finalize_transaction_if_needed(
@@ -599,7 +613,9 @@ verified, allowing the protocol to build upon it for future operations.
 
 **Threshold Calculation**:
 
-The `zk_agreement_threshold` parameter is crucial to the finalization process. The system calculates the required number of votes based on this threshold:
+The `zk_agreement_threshold` parameter is crucial to the finalization process. The system calculates the required number
+of votes based on this threshold:
+
 ```
 // In database code
 let required_votes = (total_verifiers as f64 * threshold).ceil() as i64;
@@ -655,6 +671,7 @@ execution.
 **Detection Query**:
 
 The system uses database queries to identify finalized batches with unprocessed withdrawals:
+
 ```
 // From the implementation
 let l1_batches = self
@@ -681,6 +698,7 @@ maintaining the protocol's security properties.
 **Session Management Pattern**:
 
 The withdrawal system uses a session-based approach with several lifecycle stages:
+
 ```
 // Interface methods
 async fn session(&self) -> anyhow::Result<Option<SessionOperation>>;
@@ -708,6 +726,7 @@ that all legitimate withdrawal requests are accurately identified and processed.
 **Withdrawal Grouping Optimization**:
 
 The system optimizes Bitcoin transactions by grouping withdrawals by recipient:
+
 ```
 // Group withdrawals by address and sum amounts
 let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
@@ -754,6 +773,7 @@ efficiency.
 **Implementation Details**:
 
 The MuSig2 implementation includes sophisticated state tracking for the signing process:
+
 ```
 pub struct Signer {
     secret_key: SecretKey,
@@ -769,6 +789,7 @@ pub struct Signer {
 ```
 
 The signing process includes distinct methods for each stage:
+
 - `start_signing_session` - Creates the public nonce for the first round
 - `receive_nonce` - Collects nonces from other verifiers
 - `create_partial_signature` - Creates a signature contribution
@@ -792,6 +813,7 @@ creating a well-formed Bitcoin transaction that represents the withdrawals in th
 **UTXO Management**:
 
 The system includes a specialized UTXO manager that handles Bitcoin transaction creation:
+
 ```
 pub struct UtxoManager {
     /// Btc client
@@ -808,6 +830,7 @@ pub struct UtxoManager {
 ```
 
 This component synchronizes with the blockchain before transactions are built:
+
 ```
 self.utxo_manager.sync_context_with_blockchain().await?;
 ```
@@ -830,6 +853,7 @@ funds from the bridge address to the recipients specified in the withdrawal requ
 **Database Update**:
 
 After successful broadcast, the system updates the database to mark the withdrawal as processed:
+
 ```
 self.master_connection_pool
     .connection_tagged("verifier task")
