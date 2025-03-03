@@ -96,7 +96,7 @@ The state keeper implementation is more complex than described above. Its main e
 After sealing an L2 block within a batch, the state keeper immediately sets up for the next fictive L2 block,
 maintaining continuous state. This is visible in code with calls like:
 
-```
+``` rust
 let new_l2_block_params = self.wait_for_new_l2_block_params(&updates_manager).await?;
 Self::start_next_l2_block(new_l2_block_params, &mut updates_manager, &mut batch_executor).await?;
 ```
@@ -214,7 +214,7 @@ The DA dispatcher includes several important implementation features not covered
 - **Robust Retry Mechanism**: The dispatcher implements a retry system for handling transient failures when dispatching
   blobs:
 
-  ```
+  ``` rust
   let dispatch_response = retry(self.config.max_retries(), batch.l1_batch_number, || {
       self.client.dispatch_blob(batch.l1_batch_number.0, batch.pubdata.clone())
   }).await
@@ -228,7 +228,7 @@ The DA dispatcher includes several important implementation features not covered
   ```
 
 - **Dual Proof Handling Paths**: The dispatcher has separate code paths for real and dummy proofs:
-  ```
+  ``` rust
   async fn dispatch_proofs(&self) -> anyhow::Result<()> {
       match self.dispatch_real_proof {
           true => self.dispatch_real_proofs().await?,
@@ -270,13 +270,13 @@ The Bitcoin sender implementation includes several sophisticated components not 
 
 - **Fee Estimation and Tracking**: The system carefully calculates and tracks fees:
 
-  ```
+  ``` rust
   let actual_fees = inscribe_info.reveal_tx_output_info._reveal_fee + inscribe_info.commit_tx_output_info.commit_tx_fee;
   ```
 
 - **Blockchain Synchronization**: Before creating inscriptions, the system synchronizes its state with the Bitcoin
   blockchain:
-  ```
+  ``` rust
   self.sync_context_with_blockchain().await?;
   ```
 
@@ -483,7 +483,7 @@ The `via_btc_watch` component contains specialized message processors for differ
 
 The message processing system is designed to handle various inscription types:
 
-```
+``` rust
 match msg {
     ref f @ FullInscriptionMessage::ProofDAReference(ref proof_msg) => {
         // Handle proof reference inscriptions
@@ -570,7 +570,7 @@ consensus on the validity of batches.
 
 The attestation vote processing has specific logic for determining consensus:
 
-```
+``` rust
 // Vote = true if attestation_msg.input.attestation == Vote::Ok
 let is_ok = matches!(
     attestation_msg.input.attestation,
@@ -580,7 +580,7 @@ let is_ok = matches!(
 
 The verifier also records the attestation and checks if enough votes have been received:
 
-```
+``` rust
 if votes_dal
     .finalize_transaction_if_needed(
         votable_transaction_id,
@@ -616,7 +616,7 @@ verified, allowing the protocol to build upon it for future operations.
 The `zk_agreement_threshold` parameter is crucial to the finalization process. The system calculates the required number
 of votes based on this threshold:
 
-```
+``` rust
 // In database code
 let required_votes = (total_verifiers as f64 * threshold).ceil() as i64;
 ```
@@ -672,7 +672,7 @@ execution.
 
 The system uses database queries to identify finalized batches with unprocessed withdrawals:
 
-```
+``` rust
 // From the implementation
 let l1_batches = self
     .master_connection_pool
@@ -699,7 +699,7 @@ maintaining the protocol's security properties.
 
 The withdrawal system uses a session-based approach with several lifecycle stages:
 
-```
+``` rust
 // Interface methods
 async fn session(&self) -> anyhow::Result<Option<SessionOperation>>;
 async fn is_session_in_progress(&self, session_op: &SessionOperation) -> anyhow::Result<bool>;
@@ -727,7 +727,7 @@ that all legitimate withdrawal requests are accurately identified and processed.
 
 The system optimizes Bitcoin transactions by grouping withdrawals by recipient:
 
-```
+``` rust
 // Group withdrawals by address and sum amounts
 let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
 for w in withdrawals {
@@ -774,7 +774,7 @@ efficiency.
 
 The MuSig2 implementation includes sophisticated state tracking for the signing process:
 
-```
+``` rust
 pub struct Signer {
     secret_key: SecretKey,
     public_key: PublicKey,
@@ -814,7 +814,7 @@ creating a well-formed Bitcoin transaction that represents the withdrawals in th
 
 The system includes a specialized UTXO manager that handles Bitcoin transaction creation:
 
-```
+``` rust
 pub struct UtxoManager {
     /// Btc client
     btc_client: Arc<dyn BitcoinOps>,
@@ -854,7 +854,7 @@ funds from the bridge address to the recipients specified in the withdrawal requ
 
 After successful broadcast, the system updates the database to mark the withdrawal as processed:
 
-```
+``` rust
 self.master_connection_pool
     .connection_tagged("verifier task")
     .await?
