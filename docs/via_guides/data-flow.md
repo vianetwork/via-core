@@ -475,6 +475,8 @@ match msg {
 }
 ```
 
+Please check the verifier network [README](../../via_verifier/README.md) for architecture details and related diagrams.
+
 #### Notification by Proof Commitment Inscription
 
 When a new proof commitment inscription is detected on the Bitcoin blockchain, the verifier network is implicitly
