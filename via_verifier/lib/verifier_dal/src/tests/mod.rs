@@ -307,9 +307,7 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
     // Delete previous invalid transactions
     storage
         .via_votes_dal()
-        .delete_invalid_votable_transactions(i64::from(
-            expected_not_processed_l1_batch_votable_tx_id,
-        ))
+        .delete_invalid_votable_transactions_if_exists()
         .await
         .unwrap();
 

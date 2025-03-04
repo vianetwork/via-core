@@ -242,6 +242,26 @@ impl ViaVotesDal<'_, '_> {
         .instrument("verify_votable_transaction")
         .fetch_one(self.storage)
         .await?;
+
+        // Invalidate all subsequent batches if an invalid L1 batch is detected.
+        if !l1_batch_status {
+            sqlx::query!(
+                r#"
+                UPDATE via_votable_transactions
+                SET
+                    l1_batch_status = FALSE,
+                    is_finalized = FALSE,
+                    updated_at = NOW()
+                WHERE
+                    l1_batch_number > $1
+                "#,
+                l1_batch_number
+            )
+            .instrument("verify_votable_transaction")
+            .execute(self.storage)
+            .await?;
+        }
+
         Ok(record.id)
     }
 
@@ -474,21 +494,14 @@ impl ViaVotesDal<'_, '_> {
     }
 
     /// Delete all the votable_transactions that are invalid and behind the last finilized valid l1_batch
-    pub async fn delete_invalid_votable_transactions(
-        &mut self,
-        l1_batch_number: i64,
-    ) -> DalResult<()> {
+    pub async fn delete_invalid_votable_transactions_if_exists(&mut self) -> DalResult<()> {
         sqlx::query!(
             r#"
             DELETE FROM via_votable_transactions
             WHERE
-                l1_batch_number < $1
-                AND (
-                    is_finalized = FALSE
-                    OR is_finalized IS NULL
-                )
-            "#,
-            l1_batch_number
+                l1_batch_status = FALSE
+                AND is_finalized = FALSE
+            "#
         )
         .instrument("delete_invalid_votable_transactions")
         .fetch_optional(self.storage)

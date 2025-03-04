@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE via_votable_transactions\n                SET\n                    l1_batch_status = FALSE,\n                    is_finalized = FALSE,\n                    updated_at = NOW()\n                WHERE\n                    l1_batch_number > $1\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "33de7fc18e8d8a1b1184a0534b6d39997878f0e9c55451dd78aad781215d0c5b"
+}
