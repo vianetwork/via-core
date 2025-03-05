@@ -60,6 +60,10 @@ const REVEAL_TX_P2WPKH_INPUT_COUNT: u32 = 1;
 
 const BROADCAST_RETRY_COUNT: u32 = 3;
 
+// https://bitcoin.stackexchange.com/questions/10986/what-is-meant-by-bitcoin-dust
+// https://bitcointalk.org/index.php?topic=5453107.msg62262343#msg62262343
+const P2TR_DUST_LIMIT: Amount = Amount::from_sat(330);
+
 #[derive(Debug)]
 pub struct Inscriber {
     client: Arc<dyn BitcoinOps>,
@@ -341,7 +345,7 @@ impl Inscriber {
     ) -> Result<CommitTxOutputRes> {
         debug!("Preparing commit transaction output");
         let inscription_commitment_output = TxOut {
-            value: Amount::ZERO,
+            value: P2TR_DUST_LIMIT,
             script_pubkey: inscription_pubkey,
         };
 
@@ -360,11 +364,11 @@ impl Inscriber {
 
         let commit_tx_change_output_value = tx_input_data
             .unlocked_value
-            .checked_sub(fee_amount)
+            .checked_sub(fee_amount + P2TR_DUST_LIMIT)
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "Required Amount: {:?}, Spendable Amount: {:?} ",
-                    fee_amount,
+                    fee_amount + P2TR_DUST_LIMIT,
                     tx_input_data.unlocked_value
                 )
             })?;
@@ -583,7 +587,6 @@ impl Inscriber {
         let txs_stuck_factor = FEE_RATE_INCREASE_PER_PENDING_TX * pending_tx_in_context as u64;
 
         let increase_factor = txs_stuck_factor + FEE_RATE_INCENTIVE;
-
         fee_amount += (fee_amount * increase_factor) / 100;
         // Add the fee amount removed from the commit tx to reveal
         fee_amount += (commit_tx_fee * FEE_RATE_DECREASE_COMMIT_TX) / 100;
