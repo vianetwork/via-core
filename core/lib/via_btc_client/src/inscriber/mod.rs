@@ -663,7 +663,7 @@ impl Inscriber {
             .p2wpkh_signature_hash(
                 REVEAL_TX_FEE_INPUT_INDEX as usize,
                 script_pubkey,
-                input.unlock_value,
+                input.prev_outs[REVEAL_TX_FEE_INPUT_INDEX as usize].value,
                 sighash_type,
             )
             .context("Failed to create sighash")?;
