@@ -175,6 +175,11 @@ impl ViaVerifier {
                         .update_transaction(&hash, status)
                         .await?;
                 }
+
+                transaction
+                    .via_votes_dal()
+                    .delete_invalid_votable_transactions_if_exists()
+                    .await?;
             }
             transaction.commit().await?;
         }

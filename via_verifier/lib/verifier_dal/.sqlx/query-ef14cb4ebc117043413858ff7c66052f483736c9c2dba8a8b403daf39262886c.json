@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM via_votable_transactions\n            WHERE\n                l1_batch_status = FALSE\n                AND is_finalized = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "ef14cb4ebc117043413858ff7c66052f483736c9c2dba8a8b403daf39262886c"
+}
