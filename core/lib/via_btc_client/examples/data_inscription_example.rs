@@ -66,6 +66,8 @@ const P2WPKH_OUTPUT_BASE_SIZE: usize = 34;
 // 8 + 1 + 34 = 43
 const P2TR_OUTPUT_BASE_SIZE: usize = 43;
 
+const P2TR_DUST_LIMIT: Amount = Amount::from_sat(330);
+
 struct UserKey {
     sk: SecretKey,
     wpkh: WPubkeyHash,
@@ -278,7 +280,7 @@ impl InscriptionManager {
         }
     }
 
-    pub fn proccess_user_input(&mut self, wif_string: &str, inscription_data: &str) -> Result<()> {
+    pub fn process_user_input(&mut self, wif_string: &str, inscription_data: &str) -> Result<()> {
         let user_key = UserKey::new(wif_string, &self.secp, self.network);
         self.user_key = Some(user_key?);
 
@@ -568,7 +570,7 @@ impl InscriptionManager {
         let taproot_address = Address::p2tr_tweaked(taproot_spend_info.output_key(), self.network);
 
         let utxo = TxOut {
-            value: Amount::from_sat(0),
+            value: P2TR_DUST_LIMIT,
             script_pubkey: taproot_address.script_pubkey(),
         };
 
@@ -581,7 +583,7 @@ impl InscriptionManager {
         let commit_tx_input_info = self.constructing_commit_tx_input(utxos)?;
 
         let inscription_commitment_output: TxOut = TxOut {
-            value: Amount::ZERO,
+            value: P2TR_DUST_LIMIT,
             script_pubkey: self
                 .inscription_data
                 .as_ref()
@@ -597,7 +599,8 @@ impl InscriptionManager {
         let estimated_fee = fee_rate * estimated_commitment_tx_size as u64;
         let commit_estimated_fee = Amount::from_sat(estimated_fee);
 
-        let commit_change_value = commit_tx_input_info.unlocked_value - commit_estimated_fee;
+        let commit_change_value =
+            commit_tx_input_info.unlocked_value - commit_estimated_fee - P2TR_DUST_LIMIT;
 
         let change_output = TxOut {
             value: commit_change_value,
@@ -706,7 +709,7 @@ impl InscriptionManager {
         let reveal_fee = fee_rate * reveal_tx_estimate_size as u64;
         let reveal_fee = Amount::from_sat(reveal_fee);
 
-        let reveal_change_value = fee_payer_utxo_input.1.value - reveal_fee;
+        let reveal_change_value = fee_payer_utxo_input.1.value - reveal_fee + P2TR_DUST_LIMIT;
 
         let reveal_change_output = TxOut {
             value: reveal_change_value,
@@ -962,7 +965,7 @@ async fn main() -> Result<()> {
     let cli_manager = CliManager::new();
     let (wif_string, inscription_data) = cli_manager.get_user_input()?;
 
-    inscription_manager.proccess_user_input(&wif_string, &inscription_data)?;
+    inscription_manager.process_user_input(&wif_string, &inscription_data)?;
 
     let result = inscription_manager.start().await?;
 
