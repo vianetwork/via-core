@@ -141,7 +141,7 @@ impl ViaVerifier {
 
             let (batch_blob, batch_hash) = self.process_batch_da_reference(batch_da).await?;
 
-            let mut is_verified = self
+            let (mut is_verified, deposits) = self
                 .verify_op_priority_id(storage, l1_batch_number, &batch_blob.data)
                 .await?;
 
@@ -151,13 +151,14 @@ impl ViaVerifier {
                     .verify_proof(l1_batch_number, batch_hash, &proof_blob.data)
                     .await?;
             }
+            let mut transaction = storage.start_transaction().await?;
 
-            let votable_transaction_id = storage
+            let votable_transaction_id = transaction
                 .via_votes_dal()
                 .verify_votable_transaction(l1_batch_number, db_raw_tx_id, is_verified)
                 .await?;
 
-            storage
+            transaction
                 .via_votes_dal()
                 .finalize_transaction_if_needed(
                     votable_transaction_id,
@@ -165,6 +166,22 @@ impl ViaVerifier {
                     self.indexer.get_number_of_verifiers(),
                 )
                 .await?;
+
+            if is_verified {
+                // Update the transaction status only if the l1 batch is valid.
+                for (hash, status) in deposits {
+                    transaction
+                        .via_transactions_dal()
+                        .update_transaction(&hash, status)
+                        .await?;
+                }
+
+                transaction
+                    .via_votes_dal()
+                    .delete_invalid_votable_transactions_if_exists()
+                    .await?;
+            }
+            transaction.commit().await?;
         }
 
         Ok(())
@@ -175,7 +192,7 @@ impl ViaVerifier {
         storage: &mut Connection<'_, Verifier>,
         l1_batch_number: i64,
         pubdata: &[u8],
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<(bool, Vec<(H256, bool)>)> {
         let pubdata = Pubdata::decode_pubdata(pubdata.to_vec())?;
         let mut deposit_logs = Vec::new();
 
@@ -196,13 +213,15 @@ impl ViaVerifier {
                 deposit_logs.len(),
                 txs.len()
             );
-            return Ok(false);
+            return Ok((false, vec![]));
         }
 
         if txs.is_empty() {
             tracing::info!("There is no transactions to validate the op priority id",);
-            return Ok(true);
+            return Ok((true, vec![]));
         }
+
+        let mut deposits: Vec<(H256, bool)> = Vec::new();
 
         for (raw_tx_id, deposit_log) in txs.iter().zip(deposit_logs.iter()) {
             let db_raw_tx_id = H256::from_slice(raw_tx_id);
@@ -213,14 +232,11 @@ impl ViaVerifier {
                     l1_batch_number,
                     db_raw_tx_id
                 );
-                return Ok(false);
+                return Ok((false, vec![]));
             }
 
             let status = !deposit_log.value.is_zero();
-            storage
-                .via_transactions_dal()
-                .update_transaction(&deposit_log.key, status)
-                .await?;
+            deposits.push((deposit_log.key, status));
         }
 
         tracing::info!(
@@ -228,7 +244,7 @@ impl ViaVerifier {
             l1_batch_number
         );
 
-        Ok(true)
+        Ok((true, deposits))
     }
 
     /// Helper to ensure there's exactly one message in the array, or log an error.
