@@ -36,4 +36,3 @@ command.command('cat-logs [exit_code]').description('Print server logs').action(
 
 command.command('snapshots-creator').action(snapshots_creator);
 command.command('via-external-node').description('Run Via external node').action(via_external_node);
-
