@@ -23,9 +23,17 @@ export async function snapshots_creator() {
     await utils.spawn(`${logLevel} cargo run --bin snapshots_creator --release`);
 }
 
+export async function via_external_node() {
+    process.chdir(`${process.env.ZKSYNC_HOME}`);
+    let logLevel = 'RUST_LOG=via_external_node=debug';
+    await utils.spawn(`${logLevel} cargo run --bin via_external_node --release`);
+}
+
 export const command = new Command('run').description('Run miscellaneous applications');
 
 command.command('yarn').description('Install all JS dependencies').action(yarn);
 command.command('cat-logs [exit_code]').description('Print server logs').action(catLogs);
 
 command.command('snapshots-creator').action(snapshots_creator);
+command.command('via-external-node').description('Run Via external node').action(via_external_node);
+
