@@ -179,16 +179,16 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
-    fn add_query_eth_client_layer(mut self) -> anyhow::Result<Self> {
-        let query_eth_client_layer = QueryEthClientLayer::new(
-            self.config.required.settlement_layer_id(),
-            self.config.required.eth_client_url.clone(),
-            // TODO(EVM-676): add this config for external node
-            Default::default(),
-        );
-        self.node.add_layer(query_eth_client_layer);
-        Ok(self)
-    }
+    // fn add_query_eth_client_layer(mut self) -> anyhow::Result<Self> {
+    //     let query_eth_client_layer = QueryEthClientLayer::new(
+    //         self.config.required.settlement_layer_id(),
+    //         self.config.required.eth_client_url.clone(),
+    //         // TODO(EVM-676): add this config for external node
+    //         Default::default(),
+    //     );
+    //     self.node.add_layer(query_eth_client_layer);
+    //     Ok(self)
+    // }
 
     fn add_state_keeper_layer(mut self) -> anyhow::Result<Self> {
         // While optional bytecode compression may be disabled on the main node, there are batches where
@@ -528,7 +528,7 @@ impl ExternalNodeBuilder {
             .add_prometheus_exporter_layer()?
             .add_pools_layer()?
             .add_main_node_client_layer()?
-            .add_query_eth_client_layer()?
+            // .add_query_eth_client_layer()?
             .add_reorg_detector_layer()?;
 
         // Add layers that must run only on a single component.
@@ -548,7 +548,7 @@ impl ExternalNodeBuilder {
 
         // Add preconditions for all the components.
         self = self
-            .add_l1_batch_commitment_mode_validation_layer()?
+            // .add_l1_batch_commitment_mode_validation_layer()?
             .add_validate_chain_ids_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?;
 
@@ -573,11 +573,11 @@ impl ExternalNodeBuilder {
                 }
                 Component::WsApi => {
                     self = self
-                        .add_sync_state_updater_layer()?
+                        // .add_sync_state_updater_layer()?
                         .add_mempool_cache_layer()?
                         .add_tree_api_client_layer()?
-                        .add_main_node_fee_params_fetcher_layer()?
-                        .add_tx_sender_layer()?
+                        // .add_main_node_fee_params_fetcher_layer()?
+                        // .add_tx_sender_layer()?
                         .add_ws_web3_api_layer()?;
                 }
                 Component::Tree => {
@@ -589,7 +589,7 @@ impl ExternalNodeBuilder {
                         "Tree must run on the same machine as Core"
                     );
                     let with_tree_api = components.contains(&Component::TreeApi);
-                    self = self.add_metadata_calculator_layer(with_tree_api)?;
+                    // self = self.add_metadata_calculator_layer(with_tree_api)?;
                 }
                 Component::TreeApi => {
                     anyhow::ensure!(
@@ -604,8 +604,8 @@ impl ExternalNodeBuilder {
                 Component::Core => {
                     // Main tasks
                     self = self
-                        .add_state_keeper_layer()?
-                        .add_consensus_layer()?
+                        // .add_state_keeper_layer()?
+                        // .add_consensus_layer()?
                         .add_pruning_layer()?
                         .add_consistency_checker_layer()?
                         .add_commitment_generator_layer()?
