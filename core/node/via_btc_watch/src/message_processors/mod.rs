@@ -7,6 +7,7 @@ pub(crate) use votable::VotableMessageProcessor;
 use zksync_dal::{Connection, Core};
 use zksync_types::H256;
 
+mod governance_upgrades;
 mod l1_to_l2;
 mod votable;
 
