@@ -7,16 +7,16 @@ use bitcoin::{
 };
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
-use zksync_types::{Address as EVMAddress, L1BatchNumber};
+use zksync_types::{
+    ethabi::Uint, protocol_version::ProtocolSemanticVersion, Address as EVMAddress, L1BatchNumber,
+    U256,
+};
 
-use crate::{
-    types,
-    types::{
-        CommonFields, FullInscriptionMessage, L1BatchDAReference, L1BatchDAReferenceInput,
-        L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput,
-        ProposeSequencer, ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput,
-        ValidatorAttestation, ValidatorAttestationInput, Vote,
-    },
+use crate::types::{
+    self, CommonFields, FullInscriptionMessage, L1BatchDAReference, L1BatchDAReferenceInput,
+    L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput, ProposeSequencer,
+    ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
+    SystemContractUpgradeInput, ValidatorAttestation, ValidatorAttestationInput, Vote,
 };
 
 // Using constants to define the minimum number of instructions can help to make parsing more quick
@@ -27,6 +27,7 @@ const MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS: usize = 4;
 const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 7;
 const MIN_PROOF_DA_REFERENCE_INSTRUCTIONS: usize = 5;
 const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
+const MIN_SYSTEM_CONTRACT_UPGRADE_PROPOSAL: usize = 7;
 
 #[derive(Debug, Clone)]
 pub struct MessageParser {
@@ -217,6 +218,12 @@ impl MessageParser {
             Instruction::PushBytes(bytes) if bytes.as_bytes() == types::L1_TO_L2_MSG.as_bytes() => {
                 debug!("Parsing L1 to L2 message");
                 self.parse_l1_to_l2_message(tx, instructions, common_fields)
+            }
+            Instruction::PushBytes(bytes)
+                if bytes.as_bytes() == types::SYSTEM_CONTRACT_UPGRADE_MSG.as_bytes() =>
+            {
+                debug!("Parsing System contract upgrade proposal");
+                self.parse_system_contract_upgrade_message(instructions, common_fields)
             }
             Instruction::PushBytes(bytes) => {
                 warn!("Unknown message type for system transaction parser");
@@ -579,6 +586,61 @@ impl MessageParser {
             },
             tx_outputs: tx.output.clone(),
         }))
+    }
+
+    #[instrument(
+        skip(self, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
+    fn parse_system_contract_upgrade_message(
+        &self,
+        instructions: &[Instruction],
+        common_fields: &CommonFields,
+    ) -> Option<FullInscriptionMessage> {
+        if instructions.len() < MIN_SYSTEM_CONTRACT_UPGRADE_PROPOSAL {
+            return None;
+        }
+
+        let version = ProtocolSemanticVersion::try_from_packed(U256::from_big_endian(
+            instructions.get(2)?.push_bytes()?.as_bytes(),
+        ))
+        .ok()?;
+        debug!("Parsed protocol version");
+
+        let bootloader_code_hash = H256::from_slice(instructions.get(3)?.push_bytes()?.as_bytes());
+        debug!("Parsed bootloader code hash");
+
+        let default_account_code_hash =
+            H256::from_slice(instructions.get(4)?.push_bytes()?.as_bytes());
+        debug!("Parsed default account code hash");
+
+        let execution_timestamp_bytes: [u8; 8] = instructions.get(5)?.push_bytes()?.as_bytes()
+            [0..8]
+            .try_into()
+            .unwrap();
+        let execution_timestamp = u64::from_be_bytes(execution_timestamp_bytes);
+        debug!("Parsed execution timestamp");
+
+        let refund_recipient =
+            EVMAddress::from_slice(instructions.get(6)?.push_bytes()?.as_bytes());
+        debug!("Parsed refund recipient address");
+
+        let calldata = instructions.get(7)?.push_bytes()?.as_bytes().to_vec();
+        debug!("Parsed calldata");
+
+        Some(FullInscriptionMessage::SystemContractUpgrade(
+            SystemContractUpgrade {
+                common: common_fields.clone(),
+                input: SystemContractUpgradeInput {
+                    version,
+                    bootloader_code_hash,
+                    default_account_code_hash,
+                    execution_timestamp,
+                    refund_recipient,
+                    calldata,
+                },
+            },
+        ))
     }
 
     fn parse_inscription_deposit(

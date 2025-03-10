@@ -12,6 +12,7 @@ use bitcoin::{
     Address, Network, ScriptBuf,
 };
 use tracing::{debug, instrument};
+use zksync_types::{ethabi::ethereum_types::BigEndianHash, H256};
 
 use crate::types;
 
@@ -135,6 +136,9 @@ impl InscriptionData {
             }
             types::InscriptionMessage::L1ToL2Message(input) => {
                 Self::build_l1_to_l2_message_script(basic_script, input)
+            }
+            types::InscriptionMessage::SystemContractUpgrade(input) => {
+                Self::build_system_contract_upgrade_message_script(basic_script, input)
             }
         };
 
@@ -295,6 +299,37 @@ impl InscriptionData {
             .push_slice(receiver_l2_address_encoded)
             .push_slice(l2_contract_address_encoded)
             .push_slice(call_data_encoded)
+    }
+
+    #[instrument(
+        skip(basic_script, input),
+        target = "bitcoin_inscriber::script_builder"
+    )]
+    fn build_system_contract_upgrade_message_script(
+        basic_script: ScriptBuilder,
+        input: &types::SystemContractUpgradeInput,
+    ) -> ScriptBuilder {
+        debug!("Building SystemContract script");
+
+        let version_encoded =
+            Self::encode_push_bytes(H256::from_uint(&input.version.pack()).as_bytes());
+        let bootloader_code_hash_encoded =
+            Self::encode_push_bytes(input.bootloader_code_hash.as_bytes());
+        let default_account_code_hash_encoded =
+            Self::encode_push_bytes(input.default_account_code_hash.as_bytes());
+        let execution_timestamp =
+            Self::encode_push_bytes(input.execution_timestamp.to_be_bytes().as_slice());
+        let refund_recipient_encoded = Self::encode_push_bytes(input.refund_recipient.as_bytes());
+        let calldata = Self::encode_push_bytes(&input.calldata);
+
+        basic_script
+            .push_slice(&*types::SYSTEM_CONTRACT_UPGRADE_MSG)
+            .push_slice(version_encoded)
+            .push_slice(bootloader_code_hash_encoded)
+            .push_slice(default_account_code_hash_encoded)
+            .push_slice(execution_timestamp)
+            .push_slice(refund_recipient_encoded)
+            .push_slice(calldata)
     }
 
     #[instrument(skip(data), target = "bitcoin_inscriber::script_builder")]
