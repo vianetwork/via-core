@@ -9560,6 +9560,7 @@ dependencies = [
  "via_btc_client",
  "vise",
  "zksync_config",
+ "zksync_contracts",
  "zksync_dal",
  "zksync_shared_metrics",
  "zksync_types",

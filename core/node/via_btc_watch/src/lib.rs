@@ -4,6 +4,8 @@ mod metrics;
 use std::time::Duration;
 
 use anyhow::Context;
+use message_processors::GovernanceUpgradesEventProcessor;
+use sqlx::any;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
@@ -13,7 +15,10 @@ use via_btc_client::{
 };
 use zksync_config::ActorRole;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::PriorityOpId;
+use zksync_types::{
+    protocol_version::{ProtocolSemanticVersion, VersionPatch},
+    PriorityOpId,
+};
 
 use self::{
     message_processors::{
@@ -27,6 +32,7 @@ struct BtcWatchState {
     last_processed_bitcoin_block: u32,
     next_expected_priority_id: PriorityOpId,
     bridge_address: BitcoinAddress,
+    governance_address: BitcoinAddress,
 }
 
 #[derive(Debug)]
@@ -59,12 +65,26 @@ impl BtcWatch {
         let mut storage = pool.connection_tagged("via_btc_watch").await?;
         let state = Self::initialize_state(&indexer, &mut storage, btc_blocks_lag).await?;
         tracing::info!("initialized state: {state:?}");
+
+        let protocol_semantic_version_opt = storage
+            .protocol_versions_dal()
+            .latest_semantic_version()
+            .await?;
+
+        let Some(protocol_semantic_version) = protocol_semantic_version_opt else {
+            anyhow::bail!("Error load the protocol version");
+        };
+
         drop(storage);
 
         assert_eq!(actor_role, &ActorRole::Sequencer);
 
         // Only build message processors that match the actor role:
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
+            Box::new(GovernanceUpgradesEventProcessor::new(
+                state.governance_address.clone(),
+                protocol_semantic_version,
+            )),
             Box::new(L1ToL2MessageProcessor::new(
                 state.bridge_address.clone(),
                 state.next_expected_priority_id,
@@ -115,7 +135,7 @@ impl BtcWatch {
             }
         };
 
-        let (bridge_address, ..) = indexer.get_state();
+        let (bridge_address, sequencer_address, ..) = indexer.get_state();
 
         let next_expected_priority_id = storage
             .via_transactions_dal()
@@ -128,6 +148,7 @@ impl BtcWatch {
             last_processed_bitcoin_block,
             bridge_address,
             next_expected_priority_id,
+            governance_address: sequencer_address,
         })
     }
 

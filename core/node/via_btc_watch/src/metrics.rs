@@ -4,6 +4,7 @@ use vise::{Counter, EncodeLabelSet, EncodeLabelValue, Family, Metrics};
 #[metrics(label = "stage", rename_all = "snake_case")]
 pub enum InscriptionStage {
     Deposit,
+    Upgrade,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EncodeLabelValue, EncodeLabelSet)]
