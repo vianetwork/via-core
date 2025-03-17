@@ -139,7 +139,8 @@ impl MessageProcessor for VerifierMessageProcessor {
                     }
                 }
                 // bootstrapping phase is already covered
-                FullInscriptionMessage::ProposeSequencer(_)
+                FullInscriptionMessage::SystemContractUpgrade(_)
+                | FullInscriptionMessage::ProposeSequencer(_)
                 | FullInscriptionMessage::SystemBootstrapping(_) => {
                     // do nothing
                 }
