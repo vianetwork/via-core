@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use anyhow::Context;
 use message_processors::GovernanceUpgradesEventProcessor;
-use sqlx::any;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
@@ -15,10 +14,7 @@ use via_btc_client::{
 };
 use zksync_config::ActorRole;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::{
-    protocol_version::{ProtocolSemanticVersion, VersionPatch},
-    PriorityOpId,
-};
+use zksync_types::PriorityOpId;
 
 use self::{
     message_processors::{
