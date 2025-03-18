@@ -21,6 +21,7 @@ use crate::{
 pub struct RestApi {
     pub state: ViaWithdrawalState,
     pub session_manager: SessionManager,
+    pub master_connection_pool: ConnectionPool<Verifier>,
 }
 
 impl RestApi {
@@ -65,6 +66,7 @@ impl RestApi {
         Ok(Self {
             session_manager: SessionManager::new(sessions),
             state,
+            master_connection_pool,
         })
     }
 

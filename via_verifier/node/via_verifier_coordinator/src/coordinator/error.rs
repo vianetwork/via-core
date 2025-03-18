@@ -7,6 +7,7 @@ use serde::Serialize;
 use thiserror::Error;
 use tracing::error;
 use via_verifier_dal::DalError;
+use zksync_types::protocol_version::ParseProtocolSemanticVersionError;
 
 // Custom error type for API-specific errors
 #[derive(Error, Debug)]
@@ -28,6 +29,12 @@ impl From<anyhow::Error> for ApiError {
 impl From<DalError> for ApiError {
     fn from(error: DalError) -> Self {
         ApiError::InternalServerError(error.to_string())
+    }
+}
+
+impl From<ParseProtocolSemanticVersionError> for ApiError {
+    fn from(error: ParseProtocolSemanticVersionError) -> Self {
+        ApiError::BadRequest(error.to_string())
     }
 }
 

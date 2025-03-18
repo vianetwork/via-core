@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use axum::{
     body::{self, Body},
@@ -6,6 +6,8 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use via_verifier_dal::VerifierDal;
+use zksync_types::protocol_version::ProtocolSemanticVersion;
 
 use crate::coordinator::{api_decl::RestApi, error::ApiError};
 
@@ -33,6 +35,11 @@ pub async fn auth_middleware(
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| ApiError::Unauthorized("Missing signature header".into()))?;
 
+    let sequencer_version = headers
+        .get("X-Sequencer-Version")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| ApiError::Unauthorized("Missing sequencer version header".into()))?;
+
     // Validate the verifier index
     if verifier_index >= state.state.verifiers_pub_keys.len() {
         return Err(ApiError::Unauthorized("Invalid verifier index".into()));
@@ -52,6 +59,7 @@ pub async fn auth_middleware(
     let payload = serde_json::json!({
         "timestamp": timestamp,
         "verifier_index": verifier_index.to_string(),
+        "sequencer_version": sequencer_version
     });
 
     // Verify the signature
@@ -62,6 +70,25 @@ pub async fn auth_middleware(
             "Invalid authentication signature".into(),
         ));
     }
+
+    // Check the protocol version after the signature validation to make sure the caller is legit and avoid access db
+    let mut storage = state.master_connection_pool.connection().await?;
+
+    if let Some(latest_protocol_semantic_version) = storage
+        .via_protocol_versions_dal()
+        .latest_protocol_semantic_version()
+        .await
+        .expect("Error load the protocol version")
+    {
+        if ProtocolSemanticVersion::from_str(sequencer_version)? < latest_protocol_semantic_version
+        {
+            return Err(ApiError::Unauthorized(
+                "Invalid verifier protocol version".into(),
+            ));
+        }
+    }
+
+    drop(storage);
 
     Ok(next.run(request).await)
 }
