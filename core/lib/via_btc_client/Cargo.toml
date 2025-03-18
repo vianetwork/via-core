@@ -73,3 +73,7 @@ path = "examples/fee_history.rs"
 [[example]]
 name = "deposit_opreturn"
 path = "examples/deposit_opreturn.rs"
+
+[[example]]
+name = "upgrade_system_contracts"
+path = "examples/upgrade_system_contracts.rs"

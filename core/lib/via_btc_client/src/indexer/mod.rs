@@ -363,6 +363,11 @@ impl BitcoinInscriptionIndexer {
                 .p2wpkh_address
                 .as_ref()
                 .map_or(false, |addr| addr == &self.sequencer_address),
+            FullInscriptionMessage::SystemContractUpgrade(m) => m
+                .common
+                .p2wpkh_address
+                .as_ref()
+                .map_or(false, |addr| addr == &self.sequencer_address),
             FullInscriptionMessage::SystemBootstrapping(_) => {
                 debug!("SystemBootstrapping message is always valid");
                 true

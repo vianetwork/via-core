@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zksync_basic_types::H256;
 use zksync_object_store::{serialize_using_bincode, Bucket, StoredObject};
-use zksync_types::{Address as EVMAddress, L1BatchNumber};
+use zksync_types::{
+    protocol_version::ProtocolSemanticVersion, Address as EVMAddress, L1BatchNumber,
+};
 
 use crate::traits::Serializable;
 
@@ -87,6 +89,24 @@ pub struct SystemBootstrapping {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SystemContractUpgradeInput {
+    /// New protocol version ID.
+    pub version: ProtocolSemanticVersion,
+    /// New bootloader code hash.
+    pub bootloader_code_hash: H256,
+    /// New default account code hash.
+    pub default_account_code_hash: H256,
+    /// The L2 transaction calldata.
+    pub system_contracts: Vec<(EVMAddress, H256)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SystemContractUpgrade {
+    pub common: CommonFields,
+    pub input: SystemContractUpgradeInput,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProposeSequencerInput {
     pub sequencer_new_p2wpkh_address: BitcoinAddress<NetworkUnchecked>,
 }
@@ -120,6 +140,7 @@ pub enum InscriptionMessage {
     SystemBootstrapping(SystemBootstrappingInput),
     ProposeSequencer(ProposeSequencerInput),
     L1ToL2Message(L1ToL2MessageInput),
+    SystemContractUpgrade(SystemContractUpgradeInput),
 }
 
 impl Serializable for InscriptionMessage {
@@ -155,6 +176,7 @@ pub enum FullInscriptionMessage {
     SystemBootstrapping(SystemBootstrapping),
     ProposeSequencer(ProposeSequencer),
     L1ToL2Message(L1ToL2Message),
+    SystemContractUpgrade(SystemContractUpgrade),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -181,6 +203,8 @@ lazy_static! {
     pub static ref PROOF_DA_REFERENCE_MSG: PushBytesBuf =
         PushBytesBuf::from(b"ProofDAReferenceMessage");
     pub static ref L1_TO_L2_MSG: PushBytesBuf = PushBytesBuf::from(b"L1ToL2Message");
+    pub static ref SYSTEM_CONTRACT_UPGRADE_MSG: PushBytesBuf =
+        PushBytesBuf::from(b"SystemContractUpgrade");
 }
 pub(crate) const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 

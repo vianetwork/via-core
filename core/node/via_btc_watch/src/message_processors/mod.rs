@@ -1,3 +1,4 @@
+pub(crate) use governance_upgrade::GovernanceUpgradesEventProcessor;
 pub(crate) use l1_to_l2::L1ToL2MessageProcessor;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
@@ -7,6 +8,7 @@ pub(crate) use votable::VotableMessageProcessor;
 use zksync_dal::{Connection, Core};
 use zksync_types::H256;
 
+mod governance_upgrade;
 mod l1_to_l2;
 mod votable;
 
