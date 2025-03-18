@@ -9,7 +9,7 @@ use zksync_types::{
     helpers::unix_timestamp_ms,
     protocol_upgrade::{ProtocolUpgradeTx, ProtocolUpgradeTxCommonData},
     protocol_version::ProtocolSemanticVersion,
-    via_protocol_upgrade::ForceDeployment,
+    via_protocol_upgrade::get_calldata,
     Address, Execute, ProtocolUpgrade, CONTRACT_DEPLOYER_ADDRESS, CONTRACT_FORCE_DEPLOYER_ADDRESS,
     PROTOCOL_UPGRADE_TX_TYPE, U256,
 };
@@ -148,7 +148,7 @@ impl GovernanceUpgradesEventProcessor {
     ) -> Result<ProtocolUpgradeTx, MessageProcessorError> {
         let gas_limit = U256::from(72_000_000u64);
         let gas_per_pubdata_byte_limit = U256::from(800u64);
-        let calldata = ForceDeployment::calldata(msg.input.system_contracts.clone())?;
+        let calldata = get_calldata(msg.input.system_contracts.clone())?;
 
         let l2_transaction = L2CanonicalTransaction {
             tx_type: PROTOCOL_UPGRADE_TX_TYPE.into(),
