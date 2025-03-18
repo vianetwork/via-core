@@ -28,7 +28,6 @@ struct BtcWatchState {
     last_processed_bitcoin_block: u32,
     next_expected_priority_id: PriorityOpId,
     bridge_address: BitcoinAddress,
-    governance_address: BitcoinAddress,
 }
 
 #[derive(Debug)]
@@ -78,7 +77,6 @@ impl BtcWatch {
         // Only build message processors that match the actor role:
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(GovernanceUpgradesEventProcessor::new(
-                state.governance_address.clone(),
                 protocol_semantic_version,
             )),
             Box::new(L1ToL2MessageProcessor::new(
@@ -131,7 +129,7 @@ impl BtcWatch {
             }
         };
 
-        let (bridge_address, sequencer_address, ..) = indexer.get_state();
+        let (bridge_address, ..) = indexer.get_state();
 
         let next_expected_priority_id = storage
             .via_transactions_dal()
@@ -144,7 +142,6 @@ impl BtcWatch {
             last_processed_bitcoin_block,
             bridge_address,
             next_expected_priority_id,
-            governance_address: sequencer_address,
         })
     }
 

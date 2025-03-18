@@ -1,7 +1,7 @@
 use anyhow::Context as _;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinAddress, FullInscriptionMessage, SystemContractUpgrade},
+    types::{FullInscriptionMessage, SystemContractUpgrade},
 };
 use zksync_dal::{Connection, Core, CoreDal, DalError};
 use zksync_types::{
@@ -22,19 +22,13 @@ use crate::{
 /// Listens to operation events coming from the governance contract and saves new protocol upgrade proposals to the database.
 #[derive(Debug)]
 pub struct GovernanceUpgradesEventProcessor {
-    /// The address responsible to create system contracts inscription.
-    governance_address: BitcoinAddress,
     /// Last protocol version seen. Used to skip events for already known upgrade proposals.
     last_seen_protocol_version: ProtocolSemanticVersion,
 }
 
 impl GovernanceUpgradesEventProcessor {
-    pub fn new(
-        governance_address: BitcoinAddress,
-        last_seen_protocol_version: ProtocolSemanticVersion,
-    ) -> Self {
+    pub fn new(last_seen_protocol_version: ProtocolSemanticVersion) -> Self {
         Self {
-            governance_address,
             last_seen_protocol_version,
         }
     }
@@ -51,43 +45,35 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
         for msg in msgs {
             if let FullInscriptionMessage::SystemContractUpgrade(system_contract_upgrade_msg) = &msg
             {
-                if let Some(signer_address) =
-                    system_contract_upgrade_msg.common.p2wpkh_address.clone()
-                {
-                    if signer_address == self.governance_address {
-                        // Ignore if old version
-                        if system_contract_upgrade_msg.input.version
-                            <= self.last_seen_protocol_version
-                        {
-                            tracing::debug!(
-                                "Upgrade transaction with version {} already processed, skipping",
-                                system_contract_upgrade_msg.input.version
-                            );
-                            continue;
-                        }
-
-                        tracing::debug!(
-                            "Received upgrades with versions: {:?}",
-                            system_contract_upgrade_msg.input.version
-                        );
-                        let tx = self.create_l1_tx_from_message(system_contract_upgrade_msg)?;
-
-                        let upgrade = ProtocolUpgrade {
-                            version: system_contract_upgrade_msg.input.version,
-                            bootloader_code_hash: Some(
-                                system_contract_upgrade_msg.input.bootloader_code_hash,
-                            ),
-                            default_account_code_hash: Some(
-                                system_contract_upgrade_msg.input.default_account_code_hash,
-                            ),
-                            tx: Some(tx),
-                            timestamp: 0,
-                            verifier_address: None,
-                            verifier_params: None,
-                        };
-                        upgrades.push(upgrade);
-                    }
+                // Ignore if old version
+                if system_contract_upgrade_msg.input.version <= self.last_seen_protocol_version {
+                    tracing::debug!(
+                        "Upgrade transaction with version {} already processed, skipping",
+                        system_contract_upgrade_msg.input.version
+                    );
+                    continue;
                 }
+
+                tracing::debug!(
+                    "Received upgrades with versions: {:?}",
+                    system_contract_upgrade_msg.input.version
+                );
+                let tx = self.create_l1_tx_from_message(system_contract_upgrade_msg)?;
+
+                let upgrade = ProtocolUpgrade {
+                    version: system_contract_upgrade_msg.input.version,
+                    bootloader_code_hash: Some(
+                        system_contract_upgrade_msg.input.bootloader_code_hash,
+                    ),
+                    default_account_code_hash: Some(
+                        system_contract_upgrade_msg.input.default_account_code_hash,
+                    ),
+                    tx: Some(tx),
+                    timestamp: 0,
+                    verifier_address: None,
+                    verifier_params: None,
+                };
+                upgrades.push(upgrade);
             }
         }
 
