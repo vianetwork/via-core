@@ -18,8 +18,8 @@ transaction_slots = 250
 
 # 2^50, the maximal allowed gas limit in a batch.
 max_allowed_l2_tx_gas_limit = 1125899906842624
-block_commit_deadline_ms = 5000
-miniblock_commit_deadline_ms = 1000
+block_commit_deadline_ms = 60000
+miniblock_commit_deadline_ms = 5000
 miniblock_seal_queue_capacity = 10
 miniblock_max_payload_size=1000000
 # Max gas that can used to include single block in aggregated operation
@@ -90,8 +90,8 @@ fee_model_version = "V2"
 validation_computational_gas_limit = 300000
 save_call_traces = true
 
-bootloader_hash = "0x010008e79c154523aa30981e598b73c4a33c304bef9c82bae7d2ca4d21daedc7"
-default_aa_hash = "0x010005630848b5537f934eea6bd8c61c50648a162b90c82f316454f4109462b1"
+bootloader_hash = "0x010008e742608b21bf7eb23c1a9d0602047e3618b464c9b59c0fba3b3d7ab66e"
+default_aa_hash = "0x01000563374c277a2c1e34659a2a1e87371bb6d852ce142022d497bfb50b9e32"
 
 protective_reads_persistence_enabled = false
 
