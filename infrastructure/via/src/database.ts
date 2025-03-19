@@ -153,7 +153,7 @@ export async function setupForDal(dalPath: DalPath, dbUrl: string, shouldCheck: 
 
     shouldCheck = shouldCheck && dbUrl.startsWith(localDbUrl) && !isLocalSetup;
     if (shouldCheck) {
-        // Dont't do this preparation for local (docker) setup - as it requires full cargo compilation.
+        // Don't do this preparation for local (docker) setup - as it requires full cargo compilation.
         await utils.spawn(
             `cargo sqlx prepare --check --database-url ${dbUrl} -- --tests || cargo sqlx prepare --database-url ${dbUrl} -- --tests`
         );

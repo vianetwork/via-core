@@ -95,7 +95,7 @@ members = [
     "core/node/via_block_reverter",
     "core/bin/via_block_reverter",
     "core/tests/via_loadnext",
-
+    "core/bin/via_external_node",
 
     # VIA Verifier
     "via_verifier/bin/verifier_server",

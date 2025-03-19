@@ -2,7 +2,7 @@
 
 import { program, Command } from 'commander';
 import { spawnSync } from 'child_process';
-import { serverCommand as server } from './server';
+import { serverCommand as server, enCommand as en } from './server';
 import { command as up } from './up';
 import { command as down } from './down';
 import { command as completion } from './completion';
@@ -22,6 +22,7 @@ import { command as token } from './token';
 import { command as contract } from './contract';
 import { command as test } from './test/test';
 import { indexerCommand as indexer } from './indexer';
+import { command as enSetup } from './setup_en';
 
 const COMMANDS = [
     server,
@@ -43,6 +44,8 @@ const COMMANDS = [
     contract,
     test,
     indexer,
+    enSetup,
+    en,
     completion(program as Command)
 ];
 

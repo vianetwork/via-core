@@ -9628,6 +9628,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_external_node"
+version = "24.22.0"
+dependencies = [
+ "anyhow",
+ "assert_matches",
+ "async-trait",
+ "clap 4.5.16",
+ "envy",
+ "futures 0.3.30",
+ "rustc_version 0.4.0",
+ "semver 1.0.23",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "test-casing",
+ "tokio",
+ "tracing",
+ "url",
+ "vise",
+ "zksync_block_reverter",
+ "zksync_commitment_generator",
+ "zksync_concurrency",
+ "zksync_config",
+ "zksync_consensus_crypto",
+ "zksync_consensus_roles",
+ "zksync_consistency_checker",
+ "zksync_contracts",
+ "zksync_core_leftovers",
+ "zksync_dal",
+ "zksync_db_connection",
+ "zksync_eth_client",
+ "zksync_eth_sender",
+ "zksync_health_check",
+ "zksync_l1_contract_interface",
+ "zksync_metadata_calculator",
+ "zksync_node_api_server",
+ "zksync_node_consensus",
+ "zksync_node_db_pruner",
+ "zksync_node_fee_model",
+ "zksync_node_framework",
+ "zksync_node_genesis",
+ "zksync_node_sync",
+ "zksync_object_store",
+ "zksync_protobuf_config",
+ "zksync_reorg_detector",
+ "zksync_shared_metrics",
+ "zksync_snapshots_applier",
+ "zksync_state",
+ "zksync_state_keeper",
+ "zksync_storage",
+ "zksync_types",
+ "zksync_utils",
+ "zksync_vlog",
+ "zksync_web3_decl",
+]
+
+[[package]]
 name = "via_fee_model"
 version = "0.1.0"
 dependencies = [
