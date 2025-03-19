@@ -83,7 +83,7 @@ export const serverCommand = new Command('server')
         }
     });
 
-    export const enCommand = new Command('external-node')
+export const enCommand = new Command('external-node')
     .description('start via external node')
     .option('--reinit', 'reset postgres and rocksdb before starting')
     .action(async (cmd: Command) => {
