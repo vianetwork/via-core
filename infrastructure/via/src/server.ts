@@ -20,6 +20,26 @@ export async function server(rebuildTree: boolean, uring: boolean, components?: 
     await utils.spawn(`cargo run --bin via_server ${options} --release`);
 }
 
+export async function externalNode(reinit: boolean = false, args: string[]) {
+    if (process.env.VIA_ENV != 'ext-node') {
+        console.warn(`WARNING: using ${process.env.VIA_ENV} environment for external node`);
+        console.warn('If this is a mistake, set $VIA_ENV to "ext-node" or other environment');
+    }
+
+    // Set proper environment variables for external node.
+    process.env.EN_BOOTLOADER_HASH = process.env.CHAIN_STATE_KEEPER_BOOTLOADER_HASH;
+    process.env.EN_DEFAULT_AA_HASH = process.env.CHAIN_STATE_KEEPER_DEFAULT_AA_HASH;
+
+    // On --reinit we want to reset RocksDB and Postgres before we start.
+    if (reinit) {
+        await utils.confirmAction();
+        await db.reset({ core: true, prover: false, verifier: false });
+        clean(path.dirname(process.env.EN_MERKLE_TREE_PATH!));
+    }
+
+    await utils.spawn(`cargo run  --bin via_external_node --release -- ${args.join(' ')}`);
+}
+
 async function create_genesis(cmd: string) {
     await utils.confirmAction();
     await utils.spawn(`${cmd} | tee genesis.log`);
@@ -61,4 +81,11 @@ export const serverCommand = new Command('server')
         } else {
             await server(cmd.rebuildTree, cmd.uring, cmd.components, cmd.useNodeFramework);
         }
+    });
+
+    export const enCommand = new Command('external-node')
+    .description('start via external node')
+    .option('--reinit', 'reset postgres and rocksdb before starting')
+    .action(async (cmd: Command) => {
+        await externalNode(cmd.reinit, cmd.args);
     });
