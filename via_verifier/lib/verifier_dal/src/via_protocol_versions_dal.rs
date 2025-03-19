@@ -39,7 +39,8 @@ impl ViaProtocolVersionsDal<'_, '_> {
             ON CONFLICT (id) DO
             UPDATE
             SET
-                upgrade_tx_hash = EXCLUDED.upgrade_tx_hash;
+                upgrade_tx_hash = EXCLUDED.upgrade_tx_hash,
+                executed = FALSE;
             "#,
             version.minor as i32,
             bootloader_code_hash,
