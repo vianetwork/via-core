@@ -61,14 +61,12 @@ impl BtcWatch {
         let state = Self::initialize_state(&indexer, &mut storage, btc_blocks_lag).await?;
         tracing::info!("initialized state: {state:?}");
 
-        let protocol_semantic_version_opt = storage
+        let protocol_semantic_version = storage
             .protocol_versions_dal()
             .latest_semantic_version()
-            .await?;
-
-        let Some(protocol_semantic_version) = protocol_semantic_version_opt else {
-            anyhow::bail!("Error load the protocol version");
-        };
+            .await
+            .expect("Failed to load the latest protocol semantic version")
+            .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
 
         drop(storage);
 

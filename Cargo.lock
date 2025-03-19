@@ -9813,6 +9813,7 @@ dependencies = [
  "tracing",
  "via_btc_client",
  "via_verifier_dal",
+ "via_verifier_types",
  "vise",
  "zksync_config",
  "zksync_shared_metrics",
@@ -9872,10 +9873,12 @@ dependencies = [
 name = "via_verifier_types"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bincode",
  "bitcoin",
  "serde",
  "via_btc_client",
+ "zksync_types",
 ]
 
 [[package]]
@@ -9918,6 +9921,7 @@ dependencies = [
  "via_da_client",
  "via_verification",
  "via_verifier_dal",
+ "via_verifier_types",
  "vise",
  "zksync_config",
  "zksync_da_client",

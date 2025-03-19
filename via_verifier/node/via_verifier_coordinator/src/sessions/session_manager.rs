@@ -34,7 +34,7 @@ impl SessionManager {
             .get(&session_op.get_session_type())
             .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
 
-        session.verify_message(session_op).await
+        session.is_session_in_progress(session_op).await
     }
 
     pub async fn verify_message(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {

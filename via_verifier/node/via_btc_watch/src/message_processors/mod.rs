@@ -1,3 +1,4 @@
+pub(crate) use governance_upgrade::GovernanceUpgradesEventProcessor;
 pub(crate) use l1_to_l2::L1ToL2MessageProcessor;
 pub(crate) use verifier::VerifierMessageProcessor;
 use via_btc_client::{
@@ -7,6 +8,7 @@ use via_btc_client::{
 use via_verifier_dal::{Connection, Verifier};
 use zksync_types::H256;
 
+mod governance_upgrade;
 mod l1_to_l2;
 mod verifier;
 

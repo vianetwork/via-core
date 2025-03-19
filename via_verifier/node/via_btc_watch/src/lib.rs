@@ -4,6 +4,7 @@ mod metrics;
 use std::time::Duration;
 
 use anyhow::Context;
+use message_processors::GovernanceUpgradesEventProcessor;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
@@ -12,7 +13,12 @@ use via_btc_client::{
     types::{BitcoinTxid, NodeAuth},
 };
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
+use via_verifier_types::protocol_version::{
+    check_if_supported_sequencer_version, get_sequencer_base_system_contracts,
+    get_sequencer_version,
+};
 use zksync_config::ActorRole;
+use zksync_types::H256;
 
 use self::{
     message_processors::{MessageProcessor, MessageProcessorError},
@@ -58,11 +64,13 @@ impl VerifierBtcWatch {
         let mut storage = pool.connection_tagged("via_btc_watch").await?;
         let state = Self::initialize_state(&indexer, &mut storage, btc_blocks_lag).await?;
         tracing::info!("initialized state: {state:?}");
+
         drop(storage);
 
         assert_eq!(actor_role, &ActorRole::Verifier);
 
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
+            Box::new(GovernanceUpgradesEventProcessor::new()),
             Box::new(L1ToL2MessageProcessor::new(indexer.get_state().0)),
             Box::new(VerifierMessageProcessor::new(zk_agreement_threshold)),
         ];
@@ -110,6 +118,31 @@ impl VerifierBtcWatch {
             }
         };
 
+        if storage
+            .via_protocol_versions_dal()
+            .latest_protocol_semantic_version()
+            .await?
+            .is_none()
+        {
+            let (bootloader_code_hash, default_account_code_hash) =
+                get_sequencer_base_system_contracts();
+            let version = get_sequencer_version();
+
+            storage
+                .via_protocol_versions_dal()
+                .save_protocol_version(
+                    version,
+                    bootloader_code_hash,
+                    default_account_code_hash,
+                    H256::zero().as_bytes(),
+                )
+                .await?;
+            storage
+                .via_protocol_versions_dal()
+                .mark_upgrade_as_executed(H256::zero().as_bytes())
+                .await?;
+        };
+
         Ok(BtcWatchState {
             last_processed_bitcoin_block,
         })
@@ -152,6 +185,16 @@ impl VerifierBtcWatch {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> Result<(), MessageProcessorError> {
+        if let Some(last_protocol_version) = storage
+            .via_protocol_versions_dal()
+            .latest_protocol_semantic_version()
+            .await
+            .expect("Error load the protocol version")
+        {
+            check_if_supported_sequencer_version(last_protocol_version)
+                .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?;
+        }
+
         let to_block = self
             .indexer
             .fetch_block_height()

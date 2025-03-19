@@ -16,6 +16,7 @@ use via_verification::proof::{
     Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
 };
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
+use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::ViaVerifierConfig;
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_types::{
@@ -140,9 +141,27 @@ impl ViaVerifier {
             );
 
             let (batch_blob, batch_hash) = self.process_batch_da_reference(batch_da).await?;
+            let mut pubdata = Pubdata::decode_pubdata(batch_blob.data.clone().to_vec())?;
+
+            let upgrade_tx_hash_opt = self.verify_upgrade_tx_hash(storage, &pubdata).await?;
+
+            if upgrade_tx_hash_opt.is_some() {
+                // Discard the first log since it related to protocol upgrade.
+                pubdata.user_logs.remove(0);
+
+                // Check if the new protocol version is supported by the verifier node.
+                let last_protocol_version = storage
+                    .via_protocol_versions_dal()
+                    .latest_protocol_semantic_version()
+                    .await
+                    .expect("Failed to load the latest protocol semantic version")
+                    .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
+
+                check_if_supported_sequencer_version(last_protocol_version)?;
+            }
 
             let (mut is_verified, deposits) = self
-                .verify_op_priority_id(storage, l1_batch_number, &batch_blob.data)
+                .verify_op_priority_id(storage, l1_batch_number, &pubdata)
                 .await?;
 
             if is_verified {
@@ -187,13 +206,39 @@ impl ViaVerifier {
         Ok(())
     }
 
+    /// Check whether the first user_log corresponds to an upgrade transaction.
+    pub async fn verify_upgrade_tx_hash(
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
+        pubdata: &Pubdata,
+    ) -> anyhow::Result<Option<H256>> {
+        if let Some(upgrade_tx_hash) = storage
+            .via_protocol_versions_dal()
+            .get_in_progress_upgrade_tx_hash()
+            .await?
+        {
+            if let Some(log) = pubdata.user_logs.first() {
+                if log.sender == H160::from_str(L2_BOOTLOADER_CONTRACT_ADDR)?
+                    && log.key == upgrade_tx_hash
+                {
+                    storage
+                        .via_protocol_versions_dal()
+                        .mark_upgrade_as_executed(upgrade_tx_hash.as_bytes())
+                        .await?;
+                    return Ok(Some(upgrade_tx_hash));
+                }
+            }
+            return Ok(None);
+        }
+        Ok(None)
+    }
+
     pub async fn verify_op_priority_id(
         &mut self,
         storage: &mut Connection<'_, Verifier>,
         l1_batch_number: i64,
-        pubdata: &[u8],
+        pubdata: &Pubdata,
     ) -> anyhow::Result<(bool, Vec<(H256, bool)>)> {
-        let pubdata = Pubdata::decode_pubdata(pubdata.to_vec())?;
         let mut deposit_logs = Vec::new();
 
         for log in &pubdata.user_logs {
@@ -210,8 +255,8 @@ impl ViaVerifier {
         if txs.len() != deposit_logs.len() {
             tracing::error!(
                 "Verifier did not index all the deposits, expected {} found {}",
+                txs.len(),
                 deposit_logs.len(),
-                txs.len()
             );
             return Ok((false, vec![]));
         }
