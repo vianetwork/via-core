@@ -1,5 +1,6 @@
 use std::{
     future::Future,
+    str::FromStr,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
@@ -8,13 +9,14 @@ use std::{
 };
 
 use anyhow::Context as _;
+use bitcoin::Network;
 use futures::TryFutureExt;
 use lru::LruCache;
 use tokio::sync::{watch, Mutex};
 use vise::GaugeGuard;
 use zksync_config::{
     configs::{api::Web3JsonRpcConfig, ContractsConfig},
-    GenesisConfig,
+    GenesisConfig, ViaBtcWatchConfig,
 };
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal, DalError};
 use zksync_metadata_calculator::api_server::TreeApiClient;
@@ -113,6 +115,11 @@ pub struct InternalApiConfig {
     pub filters_disabled: bool,
     pub dummy_verifier: bool,
     pub l1_batch_commit_data_generator_mode: L1BatchCommitmentMode,
+
+    /// via bridge address
+    pub via_bridge_address: String,
+    /// via bridge address
+    pub via_network: Network,
 }
 
 impl InternalApiConfig {
@@ -120,8 +127,12 @@ impl InternalApiConfig {
         web3_config: &Web3JsonRpcConfig,
         contracts_config: &ContractsConfig,
         genesis_config: &GenesisConfig,
+        via_btc_watch_config: &ViaBtcWatchConfig,
     ) -> Self {
         Self {
+            via_bridge_address: via_btc_watch_config.bridge_address.clone(),
+            via_network: Network::from_str(&via_btc_watch_config.network)
+                .expect("Error init the API, invalid Bitcoin network"),
             l1_chain_id: genesis_config.l1_chain_id,
             l2_chain_id: genesis_config.l2_chain_id,
             max_tx_size: web3_config.max_tx_size,

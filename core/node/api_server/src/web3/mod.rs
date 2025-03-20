@@ -24,8 +24,8 @@ use zksync_web3_decl::{
     },
     namespaces::{
         DebugNamespaceServer, EnNamespaceServer, EthNamespaceServer, EthPubSubServer,
-        NetNamespaceServer, SnapshotsNamespaceServer, UnstableNamespaceServer, Web3NamespaceServer,
-        ZksNamespaceServer,
+        NetNamespaceServer, SnapshotsNamespaceServer, UnstableNamespaceServer, ViaNamespaceServer,
+        Web3NamespaceServer, ZksNamespaceServer,
     },
     types::Filter,
 };
@@ -39,7 +39,7 @@ use self::{
     metrics::API_METRICS,
     namespaces::{
         DebugNamespace, EnNamespace, EthNamespace, NetNamespace, SnapshotsNamespace,
-        UnstableNamespace, Web3Namespace, ZksNamespace,
+        UnstableNamespace, ViaNamespace, Web3Namespace, ZksNamespace,
     },
     pubsub::{EthSubscribe, EthSubscriptionIdProvider, PubSubEvent},
     state::{Filters, InternalApiConfig, RpcState, SealedL2BlockNumber},
@@ -100,6 +100,7 @@ pub enum Namespace {
     Pubsub,
     Snapshots,
     Unstable,
+    Via,
 }
 
 impl Namespace {
@@ -110,6 +111,7 @@ impl Namespace {
         Self::Zks,
         Self::En,
         Self::Pubsub,
+        Self::Via,
     ];
 }
 
@@ -413,8 +415,12 @@ impl ApiServer {
                 .context("cannot merge snapshots namespace")?;
         }
         if namespaces.contains(&Namespace::Unstable) {
-            rpc.merge(UnstableNamespace::new(rpc_state).into_rpc())
+            rpc.merge(UnstableNamespace::new(rpc_state.clone()).into_rpc())
                 .context("cannot merge unstable namespace")?;
+        }
+        if namespaces.contains(&Namespace::Via) {
+            rpc.merge(ViaNamespace::new(rpc_state).into_rpc())
+                .context("cannot merge via namespace")?;
         }
         Ok(rpc)
     }

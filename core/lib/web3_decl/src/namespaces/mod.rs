@@ -7,7 +7,8 @@ pub use self::{
 pub use self::{
     debug::DebugNamespaceServer, en::EnNamespaceServer, eth::EthNamespaceServer,
     eth::EthPubSubServer, net::NetNamespaceServer, snapshots::SnapshotsNamespaceServer,
-    unstable::UnstableNamespaceServer, web3::Web3NamespaceServer, zks::ZksNamespaceServer,
+    unstable::UnstableNamespaceServer, via::ViaNamespaceServer, web3::Web3NamespaceServer,
+    zks::ZksNamespaceServer,
 };
 
 mod debug;
@@ -16,5 +17,6 @@ mod eth;
 mod net;
 mod snapshots;
 mod unstable;
+mod via;
 mod web3;
 mod zks;
