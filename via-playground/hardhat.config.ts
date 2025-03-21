@@ -1,6 +1,7 @@
 import { HardhatUserConfig } from 'hardhat/config';
 import '@matterlabs/hardhat-zksync';
 import './scripts/tasks';
+import '@matterlabs/hardhat-zksync-verify';
 
 const config: HardhatUserConfig = {
     defaultNetwork: 'via',
@@ -12,6 +13,18 @@ const config: HardhatUserConfig = {
             zksync: true,
             ethNetwork: ''
         }
+    },
+    etherscan: {
+        customChains: [
+            {
+                network: 'via',
+                chainId: 270,
+                urls: {
+                    apiURL: 'http://127.0.0.1:3070',
+                    browserURL: '' // Todo: add block explorer api
+                }
+            }
+        ]
     }
 };
 

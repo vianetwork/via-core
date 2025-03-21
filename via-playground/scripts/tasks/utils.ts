@@ -81,7 +81,7 @@ export const deployContract = async (
 
     // Estimate contract deployment fee
     const deploymentFee = await deployer.estimateDeployFee(artifact, constructorArguments || []);
-    log(`Estimated deployment cost: ${ethers.formatUnits(deploymentFee, 8)} BTC`);
+    log(`Estimated deployment cost: ${ethers.formatUnits(deploymentFee, 18)} BTC`);
 
     // Check if the wallet has enough balance
     await verifyEnoughBalance(wallet, deploymentFee);
