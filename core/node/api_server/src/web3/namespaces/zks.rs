@@ -44,7 +44,7 @@ impl ZksNamespace {
         Self { state }
     }
 
-    pub(crate) fn current_method(&self) -> &MethodTracer {
+    pub fn current_method(&self) -> &MethodTracer {
         &self.state.current_method
     }
 
