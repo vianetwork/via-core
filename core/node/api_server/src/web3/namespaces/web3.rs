@@ -3,7 +3,7 @@ pub struct Web3Namespace;
 
 impl Web3Namespace {
     pub fn client_version_impl(&self) -> String {
-        "zkSync/v2.0".to_string()
+        "Via/v1.0".to_string()
     }
 }
 

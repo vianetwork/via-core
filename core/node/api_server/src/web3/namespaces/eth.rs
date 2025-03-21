@@ -24,7 +24,7 @@ use crate::{
 };
 
 pub const EVENT_TOPIC_NUMBER_LIMIT: usize = 4;
-pub const PROTOCOL_VERSION: &str = "zks/1";
+pub const PROTOCOL_VERSION: &str = "via/1";
 
 #[derive(Debug)]
 pub(crate) struct EthNamespace {
