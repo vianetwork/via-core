@@ -5,6 +5,8 @@
   "license": "MIT",
   "devDependencies": {
     "@matterlabs/hardhat-zksync": "^1.2.0",
+    "@matterlabs/hardhat-zksync-verify": "^1.7.1",
+    "@nomicfoundation/hardhat-verify": "^2.0.13",
     "@typechain/ethers-v6": "^0.5.0",
     "@typechain/hardhat": "^9.0.0",
     "@types/chai": "^4.2.0",

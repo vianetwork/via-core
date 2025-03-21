@@ -21,6 +21,7 @@ import { command as btc_explorer } from './btc_explorer';
 import { command as token } from './token';
 import { command as contract } from './contract';
 import { command as test } from './test/test';
+import { command as contractVerifier } from './contract_verifier';
 
 const COMMANDS = [
     server,
@@ -41,6 +42,7 @@ const COMMANDS = [
     token,
     contract,
     test,
+    contractVerifier,
     completion(program as Command)
 ];
 

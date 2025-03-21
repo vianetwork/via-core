@@ -9567,6 +9567,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_contract_verifier"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ctrlc",
+ "futures 0.3.30",
+ "structopt",
+ "tokio",
+ "tracing",
+ "zksync_config",
+ "zksync_contract_verifier_lib",
+ "zksync_core_leftovers",
+ "zksync_dal",
+ "zksync_env_config",
+ "zksync_queued_job_processor",
+ "zksync_utils",
+ "zksync_vlog",
+]
+
+[[package]]
 name = "via_da_client"
 version = "0.1.0"
 dependencies = [
