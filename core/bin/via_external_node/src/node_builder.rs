@@ -18,7 +18,6 @@ use zksync_node_framework::{
         batch_status_updater::BatchStatusUpdaterLayer,
         block_reverter::BlockReverterLayer,
         commitment_generator::CommitmentGeneratorLayer,
-        consensus::ExternalNodeConsensusLayer,
         consistency_checker::ConsistencyCheckerLayer,
         healtcheck_server::HealthCheckLayer,
         l1_batch_commitment_mode_validation::L1BatchCommitmentModeValidationLayer,
@@ -34,8 +33,6 @@ use zksync_node_framework::{
         postgres_metrics::PostgresMetricsLayer,
         prometheus_exporter::PrometheusExporterLayer,
         pruning::PruningLayer,
-        query_eth_client::QueryEthClientLayer,
-        reorg_detector::ReorgDetectorLayer,
         sigint::SigintHandlerLayer,
         state_keeper::{
             external_io::ExternalIOLayer, main_batch_executor::MainBatchExecutorLayer,
@@ -56,11 +53,7 @@ use zksync_node_framework::{
 };
 use zksync_state::RocksdbStorageOptions;
 
-use crate::{
-    config::{self, ExternalNodeConfig},
-    metrics::framework::ExternalNodeMetricsLayer,
-    Component,
-};
+use crate::{config::ExternalNodeConfig, metrics::framework::ExternalNodeMetricsLayer, Component};
 
 /// Builder for the external node.
 #[derive(Debug)]
@@ -179,17 +172,6 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
-    fn add_query_eth_client_layer(mut self) -> anyhow::Result<Self> {
-        let query_eth_client_layer = QueryEthClientLayer::new(
-            self.config.required.settlement_layer_id(),
-            self.config.required.eth_client_url.clone(),
-            // TODO(EVM-676): add this config for external node
-            Default::default(),
-        );
-        self.node.add_layer(query_eth_client_layer);
-        Ok(self)
-    }
-
     fn add_state_keeper_layer(mut self) -> anyhow::Result<Self> {
         // While optional bytecode compression may be disabled on the main node, there are batches where
         // optional bytecode compression was enabled. To process these batches (and also for the case where
@@ -236,15 +218,6 @@ impl ExternalNodeBuilder {
             .add_layer(persistence_layer)
             .add_layer(main_node_batch_executor_builder_layer)
             .add_layer(state_keeper_layer);
-        Ok(self)
-    }
-
-    fn add_consensus_layer(mut self) -> anyhow::Result<Self> {
-        let config = self.config.consensus.clone();
-        let secrets =
-            config::read_consensus_secrets().context("config::read_consensus_secrets()")?;
-        let layer = ExternalNodeConsensusLayer { config, secrets };
-        self.node.add_layer(layer);
         Ok(self)
     }
 
@@ -461,11 +434,6 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
-    fn add_reorg_detector_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(ReorgDetectorLayer);
-        Ok(self)
-    }
-
     fn add_block_reverter_layer(mut self) -> anyhow::Result<Self> {
         let mut layer = BlockReverterLayer::new(NodeRole::External);
         // Reverting executed batches is more-or-less safe for external nodes.
@@ -527,9 +495,7 @@ impl ExternalNodeBuilder {
             .add_healthcheck_layer()?
             .add_prometheus_exporter_layer()?
             .add_pools_layer()?
-            .add_main_node_client_layer()?
-            .add_query_eth_client_layer()?
-            .add_reorg_detector_layer()?;
+            .add_main_node_client_layer()?;
 
         // Add layers that must run only on a single component.
         if components.contains(&Component::Core) {
@@ -605,7 +571,6 @@ impl ExternalNodeBuilder {
                     // Main tasks
                     self = self
                         .add_state_keeper_layer()?
-                        .add_consensus_layer()?
                         .add_pruning_layer()?
                         .add_consistency_checker_layer()?
                         .add_commitment_generator_layer()?

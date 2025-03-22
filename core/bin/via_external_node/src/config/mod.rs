@@ -11,9 +11,9 @@ use serde::Deserialize;
 use zksync_config::{
     configs::{
         api::{MaxResponseSize, MaxResponseSizeOverrides},
-        consensus::{ConsensusConfig, ConsensusSecrets},
+        consensus::ConsensusConfig,
         en_config::ENConfig,
-        GeneralConfig, Secrets,
+        GeneralConfig,
     },
     ObjectStoreConfig,
 };
@@ -917,8 +917,6 @@ pub(crate) struct RequiredENConfig {
     pub ws_port: u16,
     /// Port on which the healthcheck REST server is listening.
     pub healthcheck_port: u16,
-    /// Address of the Ethereum node API.
-    pub eth_client_url: SensitiveUrl,
     /// Main node URL - used by external node to proxy transactions to, query state from, etc.
     pub main_node_url: SensitiveUrl,
     /// Path to the database data directory that serves state cache.
@@ -938,11 +936,7 @@ impl RequiredENConfig {
             .context("could not load external node config")
     }
 
-    fn from_configs(
-        general: &GeneralConfig,
-        en_config: &ENConfig,
-        secrets: &Secrets,
-    ) -> anyhow::Result<Self> {
+    fn from_configs(general: &GeneralConfig, en_config: &ENConfig) -> anyhow::Result<Self> {
         let api_config = general
             .api_config
             .as_ref()
@@ -958,12 +952,6 @@ impl RequiredENConfig {
             http_port: api_config.web3_json_rpc.http_port,
             ws_port: api_config.web3_json_rpc.ws_port,
             healthcheck_port: api_config.healthcheck.port,
-            eth_client_url: secrets
-                .l1
-                .as_ref()
-                .context("L1 secrets are required")?
-                .l1_rpc_url
-                .clone(),
             main_node_url: en_config.main_node_url.clone(),
             state_cache_path: db_config.state_keeper_db_path.clone(),
             merkle_tree_path: db_config.merkle_tree.path.clone(),
@@ -980,7 +968,6 @@ impl RequiredENConfig {
             ws_port: 0,
             healthcheck_port: 0,
             // L1 and L2 clients must be instantiated before accessing mocks, so these values don't matter
-            eth_client_url: "http://localhost".parse().unwrap(),
             main_node_url: "http://localhost".parse().unwrap(),
             state_cache_path: temp_dir
                 .path()
@@ -1145,17 +1132,6 @@ pub fn generate_consensus_secrets() {
     println!("node_key: {}", node_key.encode());
 }
 
-pub(crate) fn read_consensus_secrets() -> anyhow::Result<Option<ConsensusSecrets>> {
-    let Ok(path) = env::var("EN_CONSENSUS_SECRETS_PATH") else {
-        return Ok(None);
-    };
-    let cfg = std::fs::read_to_string(&path).context(path)?;
-    Ok(Some(
-        decode_yaml_repr::<proto::secrets::ConsensusSecrets>(&cfg)
-            .context("failed decoding YAML")?,
-    ))
-}
-
 pub(crate) fn read_consensus_config() -> anyhow::Result<Option<ConsensusConfig>> {
     let Ok(path) = env::var("EN_CONSENSUS_CONFIG_PATH") else {
         return Ok(None);
@@ -1263,11 +1239,7 @@ impl ExternalNodeConfig<()> {
             .transpose()
             .context("failed decoding consensus YAML config")?;
 
-        let required = RequiredENConfig::from_configs(
-            &general_config,
-            &external_node_config,
-            &secrets_config,
-        )?;
+        let required = RequiredENConfig::from_configs(&general_config, &external_node_config)?;
         let optional = OptionalENConfig::from_configs(&general_config, &external_node_config)?;
         let postgres = PostgresConfig {
             database_url: secrets_config
