@@ -235,7 +235,7 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
-    fn add_l1_batch_commitment_mode_validation_layer(mut self) -> anyhow::Result<Self> {
+    fn _add_l1_batch_commitment_mode_validation_layer(mut self) -> anyhow::Result<Self> {
         let layer = L1BatchCommitmentModeValidationLayer::new(
             self.config.diamond_proxy_address(),
             self.config.optional.l1_batch_commit_data_generator_mode,
@@ -244,7 +244,7 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
-    fn add_validate_chain_ids_layer(mut self) -> anyhow::Result<Self> {
+    fn _add_validate_chain_ids_layer(mut self) -> anyhow::Result<Self> {
         let layer = ValidateChainIdsLayer::new(
             self.config.required.settlement_layer_id(),
             self.config.required.l2_chain_id,
@@ -253,7 +253,7 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
-    fn add_consistency_checker_layer(mut self) -> anyhow::Result<Self> {
+    fn _add_consistency_checker_layer(mut self) -> anyhow::Result<Self> {
         let max_batches_to_recheck = 10; // TODO (BFT-97): Make it a part of a proper EN config
         let layer = ConsistencyCheckerLayer::new(
             self.config.diamond_proxy_address(),
@@ -514,8 +514,8 @@ impl ExternalNodeBuilder {
 
         // Add preconditions for all the components.
         self = self
-            .add_l1_batch_commitment_mode_validation_layer()?
-            .add_validate_chain_ids_layer()?
+            // .add_l1_batch_commitment_mode_validation_layer()?
+            // .add_validate_chain_ids_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?;
 
         // Sort the components, so that the components they may depend on each other are added in the correct order.
@@ -572,7 +572,7 @@ impl ExternalNodeBuilder {
                     self = self
                         .add_state_keeper_layer()?
                         .add_pruning_layer()?
-                        .add_consistency_checker_layer()?
+                        // .add_consistency_checker_layer()?
                         .add_commitment_generator_layer()?
                         .add_batch_status_updater_layer()?
                         .add_logs_bloom_backfill_layer()?;

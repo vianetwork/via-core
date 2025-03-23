@@ -192,12 +192,6 @@ async function configExternalNode() {
             await changeConfigKey('ext-node', 'l2_chain_id', 270, 'en');
             await changeConfigKey('ext-node', 'main_node_url', 'https://sepolia.era.zksync.dev', 'en');
             await changeConfigKey('ext-node', 'eth_client_url', 'https://ethereum-sepolia-rpc.publicnode.com', 'en');
-            await changeConfigKey(
-                'ext-node',
-                'bucket_base_url',
-                'zksync-era-boojnet-external-node-snapshots',
-                'en.snapshots.object_store'
-            );
             break;
     }
     await compileConfig('ext-node');
