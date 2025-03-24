@@ -27,6 +27,7 @@ struct BootstrapState {
     starting_block_number: u32,
     bootloader_hash: Option<H256>,
     abstract_account_hash: Option<H256>,
+    proposed_governance: Option<Address>,
 }
 
 impl BootstrapState {
@@ -40,6 +41,7 @@ impl BootstrapState {
             starting_block_number: 0,
             bootloader_hash: None,
             abstract_account_hash: None,
+            proposed_governance: None,
         }
     }
 
@@ -51,6 +53,7 @@ impl BootstrapState {
             && self.has_majority_votes()
             && self.bootloader_hash.is_some()
             && self.abstract_account_hash.is_some()
+            && self.proposed_governance.is_some()
     }
 
     fn has_majority_votes(&self) -> bool {
@@ -71,6 +74,7 @@ pub struct BitcoinInscriptionIndexer {
     parser: MessageParser,
     bridge_address: Address,
     sequencer_address: Address,
+    governance_address: Address,
     verifier_addresses: Vec<Address>,
     starting_block_number: u32,
 }
@@ -310,9 +314,10 @@ impl BitcoinInscriptionIndexer {
         parser: MessageParser,
     ) -> BitcoinIndexerResult<Self> {
         if bootstrap_state.is_complete() {
-            if let (Some(bridge), Some(sequencer)) = (
+            if let (Some(bridge), Some(sequencer), Some(governance)) = (
                 bootstrap_state.bridge_address.clone(),
                 bootstrap_state.proposed_sequencer.clone(),
+                bootstrap_state.proposed_governance.clone(),
             ) {
                 info!("BitcoinInscriptionIndexer successfully created");
                 Ok(Self {
@@ -320,6 +325,7 @@ impl BitcoinInscriptionIndexer {
                     parser,
                     bridge_address: bridge,
                     sequencer_address: sequencer,
+                    governance_address: governance,
                     verifier_addresses: bootstrap_state.verifier_addresses,
                     starting_block_number: bootstrap_state.starting_block_number,
                 })
@@ -367,7 +373,7 @@ impl BitcoinInscriptionIndexer {
                 .common
                 .p2wpkh_address
                 .as_ref()
-                .map_or(false, |addr| addr == &self.sequencer_address),
+                .map_or(false, |addr| addr == &self.governance_address),
             FullInscriptionMessage::SystemBootstrapping(_) => {
                 debug!("SystemBootstrapping message is always valid");
                 true
@@ -411,10 +417,17 @@ impl BitcoinInscriptionIndexer {
                     .bridge_musig2_address
                     .require_network(network)
                     .unwrap();
+
+                let governance_address = sb
+                    .input
+                    .governance_address
+                    .require_network(network)
+                    .unwrap();
                 state.bridge_address = Some(bridge_address);
                 state.starting_block_number = sb.input.start_block_height;
                 state.bootloader_hash = Some(sb.input.bootloader_hash);
                 state.abstract_account_hash = Some(sb.input.abstract_account_hash);
+                state.proposed_governance = Some(governance_address);
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
                 debug!("Processing ProposeSequencer message");
@@ -575,12 +588,14 @@ mod tests {
         let parser = MessageParser::new(Network::Testnet);
         let bridge_address = get_test_addr();
         let sequencer_address = get_test_addr();
+        let governance_address = get_test_addr();
 
         BitcoinInscriptionIndexer {
             client: Arc::new(mock_client),
             parser,
             bridge_address,
             sequencer_address,
+            governance_address,
             verifier_addresses: vec![],
             starting_block_number: 0,
         }
@@ -722,6 +737,7 @@ mod tests {
                     verifier_p2wpkh_addresses: vec![],
                     bootloader_hash: H256::zero(),
                     abstract_account_hash: H256::zero(),
+                    governance_address: indexer.bridge_address.clone().as_unchecked().to_owned(),
                 },
             });
         assert!(indexer.is_valid_system_message(&system_bootstrapping));

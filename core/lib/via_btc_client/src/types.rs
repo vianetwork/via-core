@@ -80,6 +80,7 @@ pub struct SystemBootstrappingInput {
     pub bridge_musig2_address: BitcoinAddress<NetworkUnchecked>,
     pub bootloader_hash: H256,
     pub abstract_account_hash: H256,
+    pub governance_address: BitcoinAddress<NetworkUnchecked>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
