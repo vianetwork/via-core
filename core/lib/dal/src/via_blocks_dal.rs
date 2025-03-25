@@ -183,9 +183,10 @@ impl ViaBlocksDal<'_, '_> {
                 COALESCE(lh.commit_tx_id, '') AS commit_tx_id,
                 COALESCE(lh.reveal_tx_id, '') AS reveal_tx_id,
                 via_data_availability.blob_id,
-                ''::bytea AS prev_l1_batch_hash
+                prev_l1_batches.hash AS prev_l1_batch_hash
             FROM
                 l1_batches
+                LEFT JOIN l1_batches prev_l1_batches ON prev_l1_batches.number = l1_batches.number - 1
                 LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
                 LEFT JOIN via_data_availability ON via_data_availability.l1_batch_number = l1_batches.number
                 LEFT JOIN via_btc_inscriptions_request ON via_l1_batch_inscription_request.commit_l1_batch_inscription_id = via_btc_inscriptions_request.id
@@ -308,5 +309,105 @@ impl ViaBlocksDal<'_, '_> {
         .await?;
 
         Ok(row.exists.unwrap())
+    }
+
+    pub async fn prev_used_protocol_version_id_to_commit_l1_batch(
+        &mut self,
+    ) -> DalResult<Option<ProtocolVersionId>> {
+        let record_opt = sqlx::query_scalar!(
+            r#"
+            SELECT
+                protocol_version
+            FROM
+                l1_batches
+            LEFT JOIN
+                via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
+            WHERE
+                via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL
+            ORDER BY
+                number DESC
+            LIMIT
+                1
+            "#
+        )
+        .instrument("prev_used_protocol_version_id_to_commit_l1_batch")
+        .fetch_one(self.storage)
+        .await?;
+
+        if let Some(protocol_version) = record_opt {
+            let protocol_version =
+                ProtocolVersionId::try_from((protocol_version as u32) as u16).unwrap();
+            return Ok(Some(protocol_version));
+        }
+        Ok(None)
+    }
+
+    pub async fn get_last_committed_to_btc_l1_batch(
+        &mut self,
+    ) -> DalResult<Option<ViaBtcL1BlockDetails>> {
+        let batch = sqlx::query_as!(
+            ViaBtcStorageL1BlockDetails,
+            r#"
+            SELECT
+                l1_batches.number AS number,
+                l1_batches.timestamp AS timestamp,
+                l1_batches.hash AS hash,
+                ''::bytea AS commit_tx_id,
+                ''::bytea AS reveal_tx_id,
+                '' AS blob_id,
+                prev_l1_batches.hash AS prev_l1_batch_hash
+            FROM
+                l1_batches
+                LEFT JOIN l1_batches prev_l1_batches ON prev_l1_batches.number = l1_batches.number - 1
+                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
+                LEFT JOIN commitments ON commitments.l1_batch_number = l1_batches.number
+            WHERE
+                via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL
+                AND events_queue_commitment IS NOT NULL
+            ORDER BY
+                l1_batches.number DESC
+            LIMIT
+                1
+            "#,
+        )
+        .instrument("get_last_committed_to_btc_l1_batch")
+        .fetch_optional(self.storage)
+        .await?;
+        if batch.is_none() {}
+
+        Ok(batch.map(|details| details.into()))
+    }
+
+    pub async fn get_last_committed_proof_to_btc_l1_batch(
+        &mut self,
+    ) -> DalResult<Option<ViaBtcL1BlockDetails>> {
+        let batch = sqlx::query_as!(
+            ViaBtcStorageL1BlockDetails,
+            r#"
+            SELECT
+                l1_batches.number AS number,
+                l1_batches.timestamp AS timestamp,
+                l1_batches.hash AS hash,
+                ''::bytea AS commit_tx_id,
+                ''::bytea AS reveal_tx_id,
+                '' AS blob_id,
+                prev_l1_batches.hash AS prev_l1_batch_hash
+            FROM
+                l1_batches
+                LEFT JOIN l1_batches prev_l1_batches ON prev_l1_batches.number = l1_batches.number - 1
+                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
+            WHERE
+                via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL
+                AND via_l1_batch_inscription_request.commit_proof_inscription_id IS NOT NULL
+            ORDER BY
+                l1_batches.number DESC
+            LIMIT
+                1
+            "#,
+        )
+        .instrument("get_last_committed_to_btc_l1_batch")
+        .fetch_optional(self.storage)
+        .await?;
+        Ok(batch.map(|details| details.into()))
     }
 }

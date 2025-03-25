@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{ops::Deref, str::FromStr};
 
 use bitcoin::{
     hashes::Hash,
@@ -194,11 +194,7 @@ impl ViaAggregatorTest {
 
     pub async fn get_next_ready_operation(&mut self) -> Option<ViaAggregatedOperation> {
         self.aggregator
-            .get_next_ready_operation(
-                &mut self.storage,
-                self.protocol_version.base_system_contracts_hashes,
-                self.protocol_version.version.minor,
-            )
+            .get_next_ready_operation(&mut self.storage)
             .await
             .unwrap()
     }
