@@ -116,9 +116,7 @@ pub struct InternalApiConfig {
     pub dummy_verifier: bool,
     pub l1_batch_commit_data_generator_mode: L1BatchCommitmentMode,
 
-    /// via bridge address
     pub via_bridge_address: String,
-    /// via bridge address
     pub via_network: Network,
 }
 
