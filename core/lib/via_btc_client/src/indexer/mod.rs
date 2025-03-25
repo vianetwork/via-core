@@ -737,7 +737,11 @@ mod tests {
                     verifier_p2wpkh_addresses: vec![],
                     bootloader_hash: H256::zero(),
                     abstract_account_hash: H256::zero(),
-                    governance_address: indexer.bridge_address.clone().as_unchecked().to_owned(),
+                    governance_address: indexer
+                        .governance_address
+                        .clone()
+                        .as_unchecked()
+                        .to_owned(),
                 },
             });
         assert!(indexer.is_valid_system_message(&system_bootstrapping));
