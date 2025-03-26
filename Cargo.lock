@@ -9562,6 +9562,7 @@ dependencies = [
  "zksync_config",
  "zksync_contracts",
  "zksync_dal",
+ "zksync_node_fee_model",
  "zksync_shared_metrics",
  "zksync_types",
 ]

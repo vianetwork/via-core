@@ -461,6 +461,8 @@ impl ViaNodeBuilder {
             .add_prometheus_exporter_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?
             // VIA layers
+            .add_gas_adjuster_layer()?
+            .add_l1_gas_layer()?
             .add_btc_watcher_layer()?
             .add_btc_sender_layer()?
             .add_gas_adjuster_layer()?
