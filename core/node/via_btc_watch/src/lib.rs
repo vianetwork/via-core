@@ -1,7 +1,7 @@
 mod message_processors;
 mod metrics;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
 use message_processors::GovernanceUpgradesEventProcessor;
@@ -14,6 +14,7 @@ use via_btc_client::{
 };
 use zksync_config::ActorRole;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
+use zksync_node_fee_model::BatchFeeModelInputProvider;
 use zksync_types::PriorityOpId;
 
 use self::{
@@ -44,6 +45,7 @@ pub struct BtcWatch {
 impl BtcWatch {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
+        batch_fee_input_provider: Arc<dyn BatchFeeModelInputProvider>,
         rpc_url: &str,
         network: BitcoinNetwork,
         node_auth: NodeAuth,
@@ -78,6 +80,7 @@ impl BtcWatch {
                 protocol_semantic_version,
             )),
             Box::new(L1ToL2MessageProcessor::new(
+                batch_fee_input_provider,
                 state.bridge_address.clone(),
                 state.next_expected_priority_id,
             )),

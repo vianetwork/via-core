@@ -4,6 +4,7 @@ use zksync_config::ViaBtcWatchConfig;
 
 use crate::{
     implementations::resources::{
+        fee_input::ApiFeeInputResource,
         pools::{MasterPool, PoolResource},
         via_btc_indexer::BtcIndexerResource,
     },
@@ -25,6 +26,7 @@ pub struct BtcWatchLayer {
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<MasterPool>,
+    pub fee_input: ApiFeeInputResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -80,6 +82,7 @@ impl WiringLayer for BtcWatchLayer {
             .map_err(|e| WiringError::Internal(e.into()))?,
         );
         let btc_watch = BtcWatch::new(
+            input.fee_input.0,
             self.btc_watch_config.rpc_url(),
             network,
             node_auth,

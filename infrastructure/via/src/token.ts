@@ -6,7 +6,7 @@ import * as utils from 'utils';
 const DEFAULT_DEPOSITOR_PRIVATE_KEY = 'cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R';
 const DEFAULT_DEPOSITOR_PRIVATE_KEY_OP_RETURN = 'cQa1WGJQWT5suej9XZRBoAe4JsFtvswq5N3LWu7QboLJuZJewJSp';
 const DEFAULT_NETWORK = 'regtest';
-const DEFAULT_RPC_URL = 'http://0.0.0.0:18443';
+const DEFAULT_L1_RPC_URL = 'http://0.0.0.0:18443';
 const DEFAULT_RPC_USERNAME = 'rpcuser';
 const DEFAULT_RPC_PASSWORD = 'rpcpassword';
 
@@ -14,13 +14,16 @@ const DEFAULT_RPC_PASSWORD = 'rpcpassword';
 const DEFAULT_L2_PRIVATE_KEY = '0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110';
 const DEFAULT_L2_RPC_URL = 'http://0.0.0.0:3050';
 const L2_BASE_TOKEN = '0x000000000000000000000000000000000000800a';
+const REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE = 800;
+const L1_BTC_DECIMALS = 8;
 
 async function deposit(
     amount: number,
     receiverL2Address: string,
     senderPrivateKey: string,
     network: String,
-    rcpUrl: string,
+    l1RpcUrl: string,
+    l2RpcUrl: string,
     rpcUsername: string,
     rpcPassword: string
 ) {
@@ -28,9 +31,18 @@ async function deposit(
         console.error('Error: Invalid deposit amount. Please provide a valid number.');
         return;
     }
+
+    const amountBn = ethers.parseUnits(amount.toString(), L1_BTC_DECIMALS);
+    const fee = await estimateGasFee(l2RpcUrl, amount, receiverL2Address);
+    const amountWithFees = amountBn + fee;
+
+    console.log(
+        `Total amount bridged to L2 including fees: ${ethers.formatUnits(amountWithFees, L1_BTC_DECIMALS)} BTC`
+    );
+
     process.chdir(`${process.env.VIA_HOME}`);
     await utils.spawn(
-        `cargo run --example deposit -- ${amount} ${receiverL2Address} ${senderPrivateKey} ${network} ${rcpUrl} ${rpcUsername} ${rpcPassword}`
+        `cargo run --example deposit -- ${amountWithFees} ${receiverL2Address} ${senderPrivateKey} ${network} ${l1RpcUrl} ${rpcUsername} ${rpcPassword}`
     );
 }
 
@@ -39,7 +51,8 @@ async function depositWithOpReturn(
     receiverL2Address: string,
     senderPrivateKey: string,
     network: String,
-    rcpUrl: string,
+    l1RpcUrl: string,
+    l2RpcUrl: string,
     rpcUsername: string,
     rpcPassword: string
 ) {
@@ -47,9 +60,18 @@ async function depositWithOpReturn(
         console.error('Error: Invalid deposit amount. Please provide a valid number.');
         return;
     }
+
+    const amountBn = ethers.parseUnits(amount.toString(), L1_BTC_DECIMALS);
+    const fee = await estimateGasFee(l2RpcUrl, amount, receiverL2Address);
+    const amountWithFees = amountBn + fee;
+
+    console.log(
+        `Total amount bridged to L2 including fees: ${ethers.formatUnits(amountWithFees, L1_BTC_DECIMALS)} BTC`
+    );
+
     process.chdir(`${process.env.VIA_HOME}`);
     await utils.spawn(
-        `cargo run --example deposit_opreturn -- ${amount} ${receiverL2Address} ${senderPrivateKey} ${network} ${rcpUrl} ${rpcUsername} ${rpcPassword}`
+        `cargo run --example deposit_opreturn -- ${amountWithFees} ${receiverL2Address} ${senderPrivateKey} ${network} ${l1RpcUrl} ${rpcUsername} ${rpcPassword}`
     );
 }
 async function withdraw(amount: number, receiverL1Address: string, userL2PrivateKey: string, rpcUrl: string) {
@@ -106,6 +128,25 @@ async function withdraw(amount: number, receiverL1Address: string, userL2Private
     console.log('Balance after withdraw', ethers.formatEther(String(balance)));
 }
 
+async function estimateGasFee(l2RpcUrl: string, amount: number, receiverL2Address: string): Promise<bigint> {
+    const l2Provider = new Provider(l2RpcUrl);
+    const amountBn = ethers.parseUnits(amount.toString(), L1_BTC_DECIMALS);
+
+    const gasCost = BigInt(
+        await l2Provider.estimateL1ToL2Execute({
+            contractAddress: receiverL2Address,
+            calldata: '0x',
+            caller: receiverL2Address,
+            factoryDeps: [],
+            gasPerPubdataByte: REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE,
+            l2Value: amountBn
+        })
+    );
+
+    const gasPrice = await l2Provider.getGasPrice();
+    return (gasCost * gasPrice) / BigInt(10_000_000_000);
+}
+
 export const command = new Command('token').description('Bridge BTC L2<>L1');
 command
     .command('deposit')
@@ -114,7 +155,8 @@ command
     .requiredOption('--receiver-l2-address <receiverL2Address>', 'receiver l2 address')
     .option('--sender-private-key <senderPrivateKey>', 'sender private key', DEFAULT_DEPOSITOR_PRIVATE_KEY)
     .option('--network <network>', 'network', DEFAULT_NETWORK)
-    .option('--rpc-url <rcpUrl>', 'RPC URL', DEFAULT_RPC_URL)
+    .option('--l1-rpc-url <l1RcpUrl>', 'RPC URL', DEFAULT_L1_RPC_URL)
+    .option('--l2-rpc-url <l2RcpUrl>', 'RPC URL', DEFAULT_L2_RPC_URL)
     .option('--rpc-username <rcpUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
     .action((cmd: Command) =>
@@ -123,7 +165,8 @@ command
             cmd.receiverL2Address,
             cmd.senderPrivateKey,
             cmd.network,
-            cmd.rpcUrl,
+            cmd.l1RpcUrl,
+            cmd.l2RpcUrl,
             cmd.rpcUsername,
             cmd.rpcPassword
         )
@@ -136,7 +179,8 @@ command
     .requiredOption('--receiver-l2-address <receiverL2Address>', 'receiver l2 address')
     .option('--sender-private-key <senderPrivateKey>', 'sender private key', DEFAULT_DEPOSITOR_PRIVATE_KEY)
     .option('--network <network>', 'network', DEFAULT_NETWORK)
-    .option('--rpc-url <rcpUrl>', 'RPC URL', DEFAULT_RPC_URL)
+    .option('--l1-rpc-url <l1RcpUrl>', 'RPC URL', DEFAULT_L1_RPC_URL)
+    .option('--l2-rpc-url <l2RcpUrl>', 'RPC URL', DEFAULT_L2_RPC_URL)
     .option('--rpc-username <rcpUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
     .action((cmd: Command) =>
@@ -145,7 +189,8 @@ command
             cmd.receiverL2Address,
             cmd.senderPrivateKey,
             cmd.network,
-            cmd.rpcUrl,
+            cmd.l1RpcUrl,
+            cmd.l2RpcUrl,
             cmd.rpcUsername,
             cmd.rpcPassword
         )
