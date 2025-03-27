@@ -168,9 +168,6 @@ impl ViaAggregator {
             .load_base_system_contracts(storage, protocol_version_id)
             .await?;
 
-        println!("protocol_version_id {}", &protocol_version_id);
-        println!("prev_protocol_version_id {}", &prev_protocol_version_id);
-
         // In case of a protocol upgrade, we first process the l1 batches created with the previous protocol version
         // then switch to the new one.
         if prev_protocol_version_id != protocol_version_id {
@@ -236,8 +233,7 @@ impl ViaAggregator {
         if let Some(prev_protocol_version_id) = prev_protocol_version_id_opt {
             return Ok(prev_protocol_version_id);
         }
-
-        anyhow::bail!("Failed to get the previous protocol version");
+        return self.get_last_protocol_version_id(storage).await;
     }
 
     async fn get_last_protocol_version_id(
@@ -301,8 +297,6 @@ fn validate_l1_batch_sequence(
         let next_batch = &all_batches[i];
 
         if last_batch.number + 1 != next_batch.number {
-            println!("last_batch.number {}", last_batch.number);
-            println!("next_batch.number {}", next_batch.number);
             anyhow::bail!(
                 "L1 batches prepared for commit or proof batch numbers are not sequential"
             );
