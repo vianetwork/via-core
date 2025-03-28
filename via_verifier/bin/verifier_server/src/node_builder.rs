@@ -2,7 +2,7 @@ use anyhow::Context;
 use via_da_clients::celestia::wiring_layer::ViaCelestiaClientWiringLayer;
 use zksync_config::{
     configs::{via_verifier::VerifierMode, Secrets},
-    ActorRole, ViaGeneralConfig,
+    ActorRole, GenesisConfig, ViaGeneralConfig,
 };
 use zksync_node_framework::{
     implementations::layers::{
@@ -17,6 +17,7 @@ use zksync_node_framework::{
             coordinator_api::ViaCoordinatorApiLayer, verifier::ViaWithdrawalVerifierLayer,
         },
         via_verifier_btc_watch::VerifierBtcWatchLayer,
+        via_verifier_storage_init::ViaVerifierInitLayer,
         via_zk_verification::ViaBtcProofVerificationLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
@@ -34,17 +35,23 @@ pub struct ViaNodeBuilder {
     is_coordinator: bool,
     node: ZkStackServiceBuilder,
     configs: ViaGeneralConfig,
+    genesis_config: GenesisConfig,
     secrets: Secrets,
 }
 
 impl ViaNodeBuilder {
-    pub fn new(via_general_config: ViaGeneralConfig, secrets: Secrets) -> anyhow::Result<Self> {
+    pub fn new(
+        via_general_config: ViaGeneralConfig,
+        genesis_config: GenesisConfig,
+        secrets: Secrets,
+    ) -> anyhow::Result<Self> {
         let via_verifier_config = try_load_config!(via_general_config.via_verifier_config);
         let is_coordinator = via_verifier_config.verifier_mode == VerifierMode::COORDINATOR;
         Ok(Self {
             is_coordinator,
             node: ZkStackServiceBuilder::new().context("Cannot create ZkStackServiceBuilder")?,
             configs: via_general_config,
+            genesis_config,
             secrets,
         })
     }
@@ -140,12 +147,21 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_storage_initialization_layer(mut self) -> anyhow::Result<Self> {
+        let layer = ViaVerifierInitLayer {
+            genesis: self.genesis_config.clone(),
+        };
+        self.node.add_layer(layer);
+        Ok(self)
+    }
+
     pub fn build(mut self) -> anyhow::Result<ZkStackService> {
         self = self
             .add_sigint_handler_layer()?
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
             .add_pools_layer()?
+            .add_storage_initialization_layer()?
             .add_btc_sender_layer()?
             .add_verifier_btc_watcher_layer()?
             .add_via_celestia_da_client_layer()?

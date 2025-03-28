@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE protocol_versions\n            SET\n                executed = TRUE\n            WHERE\n                upgrade_tx_hash = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "471e45ea32f3a4c5e435989ff71a46eabc896d56a12644dbfb2964d3c91e8869"
+}

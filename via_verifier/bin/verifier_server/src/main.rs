@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use clap::Parser;
 use zksync_config::{
     configs::{DatabaseSecrets, L1Secrets, Secrets},
-    ViaGeneralConfig,
+    GenesisConfig, ViaGeneralConfig,
 };
 use zksync_env_config::FromEnv;
 
@@ -23,6 +23,10 @@ struct Cli {
     /// Path to the YAML with secrets. If set, it will be used instead of env vars.
     #[arg(long)]
     secrets_path: Option<std::path::PathBuf>,
+
+    /// Path to the YAML with genesis configuration. If set, it will be used instead of env vars.
+    #[arg(long)]
+    genesis_path: Option<std::path::PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -65,12 +69,21 @@ fn main() -> anyhow::Result<()> {
         },
     };
 
+    let genesis = match opt.genesis_path {
+        Some(_path) => {
+            return Err(anyhow::anyhow!(
+                "The Via Server does not support configuration files at this point. Please use env variables."
+            ));
+        }
+        None => GenesisConfig::from_env().context("Failed to load genesis from env")?,
+    };
+
     let observability_config = configs
         .observability
         .clone()
         .context("Observability config missing")?;
 
-    let node_builder = node_builder::ViaNodeBuilder::new(configs, secrets)?;
+    let node_builder = node_builder::ViaNodeBuilder::new(configs, genesis, secrets)?;
 
     let observability_guard = {
         // Observability initialization should be performed within tokio context.

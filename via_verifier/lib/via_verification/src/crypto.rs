@@ -237,7 +237,7 @@ fn serialize_point<E: Engine>(point: &E::G1Affine, mut buffer: &mut Vec<u8>) -> 
 }
 
 /// Calculates the hash of a verification key.
-pub(crate) fn calculate_verification_key_hash<E: Engine, C: Circuit<E>>(
+pub fn calculate_verification_key_hash<E: Engine, C: Circuit<E>>(
     verification_key: &VerificationKey<E, C>,
 ) -> H256 {
     let mut res = Vec::new();

@@ -8,7 +8,7 @@ use tokio::sync::watch;
 use via_btc_client::traits::{BitcoinOps, Serializable};
 use via_musig2::{transaction_builder::TransactionBuilder, verify_signature, Signer};
 use via_verifier_dal::{ConnectionPool, Verifier};
-use via_verifier_types::transaction::UnsignedBridgeTx;
+use via_verifier_types::{protocol_version::get_sequencer_version, transaction::UnsignedBridgeTx};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::{VerifierMode, ViaVerifierConfig};
 
@@ -177,14 +177,16 @@ impl ViaWithdrawalVerifier {
         let mut headers = header::HeaderMap::new();
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let verifier_index = self.signer.signer_index().to_string();
+        let sequencer_version = get_sequencer_version().to_string();
 
         let private_key = bitcoin::PrivateKey::from_wif(&self.config.private_key)?;
         let secret_key = private_key.inner;
 
-        // Sign timestamp + verifier_index as a JSON object
+        // Sign timestamp + verifier_index + sequencer_version as a JSON object
         let payload = serde_json::json!({
             "timestamp": timestamp,
             "verifier_index": verifier_index,
+            "sequencer_version": sequencer_version
         });
         let signature = crate::auth::sign_request(&payload, &secret_key)?;
 
@@ -194,6 +196,10 @@ impl ViaWithdrawalVerifier {
             header::HeaderValue::from_str(&verifier_index)?,
         );
         headers.insert("X-Signature", header::HeaderValue::from_str(&signature)?);
+        headers.insert(
+            "X-Sequencer-Version",
+            header::HeaderValue::from_str(&sequencer_version)?,
+        );
 
         Ok(headers)
     }

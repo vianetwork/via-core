@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                bootloader_code_hash,\n                default_account_code_hash\n            FROM\n                protocol_versions pv\n                LEFT JOIN protocol_patches pp ON pv.id = pp.minor\n            WHERE\n                pv.id = $1\n            ORDER BY\n                pp.minor DESC,\n                pp.patch DESC\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bootloader_code_hash",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 1,
+        "name": "default_account_code_hash",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "425fae27be8e6842046c95c2c923fa12d25ea035b05fbfb3ea6e823ca0f74277"
+}

@@ -70,6 +70,8 @@ via_zk_verifier.workspace = true
 via_verifier_btc_watch.workspace = true
 via_verifier_btc_sender.workspace = true
 via_musig2.workspace = true
+via_verifier_storage_init.workspace = true
+
 pin-project-lite.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
