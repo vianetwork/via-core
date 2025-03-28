@@ -108,6 +108,7 @@ async fn main() -> Result<()> {
         bridge_musig2_address,
         bootloader_hash: H256::zero(),
         abstract_account_hash: H256::random(),
+        governance_address: sequencer_p2wpkh_address.clone(),
     };
     let bootstrap_info = verifier_inscribers[0]
         .inscribe(InscriptionMessage::SystemBootstrapping(input))
