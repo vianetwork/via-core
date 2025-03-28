@@ -20,7 +20,8 @@ use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::ViaVerifierConfig;
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_types::{
-    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, H160, H256,
+    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, ProtocolVersionId,
+    H160, H256,
 };
 
 /// Copy of `zksync_l1_contract_interface::i_executor::methods::ProveBatches`
@@ -166,8 +167,27 @@ impl ViaVerifier {
 
             if is_verified {
                 tracing::info!("Successfuly verfied the op priority id");
+
+                let proof_data: ProveBatches = bincode::deserialize(&proof_blob.data)?;
+
+                let protocol_version_id = proof_data.l1_batches[0]
+                    .header
+                    .protocol_version
+                    .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
+
+                let recursion_scheduler_level_vk_hash = storage
+                    .via_protocol_versions_dal()
+                    .get_recursion_scheduler_level_vk_hash(protocol_version_id)
+                    .await?;
+
                 is_verified = self
-                    .verify_proof(l1_batch_number, batch_hash, &proof_blob.data)
+                    .verify_proof(
+                        l1_batch_number,
+                        batch_hash,
+                        proof_data,
+                        recursion_scheduler_level_vk_hash,
+                        protocol_version_id,
+                    )
                     .await?;
             }
             let mut transaction = storage.start_transaction().await?;
@@ -343,14 +363,16 @@ impl ViaVerifier {
         &self,
         l1_batch_number: i64,
         batch_hash: H256,
-        proof_bytes: &[u8],
+        proof_data: ProveBatches,
+        recursion_scheduler_level_vk_hash: H256,
+        protocol_version_id: ProtocolVersionId,
     ) -> anyhow::Result<bool> {
         tracing::info!(
-            ?batch_hash,
-            proof_len = proof_bytes.len(),
-            "Verifying proof"
+            "Batch_hash {}, recursion_scheduler_level_vk_hash {}, protocol_version_id {}",
+            batch_hash,
+            recursion_scheduler_level_vk_hash,
+            protocol_version_id
         );
-        let proof_data: ProveBatches = bincode::deserialize(proof_bytes)?;
 
         if proof_data.l1_batches.len() != 1 {
             tracing::error!(
@@ -361,21 +383,23 @@ impl ViaVerifier {
             return Ok(false);
         }
 
-        let protocol_version = proof_data.l1_batches[0]
-            .header
-            .protocol_version
-            .unwrap()
-            .to_string();
+        let vk_inner = via_verification::utils::load_verification_key_with_db_check(
+            protocol_version_id.to_string(),
+            recursion_scheduler_level_vk_hash,
+        )
+        .await?;
+
+        tracing::info!(
+            "Found valid recursion_scheduler_level_vk_hash {}",
+            recursion_scheduler_level_vk_hash,
+        );
 
         if !proof_data.should_verify {
             tracing::info!(
                 "Proof verification is disabled for proof with batch number : {:?}",
                 proof_data.l1_batches[0].header.number
             );
-            tracing::info!(
-                "Verifying proof with protocol version: {}",
-                protocol_version
-            );
+
             tracing::info!("Skipping verification");
             self.verification_invalid_l1_batch_numbers(l1_batch_number)
                 .await
@@ -402,9 +426,6 @@ impl ViaVerifier {
 
             // Verify the proof
             let via_proof = ViaZKProof { proof };
-            let vk_inner =
-                via_verification::utils::load_verification_key_without_l1_check(protocol_version)
-                    .await?;
 
             let is_valid = via_proof.verify(vk_inner)?;
 

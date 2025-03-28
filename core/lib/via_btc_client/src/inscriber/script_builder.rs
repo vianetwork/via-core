@@ -317,13 +317,16 @@ impl InscriptionData {
             Self::encode_push_bytes(input.bootloader_code_hash.as_bytes());
         let default_account_code_hash_encoded =
             Self::encode_push_bytes(input.default_account_code_hash.as_bytes());
+        let recursion_scheduler_level_vk_hash_encoded =
+            Self::encode_push_bytes(input.recursion_scheduler_level_vk_hash.as_bytes());
 
         let mut basic_script = basic_script;
         basic_script = basic_script
             .push_slice(&*types::SYSTEM_CONTRACT_UPGRADE_MSG)
             .push_slice(version_encoded)
             .push_slice(bootloader_code_hash_encoded)
-            .push_slice(default_account_code_hash_encoded);
+            .push_slice(default_account_code_hash_encoded)
+            .push_slice(recursion_scheduler_level_vk_hash_encoded);
 
         for (address, hash) in &input.system_contracts {
             basic_script = basic_script.push_slice(Self::encode_push_bytes(address.as_bytes()));

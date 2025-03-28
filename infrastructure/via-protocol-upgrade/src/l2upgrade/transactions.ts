@@ -27,6 +27,8 @@ export async function createUpgradeInscription(
     const version = l2upgradeData['version'];
     const bootloader = l2upgradeData['bootloader']['bytecodeHashes'][0];
     const defaultAA = l2upgradeData['defaultAA']['bytecodeHashes'][0];
+    const recursionSchedulerLevelVkHash = l2upgradeData['recursionSchedulerLevelVkHash'];
+
     const systemContractsAddresses = [];
     const systemContractsHashes = [];
 
@@ -48,7 +50,8 @@ export async function createUpgradeInscription(
             bootloader,
             defaultAA,
             systemContractsAddresses.join(','),
-            systemContractsHashes.join(',')
+            systemContractsHashes.join(','),
+            recursionSchedulerLevelVkHash,
         ].join(' ')}`
     );
 }

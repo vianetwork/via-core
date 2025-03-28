@@ -53,14 +53,22 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                     system_contract_upgrade_msg.input.bootloader_code_hash,
                     system_contract_upgrade_msg.input.default_account_code_hash,
                     hash,
+                    system_contract_upgrade_msg
+                        .input
+                        .recursion_scheduler_level_vk_hash,
                 );
 
                 upgrades.push(upgrade);
             }
         }
 
-        for (version, bootloader_code_hash, default_account_code_hash, canonical_tx_hash) in
-            upgrades
+        for (
+            version,
+            bootloader_code_hash,
+            default_account_code_hash,
+            canonical_tx_hash,
+            recursion_scheduler_level_vk_hash,
+        ) in upgrades
         {
             storage
                 .via_protocol_versions_dal()
@@ -69,6 +77,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                     bootloader_code_hash.as_bytes(),
                     default_account_code_hash.as_bytes(),
                     canonical_tx_hash.as_bytes(),
+                    recursion_scheduler_level_vk_hash.as_bytes(),
                 )
                 .await
                 .map_err(DalError::generalize)?;

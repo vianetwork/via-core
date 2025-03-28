@@ -10,7 +10,8 @@ async function publishAndMergeFiles(
     defaultAA: boolean,
     systemContracts: boolean,
     environment: string,
-    newProtocolVersion: string
+    newProtocolVersion: string,
+    recursionSchedulerLevelVkHash: string,
 ) {
     console.log('Publishing bytecodes for system contracts');
     validateProtcolVersion(newProtocolVersion);
@@ -38,7 +39,8 @@ async function publishAndMergeFiles(
         mainUpgradeData.systemContracts = tmpUpgradeData.systemContracts;
     }
 
-    mainUpgradeData.version = newProtocolVersion;
+    mainUpgradeData['version'] = newProtocolVersion;
+    mainUpgradeData['recursionSchedulerLevelVkHash'] = recursionSchedulerLevelVkHash;
     fs.writeFileSync(mainUpgradeFile, JSON.stringify(mainUpgradeData, null, 2));
     fs.unlinkSync(tmpUpgradeFile);
     console.log('All system contracts published');
@@ -63,11 +65,15 @@ function validateProtcolVersion(newProtocolVersion: string) {
 export const command = new Command('system-contracts').description('publish system contracts');
 
 // Example cmd:
-//  yarn start system-contracts publish --private-key 0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110 \
-//  --l2rpc http://0.0.0.0:3050 \
-//  --environment devnet-2 \
-//  --new-protocol-version 26 \
-//  --bootloader --default-aa --system-contracts
+// yarn start system-contracts publish \
+//     --private-key 0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110 \
+//     --l2rpc http://0.0.0.0:3050 \
+//     --environment devnet-2 \
+//     --new-protocol-version 0.26.0 \
+//     --recursion-scheduler-level-vk-hash 0x14f97b81e54b35fe673d8708cc1a19e1ea5b5e348e12d31e39824ed4f42bbca2 \
+//     --bootloader \
+//     --default-aa \
+//     --system-contracts
 command
     .command('publish')
     .description('Publish contracts one by one')
@@ -75,6 +81,7 @@ command
     .option('--l2rpc <l2Rpc>')
     .option('--environment <environment>')
     .option('--new-protocol-version <newProtocolVersion>')
+    .option('--recursion-scheduler-level-vk-hash <recursionSchedulerLevelVkHash>')
     .option('--bootloader')
     .option('--default-aa')
     .option('--system-contracts')
@@ -86,6 +93,7 @@ command
             cmd.defaultAa,
             cmd.systemContracts,
             cmd.environment,
-            cmd.newProtocolVersion
+            cmd.newProtocolVersion,
+            cmd.recursionSchedulerLevelVkHash
         );
     });

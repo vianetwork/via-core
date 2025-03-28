@@ -26,7 +26,7 @@ const MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS: usize = 4;
 const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 7;
 const MIN_PROOF_DA_REFERENCE_INSTRUCTIONS: usize = 5;
 const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
-const MIN_SYSTEM_CONTRACT_UPGRADE_PROPOSAL: usize = 5;
+const MIN_SYSTEM_CONTRACT_UPGRADE_PROPOSAL: usize = 6;
 
 #[derive(Debug, Clone)]
 pub struct MessageParser {
@@ -613,10 +613,14 @@ impl MessageParser {
             H256::from_slice(instructions.get(4)?.push_bytes()?.as_bytes());
         debug!("Parsed default account code hash");
 
-        let len = instructions.len() - 6;
+        let recursion_scheduler_level_vk_hash =
+            H256::from_slice(instructions.get(5)?.push_bytes()?.as_bytes());
+        debug!("Parsed recursion scheduler level vk hash");
+
+        let len = instructions.len() - 7;
         let mut system_contracts = Vec::with_capacity(len / 2);
 
-        for i in (5..len).step_by(2) {
+        for i in (6..len).step_by(2) {
             let address = EVMAddress::from_slice(instructions.get(i)?.push_bytes()?.as_bytes());
             let hash = H256::from_slice(instructions.get(i + 1)?.push_bytes()?.as_bytes());
             system_contracts.push((address, hash))
@@ -630,6 +634,7 @@ impl MessageParser {
                     version,
                     bootloader_code_hash,
                     default_account_code_hash,
+                    recursion_scheduler_level_vk_hash,
                     system_contracts,
                 },
             },

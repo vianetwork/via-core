@@ -202,4 +202,25 @@ Sender Validation: anyone
  !!! if the contract address and call_data was provided the amount get used as fee and remaining amount get sent to l2 receiver address !!!
  !!! in future we can implement kinda enforcement withdrawal with using l1->l2 message (reference in notion) !!!
  !!! also we should support op_return only for bridging in future of the inscription indexer !!!
+
+(7)
+SystemContractUpgrade
+Votable: No
+Sender Validation: governance
+|-------------------------------------------------------------|
+|      Schnorr Signature                                      |
+|      Encoded USER/Admin Public Key                          |
+|      OP_CHECKSIG                                            |
+|      OP_FALSE                                               |
+|      OP_IF                                                  |
+|      OP_PUSHBYTES_32  b"version"                            |
+|      OP_PUSHBYTES_32  b"bootloader_code_hash"               |
+|      OP_PUSHBYTES_32  b"default_account_code_hash"          |
+|      OP_PUSHBYTES_32  b"recursion_scheduler_level_vk_hash"  |
+|      OP_PUSHBYTES_32  b"system_contract"                    |
+|      OP_PUSHBYTES_32  b"system_contract"                    |
+|      OP_PUSHBYTES_32  b"system_contract..."                 |
+|      OP_ENDIF                                               |
+|-------------------------------------------------------------|
+
 ```

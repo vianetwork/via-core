@@ -20,6 +20,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
         bootloader_code_hash: &[u8],
         default_account_code_hash: &[u8],
         upgrade_tx_hash: &[u8],
+        recursion_scheduler_level_vk_hash: &[u8],
     ) -> DalResult<()> {
         let mut db_transaction = self.storage.start_transaction().await?;
 
@@ -31,11 +32,12 @@ impl ViaProtocolVersionsDal<'_, '_> {
                     bootloader_code_hash,
                     default_account_code_hash,
                     upgrade_tx_hash,
+                    recursion_scheduler_level_vk_hash,
                     executed,
                     created_at
                 )
             VALUES
-                ($1, $2, $3, $4, FALSE, NOW())
+                ($1, $2, $3, $4, $5, FALSE, NOW())
             ON CONFLICT (id) DO
             UPDATE
             SET
@@ -46,12 +48,17 @@ impl ViaProtocolVersionsDal<'_, '_> {
             bootloader_code_hash,
             default_account_code_hash,
             upgrade_tx_hash,
+            recursion_scheduler_level_vk_hash,
         )
         .instrument("save_protocol_version#minor")
         .with_arg("minor", &version.minor)
         .with_arg("bootloader_code_hash", &bootloader_code_hash)
         .with_arg("default_account_code_hash", &default_account_code_hash)
         .with_arg("upgrade_tx_hash", &upgrade_tx_hash)
+        .with_arg(
+            "recursion_scheduler_level_vk_hash",
+            &recursion_scheduler_level_vk_hash,
+        )
         .execute(&mut db_transaction)
         .await?;
 
@@ -135,6 +142,30 @@ impl ViaProtocolVersionsDal<'_, '_> {
             }));
         }
         Ok(None)
+    }
+
+    pub async fn get_recursion_scheduler_level_vk_hash(
+        &mut self,
+        protocol_version_id: ProtocolVersionId,
+    ) -> DalResult<H256> {
+        let record = sqlx::query!(
+            r#"
+            SELECT
+                recursion_scheduler_level_vk_hash
+            FROM
+                protocol_versions
+            WHERE
+                id = $1
+            LIMIT
+                1
+            "#,
+            protocol_version_id as i32
+        )
+        .instrument("get_recursion_scheduler_level_vk_hash")
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(H256::from_slice(&record.recursion_scheduler_level_vk_hash))
     }
 
     pub async fn get_protocol_base_system_contracts(
