@@ -27,6 +27,7 @@ mod tests {
             None,
         )
         .await;
+        aggregator_test.create_genesis_l1_batch().await.unwrap();
         let op = aggregator_test.get_next_ready_operation().await;
         assert!(op.is_none());
     }
@@ -42,6 +43,7 @@ mod tests {
             None,
         )
         .await;
+        aggregator_test.create_genesis_l1_batch().await.unwrap();
 
         aggregator_test
             .insert_l1_batch(
@@ -93,6 +95,7 @@ mod tests {
             Some(config),
         )
         .await;
+        aggregator_test.create_genesis_l1_batch().await.unwrap();
 
         // Insert l1_batches
         for header in l1_batches {
@@ -125,7 +128,9 @@ mod tests {
 
     // When the selected batches are not sequantial.
     #[tokio::test]
-    #[should_panic(expected = "L1 batches prepared for commit are not sequential")]
+    #[should_panic(
+        expected = "L1 batches prepared for commit or proof batch numbers are not sequential"
+    )]
     async fn test_get_next_ready_operation_when_many_batches_not_sequential() {
         // The number of batches we want to create for testing.
         let max_aggregated_blocks_to_commit: usize = 5;
@@ -158,6 +163,7 @@ mod tests {
             Some(config),
         )
         .await;
+        aggregator_test.create_genesis_l1_batch().await.unwrap();
 
         for header in l1_batches {
             aggregator_test
@@ -182,6 +188,8 @@ mod tests {
             None,
         )
         .await;
+
+        aggregator_test.create_genesis_l1_batch().await.unwrap();
 
         // Insert the batch
         aggregator_test
@@ -250,6 +258,7 @@ mod tests {
             Some(config),
         )
         .await;
+        aggregator_test.create_genesis_l1_batch().await.unwrap();
 
         for (index, header) in l1_batches.iter().enumerate() {
             aggregator_test

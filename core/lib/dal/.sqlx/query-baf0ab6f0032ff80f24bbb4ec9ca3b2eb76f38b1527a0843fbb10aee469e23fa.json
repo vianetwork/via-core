@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                protocol_version\n            FROM\n                l1_batches\n            LEFT JOIN\n                via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number\n            WHERE\n                via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL\n            ORDER BY\n                number DESC\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "protocol_version",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "baf0ab6f0032ff80f24bbb4ec9ca3b2eb76f38b1527a0843fbb10aee469e23fa"
+}

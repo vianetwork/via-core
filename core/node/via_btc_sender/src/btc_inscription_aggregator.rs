@@ -2,9 +2,7 @@ use anyhow::Result;
 use tokio::sync::watch;
 use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
-use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::ProtocolVersionId;
 
 use crate::aggregator::ViaAggregator;
 
@@ -62,17 +60,7 @@ impl ViaBtcInscriptionAggregator {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
-        let protocol_version_id = self.get_protocol_version_id(storage).await?;
-
-        let base_system_contracts_hashes = self
-            .load_base_system_contracts(storage, protocol_version_id)
-            .await?;
-
-        if let Some(operation) = self
-            .aggregator
-            .get_next_ready_operation(storage, base_system_contracts_hashes, protocol_version_id)
-            .await?
-        {
+        if let Some(operation) = self.aggregator.get_next_ready_operation(storage).await? {
             tracing::info!("New operation ready to be processed {operation}");
 
             let mut transaction = storage.start_transaction().await?;
@@ -114,40 +102,5 @@ impl ViaBtcInscriptionAggregator {
             transaction.commit().await?;
         }
         Ok(())
-    }
-
-    async fn load_base_system_contracts(
-        &self,
-        storage: &mut Connection<'_, Core>,
-        protocol_version: ProtocolVersionId,
-    ) -> anyhow::Result<BaseSystemContractsHashes> {
-        let base_system_contracts = storage
-            .protocol_versions_dal()
-            .load_base_system_contracts_by_version_id(protocol_version as u16)
-            .await?;
-        if let Some(contracts) = base_system_contracts {
-            return Ok(BaseSystemContractsHashes {
-                bootloader: contracts.bootloader.hash,
-                default_aa: contracts.default_aa.hash,
-            });
-        }
-        anyhow::bail!(
-            "Failed to load the base system contracts for version {}",
-            protocol_version
-        )
-    }
-
-    async fn get_protocol_version_id(
-        &self,
-        storage: &mut Connection<'_, Core>,
-    ) -> anyhow::Result<ProtocolVersionId> {
-        let semantic_version = storage
-            .protocol_versions_dal()
-            .latest_semantic_version()
-            .await?;
-        if let Some(version) = semantic_version {
-            return Ok(version.minor);
-        }
-        anyhow::bail!("Failed to get the latest protocol version");
     }
 }
