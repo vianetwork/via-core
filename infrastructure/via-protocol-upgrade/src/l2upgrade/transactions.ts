@@ -51,7 +51,7 @@ export async function createUpgradeInscription(
             defaultAA,
             systemContractsAddresses.join(','),
             systemContractsHashes.join(','),
-            recursionSchedulerLevelVkHash,
+            recursionSchedulerLevelVkHash
         ].join(' ')}`
     );
 }

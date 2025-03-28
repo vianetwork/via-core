@@ -11,7 +11,7 @@ async function publishAndMergeFiles(
     systemContracts: boolean,
     environment: string,
     newProtocolVersion: string,
-    recursionSchedulerLevelVkHash: string,
+    recursionSchedulerLevelVkHash: string
 ) {
     console.log('Publishing bytecodes for system contracts');
     validateProtcolVersion(newProtocolVersion);

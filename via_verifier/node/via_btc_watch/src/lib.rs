@@ -13,12 +13,8 @@ use via_btc_client::{
     types::{BitcoinTxid, NodeAuth},
 };
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
-use via_verifier_types::protocol_version::{
-    check_if_supported_sequencer_version, get_sequencer_base_system_contracts,
-    get_sequencer_version,
-};
+use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::ActorRole;
-use zksync_types::H256;
 
 use self::{
     message_processors::{MessageProcessor, MessageProcessorError},
@@ -116,31 +112,6 @@ impl VerifierBtcWatch {
 
                 current_block.saturating_sub(btc_blocks_lag)
             }
-        };
-
-        if storage
-            .via_protocol_versions_dal()
-            .latest_protocol_semantic_version()
-            .await?
-            .is_none()
-        {
-            let (bootloader_code_hash, default_account_code_hash) =
-                get_sequencer_base_system_contracts();
-            let version = get_sequencer_version();
-
-            storage
-                .via_protocol_versions_dal()
-                .save_protocol_version(
-                    version,
-                    bootloader_code_hash,
-                    default_account_code_hash,
-                    H256::zero().as_bytes(),
-                )
-                .await?;
-            storage
-                .via_protocol_versions_dal()
-                .mark_upgrade_as_executed(H256::zero().as_bytes())
-                .await?;
         };
 
         Ok(BtcWatchState {

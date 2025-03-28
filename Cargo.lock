@@ -9870,6 +9870,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier_storage_init"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "tokio",
+ "via_verifier_dal",
+ "zksync_config",
+ "zksync_node_genesis",
+ "zksync_node_storage_init",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_verifier_types"
 version = "0.1.0"
 dependencies = [
@@ -11956,6 +11970,7 @@ dependencies = [
  "via_verifier_btc_watch",
  "via_verifier_coordinator",
  "via_verifier_dal",
+ "via_verifier_storage_init",
  "via_withdrawal_client",
  "via_zk_verifier",
  "zksync_base_token_adjuster",
