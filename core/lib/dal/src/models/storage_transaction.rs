@@ -417,16 +417,16 @@ pub(crate) struct StorageTransactionDetails {
     pub error: Option<String>,
     pub effective_gas_price: Option<BigDecimal>,
     pub refunded_gas: i64,
-    pub eth_commit_tx_hash: Option<String>,
-    pub eth_prove_tx_hash: Option<String>,
-    pub eth_execute_tx_hash: Option<String>,
+    pub commit_tx_hash: Option<String>,
+    pub prove_tx_hash: Option<String>,
+    pub execute_tx_hash: Option<String>,
 }
 
 impl StorageTransactionDetails {
     fn get_transaction_status(&self) -> TransactionStatus {
         if self.error.is_some() {
             TransactionStatus::Failed
-        } else if self.eth_execute_tx_hash.is_some() {
+        } else if self.execute_tx_hash.is_some() {
             TransactionStatus::Verified
         } else if self.miniblock_number.is_some() {
             TransactionStatus::Included
@@ -457,14 +457,14 @@ impl From<StorageTransactionDetails> for TransactionDetails {
         let initiator_address = H160::from_slice(tx_details.initiator_address.as_slice());
         let received_at = DateTime::<Utc>::from_naive_utc_and_offset(tx_details.received_at, Utc);
 
-        let eth_commit_tx_hash = tx_details
-            .eth_commit_tx_hash
+        let commit_tx_hash = tx_details
+            .commit_tx_hash
             .map(|hash| H256::from_str(&hash).unwrap());
-        let eth_prove_tx_hash = tx_details
-            .eth_prove_tx_hash
+        let prove_tx_hash = tx_details
+            .prove_tx_hash
             .map(|hash| H256::from_str(&hash).unwrap());
-        let eth_execute_tx_hash = tx_details
-            .eth_execute_tx_hash
+        let execute_tx_hash = tx_details
+            .execute_tx_hash
             .map(|hash| H256::from_str(&hash).unwrap());
 
         TransactionDetails {
@@ -474,9 +474,9 @@ impl From<StorageTransactionDetails> for TransactionDetails {
             gas_per_pubdata,
             initiator_address,
             received_at,
-            eth_commit_tx_hash,
-            eth_prove_tx_hash,
-            eth_execute_tx_hash,
+            commit_tx_hash,
+            prove_tx_hash,
+            execute_tx_hash,
         }
     }
 }

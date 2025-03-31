@@ -29,6 +29,7 @@ tokio = { workspace = true, features = ["time"] }
 tracing.workspace = true
 vise.workspace = true
 rustls.workspace = true
+bitcoin = { version = "0.32.2", features = ["serde"] }
 
 [dev-dependencies]
 assert_matches.workspace = true

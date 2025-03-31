@@ -579,9 +579,9 @@ pub struct TransactionDetails {
     pub gas_per_pubdata: U256,
     pub initiator_address: Address,
     pub received_at: DateTime<Utc>,
-    pub eth_commit_tx_hash: Option<H256>,
-    pub eth_prove_tx_hash: Option<H256>,
-    pub eth_execute_tx_hash: Option<H256>,
+    pub commit_tx_hash: Option<H256>,
+    pub prove_tx_hash: Option<H256>,
+    pub execute_tx_hash: Option<H256>,
 }
 
 #[derive(Debug, Clone)]

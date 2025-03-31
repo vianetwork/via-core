@@ -20,6 +20,7 @@ pub mod storage_verification_request;
 pub mod storage_witness_job_info;
 #[cfg(test)]
 mod tests;
+pub mod via_storage_transaction;
 
 pub(crate) fn parse_h256(bytes: &[u8]) -> anyhow::Result<H256> {
     Ok(<[u8; 32]>::try_from(bytes).context("invalid size")?.into())

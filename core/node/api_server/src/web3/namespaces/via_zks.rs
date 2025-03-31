@@ -16,14 +16,12 @@ use zksync_types::{
     l1::L1Tx,
     l2::L2Tx,
     l2_to_l1_log::{l2_to_l1_logs_tree_size, L2ToL1Log},
-    tokens::ETHEREUM_ADDRESS,
     transaction_request::CallRequest,
-    utils::storage_key_for_standard_token_balance,
     web3::Bytes,
     AccountTreeId, L1BatchNumber, L2BlockNumber, ProtocolVersionId, StorageKey, Transaction,
-    L1_MESSENGER_ADDRESS, L2_BASE_TOKEN_ADDRESS, REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE, U256, U64,
+    L1_MESSENGER_ADDRESS, REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE, U256, U64,
 };
-use zksync_utils::{address_to_h256, h256_to_u256};
+use zksync_utils::address_to_h256;
 use zksync_web3_decl::{
     error::Web3Error,
     types::{Address, Token, H256},
@@ -35,7 +33,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct ZksNamespace {
+pub(crate) struct ZksNamespace {
     state: RpcState,
 }
 
@@ -44,7 +42,7 @@ impl ZksNamespace {
         Self { state }
     }
 
-    pub fn current_method(&self) -> &MethodTracer {
+    pub(crate) fn current_method(&self) -> &MethodTracer {
         &self.state.current_method
     }
 
@@ -118,11 +116,11 @@ impl ZksNamespace {
     }
 
     pub fn get_bridgehub_contract_impl(&self) -> Option<Address> {
-        self.state.api_config.bridgehub_proxy_addr
+        None
     }
 
     pub fn get_main_contract_impl(&self) -> Address {
-        self.state.api_config.diamond_proxy_addr
+        Address::zero()
     }
 
     pub fn get_testnet_paymaster_impl(&self) -> Option<Address> {
@@ -130,80 +128,29 @@ impl ZksNamespace {
     }
 
     pub fn get_bridge_contracts_impl(&self) -> BridgeAddresses {
-        self.state.api_config.bridge_addresses.clone()
+        BridgeAddresses {
+            l1_shared_default_bridge: None,
+            l2_shared_default_bridge: None,
+            l1_erc20_default_bridge: None,
+            l2_erc20_default_bridge: None,
+            l1_weth_bridge: None,
+            l2_weth_bridge: None,
+        }
     }
 
     pub fn l1_chain_id_impl(&self) -> U64 {
-        U64::from(*self.state.api_config.l1_chain_id)
+        U64::zero()
     }
 
-    pub async fn get_confirmed_tokens_impl(
-        &self,
-        from: u32,
-        limit: u8,
-    ) -> Result<Vec<Token>, Web3Error> {
-        let mut storage = self.state.acquire_connection().await?;
-        let tokens = storage
-            .tokens_web3_dal()
-            .get_well_known_tokens()
-            .await
-            .map_err(DalError::generalize)?;
-
-        let tokens = tokens
-            .into_iter()
-            .skip(from as usize)
-            .take(limit.into())
-            .map(|token_info| Token {
-                l1_address: token_info.l1_address,
-                l2_address: token_info.l2_address,
-                name: token_info.metadata.name,
-                symbol: token_info.metadata.symbol,
-                decimals: token_info.metadata.decimals,
-            })
-            .collect();
-        Ok(tokens)
+    pub async fn get_confirmed_tokens_impl(&self, _: u32, _: u8) -> Result<Vec<Token>, Web3Error> {
+        Ok(vec![])
     }
 
     pub async fn get_all_account_balances_impl(
         &self,
-        address: Address,
+        _: Address,
     ) -> Result<HashMap<Address, U256>, Web3Error> {
-        let mut storage = self.state.acquire_connection().await?;
-        let tokens = storage
-            .tokens_dal()
-            .get_all_l2_token_addresses()
-            .await
-            .map_err(DalError::generalize)?;
-        let hashed_balance_keys = tokens.iter().map(|&token_address| {
-            let token_account = AccountTreeId::new(if token_address == ETHEREUM_ADDRESS {
-                L2_BASE_TOKEN_ADDRESS
-            } else {
-                token_address
-            });
-            let hashed_key =
-                storage_key_for_standard_token_balance(token_account, &address).hashed_key();
-            (hashed_key, (hashed_key, token_address))
-        });
-        let (hashed_balance_keys, hashed_key_to_token_address): (Vec<_>, HashMap<_, _>) =
-            hashed_balance_keys.unzip();
-
-        let balance_values = storage
-            .storage_web3_dal()
-            .get_values(&hashed_balance_keys)
-            .await
-            .map_err(DalError::generalize)?;
-
-        let balances = balance_values
-            .into_iter()
-            .filter_map(|(hashed_key, balance)| {
-                let balance = h256_to_u256(balance);
-                if balance.is_zero() {
-                    return None;
-                }
-                Some((hashed_key_to_token_address[&hashed_key], balance))
-            })
-            .collect();
-        Ok(balances)
+        Ok(HashMap::new())
     }
 
     pub async fn get_l2_to_l1_msg_proof_impl(
@@ -388,7 +335,7 @@ impl ZksNamespace {
             .await?;
 
         Ok(storage
-            .blocks_web3_dal()
+            .via_blocks_web3_dal()
             .get_block_details(block_number)
             .await
             .map_err(DalError::generalize)?)
@@ -419,7 +366,7 @@ impl ZksNamespace {
         // Open a readonly transaction to have a consistent view of Postgres
         let mut storage = open_readonly_transaction(&mut storage).await?;
         let mut tx_details = storage
-            .transactions_web3_dal()
+            .via_transaction_web3_dal()
             .get_transaction_details(hash)
             .await
             .map_err(DalError::generalize)?;
@@ -445,7 +392,7 @@ impl ZksNamespace {
             .await?;
 
         Ok(storage
-            .blocks_web3_dal()
+            .via_blocks_web3_dal()
             .get_l1_batch_details(batch_number)
             .await
             .map_err(DalError::generalize)?)
@@ -555,10 +502,7 @@ impl ZksNamespace {
     }
 
     pub fn get_base_token_l1_address_impl(&self) -> Result<Address, Web3Error> {
-        self.state
-            .api_config
-            .base_token_address
-            .ok_or(Web3Error::MethodNotImplemented)
+        Ok(Address::zero())
     }
 
     #[tracing::instrument(skip(self))]

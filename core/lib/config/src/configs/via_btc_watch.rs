@@ -41,6 +41,9 @@ pub struct ViaBtcWatchConfig {
 
     /// The agreement threshold required for the verifier to finalize an L1 batch.
     pub zk_agreement_threshold: f64,
+
+    /// Bridge address
+    pub bridge_address: String,
 }
 
 impl ViaBtcWatchConfig {
@@ -105,6 +108,7 @@ impl ViaBtcWatchConfig {
             actor_role: ActorRole::Sequencer,
             btc_blocks_lag: 1,
             zk_agreement_threshold: 0.5,
+            bridge_address: "".to_string(),
         }
     }
 }
