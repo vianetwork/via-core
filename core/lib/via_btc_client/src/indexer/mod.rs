@@ -399,6 +399,11 @@ impl BitcoinInscriptionIndexer {
         match message {
             FullInscriptionMessage::SystemBootstrapping(sb) => {
                 debug!("Processing SystemBootstrapping message");
+                let p2wpkh_address = sb
+                    .common
+                    .p2wpkh_address
+                    .as_ref()
+                    .expect("SystemBootstrapping message must have a p2wpkh address");
 
                 // convert the verifier addresses to the correct network
                 // since the bootstrap message should run on the bootstrapping phase of sequencer
@@ -423,20 +428,22 @@ impl BitcoinInscriptionIndexer {
                     .governance_address
                     .require_network(network)
                     .unwrap();
-                state.bridge_address = Some(bridge_address);
-                state.starting_block_number = sb.input.start_block_height;
-                state.bootloader_hash = Some(sb.input.bootloader_hash);
-                state.abstract_account_hash = Some(sb.input.abstract_account_hash);
-                state.proposed_governance = Some(governance_address);
+
+                if &governance_address == p2wpkh_address {
+                    state.bridge_address = Some(bridge_address);
+                    state.starting_block_number = sb.input.start_block_height;
+                    state.bootloader_hash = Some(sb.input.bootloader_hash);
+                    state.abstract_account_hash = Some(sb.input.abstract_account_hash);
+                    state.proposed_governance = Some(governance_address);
+                }
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
                 debug!("Processing ProposeSequencer message");
                 let p2wpkh_address = ps
                     .common
                     .p2wpkh_address
-                    .as_ref()
                     .expect("ProposeSequencer message must have a p2wpkh address");
-                if state.verifier_addresses.contains(p2wpkh_address) {
+                if state.proposed_governance == Some(p2wpkh_address) {
                     let sequencer_address = ps
                         .input
                         .sequencer_new_p2wpkh_address

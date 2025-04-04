@@ -1,22 +1,55 @@
 use std::{
-    env,
-    fs::{remove_file, OpenOptions},
+    collections::HashMap,
+    env, fmt,
+    fs::{create_dir_all, remove_dir_all, File},
     io::Write,
+    str::FromStr,
 };
 
-use anyhow::{Context, Result};
-use bitcoin::address::NetworkUnchecked;
+use anyhow::Context;
+use bitcoin::{address::NetworkUnchecked, CompressedPublicKey, Txid};
+use musig2::KeyAggContext;
+use secp256k1_musig2::PublicKey as Musig2PublicKey;
+use serde::{Deserialize, Serialize};
+use serde_json::to_string_pretty;
 use tracing::info;
 use via_btc_client::{
+    indexer::MessageParser,
     inscriber::Inscriber,
     types::{
-        BitcoinAddress, BitcoinNetwork, InscriptionMessage, NodeAuth, ProposeSequencerInput,
-        SystemBootstrappingInput, ValidatorAttestationInput, Vote,
+        BitcoinAddress, BitcoinNetwork, FullInscriptionMessage, InscriptionMessage, NodeAuth,
+        ProposeSequencerInput, SystemBootstrappingInput, ValidatorAttestationInput, Vote,
     },
 };
 use zksync_basic_types::H256;
 
-const TIMEOUT: u64 = 5;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+enum InscriptionType {
+    SystemBootstrapping,
+    Attest,
+    Empty,
+}
+
+impl fmt::Display for InscriptionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let t = match self {
+            Self::SystemBootstrapping => "SystemBootstrapping",
+            Self::Attest => "Attest",
+            Self::Empty => "",
+        };
+        write!(f, "{}", t)
+    }
+}
+
+impl From<&str> for InscriptionType {
+    fn from(value: &str) -> Self {
+        match value {
+            "SystemBootstrapping" => Self::SystemBootstrapping,
+            "Attest" => Self::Attest,
+            _ => Self::Empty,
+        }
+    }
+}
 
 async fn create_inscriber(
     signer_private_key: &str,
@@ -24,7 +57,7 @@ async fn create_inscriber(
     rpc_username: &str,
     rpc_password: &str,
     network: BitcoinNetwork,
-) -> Result<Inscriber> {
+) -> anyhow::Result<Inscriber> {
     Inscriber::new(
         rpc_url,
         network,
@@ -37,7 +70,7 @@ async fn create_inscriber(
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
@@ -47,141 +80,245 @@ async fn main() -> Result<()> {
     let rpc_url = args[2].clone();
     let rpc_username = args[3].clone();
     let rpc_password = args[4].clone();
+    let inscription = InscriptionType::from(args[5].clone().as_str());
+    let private_key = args[6].clone();
 
-    // Regtest verifier keys
-    // pubkey: 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b
-    let verifier_1_private_key = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm".to_string();
-    // pubkey: 02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662
-    let verifier_2_private_key = "cQ4UHjdsGWFMcQ8zXcaSr7m4Kxq9x7g9EKqguTaFH7fA34mZAnqW".to_string();
-    // pubkey: 03cf1b1c7ad2952a99e6e2d12d52437f41f867c30eceef1bf88f402296424d6eb8
-    let _verifier_3_private_key =
-        "cS9UbUKKepDjthBFPBDBe5vGVjNXXygCN75kPWmNKk7HTPV8p6he".to_string();
+    let mut inscriber = create_inscriber(
+        &private_key,
+        &rpc_url,
+        &rpc_username,
+        &rpc_password,
+        network,
+    )
+    .await?;
 
-    let sequencer_p2wpkh_address = "bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56"
-        .parse::<BitcoinAddress<NetworkUnchecked>>()?;
-    let verifier_1_p2wpkh_address = "bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv"
-        .parse::<BitcoinAddress<NetworkUnchecked>>()?;
-    let verifier_2_p2wpkh_address = "bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4"
-        .parse::<BitcoinAddress<NetworkUnchecked>>()?;
-    let _verifier_3_p2wpkh_address = "bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm"
-        .parse::<BitcoinAddress<NetworkUnchecked>>()?;
+    match inscription {
+        InscriptionType::SystemBootstrapping => {
+            let system_tx_id = bootstrap_inscription(&args, &mut inscriber, network).await?;
+            let propose_sequencer_tx_id = propose_sequencer(&args, &mut inscriber, network).await?;
+            let mut data = HashMap::new();
+            data.insert("system_tx_id".to_string(), system_tx_id.to_string());
+            data.insert(
+                "propose_sequencer_tx_id".to_string(),
+                propose_sequencer_tx_id.to_string(),
+            );
+            data.insert(
+                "tx_type".to_string(),
+                InscriptionType::SystemBootstrapping.to_string(),
+            );
+            let json_data = to_string_pretty(&data).expect("Failed to serialize");
 
-    // cargo run --example key_generation_setup coordinator 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b 02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662
-    let bridge_musig2_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
-        .parse::<BitcoinAddress<NetworkUnchecked>>()?;
+            let dir = format!("etc/env/via/genesis/{}", network,);
 
-    let mut verifier_inscribers: Vec<Inscriber> = vec![
-        create_inscriber(
-            &verifier_1_private_key,
-            &rpc_url,
-            &rpc_username,
-            &rpc_password,
-            network,
-        )
-        .await?,
-        create_inscriber(
-            &verifier_2_private_key,
-            &rpc_url,
-            &rpc_username,
-            &rpc_password,
-            network,
-        )
-        .await?,
-        // create_inscriber(
-        //     &verifier_3_private_key,
-        //     &rpc_url,
-        //     &rpc_username,
-        //     &rpc_password,
-        //     network,
-        // )
-        // .await?,
-    ];
+            if network == BitcoinNetwork::Regtest {
+                remove_dir_all(dir.clone())?;
+            }
+
+            create_dir_all(dir.clone())?;
+
+            let path = format!("{}/{}.json", dir, InscriptionType::SystemBootstrapping);
+
+            save_inscription_metadata(json_data.clone(), path)?;
+        }
+        InscriptionType::Attest => {
+            let tx_id = attest_sequencer(&args, &mut inscriber, network).await?;
+
+            let mut data = HashMap::new();
+            data.insert("tx_id".to_string(), tx_id.to_string());
+            data.insert("tx_type".to_string(), InscriptionType::Attest.to_string());
+            let json_data = to_string_pretty(&data).expect("Failed to serialize");
+
+            let dir = format!("etc/env/via/genesis/{}", network,);
+
+            create_dir_all(dir.clone())?;
+
+            let path = format!("{}/{}_{}.json", dir, InscriptionType::Attest, tx_id);
+
+            save_inscription_metadata(json_data, path)?;
+        }
+        InscriptionType::Empty => {
+            anyhow::bail!("Invalid inscription")
+        }
+    }
+
+    Ok(())
+}
+
+/// Create a system bootstraping inscription
+pub async fn bootstrap_inscription(
+    args: &Vec<String>,
+    inscriber: &mut Inscriber,
+    network: BitcoinNetwork,
+) -> anyhow::Result<Txid> {
+    let start_block_height = args[7].clone().parse::<u32>()?;
+    let verifier_public_keys = args[8]
+        .clone()
+        .split(",")
+        .map(|pub_key_str| {
+            let pub_key = Musig2PublicKey::from_str(pub_key_str)?;
+            Ok(pub_key)
+        })
+        .collect::<anyhow::Result<Vec<Musig2PublicKey>>>()?;
+
+    let verifier_p2wpkh_addresses = args[8]
+        .clone()
+        .split(",")
+        .map(|pub_key_str| {
+            let cpk = CompressedPublicKey::from_str(pub_key_str)?;
+            let address = BitcoinAddress::p2wpkh(&cpk, network).as_unchecked().clone();
+            Ok(address)
+        })
+        .collect::<anyhow::Result<Vec<BitcoinAddress<NetworkUnchecked>>>>()?;
+
+    let bootloader_hash = H256::from_str(&args[9].clone())?;
+    let abstract_account_hash = H256::from_str(&args[10].clone())?;
+    let governance_address = BitcoinAddress::from_str(&args[11].clone())?
+        .require_network(network)?
+        .as_unchecked()
+        .clone();
+
+    let bridge_musig2_address = BitcoinAddress::from_str(&args[12].clone())?
+        .require_network(network)?
+        .as_unchecked()
+        .clone();
+
+    let computed_bridge_musig2_address = compute_bridge_address(verifier_public_keys, network)?
+        .as_unchecked()
+        .clone();
+
+    assert_eq!(bridge_musig2_address, computed_bridge_musig2_address);
 
     // Bootstrapping message
     let input = SystemBootstrappingInput {
-        start_block_height: 1,
-        verifier_p2wpkh_addresses: vec![
-            verifier_1_p2wpkh_address,
-            verifier_2_p2wpkh_address,
-            // verifier_3_p2wpkh_address,
-        ],
+        start_block_height,
+        verifier_p2wpkh_addresses,
         bridge_musig2_address,
-        bootloader_hash: H256::zero(),
-        abstract_account_hash: H256::random(),
-        governance_address: sequencer_p2wpkh_address.clone(),
+        bootloader_hash,
+        abstract_account_hash,
+        governance_address,
     };
-    let bootstrap_info = verifier_inscribers[0]
+
+    let bootstrap_info = inscriber
         .inscribe(InscriptionMessage::SystemBootstrapping(input))
         .await?;
     info!(
         "Bootstrapping tx sent: {:?}",
-        bootstrap_info.final_reveal_tx.txid
+        &bootstrap_info.final_reveal_tx.txid
     );
 
-    tokio::time::sleep(std::time::Duration::from_secs(TIMEOUT)).await;
+    Ok(bootstrap_info.final_reveal_tx.txid)
+}
 
-    // Propose sequencer message
+// cargo run --example bootstrap \
+// regtest \
+// http://0.0.0.0:18443 \
+// rpcuser \
+// rpcpassword \
+// ProposeSequencer \
+// cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
+// bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
+
+/// Propose sequencer message
+pub async fn propose_sequencer(
+    args: &Vec<String>,
+    inscriber: &mut Inscriber,
+    network: BitcoinNetwork,
+) -> anyhow::Result<Txid> {
+    let sequencer_new_p2wpkh_address = BitcoinAddress::from_str(&args[13].clone())?
+        .require_network(network)?
+        .as_unchecked()
+        .clone();
+
     let input = ProposeSequencerInput {
-        sequencer_new_p2wpkh_address: sequencer_p2wpkh_address,
+        sequencer_new_p2wpkh_address,
     };
-    let propose_info = verifier_inscribers[1]
+
+    let propose_info = inscriber
         .inscribe(InscriptionMessage::ProposeSequencer(input))
         .await?;
     info!(
         "Propose sequencer tx sent: {:?}",
-        propose_info.final_reveal_tx.txid
+        &propose_info.final_reveal_tx.txid
     );
 
-    tokio::time::sleep(std::time::Duration::from_secs(TIMEOUT)).await;
+    Ok(propose_info.final_reveal_tx.txid)
+}
 
-    // Validator attestation messages for proposed sequencer
-    let verifier_inscribers_len = verifier_inscribers.len();
-    let mut validators_info = Vec::with_capacity(verifier_inscribers_len);
-    let input = ValidatorAttestationInput {
-        reference_txid: propose_info.final_reveal_tx.txid,
-        attestation: Vote::Ok,
+// cargo run --example bootstrap \
+// regtest \
+// http://0.0.0.0:18443 \
+// rpcuser \
+// rpcpassword \
+// Attest \
+// cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
+// a6266c85a5c88c34b18e5bb01f2639a21299b27a070ed2317bd06b2766c6b6b6
+/// Attest the sequencer proposal
+pub async fn attest_sequencer(
+    args: &Vec<String>,
+    inscriber: &mut Inscriber,
+    network: BitcoinNetwork,
+) -> anyhow::Result<Txid> {
+    let propose_sequencer_reveal_tx_id = Txid::from_str(&args[7].clone())?;
+
+    let client = inscriber.get_client().await;
+    let tx = client
+        .get_transaction(&propose_sequencer_reveal_tx_id)
+        .await?;
+    let mut parser = MessageParser::new(network);
+
+    let res = parser.parse_system_transaction(&tx, 0);
+    if res.is_empty() {
+        anyhow::bail!(
+            "Inscription not found {:?}",
+            propose_sequencer_reveal_tx_id.to_string()
+        )
+    }
+
+    match res[0] {
+        FullInscriptionMessage::ProposeSequencer(_) => true,
+        _ => anyhow::bail!("Invalid inscription"),
     };
 
-    for (i, inscriber) in verifier_inscribers.iter_mut().enumerate() {
-        let validator_info = inscriber
-            .inscribe(InscriptionMessage::ValidatorAttestation(input.clone()))
-            .await?;
-        info!(
-            "Validator {} attestation tx sent: {:?}",
-            i + 1,
-            validator_info.final_reveal_tx.txid
-        );
+    let input = ValidatorAttestationInput {
+        reference_txid: propose_sequencer_reveal_tx_id,
+        attestation: Vote::Ok,
+    };
+    let validator_info = inscriber
+        .inscribe(InscriptionMessage::ValidatorAttestation(input.clone()))
+        .await?;
+    info!(
+        "Validator attestation for propose sequencer tx sent: {:?}",
+        &validator_info.final_reveal_tx.txid
+    );
 
-        validators_info.push(validator_info);
+    Ok(validator_info.final_reveal_tx.txid)
+}
 
-        if i < verifier_inscribers_len - 1 {
-            tokio::time::sleep(std::time::Duration::from_secs(TIMEOUT)).await;
-        }
-    }
+pub fn compute_bridge_address(
+    pubkeys: Vec<Musig2PublicKey>,
+    network: BitcoinNetwork,
+) -> anyhow::Result<BitcoinAddress> {
+    let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    if let Err(err) = remove_file("txids.via") {
-        if err.kind() != std::io::ErrorKind::NotFound {
-            return Err(anyhow::anyhow!(
-                "Failed to delete existing txids.via file: {:?}",
-                err
-            ));
-        }
-    }
+    let musig_key_agg_cache = KeyAggContext::new(pubkeys)?;
 
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("txids.via")
-        .context("Failed to open txids.via file")?;
+    let agg_pubkey = musig_key_agg_cache.aggregated_pubkey::<secp256k1_musig2::PublicKey>();
+    let (xonly_agg_key, _) = agg_pubkey.x_only_public_key();
 
-    writeln!(file, "{:?}", bootstrap_info.final_reveal_tx.txid)
-        .context("Failed to write bootstrapping txid")?;
-    writeln!(file, "{:?}", propose_info.final_reveal_tx.txid)
-        .context("Failed to write propose sequencer txid")?;
-    for validator_info in validators_info {
-        writeln!(file, "{:?}", validator_info.final_reveal_tx.txid)
-            .context("Failed to write validator attestation txid")?;
-    }
+    // Convert to bitcoin XOnlyPublicKey first
+    let internal_key = bitcoin::XOnlyPublicKey::from_slice(&xonly_agg_key.serialize())?;
+
+    // Use internal_key for address creation
+    let address = BitcoinAddress::p2tr(&secp, internal_key, None, network);
+
+    Ok(address)
+}
+
+fn save_inscription_metadata(data: String, path: String) -> anyhow::Result<()> {
+    let mut file = File::create(&path)?;
+    file.write_all(data.as_bytes())?;
+
+    println!("JSON {path} file saved successfully!");
 
     Ok(())
 }
