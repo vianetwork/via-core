@@ -23,7 +23,6 @@ pub struct ViaDataAvailabilityDispatcher {
     pool: ConnectionPool<Core>,
     config: DADispatcherConfig,
     blob_store: Arc<dyn ObjectStore>,
-    dispatch_real_proof: bool,
 }
 
 impl ViaDataAvailabilityDispatcher {
@@ -32,14 +31,12 @@ impl ViaDataAvailabilityDispatcher {
         config: DADispatcherConfig,
         client: Box<dyn DataAvailabilityClient>,
         blob_store: Arc<dyn ObjectStore>,
-        dispatch_real_proof: bool,
     ) -> Self {
         Self {
             pool,
             config,
             client,
             blob_store,
-            dispatch_real_proof,
         }
     }
 
@@ -144,7 +141,7 @@ impl ViaDataAvailabilityDispatcher {
     }
 
     async fn dispatch_proofs(&self) -> anyhow::Result<()> {
-        match self.dispatch_real_proof {
+        match self.config.use_dummy_inclusion_data() {
             true => self.dispatch_real_proofs().await?,
             false => self.dispatch_dummy_proofs().await?,
         }

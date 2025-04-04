@@ -2,8 +2,10 @@
 
 use std::{slice, sync::Arc, time::Duration};
 
-use via_btc_client::inscriber::test_utils::{
-    get_mock_inscriber_and_conditions, MockBitcoinOpsConfig,
+use via_btc_client::{
+    client::BitcoinClient,
+    inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOpsConfig},
+    types::BitcoinNetwork,
 };
 use via_fee_model::{ViaGasAdjuster, ViaMainNodeFeeInputProvider};
 use zksync_config::{
@@ -59,6 +61,13 @@ impl Tester {
             max_gas_per_batch: 500_000_000,
             max_pubdata_per_batch: 100_000,
         };
+        inscriber.get_client().await;
+        let client = BitcoinClient::new(
+            "",
+            BitcoinNetwork::Regtest,
+            via_btc_client::types::NodeAuth::None,
+        )
+        .unwrap();
         ViaMainNodeFeeInputProvider::new(
             Arc::new(
                 ViaGasAdjuster::new(
@@ -66,7 +75,7 @@ impl Tester {
                         internal_enforced_pubdata_price: Some(10),
                         ..Default::default()
                     },
-                    inscriber,
+                    Arc::new(client),
                 )
                 .await
                 .unwrap(),

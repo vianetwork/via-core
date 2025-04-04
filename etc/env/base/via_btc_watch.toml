@@ -1,0 +1,7 @@
+[via_btc_watch]
+# The interval in milliseconds between btc sender cycles.
+poll_interval = 5000
+# The number of L1 block to mark the inscription as finalized. 
+block_confirmations = 0
+# Number of blocks that we should check when restarting the service.
+btc_blocks_lag = 1000

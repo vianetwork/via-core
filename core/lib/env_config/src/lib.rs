@@ -20,8 +20,11 @@ mod observability;
 mod proof_data_handler;
 mod snapshots_creator;
 mod utils;
+mod via_btc_client;
 mod via_btc_sender;
 mod via_celestia;
+mod via_consensus;
+mod via_wallets;
 
 mod via_verifier;
 

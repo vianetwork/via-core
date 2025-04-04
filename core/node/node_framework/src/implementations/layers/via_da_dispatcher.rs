@@ -18,7 +18,6 @@ use crate::{
 pub struct DataAvailabilityDispatcherLayer {
     state_keeper_config: StateKeeperConfig,
     da_config: DADispatcherConfig,
-    dispatch_real_proof: bool,
 }
 
 #[derive(Debug, FromContext)]
@@ -37,15 +36,10 @@ pub struct Output {
 }
 
 impl DataAvailabilityDispatcherLayer {
-    pub fn new(
-        state_keeper_config: StateKeeperConfig,
-        da_config: DADispatcherConfig,
-        dispatch_real_proof: bool,
-    ) -> Self {
+    pub fn new(state_keeper_config: StateKeeperConfig, da_config: DADispatcherConfig) -> Self {
         Self {
             state_keeper_config,
             da_config,
-            dispatch_real_proof,
         }
     }
 }
@@ -79,7 +73,6 @@ impl WiringLayer for DataAvailabilityDispatcherLayer {
             self.da_config,
             da_client,
             object_store,
-            self.dispatch_real_proof,
         );
 
         Ok(Output { da_dispatcher_task })
