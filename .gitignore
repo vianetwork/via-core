@@ -122,3 +122,4 @@ core/tests/ts-integration/deployments-zk
 *.via
 
 celestia-keys/*
+etc/env/via/genesis/regtest
