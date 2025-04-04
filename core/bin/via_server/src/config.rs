@@ -10,8 +10,8 @@ use zksync_config::{
         FriWitnessGeneratorConfig, ObservabilityConfig, PrometheusConfig, ProofDataHandlerConfig,
         ProtectiveReadsWriterConfig,
     },
-    ApiConfig, DADispatcherConfig, DBConfig, EthConfig, GasAdjusterConfig, ObjectStoreConfig,
-    PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
+    ApiConfig, ContractVerifierConfig, DADispatcherConfig, DBConfig, EthConfig, GasAdjusterConfig,
+    ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
 };
 use zksync_core_leftovers::temp_config_store::{decode_yaml_repr, TempConfigStore};
 use zksync_env_config::FromEnv;
@@ -49,7 +49,7 @@ pub(crate) fn load_env_config() -> anyhow::Result<TempConfigStore> {
         circuit_breaker_config: CircuitBreakerConfig::from_env().ok(),
         mempool_config: MempoolConfig::from_env().ok(),
         network_config: None,
-        contract_verifier: None,
+        contract_verifier: ContractVerifierConfig::from_env().ok(),
         operations_manager_config: OperationsManagerConfig::from_env().ok(),
         state_keeper_config: StateKeeperConfig::from_env().ok(),
         house_keeper_config: HouseKeeperConfig::from_env().ok(),

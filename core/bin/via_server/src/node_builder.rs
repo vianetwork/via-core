@@ -13,6 +13,7 @@ use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
         commitment_generator::CommitmentGeneratorLayer,
+        contract_verification_api::ContractVerificationApiLayer,
         healtcheck_server::HealthCheckLayer,
         house_keeper::HouseKeeperLayer,
         logs_bloom_backfill::LogsBloomBackfillLayer,
@@ -439,6 +440,12 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_contract_verification_api_layer(mut self) -> anyhow::Result<Self> {
+        let config = try_load_config!(self.configs.contract_verifier);
+        self.node.add_layer(ContractVerificationApiLayer(config));
+        Ok(self)
+    }
+
     /// Builds the node with the genesis initialization task only.
     pub fn only_genesis(mut self) -> anyhow::Result<ZkStackService> {
         self = self
@@ -469,6 +476,7 @@ impl ViaNodeBuilder {
             .add_api_caches_layer()?
             .add_tree_api_client_layer()?
             .add_http_web3_api_layer()?
+            .add_contract_verification_api_layer()?
             .add_vm_runner_protective_reads_layer()?
             .add_vm_runner_bwip_layer()?
             .add_storage_initialization_layer(LayerKind::Task)?
