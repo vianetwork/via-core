@@ -62,7 +62,7 @@ impl ViaBtcInscriptionAggregator {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
-        let protocol_version_id = self.get_protocol_version_id().await?;
+        let protocol_version_id = self.get_protocol_version_id(storage).await?;
 
         let base_system_contracts_hashes = self
             .load_base_system_contracts(storage, protocol_version_id)
@@ -137,7 +137,17 @@ impl ViaBtcInscriptionAggregator {
         )
     }
 
-    async fn get_protocol_version_id(&self) -> anyhow::Result<ProtocolVersionId> {
-        Ok(ProtocolVersionId::latest())
+    async fn get_protocol_version_id(
+        &self,
+        storage: &mut Connection<'_, Core>,
+    ) -> anyhow::Result<ProtocolVersionId> {
+        let semantic_version = storage
+            .protocol_versions_dal()
+            .latest_semantic_version()
+            .await?;
+        if let Some(version) = semantic_version {
+            return Ok(version.minor);
+        }
+        anyhow::bail!("Failed to get the latest protocol version");
     }
 }
