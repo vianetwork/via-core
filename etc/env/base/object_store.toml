@@ -13,3 +13,6 @@ file_backed_base_path="artifacts"
 [snapshots_object_store]
 mode="FileBacked"
 file_backed_base_path="artifacts"
+
+[snapshots_creator]
+object_store={mode="FileBacked", file_backed_base_path="artifacts"}
