@@ -1,10 +1,15 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
-use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
-use via_btc_watch::BitcoinNetwork;
+use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
-use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
+use zksync_config::{
+    configs::{
+        via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig,
+        via_secrets::ViaL1Secrets,
+    },
+    ViaVerifierConfig,
+};
 
 use crate::{
     implementations::resources::{
@@ -20,8 +25,10 @@ use crate::{
 /// Wiring layer for coordinator api
 #[derive(Debug)]
 pub struct ViaCoordinatorApiLayer {
-    pub config: ViaVerifierConfig,
-    pub btc_sender_config: ViaBtcSenderConfig,
+    via_genesis_config: ViaGenesisConfig,
+    via_btc_client: ViaBtcClientConfig,
+    verifier_config: ViaVerifierConfig,
+    secrets: ViaL1Secrets,
 }
 
 #[derive(Debug, FromContext)]
@@ -38,6 +45,22 @@ pub struct Output {
     pub via_coordinator_api_task: ViaCoordinatorApiTask,
 }
 
+impl ViaCoordinatorApiLayer {
+    pub fn new(
+        via_genesis_config: ViaGenesisConfig,
+        via_btc_client: ViaBtcClientConfig,
+        verifier_config: ViaVerifierConfig,
+        secrets: ViaL1Secrets,
+    ) -> Self {
+        Self {
+            via_genesis_config,
+            via_btc_client,
+            verifier_config,
+            secrets,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl WiringLayer for ViaCoordinatorApiLayer {
     type Input = Input;
@@ -49,22 +72,25 @@ impl WiringLayer for ViaCoordinatorApiLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let master_pool = input.master_pool.get().await?;
-        let auth = NodeAuth::UserPass(
-            self.btc_sender_config.rpc_user().to_string(),
-            self.btc_sender_config.rpc_password().to_string(),
+
+        let btc_client = Arc::new(
+            BitcoinClient::new(
+                self.secrets.rpc_url.expose_str(),
+                self.via_btc_client.network(),
+                self.secrets.auth_node(),
+            )
+            .unwrap(),
         );
-        let network = BitcoinNetwork::from_str(self.btc_sender_config.network()).unwrap();
 
-        let btc_client =
-            Arc::new(BitcoinClient::new(self.btc_sender_config.rpc_url(), network, auth).unwrap());
-
-        let withdrawal_client = WithdrawalClient::new(input.client.0, network);
+        let withdrawal_client =
+            WithdrawalClient::new(input.client.0, self.via_btc_client.network());
 
         let via_coordinator_api_task = ViaCoordinatorApiTask {
+            verifier_config: self.verifier_config,
             master_pool,
-            config: self.config,
             btc_client,
             withdrawal_client,
+            via_genesis_config: self.via_genesis_config,
         };
         Ok(Output {
             via_coordinator_api_task,
@@ -74,10 +100,11 @@ impl WiringLayer for ViaCoordinatorApiLayer {
 
 #[derive(Debug)]
 pub struct ViaCoordinatorApiTask {
+    verifier_config: ViaVerifierConfig,
     master_pool: ConnectionPool<Verifier>,
-    config: ViaVerifierConfig,
     btc_client: Arc<dyn BitcoinOps>,
     withdrawal_client: WithdrawalClient,
+    via_genesis_config: ViaGenesisConfig,
 }
 
 #[async_trait::async_trait]
@@ -88,10 +115,13 @@ impl Task for ViaCoordinatorApiTask {
 
     async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
         via_verifier_coordinator::coordinator::api::start_coordinator_server(
-            self.config,
+            self.verifier_config,
             self.master_pool,
             self.btc_client,
             self.withdrawal_client,
+            self.via_genesis_config.bridge_address()?,
+            self.via_genesis_config.verifiers_pub_keys.clone(),
+            self.via_genesis_config.required_signers,
             stop_receiver.0,
         )
         .await

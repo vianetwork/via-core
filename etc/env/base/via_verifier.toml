@@ -1,0 +1,14 @@
+[via_verifier]
+# Interval between polling db for verification requests (in ms).
+poll_interval = 10000
+# Coordinator server port.
+coordinator_port = 6060
+# Coordinator server url.
+coordinator_http_url = "http://0.0.0.0:6060"
+# Verifier Request Timeout (in seconds)
+verifier_request_timeout = 10
+# The verifier_mode can be simple verifier or coordinator.
+role = "Coordinator"
+# (TEST ONLY) returns the proof verification result.
+test_zk_proof_invalid_l1_batch_numbers = []
+

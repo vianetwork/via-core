@@ -1,5 +1,3 @@
-// transactions.ts
-
 import { Command } from 'commander';
 import * as utils from 'utils';
 

@@ -1,0 +1,16 @@
+[via_genesis]
+# The bridge address
+bridge_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
+# The coordinator address
+coordinator_pub_key = "03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b"
+# The verifiers public keys
+verifiers_pub_keys = [
+    "03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b",
+    "02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662",
+]
+# Minimum required signers to finalise a musig2 session
+required_signers = 2
+# Minimum vote threshold to finalise an L1 batch
+zk_agreement_threshold = 0.5
+# The bootstraping inscriptions
+bootstrap_txids = []

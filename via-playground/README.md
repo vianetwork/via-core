@@ -33,18 +33,25 @@ and replace it in `hardhat.config.ts`.
    ```
 
 4. Deploy a Crowdfunding contract with the desired funding goal:
+
    ```shell
    npx hardhat deploy --amount 10000
    ```
+
 5. Print the Crowdfunding funding goal:
+
    ```shell
    npx hardhat stats
    ```
+
 6. Contribute to the Crowdfunding:
+
    ```shell
    npx hardhat contribute --amount 10000
    ```
+
 7. Withdraw funds from the Crowdfunding to the owner:
+
    ```shell
    npx hardhat withdraw
    ```

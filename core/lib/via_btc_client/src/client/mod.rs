@@ -14,6 +14,7 @@ use crate::{
     types::{BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth},
 };
 
+#[derive(Debug)]
 pub struct BitcoinClient {
     rpc: Arc<dyn BitcoinRpc>,
     network: BitcoinNetwork,
@@ -219,6 +220,7 @@ mod tests {
     use crate::types::BitcoinRpcResult;
 
     mock! {
+        #[derive(Debug)]
         BitcoinRpc {}
         #[async_trait]
         impl BitcoinRpc for BitcoinRpc {

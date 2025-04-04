@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::fmt::Debug;
+
 use async_trait::async_trait;
 use bitcoin::{
     key::UntweakedPublicKey,
@@ -52,7 +54,7 @@ impl std::fmt::Debug for dyn BitcoinOps + 'static {
 }
 
 #[async_trait]
-pub trait BitcoinRpc: Send + Sync {
+pub trait BitcoinRpc: Send + Sync + Debug {
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64>;
     async fn get_balance_scan(&self, address: &Address) -> BitcoinRpcResult<u64>;
     async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinRpcResult<Txid>;

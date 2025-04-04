@@ -83,7 +83,7 @@ impl ViaBtcInscriptionManager {
                     .await
                     .check_tx_confirmation(
                         &last_inscription_history.reveal_tx_id,
-                        self.config.block_confirmations(),
+                        self.config.block_confirmations,
                     )
                     .await?;
 
@@ -137,7 +137,7 @@ impl ViaBtcInscriptionManager {
 
         let number_of_available_slots_for_inscription_txs = self
             .config
-            .max_txs_in_flight()
+            .max_txs_in_flight
             .saturating_sub(number_inflight_txs as i64);
 
         tracing::debug!(

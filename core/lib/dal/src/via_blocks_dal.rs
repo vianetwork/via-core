@@ -370,7 +370,6 @@ impl ViaBlocksDal<'_, '_> {
         .instrument("get_last_committed_to_btc_l1_batch")
         .fetch_optional(self.storage)
         .await?;
-        if batch.is_none() {}
 
         Ok(batch.map(|details| details.into()))
     }

@@ -1,1 +1,1 @@
-__imports__ = ["base", "l2-inits/via.init.env", "configs/via_base.toml"]
+__imports__ = ["base", "l2-inits/via.init.env"]

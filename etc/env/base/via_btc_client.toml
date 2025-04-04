@@ -1,0 +1,8 @@
+[via_btc_client]
+# 'btc_rpc_user' is defined in the `via_private.toml`
+# 'btc_rpc_password' is defined in the `via_private.toml`
+
+# Name of the used Bitcoin network
+network = "regtest"
+# The Bitcoin RPC URL.
+rpc_url = "http://0.0.0.0:18443"

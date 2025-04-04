@@ -1,8 +1,12 @@
 use anyhow::Context;
-use via_btc_client::{inscriber::Inscriber, types::NodeAuth};
+use via_btc_client::inscriber::Inscriber;
 use via_btc_sender::btc_inscription_manager::ViaBtcInscriptionManager;
-use via_btc_watch::BitcoinNetwork;
-use zksync_config::ViaBtcSenderConfig;
+use zksync_config::{
+    configs::{
+        via_btc_client::ViaBtcClientConfig, via_secrets::ViaL1Secrets, via_wallets::ViaWallet,
+    },
+    ViaBtcSenderConfig,
+};
 
 use crate::{
     implementations::resources::pools::{MasterPool, PoolResource},
@@ -26,7 +30,10 @@ use crate::{
 /// - `ViaBtcInscriptionManager`
 #[derive(Debug)]
 pub struct ViaInscriptionManagerLayer {
-    pub config: ViaBtcSenderConfig,
+    via_btc_client: ViaBtcClientConfig,
+    config: ViaBtcSenderConfig,
+    wallet: ViaWallet,
+    secrets: ViaL1Secrets,
 }
 
 #[derive(Debug, FromContext)]
@@ -43,8 +50,18 @@ pub struct Output {
 }
 
 impl ViaInscriptionManagerLayer {
-    pub fn new(config: ViaBtcSenderConfig) -> Self {
-        Self { config }
+    pub fn new(
+        via_btc_client: ViaBtcClientConfig,
+        config: ViaBtcSenderConfig,
+        wallet: ViaWallet,
+        secrets: ViaL1Secrets,
+    ) -> Self {
+        Self {
+            via_btc_client,
+            config,
+            wallet,
+            secrets,
+        }
     }
 }
 
@@ -61,21 +78,15 @@ impl WiringLayer for ViaInscriptionManagerLayer {
         // Get resources.
         let master_pool = input.master_pool.get().await.unwrap();
 
-        let network = BitcoinNetwork::from_core_arg(self.config.network())
-            .map_err(|_| WiringError::Configuration("Wrong network in config".to_string()))?;
-
         let inscriber = Inscriber::new(
-            self.config.rpc_url(),
-            network,
-            NodeAuth::UserPass(
-                self.config.rpc_user().to_string(),
-                self.config.rpc_password().to_string(),
-            ),
-            self.config.private_key(),
+            self.secrets.rpc_url.expose_str(),
+            self.via_btc_client.network(),
+            self.secrets.auth_node(),
+            &self.wallet.private_key,
             None,
         )
         .await
-        .context("Init inscriber")?;
+        .with_context(|| "Error init inscriber")?;
 
         let via_btc_inscription_manager =
             ViaBtcInscriptionManager::new(inscriber, master_pool, self.config)

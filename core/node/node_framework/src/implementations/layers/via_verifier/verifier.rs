@@ -1,11 +1,16 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Context;
-use via_btc_client::{client::BitcoinClient, types::NodeAuth};
-use via_btc_watch::BitcoinNetwork;
+use via_btc_client::client::BitcoinClient;
 use via_verifier_coordinator::verifier::ViaWithdrawalVerifier;
 use via_withdrawal_client::client::WithdrawalClient;
-use zksync_config::{ViaBtcSenderConfig, ViaVerifierConfig};
+use zksync_config::{
+    configs::{
+        via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig,
+        via_secrets::ViaL1Secrets, via_wallets::ViaWallet,
+    },
+    ViaVerifierConfig,
+};
 
 use crate::{
     implementations::resources::{
@@ -21,8 +26,11 @@ use crate::{
 /// Wiring layer for verifier task
 #[derive(Debug)]
 pub struct ViaWithdrawalVerifierLayer {
-    pub config: ViaVerifierConfig,
-    pub btc_sender_config: ViaBtcSenderConfig,
+    via_genesis_config: ViaGenesisConfig,
+    via_btc_client: ViaBtcClientConfig,
+    verifier_config: ViaVerifierConfig,
+    secrets: ViaL1Secrets,
+    wallet: ViaWallet,
 }
 
 #[derive(Debug, FromContext)]
@@ -39,6 +47,24 @@ pub struct Output {
     pub via_withdrawal_verifier_task: ViaWithdrawalVerifier,
 }
 
+impl ViaWithdrawalVerifierLayer {
+    pub fn new(
+        via_genesis_config: ViaGenesisConfig,
+        via_btc_client: ViaBtcClientConfig,
+        verifier_config: ViaVerifierConfig,
+        secrets: ViaL1Secrets,
+        wallet: ViaWallet,
+    ) -> Self {
+        Self {
+            via_genesis_config,
+            via_btc_client,
+            verifier_config,
+            secrets,
+            wallet,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl WiringLayer for ViaWithdrawalVerifierLayer {
     type Input = Input;
@@ -50,20 +76,29 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let master_pool = input.master_pool.get().await?;
-        let auth = NodeAuth::UserPass(
-            self.btc_sender_config.rpc_user().to_string(),
-            self.btc_sender_config.rpc_password().to_string(),
+
+        let withdrawal_client =
+            WithdrawalClient::new(input.client.0, self.via_btc_client.network());
+
+        let btc_client = Arc::new(
+            BitcoinClient::new(
+                self.secrets.rpc_url.expose_str(),
+                self.via_btc_client.network(),
+                self.secrets.auth_node(),
+            )
+            .unwrap(),
         );
-        let network = BitcoinNetwork::from_str(self.btc_sender_config.network()).unwrap();
 
-        let withdrawal_client = WithdrawalClient::new(input.client.0, network);
-
-        let btc_client =
-            Arc::new(BitcoinClient::new(self.btc_sender_config.rpc_url(), network, auth).unwrap());
-
-        let via_withdrawal_verifier_task =
-            ViaWithdrawalVerifier::new(self.config, master_pool, btc_client, withdrawal_client)
-                .context("Error to init the via withdrawal verifier")?;
+        let via_withdrawal_verifier_task = ViaWithdrawalVerifier::new(
+            self.verifier_config,
+            self.wallet,
+            master_pool,
+            btc_client,
+            withdrawal_client,
+            self.via_genesis_config.bridge_address()?,
+            self.via_genesis_config.verifiers_pub_keys,
+        )
+        .context("Error to init the via withdrawal verifier")?;
 
         Ok(Output {
             via_withdrawal_verifier_task,

@@ -31,6 +31,7 @@ pub mod prover_dal;
 pub mod settlement;
 pub mod tee_types;
 pub mod url;
+pub mod via_roles;
 pub mod vm;
 pub mod web3;
 

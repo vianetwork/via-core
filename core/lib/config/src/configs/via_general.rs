@@ -1,3 +1,4 @@
+use super::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig};
 use crate::{
     configs::{
         base_token_adjuster::BaseTokenAdjusterConfig,
@@ -56,10 +57,12 @@ pub struct ViaGeneralConfig {
     pub experimental_vm_config: Option<ExperimentalVmConfig>,
     pub prover_job_monitor_config: Option<ProverJobMonitorConfig>,
     // VIA specific configs
+    pub via_btc_client_config: Option<ViaBtcClientConfig>,
     pub via_btc_sender_config: Option<ViaBtcSenderConfig>,
     pub via_btc_watch_config: Option<ViaBtcWatchConfig>,
     pub via_celestia_config: Option<ViaCelestiaConfig>,
     pub via_verifier_config: Option<ViaVerifierConfig>,
+    pub via_genesis_config: Option<ViaGenesisConfig>,
 }
 
 impl From<GeneralConfig> for ViaGeneralConfig {
@@ -103,6 +106,8 @@ impl From<GeneralConfig> for ViaGeneralConfig {
             via_btc_watch_config: None,
             via_celestia_config: None,
             via_verifier_config: None,
+            via_btc_client_config: None,
+            via_genesis_config: None,
         }
     }
 }

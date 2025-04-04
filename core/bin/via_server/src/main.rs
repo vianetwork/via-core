@@ -1,9 +1,14 @@
 use anyhow::Context as _;
 use clap::Parser;
 use zksync_config::{
-    configs::{DatabaseSecrets, L1Secrets, Secrets},
-    ContractsConfig, GenesisConfig, ViaGeneralConfig,
+    configs::{
+        via_secrets::{ViaDASecrets, ViaL1Secrets, ViaSecrets},
+        via_wallets::ViaWallets,
+        DatabaseSecrets, L1Secrets, Secrets,
+    },
+    ContractsConfig, GenesisConfig,
 };
+use zksync_core_leftovers::temp_config_store::ViaTempConfigStore;
 use zksync_env_config::FromEnv;
 
 mod config;
@@ -14,7 +19,7 @@ mod node_builder;
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[derive(Debug, Parser)]
-#[command(author = "Via Protocol", version, about = "Via validator/sequencer node", long_about = None)]
+#[command(author = "Via Protocol", version, about = "Via sequencer node", long_about = None)]
 struct Cli {
     /// Generate genesis block for the first contract deployment using temporary DB.
     #[arg(long)]
@@ -43,9 +48,6 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let opt = Cli::parse();
 
-    // Load env config
-    let env_config = config::load_env_config()?;
-
     // Load configurations
     let configs = match opt.config_path {
         Some(_path) => {
@@ -53,17 +55,7 @@ fn main() -> anyhow::Result<()> {
                 "The Via Server does not support configuration files at this point. Please use env variables."
             ));
         }
-        None => {
-            let general = env_config.general();
-            let mut via_general = ViaGeneralConfig::from(general);
-
-            // Load the rest of the configs
-            let via_configs = config::via_load_env_config()?;
-            via_general.via_btc_watch_config = Some(via_configs.0);
-            via_general.via_btc_sender_config = Some(via_configs.1);
-            via_general.via_celestia_config = Some(via_configs.2);
-            via_general
-        }
+        None => ViaTempConfigStore::general()?,
     };
 
     let secrets = match opt.secrets_path {
@@ -72,10 +64,14 @@ fn main() -> anyhow::Result<()> {
                 "The Via Server does not support configuration files at this point. Please use env variables."
             ));
         }
-        None => Secrets {
-            consensus: config::read_consensus_secrets().context("read_consensus_secrets()")?,
-            database: DatabaseSecrets::from_env().ok(),
-            l1: L1Secrets::from_env().ok(),
+        None => ViaSecrets {
+            base_secrets: Secrets {
+                consensus: config::read_consensus_secrets().context("read_consensus_secrets()")?,
+                database: DatabaseSecrets::from_env().ok(),
+                l1: L1Secrets::from_env().ok(),
+            },
+            via_l1: ViaL1Secrets::from_env().ok(),
+            via_da: ViaDASecrets::from_env().ok(),
         },
     };
 
@@ -94,7 +90,7 @@ fn main() -> anyhow::Result<()> {
                 "The Via Server does not support configuration files at this point. Please use env variables."
             ));
         }
-        None => env_config.wallets(),
+        None => ViaWallets::from_env()?,
     };
 
     let mut contracts_config = match opt.contracts_config_path {

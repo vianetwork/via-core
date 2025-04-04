@@ -1,0 +1,13 @@
+[via_btc_sender]
+# The interval in milliseconds between btc sender cycles.
+poll_interval = 5000
+# The max aggregated commit batches to process in one inscription.
+max_aggregated_blocks_to_commit = 1
+# The max aggregated proof batches to process in one inscription.
+max_aggregated_proofs_to_commit = 1
+# The max number of inscriptions in flight.
+max_txs_in_flight = 1
+# The DA layer identifier.
+da_identifier = "celestia"
+# The number of L1 block to mark the inscription as finalized. 
+block_confirmations = 0

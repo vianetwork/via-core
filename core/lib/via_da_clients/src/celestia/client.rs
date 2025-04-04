@@ -8,8 +8,10 @@ use async_trait::async_trait;
 use celestia_rpc::{BlobClient, Client, P2PClient};
 use celestia_types::{nmt::Namespace, Blob, Commitment, TxConfig};
 use hex;
+use zksync_config::configs::via_secrets::ViaDASecrets;
 pub use zksync_config::ViaCelestiaConfig;
 pub use zksync_da_client::{types, DataAvailabilityClient};
+use zksync_types::url::SensitiveUrl;
 
 /// If no value is provided for GasPrice, then this will be serialized to `-1.0` which means the node that
 /// receives the request will calculate the GasPrice for given blob.
@@ -18,15 +20,15 @@ const GAS_PRICE: f64 = -1.0;
 /// An implementation of the `DataAvailabilityClient` trait that stores the pubdata in the Celestia DA.
 #[derive(Clone)]
 pub struct CelestiaClient {
-    light_node_url: String,
+    light_node_url: SensitiveUrl,
     inner: Arc<Client>,
     blob_size_limit: usize,
     namespace: Namespace,
 }
 
 impl CelestiaClient {
-    pub async fn new(celestia_conf: ViaCelestiaConfig) -> anyhow::Result<Self> {
-        let client = Client::new(&celestia_conf.api_node_url, Some(&celestia_conf.auth_token))
+    pub async fn new(secrets: ViaDASecrets, blob_size_limit: usize) -> anyhow::Result<Self> {
+        let client = Client::new(secrets.rpc_url.expose_str(), Some(&secrets.auth_token))
             .await
             .map_err(|error| anyhow!("Failed to create a client: {}", error))?;
 
@@ -41,9 +43,9 @@ impl CelestiaClient {
         })?;
 
         Ok(Self {
-            light_node_url: celestia_conf.api_node_url,
+            light_node_url: secrets.rpc_url,
             inner: Arc::new(client),
-            blob_size_limit: celestia_conf.blob_size_limit,
+            blob_size_limit,
             namespace,
         })
     }

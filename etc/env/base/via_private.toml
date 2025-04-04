@@ -1,0 +1,21 @@
+# Sensitive values which MUST be different for production
+# Values provided here are valid for the development infrastructure only.
+
+database_url = "postgres://postgres:notsecurepassword@localhost/via"
+database_prover_url = "postgres://postgres:notsecurepassword@localhost/via_prover"
+test_database_url = "postgres://postgres:notsecurepassword@localhost:5433/via_test"
+test_database_prover_url = "postgres://postgres:notsecurepassword@localhost:5433/via_prover_test"
+
+[via_btc_sender]
+# The btc sender private key.
+private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R"
+
+[via_celestia_client]
+# The celestia auth token.
+auth_token = ""
+
+[via_btc_client]
+# The btc client user.
+rpc_user = "rpcuser"
+# The btc client password.
+rpc_password = "rpcpassword"
