@@ -110,7 +110,7 @@ export const command = new Command('bootstrap');
 
 command
     .command('system-bootstrapping')
-    .description('Create a system bootstraping inscription')
+    .description('Create a system bootstrapping inscription')
     .option('--network <network>', 'network', DEFAULT_NETWORK)
     .option('--rpc-url <rpcUrl>', 'RPC URL', DEFAULT_RPC_URL)
     .option('--rpc-username <rpcUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
