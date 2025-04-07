@@ -186,8 +186,13 @@ pub async fn bootstrap_inscription(
         .as_unchecked()
         .clone();
 
-    assert_eq!(bridge_musig2_address, computed_bridge_musig2_address);
-
+    if bridge_musig2_address != computed_bridge_musig2_address {
+        anyhow::bail!(
+            "Bridge address mismatch: expected {:?}, got {:?}",
+            bridge_musig2_address,
+            computed_bridge_musig2_address
+        );
+    }
     // Bootstrapping message
     let input = SystemBootstrappingInput {
         start_block_height,
