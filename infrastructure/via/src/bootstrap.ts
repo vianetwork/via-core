@@ -115,12 +115,12 @@ command
     .option('--rpc-url <rpcUrl>', 'RPC URL', DEFAULT_RPC_URL)
     .option('--rpc-username <rpcUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
-    .option('--start-block <startBlock>', 'Start block')
-    .option('--private-key <privateKey>', 'The inscriber private key')
-    .option('--verifiers-pub-keys <verifiersPubKeys>', 'verifiers public keys')
-    .option('--governance-address <governanceAddress>', 'The governance address')
-    .option('--bridge-address <bridgeAddress>', 'The bridge address')
-    .option('--sequencer-address <sequencerAddress>', 'The sequencer address')
+    .requiredOption('--start-block <startBlock>', 'Start block')
+    .requiredOption('--private-key <privateKey>', 'The inscriber private key')
+    .requiredOption('--verifiers-pub-keys <verifiersPubKeys>', 'verifiers public keys')
+    .requiredOption('--governance-address <governanceAddress>', 'The governance address')
+    .requiredOption('--bridge-address <bridgeAddress>', 'The bridge address')
+    .requiredOption('--sequencer-address <sequencerAddress>', 'The sequencer address')
     .action((cmd: Command) =>
         systemBootstrapping(
             cmd.network,
@@ -143,9 +143,8 @@ command
     .option('--rpc-url <rpcUrl>', 'RPC URL', DEFAULT_RPC_URL)
     .option('--rpc-username <rpcUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
-    .option('--start-block <startBlock>', 'Start block')
-    .option('--private-key <privateKey>', 'The inscriber private key')
     .option('--propose-sequencer-file <proposeSequencerFile>', 'The sequencer proposal bitcoin file')
+    .requiredOption('--private-key <privateKey>', 'The inscriber private key')
     .action((cmd: Command) =>
         attestProposedSequencer(
             cmd.network,

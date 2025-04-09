@@ -3,6 +3,7 @@ use std::{
     env, fmt,
     fs::{create_dir_all, remove_dir_all, File},
     io::Write,
+    path::Path,
     str::FromStr,
 };
 
@@ -110,8 +111,9 @@ async fn main() -> anyhow::Result<()> {
 
             let dir = format!("etc/env/via/genesis/{}", network,);
 
-            if network == BitcoinNetwork::Regtest {
-                remove_dir_all(dir.clone())?;
+            let folder_path = Path::new(&dir);
+            if network == BitcoinNetwork::Regtest && folder_path.exists() {
+                remove_dir_all(folder_path)?;
             }
 
             create_dir_all(dir.clone())?;
@@ -209,15 +211,6 @@ pub async fn bootstrap_inscription(
     Ok(bootstrap_info.final_reveal_tx.txid)
 }
 
-// cargo run --example bootstrap \
-// regtest \
-// http://0.0.0.0:18443 \
-// rpcuser \
-// rpcpassword \
-// ProposeSequencer \
-// cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
-// bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
-
 /// Propose sequencer message
 pub async fn propose_sequencer(
     args: &Vec<String>,
@@ -244,14 +237,6 @@ pub async fn propose_sequencer(
     Ok(propose_info.final_reveal_tx.txid)
 }
 
-// cargo run --example bootstrap \
-// regtest \
-// http://0.0.0.0:18443 \
-// rpcuser \
-// rpcpassword \
-// Attest \
-// cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
-// a6266c85a5c88c34b18e5bb01f2639a21299b27a070ed2317bd06b2766c6b6b6
 /// Attest the sequencer proposal
 pub async fn attest_sequencer(
     args: &Vec<String>,
