@@ -1,7 +1,7 @@
 use anyhow::Context;
 use via_da_clients::celestia::wiring_layer::ViaCelestiaClientWiringLayer;
 use zksync_config::{
-    configs::{via_secrets::ViaSecrets, via_wallets::ViaWallets},
+    configs::{via_celestia::ProofSendingMode, via_secrets::ViaSecrets, via_wallets::ViaWallets},
     ContractsConfig, GenesisConfig, ViaGeneralConfig,
 };
 use zksync_metadata_calculator::MetadataCalculatorConfig;
@@ -425,10 +425,12 @@ impl ViaNodeBuilder {
     fn add_da_dispatcher_layer(mut self) -> anyhow::Result<Self> {
         let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
         let da_config = try_load_config!(self.configs.da_dispatcher_config);
+        let celestia_config = try_load_config!(self.configs.via_celestia_config);
 
         self.node.add_layer(DataAvailabilityDispatcherLayer::new(
             state_keeper_config,
             da_config,
+            celestia_config.proof_sending_mode == ProofSendingMode::OnlyRealProofs,
         ));
 
         Ok(self)

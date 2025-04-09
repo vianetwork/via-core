@@ -3,3 +3,5 @@
 api_node_url = "http://0.0.0.0:26658"
 # The Celestia blob size limit.
 blob_size_limit = 1973786
+# The mode in which proofs are sent.
+proof_sending_mode = "SkipEveryProof"

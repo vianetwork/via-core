@@ -1,4 +1,10 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
+pub enum ProofSendingMode {
+    OnlyRealProofs,
+    SkipEveryProof,
+}
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct ViaCelestiaConfig {
@@ -7,6 +13,9 @@ pub struct ViaCelestiaConfig {
 
     /// Celestia blob limit
     pub blob_size_limit: usize,
+
+    /// The mode in which proofs are sent.
+    pub proof_sending_mode: ProofSendingMode,
 }
 
 impl ViaCelestiaConfig {
@@ -15,6 +24,7 @@ impl ViaCelestiaConfig {
         Self {
             blob_size_limit: 1973786,
             api_node_url: "".into(),
+            proof_sending_mode: ProofSendingMode::SkipEveryProof,
         }
     }
 }
