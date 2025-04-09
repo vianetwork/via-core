@@ -223,7 +223,7 @@ impl ViaBtcSenderDal<'_, '_> {
         &mut self,
         inscriptions_request_id: i64,
         inscriptions_request_history_id: i64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<ViaBtcInscriptionRequest> {
         let mut transaction = self
             .storage
             .start_transaction()
@@ -244,7 +244,8 @@ impl ViaBtcSenderDal<'_, '_> {
         .execute(transaction.conn())
         .await?;
 
-        sqlx::query!(
+        let inscription = sqlx::query_as!(
+            ViaStorageBtcInscriptionRequest,
             r#"
             UPDATE via_btc_inscriptions_request
             SET
@@ -252,16 +253,20 @@ impl ViaBtcSenderDal<'_, '_> {
                 confirmed_inscriptions_request_history_id = $2
             WHERE
                 id = $1
+            RETURNING
+                *
             "#,
             inscriptions_request_id,
             inscriptions_request_history_id
         )
-        .execute(transaction.conn())
+        .fetch_one(transaction.conn())
         .await?;
 
         transaction
             .commit()
             .await
-            .with_context(|| "Error commit transaction confirm inscription")
+            .with_context(|| "Error commit transaction confirm inscription")?;
+
+        Ok(inscription.into())
     }
 }
