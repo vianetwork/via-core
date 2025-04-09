@@ -9539,13 +9539,16 @@ dependencies = [
  "tracing",
  "via_btc_client",
  "via_da_dispatcher",
+ "vise",
  "zksync_config",
  "zksync_contracts",
  "zksync_dal",
  "zksync_l1_contract_interface",
  "zksync_node_test_utils",
  "zksync_object_store",
+ "zksync_shared_metrics",
  "zksync_types",
+ "zksync_utils",
 ]
 
 [[package]]
@@ -9794,12 +9797,14 @@ dependencies = [
  "via_btc_client",
  "via_da_dispatcher",
  "via_verifier_dal",
+ "vise",
  "zksync_config",
  "zksync_contracts",
  "zksync_l1_contract_interface",
  "zksync_node_test_utils",
  "zksync_object_store",
  "zksync_types",
+ "zksync_utils",
 ]
 
 [[package]]
@@ -9852,6 +9857,7 @@ dependencies = [
  "vise",
  "zksync_config",
  "zksync_types",
+ "zksync_utils",
 ]
 
 [[package]]

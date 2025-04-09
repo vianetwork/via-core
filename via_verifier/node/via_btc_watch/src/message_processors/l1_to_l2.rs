@@ -13,7 +13,7 @@ use zksync_types::{
 
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
-    metrics::{ErrorType, InscriptionStage, METRICS},
+    metrics::{InscriptionStage, METRICS},
 };
 
 #[derive(Debug)]
@@ -89,7 +89,6 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         }
 
         for new_op in priority_ops {
-            METRICS.inscriptions_processed[&InscriptionStage::Deposit].inc();
             storage
                 .via_transactions_dal()
                 .insert_transaction(
@@ -101,10 +100,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                     new_op.canonical_tx_hash,
                 )
                 .await
-                .map_err(|e| {
-                    METRICS.errors[&ErrorType::DatabaseError].inc();
-                    MessageProcessorError::DatabaseError(e.to_string())
-                })?;
+                .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
         }
 
         Ok(())
@@ -180,6 +176,8 @@ impl L1ToL2MessageProcessor {
         let canonical_tx_hash = l2_transaction.hash();
 
         l1_tx.common_data.canonical_tx_hash = canonical_tx_hash;
+
+        METRICS.inscriptions_processed[&InscriptionStage::Deposit].set(serial_id.0 as usize);
 
         tracing::info!(
             "Created L1 transaction with serial id {:?} (block {}) with deposit amount {} and tx hash {}",

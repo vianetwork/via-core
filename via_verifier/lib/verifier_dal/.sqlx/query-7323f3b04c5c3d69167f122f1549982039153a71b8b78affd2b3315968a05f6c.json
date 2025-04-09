@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT \n                MIN(l1_batch_number) as l1_batch_number\n            FROM\n                via_votable_transactions\n            LEFT JOIN\n                via_l1_batch_vote_inscription_request\n            ON\n                via_votable_transactions.id = via_l1_batch_vote_inscription_request.votable_transaction_id\n            LEFT JOIN\n                via_btc_inscriptions_request_history\n            ON\n                inscription_request_id = vote_l1_batch_inscription_id\n            WHERE\n                sent_at_block + $1 < $2 \n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7323f3b04c5c3d69167f122f1549982039153a71b8b78affd2b3315968a05f6c"
+}
