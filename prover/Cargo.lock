@@ -8529,6 +8529,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
  "futures 0.3.30",
  "jsonrpsee",
  "pin-project-lite",

@@ -295,9 +295,18 @@ impl ViaNodeBuilder {
             response_body_size_limit: Some(rpc_config.max_response_body_size()),
             ..Default::default()
         };
+        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
+
         self.node.add_layer(Web3ServerLayer::http(
             rpc_config.http_port,
-            InternalApiConfig::new(&rpc_config, &self.contracts_config, &self.genesis_config),
+            InternalApiConfig::new(
+                &rpc_config,
+                &self.contracts_config,
+                &self.genesis_config,
+                via_genesis_config.bridge_address,
+                via_btc_client_config.network(),
+            ),
             optional_config,
         ));
 
@@ -474,6 +483,8 @@ impl ViaNodeBuilder {
             .add_prometheus_exporter_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?
             // VIA layers
+            .add_gas_adjuster_layer()?
+            .add_l1_gas_layer()?
             .add_btc_watcher_layer()?
             .add_btc_sender_layer()?
             .add_gas_adjuster_layer()?

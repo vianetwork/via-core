@@ -244,7 +244,13 @@ async fn test_http_server(test: impl HttpTest) {
     let contracts_config = ContractsConfig::for_tests();
     let web3_config = Web3JsonRpcConfig::for_tests();
     let genesis = GenesisConfig::for_tests();
-    let mut api_config = InternalApiConfig::new(&web3_config, &contracts_config, &genesis);
+    let mut api_config = InternalApiConfig::new(
+        &web3_config,
+        &contracts_config,
+        &genesis,
+        "".into(),
+        bitcoin::Network::Regtest,
+    );
     api_config.filters_disabled = test.filters_disabled();
     let mut server_handles = spawn_http_server(
         api_config,

@@ -9563,6 +9563,7 @@ dependencies = [
  "zksync_config",
  "zksync_contracts",
  "zksync_dal",
+ "zksync_node_fee_model",
  "zksync_shared_metrics",
  "zksync_types",
 ]
@@ -11822,6 +11823,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "axum 0.7.9",
+ "bitcoin",
  "chrono",
  "futures 0.3.30",
  "governor",
@@ -12701,6 +12703,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "async-trait",
+ "bitcoin",
  "futures 0.3.30",
  "jsonrpsee 0.23.2",
  "pin-project-lite",
