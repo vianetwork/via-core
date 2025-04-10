@@ -1,5 +1,6 @@
 use std::{collections::HashMap, str::FromStr};
 
+use anyhow::Context;
 use bitcoin::Network;
 use via_da_client::{
     pubdata::Pubdata,
@@ -26,7 +27,7 @@ impl WithdrawalClient {
         let pubdata_bytes = self
             .fetch_pubdata(blob_id)
             .await
-            .WithContext(|| "Failed to fetch pubdata from DA")?;
+            .with_context(|| "Failed to fetch pubdata from DA")?;
         let pubdata = Pubdata::decode_pubdata(pubdata_bytes)?;
         let l2_bridge_metadata = WithdrawalClient::list_l2_bridge_metadata(&pubdata);
         let withdrawals = WithdrawalClient::get_valid_withdrawals(self.network, l2_bridge_metadata);

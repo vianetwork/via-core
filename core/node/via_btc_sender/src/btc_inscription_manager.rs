@@ -109,6 +109,17 @@ impl ViaBtcInscriptionManager {
                         reveal_tx = last_inscription_history.reveal_tx_id,
                     );
 
+                    METRICS
+                        .track_btc_tx_metrics(
+                            storage,
+                            BlockL1Stage::Mined,
+                            vec![(
+                                inscription.id as u32,
+                                ViaBtcInscriptionRequestType::from(inscription.request_type),
+                            )],
+                        )
+                        .await;
+
                     METRICS.track_inscription_confirmation(last_inscription_history.created_at);
                 } else {
                     let current_block = self
@@ -148,17 +159,6 @@ impl ViaBtcInscriptionManager {
                 }
             }
         }
-
-        METRICS
-            .track_btc_tx_metrics(
-                storage,
-                BlockL1Stage::Mined,
-                vec![(
-                    inscription_id as u32,
-                    ViaBtcInscriptionRequestType::from(inscription.request_type),
-                )],
-            )
-            .await;
 
         Ok(())
     }

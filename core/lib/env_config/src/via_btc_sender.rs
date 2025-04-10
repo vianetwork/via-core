@@ -1,4 +1,3 @@
-use anyhow::Context;
 use zksync_config::{
     configs::via_secrets::{ViaDASecrets, ViaL1Secrets},
     ViaBtcSenderConfig,
