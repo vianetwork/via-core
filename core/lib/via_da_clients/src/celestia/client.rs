@@ -28,7 +28,7 @@ pub struct CelestiaClient {
 
 impl CelestiaClient {
     pub async fn new(secrets: ViaDASecrets, blob_size_limit: usize) -> anyhow::Result<Self> {
-        let client = Client::new(secrets.rpc_url.expose_str(), Some(&secrets.auth_token))
+        let client = Client::new(secrets.api_node_url.expose_str(), Some(&secrets.auth_token))
             .await
             .map_err(|error| anyhow!("Failed to create a client: {}", error))?;
 
@@ -43,7 +43,7 @@ impl CelestiaClient {
         })?;
 
         Ok(Self {
-            light_node_url: secrets.rpc_url,
+            light_node_url: secrets.api_node_url,
             inner: Arc::new(client),
             blob_size_limit,
             namespace,
