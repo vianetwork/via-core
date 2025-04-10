@@ -10,6 +10,7 @@ use zksync_config::{
 
 use crate::{
     implementations::resources::{
+        fee_input::ApiFeeInputResource,
         pools::{MasterPool, PoolResource},
         via_btc_indexer::BtcIndexerResource,
     },
@@ -34,6 +35,7 @@ pub struct BtcWatchLayer {
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<MasterPool>,
+    pub fee_input: ApiFeeInputResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -93,6 +95,7 @@ impl WiringLayer for BtcWatchLayer {
         let btc_watch = BtcWatch::new(
             self.btc_watch_config,
             indexer,
+            input.fee_input.0,
             main_pool,
             self.via_genesis_config.bridge_address()?,
             self.via_genesis_config.zk_agreement_threshold,

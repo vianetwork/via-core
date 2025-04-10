@@ -1,7 +1,7 @@
 #[cfg_attr(not(feature = "server"), allow(unused_imports))]
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
-use zksync_config::{configs::EcosystemContracts, GenesisConfig};
+use zksync_config::GenesisConfig;
 use zksync_types::{api::en, tokens::TokenInfo, Address, L2BlockNumber};
 
 use crate::client::{ForWeb3Network, L2};
@@ -46,6 +46,6 @@ pub trait EnNamespace {
     #[method(name = "whitelistedTokensForAA")]
     async fn whitelisted_tokens_for_aa(&self) -> RpcResult<Vec<Address>>;
 
-    #[method(name = "getEcosystemContracts")]
-    async fn get_ecosystem_contracts(&self) -> RpcResult<EcosystemContracts>;
+    // #[method(name = "getEcosystemContracts")]
+    // async fn get_ecosystem_contracts(&self) -> RpcResult<EcosystemContracts>;
 }

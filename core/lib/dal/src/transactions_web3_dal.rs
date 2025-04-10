@@ -297,9 +297,9 @@ impl TransactionsWeb3Dal<'_, '_> {
                 transactions.error,
                 transactions.effective_gas_price,
                 transactions.refunded_gas,
-                commit_tx.tx_hash AS "eth_commit_tx_hash?",
-                prove_tx.tx_hash AS "eth_prove_tx_hash?",
-                execute_tx.tx_hash AS "eth_execute_tx_hash?"
+                commit_tx.tx_hash AS "commit_tx_hash?",
+                prove_tx.tx_hash AS "prove_tx_hash?",
+                execute_tx.tx_hash AS "execute_tx_hash?"
             FROM
                 transactions
                 LEFT JOIN miniblocks ON miniblocks.number = transactions.miniblock_number
