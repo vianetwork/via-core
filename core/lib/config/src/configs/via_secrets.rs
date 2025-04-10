@@ -37,7 +37,7 @@ impl Debug for ViaL1Secrets {
 #[derive(Clone, Deserialize, PartialEq)]
 pub struct ViaDASecrets {
     /// URL for the Celestia node RPC.
-    pub rpc_url: SensitiveUrl,
+    pub api_node_url: SensitiveUrl,
 
     /// AUTH token for the Celestia node RPC.
     pub auth_token: String,
@@ -46,7 +46,7 @@ pub struct ViaDASecrets {
 impl Debug for ViaDASecrets {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ViaDASecrets")
-            .field("rpc_url", &self.rpc_url)
+            .field("api_node_url", &self.api_node_url)
             .field("auth_token", &"********")
             .finish()
     }
