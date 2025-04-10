@@ -1,6 +1,8 @@
 mod message_processors;
 mod metrics;
 
+use std::sync::Arc;
+
 use anyhow::Context;
 use message_processors::GovernanceUpgradesEventProcessor;
 use tokio::sync::watch;
