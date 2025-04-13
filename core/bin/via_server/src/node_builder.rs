@@ -503,9 +503,18 @@ impl ViaNodeBuilder {
             with_extended_tracing: rpc_config.extended_api_tracing,
             ..Default::default()
         };
+        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
+
         self.node.add_layer(Web3ServerLayer::ws(
             rpc_config.ws_port,
-            InternalApiConfig::new(&rpc_config, &self.contracts_config, &self.genesis_config),
+            InternalApiConfig::new(
+                &rpc_config,
+                &self.contracts_config,
+                &self.genesis_config,
+                via_genesis_config.bridge_address,
+                via_btc_client_config.network(),
+            ),
             optional_config,
         ));
 
