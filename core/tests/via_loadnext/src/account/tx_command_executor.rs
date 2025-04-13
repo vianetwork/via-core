@@ -172,27 +172,33 @@ impl AccountLifespan {
             .to(command.to_btc.clone().unwrap())
             .amount(command.amount);
 
-        let fee = builder
-            .estimate_fee(Some(get_approval_based_paymaster_input_for_estimation(
+        let paymaster_approval = if self.config.use_paymaster {
+            Some(get_approval_based_paymaster_input_for_estimation(
                 self.paymaster_address,
                 L2_BASE_TOKEN_ADDRESS,
                 MIN_ALLOWANCE_FOR_PAYMASTER_ESTIMATE.into(),
-            )))
-            .await?;
+            ))
+        } else {
+            None
+        };
+
+        let fee = builder.estimate_fee(paymaster_approval).await?;
         builder = builder.fee(fee.clone());
 
-        let paymaster_params = get_approval_based_paymaster_input(
-            self.paymaster_address,
-            L2_BASE_TOKEN_ADDRESS,
-            fee.max_total_fee(),
-            Vec::new(),
-        );
-        builder = builder.fee(fee);
-        builder = builder.paymaster_params(paymaster_params);
+        if self.config.use_paymaster {
+            let paymaster_params = get_approval_based_paymaster_input(
+                self.paymaster_address,
+                L2_BASE_TOKEN_ADDRESS,
+                fee.max_total_fee(),
+                Vec::new(),
+            );
+            builder = builder.paymaster_params(paymaster_params);
+        };
 
         if let Some(nonce) = self.current_nonce {
             builder = builder.nonce(nonce);
         }
+        builder = builder.fee(fee);
 
         let tx = builder.tx().await.map_err(Self::tx_creation_error)?;
 
@@ -221,23 +227,29 @@ impl AccountLifespan {
             .bytecode(self.eth_wallet.test_contract.bytecode.clone())
             .constructor_calldata(constructor_calldata);
 
-        let fee = builder
-            .estimate_fee(Some(get_approval_based_paymaster_input_for_estimation(
+        let paymaster_approval = if self.config.use_paymaster {
+            Some(get_approval_based_paymaster_input_for_estimation(
                 self.paymaster_address,
                 L2_BASE_TOKEN_ADDRESS,
                 MIN_ALLOWANCE_FOR_PAYMASTER_ESTIMATE.into(),
-            )))
-            .await?;
+            ))
+        } else {
+            None
+        };
+
+        let fee = builder.estimate_fee(paymaster_approval).await?;
         builder = builder.fee(fee.clone());
 
-        let paymaster_params = get_approval_based_paymaster_input(
-            self.paymaster_address,
-            L2_BASE_TOKEN_ADDRESS,
-            fee.max_total_fee(),
-            Vec::new(),
-        );
+        if self.config.use_paymaster {
+            let paymaster_params = get_approval_based_paymaster_input(
+                self.paymaster_address,
+                L2_BASE_TOKEN_ADDRESS,
+                fee.max_total_fee(),
+                Vec::new(),
+            );
+            builder = builder.paymaster_params(paymaster_params);
+        };
         builder = builder.fee(fee);
-        builder = builder.paymaster_params(paymaster_params);
 
         if let Some(nonce) = self.current_nonce {
             builder = builder.nonce(nonce);
@@ -316,13 +328,18 @@ impl AccountLifespan {
             .contract_address(contract_address)
             .factory_deps(self.eth_wallet.test_contract.factory_deps.clone());
 
-        let fee = builder
-            .estimate_fee(Some(get_approval_based_paymaster_input_for_estimation(
+        let paymaster_approval = if self.config.use_paymaster {
+            Some(get_approval_based_paymaster_input_for_estimation(
                 self.paymaster_address,
                 L2_BASE_TOKEN_ADDRESS,
                 MIN_ALLOWANCE_FOR_PAYMASTER_ESTIMATE.into(),
-            )))
-            .await?;
+            ))
+        } else {
+            None
+        };
+
+        let fee = builder.estimate_fee(paymaster_approval).await?;
+
         tracing::trace!(
             "Account {:?}: fee estimated. Max total fee: {}, gas limit: {}gas; Max gas price: {}WEI, \
              Gas per pubdata: {:?}gas",
@@ -334,14 +351,16 @@ impl AccountLifespan {
         );
         builder = builder.fee(fee.clone());
 
-        let paymaster_params = get_approval_based_paymaster_input(
-            self.paymaster_address,
-            L2_BASE_TOKEN_ADDRESS,
-            fee.max_total_fee(),
-            Vec::new(),
-        );
+        if self.config.use_paymaster {
+            let paymaster_params = get_approval_based_paymaster_input(
+                self.paymaster_address,
+                L2_BASE_TOKEN_ADDRESS,
+                fee.max_total_fee(),
+                Vec::new(),
+            );
+            builder = builder.paymaster_params(paymaster_params);
+        };
         builder = builder.fee(fee);
-        builder = builder.paymaster_params(paymaster_params);
 
         if let Some(nonce) = self.current_nonce {
             builder = builder.nonce(nonce);

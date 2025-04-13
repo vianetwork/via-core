@@ -1,3 +1,5 @@
+use std::ops::Mul;
+
 use once_cell::sync::OnceCell;
 use rand::Rng;
 use static_assertions::const_assert;
@@ -183,6 +185,18 @@ impl TxCommand {
     }
 
     fn random_amount(rng: &mut LoadtestRng) -> U256 {
-        rng.gen_range(1u64..2u64.pow(18)).into()
+        let max_amount = U256::from_dec_str("1000000000000000").unwrap();
+        let min_amount = U256::from_dec_str("10000000000").unwrap();
+
+        let mut amount = rng.gen_range(1u64..2u64.pow(18)).mul(1000000).into();
+        if amount < min_amount {
+            amount = min_amount;
+        }
+
+        if amount > max_amount {
+            amount = max_amount;
+        }
+
+        amount
     }
 }

@@ -1,6 +1,9 @@
 use zksync_eth_signer::EthereumSigner;
 use zksync_types::{
-    fee::Fee, l2::L2Tx, transaction_request::PaymasterParams, Address, Nonce, U256,
+    fee::Fee,
+    l2::L2Tx,
+    transaction_request::{CallRequest, PaymasterParams},
+    Address, Nonce, U256,
 };
 
 use crate::sdk::{
@@ -69,6 +72,7 @@ where
                 nonce,
                 self.factory_deps.unwrap_or_default(),
                 paymaster_params,
+                self.value.unwrap_or_default(),
             )
             .await
             .map_err(ClientError::SigningError)
@@ -153,10 +157,24 @@ where
             self.factory_deps.clone().unwrap_or_default(),
             paymaster_params,
         );
-        self.wallet
+
+        let mut call_req = CallRequest::from(execute);
+        call_req.value = Some(self.value.unwrap_or_default());
+
+        let res = self
+            .wallet
             .provider
-            .estimate_fee(execute.into(), None)
+            .estimate_fee(call_req, None)
             .await
-            .map_err(Into::into)
+            .map_err(Into::into);
+
+        match &res {
+            Err(err) => {
+                println!("Failed to estimate fee: {err}");
+            }
+            _ => (),
+        }
+
+        res
     }
 }

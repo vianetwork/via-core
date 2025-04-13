@@ -136,6 +136,10 @@ pub struct LoadtestConfig {
     /// in an eventual test failure anyway (e.g., a failure processing transactions).
     #[serde(default)]
     pub fail_fast: bool,
+
+    /// use pay master to pay the transaction fee
+    #[serde(default)]
+    pub use_paymaster: bool,
 }
 
 fn default_max_inflight_txs() -> usize {
@@ -179,13 +183,13 @@ fn default_btc_master_wallet_pk() -> String {
 }
 
 fn default_accounts_amount() -> usize {
-    let result = 5;
+    let result = 10;
     tracing::info!("Using default ACCOUNTS_AMOUNT: {result}");
     result
 }
 
 fn default_duration_sec() -> u64 {
-    let result = 300;
+    let result = 60;
     tracing::info!("Using default DURATION_SEC: {result}");
     result
 }

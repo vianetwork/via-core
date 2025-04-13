@@ -100,6 +100,7 @@ impl<S: EthereumSigner> Signer<S> {
         nonce: Nonce,
         factory_deps: Vec<Vec<u8>>,
         paymaster_params: PaymasterParams,
+        value: U256,
     ) -> Result<L2Tx, SignerError> {
         self.sign_execute_contract_for_deploy(
             contract,
@@ -108,6 +109,7 @@ impl<S: EthereumSigner> Signer<S> {
             nonce,
             factory_deps,
             paymaster_params,
+            value,
         )
         .await
     }
@@ -120,6 +122,7 @@ impl<S: EthereumSigner> Signer<S> {
         nonce: Nonce,
         factory_deps: Vec<Vec<u8>>,
         paymaster_params: PaymasterParams,
+        value: U256,
     ) -> Result<L2Tx, SignerError> {
         let mut execute_contract = L2Tx::new(
             contract,
@@ -127,7 +130,7 @@ impl<S: EthereumSigner> Signer<S> {
             nonce,
             fee,
             self.eth_signer.get_address().await?,
-            U256::zero(),
+            value,
             factory_deps,
             paymaster_params,
         );

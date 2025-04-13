@@ -2,10 +2,9 @@ use zksync_eth_signer::EthereumSigner;
 use zksync_types::{
     api::{BlockIdVariant, BlockNumber, TransactionRequest},
     l2::L2Tx,
-    tokens::ETHEREUM_ADDRESS,
     transaction_request::CallRequest,
     web3::Bytes,
-    Address, Eip712Domain, U256,
+    Address, Eip712Domain, DEFAULT_L2_TX_GAS_PER_PUBDATA_BYTE, L2_BASE_TOKEN_ADDRESS, U256,
 };
 use zksync_web3_decl::{
     client::{Client, L2},
@@ -74,7 +73,7 @@ where
         block_number: BlockNumber,
         token_address: Address,
     ) -> Result<U256, ClientError> {
-        let balance = if token_address == ETHEREUM_ADDRESS {
+        let balance = if token_address == L2_BASE_TOKEN_ADDRESS {
             self.provider
                 .get_balance(
                     self.address(),
@@ -153,6 +152,7 @@ where
             let mut req: TransactionRequest = tx.into();
             if let Some(meta) = req.eip712_meta.as_mut() {
                 meta.custom_signature = None;
+                meta.gas_per_pubdata = U256::from(DEFAULT_L2_TX_GAS_PER_PUBDATA_BYTE);
             }
             req.from = Some(self.address());
             req.chain_id = Some(self.signer.chain_id.as_u64());

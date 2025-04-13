@@ -76,6 +76,7 @@ where
                 nonce,
                 vec![bytecode.clone()],
                 paymaster_params,
+                self.value.unwrap_or_default(),
             )
             .await
             .map_err(ClientError::SigningError)

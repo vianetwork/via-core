@@ -98,7 +98,7 @@ impl Executor {
         )?;
 
         let btc_balance = btc_client.get_balance(&master_wallet.btc_address).await?;
-        if btc_balance < bitcoin::Amount::from_btc(600.0).unwrap().to_sat().into() {
+        if btc_balance < bitcoin::Amount::from_btc(1.0).unwrap().to_sat().into() {
             anyhow::bail!(
                 "BTC balance on {} is too low to safely perform the loadtest: {} - at least 600 BTC is required",
                 master_wallet.btc_address,
@@ -123,7 +123,7 @@ impl Executor {
         tracing::info!("Master Account: Depositing BTC");
         let master_wallet = &mut self.pool.btc_master_wallet;
 
-        let deposit_amount = bitcoin::Amount::from_btc(300.0).unwrap().to_sat();
+        let deposit_amount = bitcoin::Amount::from_btc(10.0).unwrap().to_sat();
 
         let deposit_response = btc_deposit::deposit(
             deposit_amount,
@@ -136,7 +136,7 @@ impl Executor {
         .await;
 
         // sleep for 20 seconds to wait for the deposit to be confirmed on L2
-        tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         tracing::info!("Master Account: Waiting for the deposit to be confirmed on L2");
 
         // print the balance of the master account on L2
@@ -172,7 +172,7 @@ impl Executor {
             .await?
             .expect("No testnet paymaster is set");
 
-        let deposit_amount = bitcoin::Amount::from_btc(50.0).unwrap().to_sat();
+        let deposit_amount = bitcoin::Amount::from_btc(1.0).unwrap().to_sat();
 
         let deposit_response = btc_deposit::deposit(
             deposit_amount,
@@ -200,8 +200,7 @@ impl Executor {
         tracing::info!("Master Account: Distributing BTC to test accounts on L2");
         let master_eth_wallet = &mut self.pool.eth_master_wallet;
 
-        let l2_transfer_amount = bitcoin::Amount::from_btc(0.1).unwrap().to_sat();
-
+        let l2_transfer_amount: u64 = 100_000_000_000_000_000;
         for eth_account in self.pool.eth_accounts.iter().take(accounts_to_process) {
             // L2 BTC transfer
             let transfer_builder = master_eth_wallet
@@ -216,8 +215,8 @@ impl Executor {
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to estimate fee: {}", e))?;
 
-            fee.gas_per_pubdata_limit = U256::from(1);
-
+            // Set the GAS limit to process a transfer
+            fee.gas_limit = 300000.into();
             let transfer = transfer_builder.fee(fee).send().await;
 
             match transfer {
