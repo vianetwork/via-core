@@ -3,7 +3,6 @@ mod metrics;
 
 use std::time::Duration;
 
-use anyhow::Context;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
@@ -12,7 +11,7 @@ use via_btc_client::{
     types::{BitcoinTxid, NodeAuth},
 };
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
-use zksync_config::ActorRole;
+use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ActorRole};
 
 use self::{
     message_processors::{MessageProcessor, MessageProcessorError},
@@ -36,7 +35,7 @@ pub struct VerifierBtcWatch {
     last_processed_bitcoin_block: u32,
     pool: ConnectionPool<Verifier>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
-    btc_blocks_lag: u32,
+    start_l1_block_number: u32,
 }
 
 impl VerifierBtcWatch {
@@ -49,14 +48,18 @@ impl VerifierBtcWatch {
         bootstrap_txids: Vec<BitcoinTxid>,
         pool: ConnectionPool<Verifier>,
         poll_interval: Duration,
-        btc_blocks_lag: u32,
+        start_l1_block_number: u32,
         actor_role: &ActorRole,
         zk_agreement_threshold: f64,
+        restart_indexing: bool,
     ) -> anyhow::Result<Self> {
         let indexer =
             BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
-        let mut storage = pool.connection_tagged("via_btc_watch").await?;
-        let state = Self::initialize_state(&indexer, &mut storage, btc_blocks_lag).await?;
+        let mut storage = pool
+            .connection_tagged(VerifierBtcWatch::module_name())
+            .await?;
+        let state =
+            Self::initialize_state(&mut storage, start_l1_block_number, restart_indexing).await?;
         tracing::info!("initialized state: {state:?}");
         drop(storage);
 
@@ -84,31 +87,27 @@ impl VerifierBtcWatch {
             last_processed_bitcoin_block: state.last_processed_bitcoin_block,
             pool,
             message_processors,
-            btc_blocks_lag,
+            start_l1_block_number,
         })
     }
 
     async fn initialize_state(
-        indexer: &BitcoinInscriptionIndexer,
         storage: &mut Connection<'_, Verifier>,
-        btc_blocks_lag: u32,
+        start_l1_block_number: u32,
+        restart_indexing: bool,
     ) -> anyhow::Result<BtcWatchState> {
-        let last_processed_bitcoin_block = match storage
-            .via_votes_dal()
-            .get_last_finalized_l1_batch()
-            .await?
-        {
-            Some(block) => block.saturating_sub(1),
-            None => {
-                let current_block = indexer
-                    .fetch_block_height()
-                    .await
-                    .with_context(|| "cannot get current Bitcoin block")?
-                    as u32;
+        let mut last_processed_bitcoin_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block(VerifierBtcWatch::module_name())
+            .await? as u32;
 
-                current_block.saturating_sub(btc_blocks_lag)
-            }
-        };
+        if last_processed_bitcoin_block == 0 || restart_indexing {
+            storage
+                .via_indexer_dal()
+                .init_indexer_metadata(VerifierBtcWatch::module_name(), start_l1_block_number)
+                .await?;
+            last_processed_bitcoin_block = start_l1_block_number;
+        }
 
         Ok(BtcWatchState {
             last_processed_bitcoin_block,
@@ -126,7 +125,9 @@ impl VerifierBtcWatch {
             }
             METRICS.btc_poll.inc();
 
-            let mut storage = pool.connection_tagged("via_btc_watch").await?;
+            let mut storage = pool
+                .connection_tagged(VerifierBtcWatch::module_name())
+                .await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(MessageProcessorError::Internal(err)) => {
@@ -137,7 +138,7 @@ impl VerifierBtcWatch {
                 Err(err) => {
                     tracing::error!("Failed to process new blocks: {err}");
                     self.last_processed_bitcoin_block =
-                        Self::initialize_state(&self.indexer, &mut storage, self.btc_blocks_lag)
+                        Self::initialize_state(&mut storage, self.start_l1_block_number, false)
                             .await?
                             .last_processed_bitcoin_block;
                 }
@@ -152,14 +153,19 @@ impl VerifierBtcWatch {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> Result<(), MessageProcessorError> {
-        let to_block = self
-            .indexer
-            .fetch_block_height()
-            .await
-            .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
-            .saturating_sub(self.confirmations_for_btc_msg) as u32;
-        if to_block <= self.last_processed_bitcoin_block {
+        let current_l1_block_number =
+            self.indexer
+                .fetch_block_height()
+                .await
+                .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
+                .saturating_sub(self.confirmations_for_btc_msg) as u32;
+        if current_l1_block_number <= self.last_processed_bitcoin_block {
             return Ok(());
+        }
+
+        let mut to_block = self.last_processed_bitcoin_block + L1_BLOCKS_CHUNK;
+        if to_block > current_l1_block_number {
+            to_block = current_l1_block_number;
         }
 
         let messages = self
@@ -175,7 +181,17 @@ impl VerifierBtcWatch {
                 .map_err(|e| MessageProcessorError::Internal(e.into()))?;
         }
 
+        storage
+            .via_indexer_dal()
+            .update_last_processed_l1_block(VerifierBtcWatch::module_name(), to_block)
+            .await
+            .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+
         self.last_processed_bitcoin_block = to_block;
         Ok(())
+    }
+
+    fn module_name() -> &'static str {
+        "via_btc_watch"
     }
 }
