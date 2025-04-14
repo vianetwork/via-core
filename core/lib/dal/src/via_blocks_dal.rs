@@ -295,7 +295,8 @@ impl ViaBlocksDal<'_, '_> {
                         1
                     FROM
                         via_l1_batch_inscription_request ir
-                        LEFT JOIN via_btc_inscriptions_request_history irh ON irh.id = ir.commit_proof_inscription_id
+                        LEFT JOIN via_btc_inscriptions_request a ON ir.commit_proof_inscription_id = a.id
+                        LEFT JOIN via_btc_inscriptions_request_history irh ON irh.id = a.confirmed_inscriptions_request_history_id
                     WHERE
                         ir.l1_batch_number = $1
                         AND irh.reveal_tx_id = $2
