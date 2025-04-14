@@ -5,6 +5,7 @@ use musig2::{
     verify_single, CompactSignature, FirstRound, KeyAggContext, PartialSignature, PubNonce,
     SecNonceSpices, SecondRound,
 };
+use rand::{rngs::OsRng, Rng};
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
 pub mod transaction_builder;
 pub mod utxo_manager;
@@ -131,7 +132,7 @@ impl Signer {
 
         let first_round = FirstRound::new(
             self.key_agg_ctx.clone(),
-            rand::random::<[u8; 32]>(),
+            OsRng.gen::<[u8; 32]>(),
             self.signer_index,
             SecNonceSpices::new()
                 .with_seckey(self.secret_key)
