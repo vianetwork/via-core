@@ -65,7 +65,7 @@ impl ViaBtcWatchConfig {
         &self.actor_role
     }
 
-    /// Returns the number of blocks that we should wait before processing the new blocks.
+    /// Returns the starting L1 block number from which indexing begins.
     pub fn start_l1_block_number(&self) -> u32 {
         self.start_l1_block_number
     }

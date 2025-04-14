@@ -106,7 +106,7 @@ impl VerifierBtcWatch {
                 .via_indexer_dal()
                 .init_indexer_metadata(VerifierBtcWatch::module_name(), start_l1_block_number)
                 .await?;
-            last_processed_bitcoin_block = start_l1_block_number;
+            last_processed_bitcoin_block = start_l1_block_number - 1;
         }
 
         Ok(BtcWatchState {
