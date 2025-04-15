@@ -250,11 +250,13 @@ impl ViaBlocksDal<'_, '_> {
         let row = sqlx::query!(
             r#"
             SELECT
-                MIN(l1_batch_number) AS l1_batch_number
+                MIN(number) AS l1_batch_number
             FROM
-                via_l1_batch_inscription_request
+                l1_batches
+                LEFT JOIN via_l1_batch_inscription_request ON number = l1_batch_number
             WHERE
                 commit_proof_inscription_id IS NULL
+                AND number != 0
             "#
         )
         .instrument("get_l1_batch_proof_not_commited")
@@ -293,7 +295,8 @@ impl ViaBlocksDal<'_, '_> {
                         1
                     FROM
                         via_l1_batch_inscription_request ir
-                        LEFT JOIN via_btc_inscriptions_request_history irh ON irh.id = ir.commit_proof_inscription_id
+                        LEFT JOIN via_btc_inscriptions_request a ON ir.commit_proof_inscription_id = a.id
+                        LEFT JOIN via_btc_inscriptions_request_history irh ON irh.id = a.confirmed_inscriptions_request_history_id
                     WHERE
                         ir.l1_batch_number = $1
                         AND irh.reveal_tx_id = $2
