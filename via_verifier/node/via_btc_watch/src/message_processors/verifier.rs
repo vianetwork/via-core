@@ -89,8 +89,6 @@ impl MessageProcessor for VerifierMessageProcessor {
                 }
                 ref f @ FullInscriptionMessage::ValidatorAttestation(ref attestation_msg) => {
                     if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
-                        let mut votes_dal = storage.via_votes_dal();
-
                         let reveal_proof_txid =
                             convert_txid_to_h256(attestation_msg.input.reference_txid);
                         let tx_id = convert_txid_to_h256(attestation_msg.common.tx_id);
@@ -101,7 +99,8 @@ impl MessageProcessor for VerifierMessageProcessor {
                             via_btc_client::types::Vote::Ok
                         );
 
-                        if let Some(votable_transaction_id) = votes_dal
+                        if let Some(votable_transaction_id) = storage
+                            .via_votes_dal()
                             .get_votable_transaction_id(reveal_proof_txid)
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
@@ -110,7 +109,14 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 attestation_msg.common.p2wpkh_address.as_ref().expect(
                                     "ValidatorAttestation message must have a p2wpkh address",
                                 );
-                            votes_dal
+
+                            let mut transaction = storage
+                                .start_transaction()
+                                .await
+                                .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+
+                            transaction
+                                .via_votes_dal()
                                 .insert_vote(
                                     votable_transaction_id,
                                     &p2wpkh_address.to_string(),
@@ -120,7 +126,8 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
                             // Check finalization
-                            if votes_dal
+                            if transaction
+                                .via_votes_dal()
                                 .finalize_transaction_if_needed(
                                     votable_transaction_id,
                                     self.zk_agreement_threshold,
@@ -130,11 +137,16 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                             {
                                 tracing::info!(
-                                    "Finalizing transaction with tx_id: {:?} and block number: {:?}",
-                                    tx_id,
-                                    l1_batch_number
+                                        "Finalizing transaction with tx_id: {:?} and block number: {:?}",
+                                        tx_id,
+                                        l1_batch_number
                                 );
                             }
+
+                            transaction
+                                .commit()
+                                .await
+                                .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                         }
                     }
                 }

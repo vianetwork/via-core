@@ -56,7 +56,12 @@ impl MessageProcessor for VotableMessageProcessor {
                             .as_ref()
                             .expect("ValidatorAttestation message must have a p2wpkh address");
 
-                        storage
+                        let mut transaction = storage
+                            .start_transaction()
+                            .await
+                            .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+
+                        transaction
                             .via_votes_dal()
                             .insert_vote(
                                 l1_batch_number.0,
@@ -68,7 +73,7 @@ impl MessageProcessor for VotableMessageProcessor {
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
                         // Check finalization
-                        if storage
+                        if transaction
                             .via_votes_dal()
                             .finalize_transaction_if_needed(
                                 l1_batch_number.0,
@@ -84,6 +89,11 @@ impl MessageProcessor for VotableMessageProcessor {
                                 l1_batch_number
                             );
                         }
+
+                        transaction
+                            .commit()
+                            .await
+                            .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
                     }
                 }
 
