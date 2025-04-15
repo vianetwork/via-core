@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                last_indexer_l1_block\n            FROM\n                via_indexer_metadata\n            WHERE\n                module = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_indexer_l1_block",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "12c639fe438fe1346d155e0e4c1f9b30cd2a4db38a78070bf49c688300dc6a57"
+}
