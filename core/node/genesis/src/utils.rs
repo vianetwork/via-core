@@ -15,19 +15,20 @@ use zksync_types::{
     tokens::{TokenInfo, TokenMetadata},
     zk_evm_types::{LogQuery, Timestamp},
     AccountTreeId, L1BatchNumber, L2BlockNumber, L2ChainId, StorageKey, StorageLog, H256,
+    L2_BASE_TOKEN_ADDRESS,
 };
 use zksync_utils::{be_words_to_bytes, bytecode::hash_bytecode, h256_to_u256, u256_to_h256};
 
 use crate::GenesisError;
 
-pub(super) async fn add_eth_token(transaction: &mut Connection<'_, Core>) -> anyhow::Result<()> {
+pub(super) async fn add_btc_token(transaction: &mut Connection<'_, Core>) -> anyhow::Result<()> {
     assert!(transaction.in_transaction()); // sanity check
     let eth_token = TokenInfo {
         l1_address: ETHEREUM_ADDRESS,
-        l2_address: ETHEREUM_ADDRESS,
+        l2_address: L2_BASE_TOKEN_ADDRESS,
         metadata: TokenMetadata {
-            name: "Ether".to_string(),
-            symbol: "ETH".to_string(),
+            name: "Bitcoin".to_string(),
+            symbol: "BTC".to_string(),
             decimals: 18,
         },
     };

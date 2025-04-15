@@ -8,6 +8,9 @@ pub enum ActorRole {
     Verifier,
 }
 
+/// Total L1 blocks to process at a time.
+pub const L1_BLOCKS_CHUNK: u32 = 10;
+
 /// Configuration for the Bitcoin watch crate.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ViaBtcWatchConfig {
@@ -36,8 +39,11 @@ pub struct ViaBtcWatchConfig {
     /// Role of the actor. SEQUENCER or VERIFIER.
     pub actor_role: ActorRole,
 
-    /// Number of blocks that we should wait before processing the new blocks.
-    pub btc_blocks_lag: u32,
+    /// The starting L1 block number from which indexing begins
+    pub start_l1_block_number: u32,
+
+    /// When set to true, the btc_watch starts indexing L1 blocks from the "start_l1_block_number".
+    pub restart_indexing: bool,
 
     /// The agreement threshold required for the verifier to finalize an L1 batch.
     pub zk_agreement_threshold: f64,
@@ -59,9 +65,9 @@ impl ViaBtcWatchConfig {
         &self.actor_role
     }
 
-    /// Returns the number of blocks that we should wait before processing the new blocks.
-    pub fn btc_blocks_lag(&self) -> u32 {
-        self.btc_blocks_lag
+    /// Returns the starting L1 block number from which indexing begins.
+    pub fn start_l1_block_number(&self) -> u32 {
+        self.start_l1_block_number
     }
 
     /// Returns the RPC URL of the Bitcoin node.
@@ -103,7 +109,8 @@ impl ViaBtcWatchConfig {
             network: "regtest".to_string(),
             bootstrap_txids: vec![],
             actor_role: ActorRole::Sequencer,
-            btc_blocks_lag: 1,
+            start_l1_block_number: 1,
+            restart_indexing: false,
             zk_agreement_threshold: 0.5,
         }
     }
