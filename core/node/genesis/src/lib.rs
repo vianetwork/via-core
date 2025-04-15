@@ -26,7 +26,7 @@ use zksync_types::{
 use zksync_utils::{bytecode::hash_bytecode, u256_to_h256};
 
 use crate::utils::{
-    add_eth_token, get_deduped_log_queries, get_storage_logs,
+    add_btc_token, get_deduped_log_queries, get_storage_logs,
     insert_base_system_contracts_to_factory_deps, insert_system_contracts,
     save_genesis_l1_batch_metadata,
 };
@@ -397,7 +397,7 @@ pub async fn create_genesis_l1_batch(
 
     insert_base_system_contracts_to_factory_deps(&mut transaction, base_system_contracts).await?;
     insert_system_contracts(&mut transaction, factory_deps, &storage_logs).await?;
-    add_eth_token(&mut transaction).await?;
+    add_btc_token(&mut transaction).await?;
 
     transaction.commit().await?;
     Ok(())
