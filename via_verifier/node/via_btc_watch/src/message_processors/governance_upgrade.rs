@@ -35,7 +35,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                 // Ignore if old version but not if same version. The verifier should refresh the protocol version when the
                 // in case where the Sequencer revert an upgrade.
                 if system_contract_upgrade_msg.input.version < get_sequencer_version() {
-                    tracing::debug!(
+                    tracing::info!(
                         "Upgrade transaction with version {} already processed, skipping",
                         system_contract_upgrade_msg.input.version
                     );

@@ -72,6 +72,8 @@ impl MessageProcessor for VotableMessageProcessor {
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
+                        tracing::info!("New vote found for L1 batch {:?}", l1_batch_number);
+
                         // Check finalization
                         if transaction
                             .via_votes_dal()

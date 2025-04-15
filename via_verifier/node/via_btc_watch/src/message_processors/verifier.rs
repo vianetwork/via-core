@@ -37,7 +37,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                             .unwrap_or(0);
 
                         if l1_batch_number.0 < last_finilized_l1_batch {
-                            tracing::warn!(
+                            tracing::info!(
                                 "Skipping ProofDAReference message with l1_batch_number: {:?}. Last inserted block: {:?}",
                                 l1_batch_number, last_finilized_l1_batch
                             );
@@ -80,6 +80,12 @@ impl MessageProcessor for VerifierMessageProcessor {
                             )
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+
+                        tracing::info!(
+                            "New votable transaction for L1 batch {:?}",
+                            l1_batch_number
+                        );
+                        continue;
                     } else {
                         tracing::warn!(
                             "L1BatchNumber not found for ProofDAReference message : {:?}",
@@ -124,6 +130,8 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 )
                                 .await
                                 .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+
+                            tracing::info!("New vote found for L1 batch {:?}", l1_batch_number);
 
                             // Check finalization
                             if transaction

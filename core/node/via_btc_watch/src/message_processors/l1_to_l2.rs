@@ -67,7 +67,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                         .await
                         .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                     {
-                        tracing::debug!(
+                        tracing::info!(
                             "Transaction with tx_id {} already processed, skipping",
                             tx_id
                         );
@@ -173,7 +173,7 @@ impl L1ToL2MessageProcessor {
 
         l1_tx.common_data.canonical_tx_hash = canonical_tx_hash;
 
-        tracing::debug!(
+        tracing::info!(
             "Created L1 transaction with serial id {:?} (block {}) with deposit amount {} and tx hash {}",
             l1_tx.common_data.serial_id,
             l1_tx.common_data.eth_block,

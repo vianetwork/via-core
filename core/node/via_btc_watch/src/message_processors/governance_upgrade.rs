@@ -47,14 +47,14 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
             {
                 // Ignore if old version
                 if system_contract_upgrade_msg.input.version <= self.last_seen_protocol_version {
-                    tracing::debug!(
+                    tracing::info!(
                         "Upgrade transaction with version {} already processed, skipping",
                         system_contract_upgrade_msg.input.version
                     );
                     continue;
                 }
 
-                tracing::debug!(
+                tracing::info!(
                     "Received upgrades with versions: {:?}",
                     system_contract_upgrade_msg.input.version
                 );

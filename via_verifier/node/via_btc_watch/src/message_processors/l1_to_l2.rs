@@ -70,7 +70,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                         .await
                         .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                     {
-                        tracing::debug!(
+                        tracing::info!(
                             "Transaction with tx_id {} already processed, skipping",
                             tx_id
                         );
