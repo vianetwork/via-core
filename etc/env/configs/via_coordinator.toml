@@ -34,8 +34,6 @@ test_zk_proof_invalid_l1_batch_numbers = [3]
 
 [via_btc_watch]
 actor_role = "Verifier"
-# Number of blocks that we should check when restarting the service.
-btc_blocks_lag = 1000
 
 [via_btc_sender]
 private_key = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm"
