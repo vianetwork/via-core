@@ -118,7 +118,7 @@ impl ViaBlockReverter {
                     first_l1_batch_can_be_reverted -1
                 );
             } else {
-                tracing::info!("There is no 1 batch to start roll back process");
+                tracing::warn!("There are no L1 batches available for reversion.");
                 return Ok(());
             }
         }
