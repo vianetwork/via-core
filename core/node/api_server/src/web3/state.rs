@@ -124,12 +124,12 @@ impl InternalApiConfig {
         web3_config: &Web3JsonRpcConfig,
         contracts_config: &ContractsConfig,
         genesis_config: &GenesisConfig,
-        via_bridge_address: String,
-        via_network: Network,
+        via_bridge_address: Option<String>,
+        via_network: Option<Network>,
     ) -> Self {
         Self {
-            via_bridge_address,
-            via_network,
+            via_bridge_address: via_bridge_address.unwrap_or_default(),
+            via_network: via_network.unwrap_or(Network::Regtest),
             l1_chain_id: genesis_config.l1_chain_id,
             l2_chain_id: genesis_config.l2_chain_id,
             max_tx_size: web3_config.max_tx_size,
