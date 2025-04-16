@@ -20,6 +20,7 @@ use crate::{
 };
 
 pub mod error;
+pub mod via_l1;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 #[repr(u8)]

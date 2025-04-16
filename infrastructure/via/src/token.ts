@@ -143,7 +143,10 @@ async function estimateGasFee(l2RpcUrl: string, amount: number, receiverL2Addres
         })
     );
 
-    const gasPrice = await l2Provider.getGasPrice();
+    // https://github.com/vianetwork/via-core/blob/7c73be01d7160320c615ce0d70bdcdb2c8a9671c/core/lib/types/src/l1/via_l1.rs#L15
+    // Hardcode the gas price to avoid issues during the Priority Id verification.
+    // const gasPrice = await l2Provider.getGasPrice();
+    const gasPrice = BigInt(120_000_000);
     return (gasCost * gasPrice) / BigInt(10_000_000_000);
 }
 

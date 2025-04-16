@@ -1,18 +1,11 @@
-use std::sync::Arc;
-
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{BitcoinAddress, FullInscriptionMessage, L1ToL2Message},
 };
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_node_fee_model::BatchFeeModelInputProvider;
 use zksync_types::{
-    abi::L2CanonicalTransaction,
-    fee_model::BatchFeeInput,
-    helpers::unix_timestamp_ms,
-    l1::{L1Tx, OpProcessingType, PriorityQueueType},
-    Address, Execute, L1TxCommonData, PriorityOpId, H256, PRIORITY_OPERATION_L2_TX_TYPE,
-    REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE, U256,
+    l1::{via_l1::ViaL1Deposit, L1Tx},
+    PriorityOpId, H256,
 };
 
 use crate::{
@@ -22,19 +15,13 @@ use crate::{
 
 #[derive(Debug)]
 pub struct L1ToL2MessageProcessor {
-    batch_fee_input_provider: Arc<dyn BatchFeeModelInputProvider>,
     bridge_address: BitcoinAddress,
     next_expected_priority_id: PriorityOpId,
 }
 
 impl L1ToL2MessageProcessor {
-    pub fn new(
-        batch_fee_input_provider: Arc<dyn BatchFeeModelInputProvider>,
-        bridge_address: BitcoinAddress,
-        next_expected_priority_id: PriorityOpId,
-    ) -> Self {
+    pub fn new(bridge_address: BitcoinAddress, next_expected_priority_id: PriorityOpId) -> Self {
         Self {
-            batch_fee_input_provider,
             bridge_address,
             next_expected_priority_id,
         }
@@ -74,9 +61,12 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                         continue;
                     }
                     let serial_id = self.next_expected_priority_id;
-                    let batch_fee = self.batch_fee_input_provider.get_batch_fee_input().await?;
-                    let l1_tx =
-                        self.create_l1_tx_from_message(batch_fee, &l1_to_l2_msg, serial_id)?;
+                    let Some(l1_tx) = self.create_l1_tx_from_message(&l1_to_l2_msg, serial_id)
+                    else {
+                        tracing::warn!("Invalid deposit, l1 tx_id {}", &l1_to_l2_msg.common.tx_id);
+                        continue;
+                    };
+
                     priority_ops.push((l1_tx, tx_id));
                     self.next_expected_priority_id = self.next_expected_priority_id.next();
                 }
@@ -104,84 +94,27 @@ impl MessageProcessor for L1ToL2MessageProcessor {
 impl L1ToL2MessageProcessor {
     fn create_l1_tx_from_message(
         &self,
-        batch_fee_input: BatchFeeInput,
         msg: &L1ToL2Message,
         serial_id: PriorityOpId,
-    ) -> Result<L1Tx, MessageProcessorError> {
-        let amount = msg.amount.to_sat();
-        let eth_address_l2 = msg.input.receiver_l2_address;
-        let calldata = msg.input.call_data.clone();
-
-        let mantissa = U256::from(10_000_000_000u64); // Eth 18 decimals - BTC 8 decimals
-        let value = U256::from(amount) * mantissa;
-        let max_fee_per_gas = U256::from(batch_fee_input.fair_l2_gas_price());
-        let gas_limit = U256::from(300_000u64);
-        let gas_per_pubdata_limit = U256::from(REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE);
-
-        let mut l1_tx = L1Tx {
-            execute: Execute {
-                contract_address: eth_address_l2,
-                calldata: calldata.clone(),
-                value: U256::zero(),
-                factory_deps: vec![],
-            },
-            common_data: L1TxCommonData {
-                sender: eth_address_l2,
-                serial_id,
-                layer_2_tip_fee: U256::zero(),
-                full_fee: U256::zero(),
-                max_fee_per_gas,
-                gas_limit,
-                gas_per_pubdata_limit,
-                op_processing_type: OpProcessingType::Common,
-                priority_queue_type: PriorityQueueType::Deque,
-                canonical_tx_hash: H256::zero(),
-                to_mint: value,
-                refund_recipient: eth_address_l2,
-                eth_block: msg.common.block_height as u64,
-            },
-            received_timestamp_ms: unix_timestamp_ms(),
+    ) -> Option<L1Tx> {
+        let deposit = ViaL1Deposit {
+            l2_receiver_address: msg.input.receiver_l2_address,
+            amount: msg.amount.to_sat(),
+            calldata: msg.input.call_data.clone(),
+            serial_id,
+            l1_block_number: msg.common.block_height as u64,
         };
 
-        let l2_transaction = L2CanonicalTransaction {
-            tx_type: PRIORITY_OPERATION_L2_TX_TYPE.into(),
-            from: address_to_u256(&l1_tx.common_data.sender),
-            to: address_to_u256(&l1_tx.execute.contract_address),
-            gas_limit: l1_tx.common_data.gas_limit,
-            gas_per_pubdata_byte_limit: l1_tx.common_data.gas_per_pubdata_limit,
-            max_fee_per_gas: l1_tx.common_data.max_fee_per_gas,
-            max_priority_fee_per_gas: U256::zero(),
-            paymaster: U256::zero(),
-            nonce: l1_tx.common_data.serial_id.0.into(),
-            value: l1_tx.execute.value,
-            reserved: [
-                l1_tx.common_data.to_mint,
-                address_to_u256(&l1_tx.common_data.refund_recipient),
-                U256::zero(),
-                U256::zero(),
-            ],
-            data: l1_tx.execute.calldata.clone(),
-            signature: vec![],
-            factory_deps: vec![],
-            paymaster_input: vec![],
-            reserved_dynamic: vec![],
-        };
-
-        let canonical_tx_hash = l2_transaction.hash();
-
-        l1_tx.common_data.canonical_tx_hash = canonical_tx_hash;
-
-        tracing::info!(
-            "Created L1 transaction with serial id {:?} (block {}) with deposit amount {} and tx hash {}",
-            l1_tx.common_data.serial_id,
-            l1_tx.common_data.eth_block,
-            amount,
-            l1_tx.common_data.canonical_tx_hash,
-        );
-        Ok(l1_tx)
+        if let Some(l1_tx) = deposit.l1_tx() {
+            tracing::info!(
+                "Created L1 transaction with serial id {:?} (block {}) with deposit amount {} and tx hash {}",
+                l1_tx.common_data.serial_id,
+                l1_tx.common_data.eth_block,
+                deposit.amount,
+                l1_tx.common_data.canonical_tx_hash,
+            );
+            return Some(l1_tx);
+        }
+        None
     }
-}
-
-fn address_to_u256(address: &Address) -> U256 {
-    U256::from_big_endian(&address.0)
 }
