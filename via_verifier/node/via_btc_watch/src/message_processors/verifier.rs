@@ -2,6 +2,7 @@ use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionM
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
+use crate::metrics::{InscriptionStage, METRICS};
 
 #[derive(Debug)]
 pub struct VerifierMessageProcessor {
@@ -66,6 +67,9 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 )))
                             }
                         };
+
+                        METRICS.inscriptions_processed[&InscriptionStage::IndexedL1Batch]
+                            .set(l1_batch_number.0 as usize);
 
                         votes_dal
                             .insert_votable_transaction(
@@ -133,6 +137,9 @@ impl MessageProcessor for VerifierMessageProcessor {
 
                             tracing::info!("New vote found for L1 batch {:?}", l1_batch_number);
 
+                            METRICS.inscriptions_processed[&InscriptionStage::Vote]
+                                .set(l1_batch_number.0 as usize);
+
                             // Check finalization
                             if transaction
                                 .via_votes_dal()
@@ -144,6 +151,9 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 .await
                                 .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                             {
+                                METRICS
+                                    .last_finalized_l1_batch
+                                    .set(l1_batch_number.0 as usize);
                                 tracing::info!(
                                         "Finalizing transaction with tx_id: {:?} and block number: {:?}",
                                         tx_id,

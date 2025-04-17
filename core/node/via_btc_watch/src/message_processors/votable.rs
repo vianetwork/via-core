@@ -2,6 +2,7 @@ use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionM
 use zksync_dal::{Connection, Core, CoreDal};
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
+use crate::metrics::{InscriptionStage, METRICS};
 
 #[derive(Debug)]
 pub struct VotableMessageProcessor {
@@ -74,6 +75,8 @@ impl MessageProcessor for VotableMessageProcessor {
 
                         tracing::info!("New vote found for L1 batch {:?}", l1_batch_number);
 
+                        METRICS.inscriptions_processed[&InscriptionStage::Vote]
+                            .set(l1_batch_number.0 as usize);
                         // Check finalization
                         if transaction
                             .via_votes_dal()

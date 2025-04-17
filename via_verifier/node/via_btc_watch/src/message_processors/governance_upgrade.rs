@@ -9,7 +9,10 @@ use zksync_types::{
     CONTRACT_FORCE_DEPLOYER_ADDRESS, H256, PROTOCOL_UPGRADE_TX_TYPE, U256,
 };
 
-use crate::message_processors::{MessageProcessor, MessageProcessorError};
+use crate::{
+    message_processors::{MessageProcessor, MessageProcessorError},
+    metrics::{InscriptionStage, METRICS},
+};
 
 /// Listens to operation events coming from the governance contract and saves new protocol upgrade proposals to the database.
 #[derive(Debug)]
@@ -70,6 +73,8 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
             recursion_scheduler_level_vk_hash,
         ) in upgrades
         {
+            METRICS.inscriptions_processed[&InscriptionStage::Upgrade].set(version.minor as usize);
+
             storage
                 .via_protocol_versions_dal()
                 .save_protocol_version(

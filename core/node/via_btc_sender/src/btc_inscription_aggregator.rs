@@ -3,8 +3,9 @@ use tokio::sync::watch;
 use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
+use zksync_shared_metrics::BlockL1Stage;
 
-use crate::aggregator::ViaAggregator;
+use crate::{aggregator::ViaAggregator, metrics::METRICS};
 
 #[derive(Debug)]
 pub struct ViaBtcInscriptionAggregator {
@@ -60,6 +61,9 @@ impl ViaBtcInscriptionAggregator {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
+        let latency = METRICS.inscription_preparation_time.start();
+        let mut processed_inscriptions = vec![];
+
         if let Some(operation) = self.aggregator.get_next_ready_operation(storage).await? {
             tracing::info!("New operation ready to be processed {operation}");
 
@@ -98,8 +102,19 @@ impl ViaBtcInscriptionAggregator {
                         operation.get_inscription_request_type(),
                     )
                     .await?;
+
+                processed_inscriptions.push((
+                    inscription_request_id as u32,
+                    operation.get_inscription_request_type(),
+                ));
             }
             transaction.commit().await?;
+
+            METRICS
+                .track_btc_tx_metrics(storage, BlockL1Stage::Mined, processed_inscriptions)
+                .await;
+            latency.observe();
+            METRICS.pending_inscription_requests.inc_by(1);
         }
         Ok(())
     }

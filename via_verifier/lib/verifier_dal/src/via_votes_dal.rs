@@ -217,6 +217,38 @@ impl ViaVotesDal<'_, '_> {
         Ok(row.max_batch_number.map(|n| n as u32))
     }
 
+    pub async fn get_last_voted_l1_batch(&mut self) -> DalResult<u32> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                MAX(l1_batch_number) AS max_batch_number
+            FROM
+                via_votable_transactions
+            WHERE
+                l1_batch_status IS NOT NULL
+            "#
+        )
+        .instrument("get_last_voted_l1_batch")
+        .fetch_one(self.storage)
+        .await?;
+        Ok(row.max_batch_number.unwrap_or(0) as u32)
+    }
+
+    pub async fn get_last_votable_l1_batch(&mut self) -> DalResult<u32> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                MAX(l1_batch_number) AS max_batch_number
+            FROM
+                via_votable_transactions
+            "#
+        )
+        .instrument("get_last_votable_l1_batch")
+        .fetch_one(self.storage)
+        .await?;
+        Ok(row.max_batch_number.unwrap_or(0) as u32)
+    }
+
     pub async fn verify_votable_transaction(
         &mut self,
         l1_batch_number: i64,
