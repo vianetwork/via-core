@@ -7,26 +7,26 @@ use bitcoin::{
 };
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
-use zksync_types::{Address as EVMAddress, L1BatchNumber};
+use zksync_types::{
+    protocol_version::ProtocolSemanticVersion, Address as EVMAddress, L1BatchNumber, U256,
+};
 
-use crate::{
-    types,
-    types::{
-        CommonFields, FullInscriptionMessage, L1BatchDAReference, L1BatchDAReferenceInput,
-        L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput,
-        ProposeSequencer, ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput,
-        ValidatorAttestation, ValidatorAttestationInput, Vote,
-    },
+use crate::types::{
+    self, CommonFields, FullInscriptionMessage, L1BatchDAReference, L1BatchDAReferenceInput,
+    L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput, ProposeSequencer,
+    ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
+    SystemContractUpgradeInput, ValidatorAttestation, ValidatorAttestationInput, Vote,
 };
 
 // Using constants to define the minimum number of instructions can help to make parsing more quick
 const MIN_WITNESS_LENGTH: usize = 3;
-const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 7;
+const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 8;
 const MIN_PROPOSE_SEQUENCER_INSTRUCTIONS: usize = 3;
 const MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS: usize = 4;
 const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 7;
 const MIN_PROOF_DA_REFERENCE_INSTRUCTIONS: usize = 5;
 const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
+const MIN_SYSTEM_CONTRACT_UPGRADE_PROPOSAL: usize = 6;
 
 #[derive(Debug, Clone)]
 pub struct MessageParser {
@@ -218,6 +218,12 @@ impl MessageParser {
                 debug!("Parsing L1 to L2 message");
                 self.parse_l1_to_l2_message(tx, instructions, common_fields)
             }
+            Instruction::PushBytes(bytes)
+                if bytes.as_bytes() == types::SYSTEM_CONTRACT_UPGRADE_MSG.as_bytes() =>
+            {
+                debug!("Parsing System contract upgrade proposal");
+                self.parse_system_contract_upgrade_message(instructions, common_fields)
+            }
             Instruction::PushBytes(bytes) => {
                 warn!("Unknown message type for system transaction parser");
                 warn!(
@@ -260,7 +266,7 @@ impl MessageParser {
         debug!("Parsed start block height: {}", start_block_height);
 
         // network unchecked is required to enable serde serialization and deserialization on the library structs
-        let network_unchecked_verifier_addresses = instructions[3..instructions.len() - 4]
+        let network_unchecked_verifier_addresses = instructions[3..instructions.len() - 5]
             .iter()
             .filter_map(|instr| {
                 if let Instruction::PushBytes(bytes) = instr {
@@ -279,7 +285,7 @@ impl MessageParser {
         );
 
         let network_unchecked_bridge_address =
-            instructions.get(instructions.len() - 4).and_then(|instr| {
+            instructions.get(instructions.len() - 5).and_then(|instr| {
                 if let Instruction::PushBytes(bytes) = instr {
                     std::str::from_utf8(bytes.as_bytes())
                         .ok()
@@ -289,8 +295,6 @@ impl MessageParser {
                 }
             })?;
 
-        debug!("Parsed bridge address");
-
         // Save the bridge address for later use
         self.bridge_address = Some(
             network_unchecked_bridge_address
@@ -299,9 +303,11 @@ impl MessageParser {
                 .ok()?,
         );
 
+        debug!("Parsed bridge address");
+
         let bootloader_hash = H256::from_slice(
             instructions
-                .get(instructions.len() - 3)?
+                .get(instructions.len() - 4)?
                 .push_bytes()?
                 .as_bytes(),
         );
@@ -310,12 +316,25 @@ impl MessageParser {
 
         let abstract_account_hash = H256::from_slice(
             instructions
-                .get(instructions.len() - 2)?
+                .get(instructions.len() - 3)?
                 .push_bytes()?
                 .as_bytes(),
         );
 
         debug!("Parsed abstract account hash");
+
+        let network_unchecked_governance_address =
+            instructions.get(instructions.len() - 2).and_then(|instr| {
+                if let Instruction::PushBytes(bytes) = instr {
+                    std::str::from_utf8(bytes.as_bytes())
+                        .ok()
+                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
+                } else {
+                    None
+                }
+            })?;
+
+        debug!("Parsed governance address");
 
         Some(FullInscriptionMessage::SystemBootstrapping(
             SystemBootstrapping {
@@ -326,6 +345,7 @@ impl MessageParser {
                     verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
                     bootloader_hash,
                     abstract_account_hash,
+                    governance_address: network_unchecked_governance_address,
                 },
             },
         ))
@@ -579,6 +599,60 @@ impl MessageParser {
             },
             tx_outputs: tx.output.clone(),
         }))
+    }
+
+    #[instrument(
+        skip(self, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
+    fn parse_system_contract_upgrade_message(
+        &self,
+        instructions: &[Instruction],
+        common_fields: &CommonFields,
+    ) -> Option<FullInscriptionMessage> {
+        if instructions.len() < MIN_SYSTEM_CONTRACT_UPGRADE_PROPOSAL {
+            return None;
+        }
+
+        let version = ProtocolSemanticVersion::try_from_packed(U256::from_big_endian(
+            instructions.get(2)?.push_bytes()?.as_bytes(),
+        ))
+        .ok()?;
+        debug!("Parsed protocol version");
+
+        let bootloader_code_hash = H256::from_slice(instructions.get(3)?.push_bytes()?.as_bytes());
+        debug!("Parsed bootloader code hash");
+
+        let default_account_code_hash =
+            H256::from_slice(instructions.get(4)?.push_bytes()?.as_bytes());
+        debug!("Parsed default account code hash");
+
+        let recursion_scheduler_level_vk_hash =
+            H256::from_slice(instructions.get(5)?.push_bytes()?.as_bytes());
+        debug!("Parsed recursion scheduler level vk hash");
+
+        let len = instructions.len() - 7;
+        let mut system_contracts = Vec::with_capacity(len / 2);
+
+        for i in (6..len).step_by(2) {
+            let address = EVMAddress::from_slice(instructions.get(i)?.push_bytes()?.as_bytes());
+            let hash = H256::from_slice(instructions.get(i + 1)?.push_bytes()?.as_bytes());
+            system_contracts.push((address, hash))
+        }
+        debug!("Parsed system contracts");
+
+        Some(FullInscriptionMessage::SystemContractUpgrade(
+            SystemContractUpgrade {
+                common: common_fields.clone(),
+                input: SystemContractUpgradeInput {
+                    version,
+                    bootloader_code_hash,
+                    default_account_code_hash,
+                    recursion_scheduler_level_vk_hash,
+                    system_contracts,
+                },
+            },
+        ))
     }
 
     fn parse_inscription_deposit(

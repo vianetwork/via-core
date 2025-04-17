@@ -4,6 +4,8 @@
 #![warn(clippy::cast_lossless)]
 
 pub use sqlx::{types::BigDecimal, Error as SqlxError};
+use via_blocks_web3_dal::ViaBlocksWeb3Dal;
+use via_transactions_web3_dal::ViaTransactionsWeb3Dal;
 use zksync_db_connection::connection::DbMarker;
 pub use zksync_db_connection::{
     connection::{Connection, IsolationLevel},
@@ -63,10 +65,12 @@ pub mod tokens_web3_dal;
 pub mod transactions_dal;
 pub mod transactions_web3_dal;
 pub mod via_blocks_dal;
+pub mod via_blocks_web3_dal;
 pub mod via_btc_sender_dal;
 pub mod via_data_availability_dal;
 pub mod via_indexer_dal;
 pub mod via_transactions_dal;
+pub mod via_transactions_web3_dal;
 pub mod via_votes_dal;
 pub mod vm_runner_dal;
 
@@ -88,6 +92,8 @@ where
 
     fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a>;
 
+    fn via_transaction_web3_dal(&mut self) -> ViaTransactionsWeb3Dal<'_, 'a>;
+
     fn via_votes_dal(&mut self) -> ViaVotesDal<'_, 'a>;
 
     fn via_indexer_dal(&mut self) -> ViaIndexerDal<'_, 'a>;
@@ -99,6 +105,8 @@ where
     fn blocks_dal(&mut self) -> BlocksDal<'_, 'a>;
 
     fn via_blocks_dal(&mut self) -> ViaBlocksDal<'_, 'a>;
+
+    fn via_blocks_web3_dal(&mut self) -> ViaBlocksWeb3Dal<'_, 'a>;
 
     fn blocks_web3_dal(&mut self) -> BlocksWeb3Dal<'_, 'a>;
 
@@ -172,6 +180,10 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
         ViaTransactionsDal { storage: self }
     }
 
+    fn via_transaction_web3_dal(&mut self) -> ViaTransactionsWeb3Dal<'_, 'a> {
+        ViaTransactionsWeb3Dal { storage: self }
+    }
+
     fn via_votes_dal(&mut self) -> ViaVotesDal<'_, 'a> {
         ViaVotesDal { storage: self }
     }
@@ -194,6 +206,10 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
 
     fn via_blocks_dal(&mut self) -> ViaBlocksDal<'_, 'a> {
         ViaBlocksDal { storage: self }
+    }
+
+    fn via_blocks_web3_dal(&mut self) -> ViaBlocksWeb3Dal<'_, 'a> {
+        ViaBlocksWeb3Dal { storage: self }
     }
 
     fn blocks_web3_dal(&mut self) -> BlocksWeb3Dal<'_, 'a> {

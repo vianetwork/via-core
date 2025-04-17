@@ -226,6 +226,7 @@ The DA dispatcher includes several important implementation features not covered
   ```
 
 - **Dual Proof Handling Paths**: The dispatcher has separate code paths for real and dummy proofs:
+
   ```rust
   async fn dispatch_proofs(&self) -> anyhow::Result<()> {
       match self.dispatch_real_proof {
@@ -270,6 +271,7 @@ The Bitcoin sender implementation includes several sophisticated components not 
 
 - **Blockchain Synchronization**: Before creating inscriptions, the system synchronizes its state with the Bitcoin
   blockchain:
+
   ```rust
   self.sync_context_with_blockchain().await?;
   ```

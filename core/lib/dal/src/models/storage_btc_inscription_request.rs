@@ -25,7 +25,7 @@ pub struct ViaStorageBtcInscriptionRequestHistory {
     pub actual_fees: i64,
     pub sent_at_block: i64,
     pub confirmed_at: Option<NaiveDateTime>,
-    pub created_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
 }
 
@@ -56,6 +56,7 @@ impl From<ViaStorageBtcInscriptionRequestHistory> for ViaBtcInscriptionRequestHi
             signed_reveal_tx: history.signed_reveal_tx,
             actual_fees: history.actual_fees,
             confirmed_at: history.confirmed_at,
+            created_at: history.created_at,
         }
     }
 }

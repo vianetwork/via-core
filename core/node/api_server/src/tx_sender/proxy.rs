@@ -372,9 +372,9 @@ impl TxSink for TxProxy {
                 gas_per_pubdata: tx.common_data.fee.gas_per_pubdata_limit,
                 initiator_address: tx.initiator_account(),
                 received_at,
-                eth_commit_tx_hash: None,
-                eth_prove_tx_hash: None,
-                eth_execute_tx_hash: None,
+                commit_tx_hash: None,
+                prove_tx_hash: None,
+                execute_tx_hash: None,
             }));
         }
         Ok(None)

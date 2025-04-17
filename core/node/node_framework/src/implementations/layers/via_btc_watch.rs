@@ -1,9 +1,16 @@
-use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::NodeAuth};
+use via_btc_client::indexer::BitcoinInscriptionIndexer;
 use via_btc_watch::{BitcoinNetwork, BtcWatch};
-use zksync_config::ViaBtcWatchConfig;
+use zksync_config::{
+    configs::{
+        via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig,
+        via_secrets::ViaL1Secrets,
+    },
+    ViaBtcWatchConfig,
+};
 
 use crate::{
     implementations::resources::{
+        fee_input::ApiFeeInputResource,
         pools::{MasterPool, PoolResource},
         via_btc_indexer::BtcIndexerResource,
     },
@@ -18,13 +25,17 @@ use crate::{
 /// Responsible for initializing and running of [`BtcWatch`] component, that polls the Bitcoin node for the relevant events.
 #[derive(Debug)]
 pub struct BtcWatchLayer {
+    via_genesis_config: ViaGenesisConfig,
+    via_btc_client: ViaBtcClientConfig,
     btc_watch_config: ViaBtcWatchConfig,
+    secrets: ViaL1Secrets,
 }
 
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<MasterPool>,
+    pub fee_input: ApiFeeInputResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -36,8 +47,18 @@ pub struct Output {
 }
 
 impl BtcWatchLayer {
-    pub fn new(btc_watch_config: ViaBtcWatchConfig) -> Self {
-        Self { btc_watch_config }
+    pub fn new(
+        via_genesis_config: ViaGenesisConfig,
+        via_btc_client: ViaBtcClientConfig,
+        btc_watch_config: ViaBtcWatchConfig,
+        secrets: ViaL1Secrets,
+    ) -> Self {
+        Self {
+            via_genesis_config,
+            via_btc_client,
+            btc_watch_config,
+            secrets,
+        }
     }
 }
 
@@ -52,50 +73,37 @@ impl WiringLayer for BtcWatchLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
-        let network = BitcoinNetwork::from_core_arg(self.btc_watch_config.network())
-            .map_err(|_| WiringError::Configuration("Wrong network in config".to_string()))?;
-        let node_auth = NodeAuth::UserPass(
-            self.btc_watch_config.rpc_user().to_string(),
-            self.btc_watch_config.rpc_password().to_string(),
-        );
-        let bootstrap_txids = self
-            .btc_watch_config
-            .bootstrap_txids()
-            .iter()
-            .map(|txid| {
-                txid.parse()
-                    .map_err(|_| WiringError::Configuration("Wrong txid in config".to_string()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let start_l1_block_number = self.btc_watch_config.start_l1_block_number();
+        let indexer = BitcoinInscriptionIndexer::new(
+            self.secrets.rpc_url.expose_str(),
+            self.via_btc_client.network(),
+            self.secrets.auth_node(),
+            self.via_genesis_config.bootstrap_txids()?,
+        )
+        .await
+        .map_err(|e| WiringError::Internal(e.into()))?;
+        let btc_indexer_resource = BtcIndexerResource::from(indexer.clone());
+        // We should not set block_confirmations to 0 for mainnet,
+        // because we need to wait for some confirmations to be sure that the transaction is included in a block.
+        if self.via_btc_client.network() == BitcoinNetwork::Bitcoin
+            && self.btc_watch_config.block_confirmations == 0
+        {
+            return Err(WiringError::Configuration(
+                "block_confirmations cannot be 0 for mainnet".into(),
+            ));
+        }
 
-        let indexer = BtcIndexerResource::from(
-            BitcoinInscriptionIndexer::new(
-                self.btc_watch_config.rpc_url(),
-                network,
-                node_auth.clone(),
-                bootstrap_txids.clone(),
-            )
-            .await
-            .map_err(|e| WiringError::Internal(e.into()))?,
-        );
         let btc_watch = BtcWatch::new(
-            self.btc_watch_config.rpc_url(),
-            network,
-            node_auth,
-            self.btc_watch_config.confirmations_for_btc_msg,
-            bootstrap_txids,
+            self.btc_watch_config,
+            indexer,
+            input.fee_input.0,
             main_pool,
-            self.btc_watch_config.poll_interval(),
-            start_l1_block_number,
-            self.btc_watch_config.actor_role(),
-            self.btc_watch_config.zk_agreement_threshold,
-            self.btc_watch_config.restart_indexing,
+            self.via_genesis_config.bridge_address()?,
+            self.via_genesis_config.zk_agreement_threshold,
         )
         .await?;
 
         Ok(Output {
-            btc_indexer_resource: indexer,
+            btc_indexer_resource,
             btc_watch,
         })
     }

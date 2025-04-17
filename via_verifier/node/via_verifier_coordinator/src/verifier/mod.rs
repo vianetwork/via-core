@@ -1,6 +1,6 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use bitcoin::{Address, TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
@@ -8,11 +8,14 @@ use tokio::sync::watch;
 use via_btc_client::traits::{BitcoinOps, Serializable};
 use via_musig2::{transaction_builder::TransactionBuilder, verify_signature, Signer};
 use via_verifier_dal::{ConnectionPool, Verifier};
-use via_verifier_types::transaction::UnsignedBridgeTx;
+use via_verifier_types::{protocol_version::get_sequencer_version, transaction::UnsignedBridgeTx};
 use via_withdrawal_client::client::WithdrawalClient;
-use zksync_config::configs::via_verifier::{VerifierMode, ViaVerifierConfig};
+use zksync_config::configs::{via_verifier::ViaVerifierConfig, via_wallets::ViaWallet};
+use zksync_types::via_roles::ViaNodeRole;
+use zksync_utils::time::seconds_since_epoch;
 
 use crate::{
+    metrics::METRICS,
     sessions::{session_manager::SessionManager, withdrawal::WithdrawalSession},
     traits::ISession,
     types::{
@@ -22,29 +25,27 @@ use crate::{
 };
 
 pub struct ViaWithdrawalVerifier {
+    verifier_config: ViaVerifierConfig,
+    wallet: ViaWallet,
     session_manager: SessionManager,
     btc_client: Arc<dyn BitcoinOps>,
-    config: ViaVerifierConfig,
     client: Client,
     signer: Signer,
     final_sig: Option<CompactSignature>,
+    verifiers_pub_keys: Vec<String>,
 }
 
 impl ViaWithdrawalVerifier {
     pub fn new(
-        config: ViaVerifierConfig,
+        verifier_config: ViaVerifierConfig,
+        wallet: ViaWallet,
         master_connection_pool: ConnectionPool<Verifier>,
         btc_client: Arc<dyn BitcoinOps>,
         withdrawal_client: WithdrawalClient,
+        bridge_address: Address,
+        verifiers_pub_keys: Vec<String>,
     ) -> anyhow::Result<Self> {
-        let signer = get_signer(
-            &config.private_key.clone(),
-            config.verifiers_pub_keys_str.clone(),
-        )?;
-
-        let bridge_address = Address::from_str(config.bridge_address_str.as_str())
-            .with_context(|| "Error parse bridge address")?
-            .assume_checked();
+        let signer = get_signer(&wallet.private_key, verifiers_pub_keys.clone())?;
 
         let transaction_builder =
             Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
@@ -64,17 +65,19 @@ impl ViaWithdrawalVerifier {
         .collect();
 
         Ok(Self {
-            btc_client,
+            verifier_config,
+            wallet,
             session_manager: SessionManager::new(sessions),
-            signer,
+            btc_client,
             client: Client::new(),
-            config,
+            signer,
             final_sig: None,
+            verifiers_pub_keys,
         })
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
-        let mut timer = tokio::time::interval(self.config.polling_interval());
+        let mut timer = tokio::time::interval(self.verifier_config.polling_interval());
 
         while !*stop_receiver.borrow_and_update() {
             tokio::select! {
@@ -152,6 +155,9 @@ impl ViaWithdrawalVerifier {
 
         if session_info.received_nonces < session_info.required_signers {
             if !self.session_manager.verify_message(&session_op).await? {
+                METRICS
+                    .session_invalid_message
+                    .set(session_op.get_l1_batche_number() as usize);
                 anyhow::bail!("Error when verify the session message");
             }
 
@@ -168,6 +174,10 @@ impl ViaWithdrawalVerifier {
                 return Ok(());
             }
             self.submit_partial_signature(session_nonces).await?;
+
+            METRICS
+                .session_last_valid_session
+                .set(session_op.get_l1_batche_number() as usize);
         }
 
         Ok(())
@@ -177,14 +187,16 @@ impl ViaWithdrawalVerifier {
         let mut headers = header::HeaderMap::new();
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let verifier_index = self.signer.signer_index().to_string();
+        let sequencer_version = get_sequencer_version().to_string();
 
-        let private_key = bitcoin::PrivateKey::from_wif(&self.config.private_key)?;
+        let private_key = bitcoin::PrivateKey::from_wif(&self.wallet.private_key)?;
         let secret_key = private_key.inner;
 
-        // Sign timestamp + verifier_index as a JSON object
+        // Sign timestamp + verifier_index + sequencer_version as a JSON object
         let payload = serde_json::json!({
             "timestamp": timestamp,
             "verifier_index": verifier_index,
+            "sequencer_version": sequencer_version
         });
         let signature = crate::auth::sign_request(&payload, &secret_key)?;
 
@@ -194,12 +206,16 @@ impl ViaWithdrawalVerifier {
             header::HeaderValue::from_str(&verifier_index)?,
         );
         headers.insert("X-Signature", header::HeaderValue::from_str(&signature)?);
+        headers.insert(
+            "X-Sequencer-Version",
+            header::HeaderValue::from_str(&sequencer_version)?,
+        );
 
         Ok(headers)
     }
 
     async fn get_session(&self) -> anyhow::Result<SigningSessionResponse> {
-        let url = format!("{}/session", self.config.url);
+        let url = format!("{}/session", self.verifier_config.coordinator_http_url);
         let headers = self.create_request_headers()?;
         let resp = self
             .client
@@ -221,7 +237,10 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn get_session_nonces(&self) -> anyhow::Result<HashMap<usize, String>> {
-        let nonces_url = format!("{}/session/nonce", self.config.url);
+        let nonces_url = format!(
+            "{}/session/nonce",
+            self.verifier_config.coordinator_http_url
+        );
         let headers = self.create_request_headers()?;
         let resp = self
             .client
@@ -250,7 +269,10 @@ impl ViaWithdrawalVerifier {
             .ok_or_else(|| anyhow::anyhow!("No nonce available"))?;
 
         let nonce_pair = encode_nonce(self.signer.signer_index(), nonce).unwrap();
-        let url = format!("{}/session/nonce", self.config.url);
+        let url = format!(
+            "{}/session/nonce",
+            self.verifier_config.coordinator_http_url
+        );
         let headers = self.create_request_headers()?;
         let res = self
             .client
@@ -275,7 +297,10 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn get_session_signatures(&self) -> anyhow::Result<HashMap<usize, PartialSignature>> {
-        let url = format!("{}/session/signature", self.config.url);
+        let url = format!(
+            "{}/session/signature",
+            self.verifier_config.coordinator_http_url
+        );
         let headers = self.create_request_headers()?;
         let resp = self
             .client
@@ -321,7 +346,10 @@ impl ViaWithdrawalVerifier {
         let partial_sig = self.signer.create_partial_signature()?;
         let sig_pair = encode_signature(self.signer.signer_index(), partial_sig)?;
 
-        let url = format!("{}/session/signature", self.config.url);
+        let url = format!(
+            "{}/session/signature",
+            self.verifier_config.coordinator_http_url
+        );
         let headers = self.create_request_headers()?;
         let resp = self
             .client
@@ -346,8 +374,8 @@ impl ViaWithdrawalVerifier {
 
     fn reinit_signer(&mut self) -> anyhow::Result<()> {
         let signer = get_signer(
-            &self.config.private_key.clone(),
-            self.config.verifiers_pub_keys_str.clone(),
+            &self.wallet.private_key.clone(),
+            self.verifiers_pub_keys.clone(),
         )?;
         self.signer = signer;
         self.final_sig = None;
@@ -355,7 +383,7 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn create_new_session(&mut self) -> anyhow::Result<()> {
-        let url = format!("{}/session/new", self.config.url);
+        let url = format!("{}/session/new", self.verifier_config.coordinator_http_url);
         let headers = self.create_request_headers()?;
         let resp = self
             .client
@@ -456,6 +484,10 @@ impl ViaWithdrawalVerifier {
                     return Ok(false);
                 }
 
+                METRICS.session_time.observe(Duration::from_secs(
+                    seconds_since_epoch() - session_info.created_at,
+                ));
+
                 self.reinit_signer()?;
 
                 return Ok(true);
@@ -465,6 +497,6 @@ impl ViaWithdrawalVerifier {
     }
 
     fn is_coordinator(&self) -> bool {
-        self.config.verifier_mode == VerifierMode::COORDINATOR
+        self.verifier_config.role == ViaNodeRole::Coordinator
     }
 }

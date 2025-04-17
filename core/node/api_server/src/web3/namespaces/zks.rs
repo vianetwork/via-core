@@ -35,7 +35,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(crate) struct ZksNamespace {
+pub struct ZksNamespace {
     state: RpcState,
 }
 
@@ -44,7 +44,7 @@ impl ZksNamespace {
         Self { state }
     }
 
-    pub(crate) fn current_method(&self) -> &MethodTracer {
+    pub fn current_method(&self) -> &MethodTracer {
         &self.state.current_method
     }
 

@@ -1,8 +1,6 @@
-import * as utils from 'utils';
 import { Command } from 'commander';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as dotenv from 'dotenv';
 import { exec } from 'child_process';
 import { updateEnvVariable } from './helpers';
 

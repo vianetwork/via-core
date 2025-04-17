@@ -12,6 +12,7 @@ use bitcoin::{
     Address, Network, ScriptBuf,
 };
 use tracing::{debug, instrument};
+use zksync_types::{ethabi::ethereum_types::BigEndianHash, H256};
 
 use crate::types;
 
@@ -136,6 +137,9 @@ impl InscriptionData {
             types::InscriptionMessage::L1ToL2Message(input) => {
                 Self::build_l1_to_l2_message_script(basic_script, input)
             }
+            types::InscriptionMessage::SystemContractUpgrade(input) => {
+                Self::build_system_contract_upgrade_message_script(basic_script, input)
+            }
         };
 
         let final_script = final_script_result.push_opcode(all::OP_ENDIF).into_script();
@@ -247,10 +251,15 @@ impl InscriptionData {
 
         let abstract_account_hash = Self::encode_push_bytes(input.abstract_account_hash.as_bytes());
 
+        let governance_address = input.governance_address.clone().require_network(network)?;
+        let governance_address_ecoded =
+            Self::encode_push_bytes(governance_address.to_string().as_bytes());
+
         Ok(script
             .push_slice(bridge_address_encoded)
             .push_slice(boostloader_hash)
-            .push_slice(abstract_account_hash))
+            .push_slice(abstract_account_hash)
+            .push_slice(governance_address_ecoded))
     }
 
     #[instrument(
@@ -295,6 +304,40 @@ impl InscriptionData {
             .push_slice(receiver_l2_address_encoded)
             .push_slice(l2_contract_address_encoded)
             .push_slice(call_data_encoded)
+    }
+
+    #[instrument(
+        skip(basic_script, input),
+        target = "bitcoin_inscriber::script_builder"
+    )]
+    fn build_system_contract_upgrade_message_script(
+        basic_script: ScriptBuilder,
+        input: &types::SystemContractUpgradeInput,
+    ) -> ScriptBuilder {
+        debug!("Building SystemContract script");
+
+        let version_encoded =
+            Self::encode_push_bytes(H256::from_uint(&input.version.pack()).as_bytes());
+        let bootloader_code_hash_encoded =
+            Self::encode_push_bytes(input.bootloader_code_hash.as_bytes());
+        let default_account_code_hash_encoded =
+            Self::encode_push_bytes(input.default_account_code_hash.as_bytes());
+        let recursion_scheduler_level_vk_hash_encoded =
+            Self::encode_push_bytes(input.recursion_scheduler_level_vk_hash.as_bytes());
+
+        let mut basic_script = basic_script;
+        basic_script = basic_script
+            .push_slice(&*types::SYSTEM_CONTRACT_UPGRADE_MSG)
+            .push_slice(version_encoded)
+            .push_slice(bootloader_code_hash_encoded)
+            .push_slice(default_account_code_hash_encoded)
+            .push_slice(recursion_scheduler_level_vk_hash_encoded);
+
+        for (address, hash) in &input.system_contracts {
+            basic_script = basic_script.push_slice(Self::encode_push_bytes(address.as_bytes()));
+            basic_script = basic_script.push_slice(Self::encode_push_bytes(hash.as_bytes()));
+        }
+        basic_script
     }
 
     #[instrument(skip(data), target = "bitcoin_inscriber::script_builder")]

@@ -2,6 +2,7 @@ use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionM
 use zksync_dal::{Connection, Core, CoreDal};
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
+use crate::metrics::{InscriptionStage, METRICS};
 
 #[derive(Debug)]
 pub struct VotableMessageProcessor {
@@ -67,6 +68,8 @@ impl MessageProcessor for VotableMessageProcessor {
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
+                        METRICS.inscriptions_processed[&InscriptionStage::Vote]
+                            .set(l1_batch_number.0 as usize);
                         // Check finalization
                         if storage
                             .via_votes_dal()
@@ -88,7 +91,8 @@ impl MessageProcessor for VotableMessageProcessor {
                 }
 
                 // bootstrapping phase is already covered
-                FullInscriptionMessage::ProposeSequencer(_)
+                FullInscriptionMessage::SystemContractUpgrade(_)
+                | FullInscriptionMessage::ProposeSequencer(_)
                 | FullInscriptionMessage::SystemBootstrapping(_) => {
                     // do nothing
                 }

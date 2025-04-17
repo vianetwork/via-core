@@ -2,11 +2,10 @@ use anyhow::Result;
 use tokio::sync::watch;
 use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
-use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::ProtocolVersionId;
+use zksync_shared_metrics::BlockL1Stage;
 
-use crate::aggregator::ViaAggregator;
+use crate::{aggregator::ViaAggregator, metrics::METRICS};
 
 #[derive(Debug)]
 pub struct ViaBtcInscriptionAggregator {
@@ -62,17 +61,10 @@ impl ViaBtcInscriptionAggregator {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
-        let protocol_version_id = self.get_protocol_version_id().await?;
+        let latency = METRICS.inscription_preparation_time.start();
+        let mut processed_inscriptions = vec![];
 
-        let base_system_contracts_hashes = self
-            .load_base_system_contracts(storage, protocol_version_id)
-            .await?;
-
-        if let Some(operation) = self
-            .aggregator
-            .get_next_ready_operation(storage, base_system_contracts_hashes, protocol_version_id)
-            .await?
-        {
+        if let Some(operation) = self.aggregator.get_next_ready_operation(storage).await? {
             tracing::info!("New operation ready to be processed {operation}");
 
             let mut transaction = storage.start_transaction().await?;
@@ -110,34 +102,20 @@ impl ViaBtcInscriptionAggregator {
                         operation.get_inscription_request_type(),
                     )
                     .await?;
+
+                processed_inscriptions.push((
+                    inscription_request_id as u32,
+                    operation.get_inscription_request_type(),
+                ));
             }
             transaction.commit().await?;
+
+            METRICS
+                .track_btc_tx_metrics(storage, BlockL1Stage::Mined, processed_inscriptions)
+                .await;
+            latency.observe();
+            METRICS.pending_inscription_requests.inc_by(1);
         }
         Ok(())
-    }
-
-    async fn load_base_system_contracts(
-        &self,
-        storage: &mut Connection<'_, Core>,
-        protocol_version: ProtocolVersionId,
-    ) -> anyhow::Result<BaseSystemContractsHashes> {
-        let base_system_contracts = storage
-            .protocol_versions_dal()
-            .load_base_system_contracts_by_version_id(protocol_version as u16)
-            .await?;
-        if let Some(contracts) = base_system_contracts {
-            return Ok(BaseSystemContractsHashes {
-                bootloader: contracts.bootloader.hash,
-                default_aa: contracts.default_aa.hash,
-            });
-        }
-        anyhow::bail!(
-            "Failed to load the base system contracts for version {}",
-            protocol_version
-        )
-    }
-
-    async fn get_protocol_version_id(&self) -> anyhow::Result<ProtocolVersionId> {
-        Ok(ProtocolVersionId::latest())
     }
 }
