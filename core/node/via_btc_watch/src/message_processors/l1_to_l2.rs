@@ -1,29 +1,40 @@
+use std::sync::Arc;
+
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{BitcoinAddress, FullInscriptionMessage, L1ToL2Message},
 };
 use zksync_dal::{Connection, Core, CoreDal};
+use zksync_node_fee_model::BatchFeeModelInputProvider;
 use zksync_types::{
     abi::L2CanonicalTransaction,
+    fee_model::BatchFeeInput,
     helpers::unix_timestamp_ms,
     l1::{L1Tx, OpProcessingType, PriorityQueueType},
-    Address, Execute, L1TxCommonData, PriorityOpId, H256, PRIORITY_OPERATION_L2_TX_TYPE, U256,
+    Address, Execute, L1TxCommonData, PriorityOpId, H256, PRIORITY_OPERATION_L2_TX_TYPE,
+    REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE, U256,
 };
 
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
-    metrics::{ErrorType, InscriptionStage, METRICS},
+    metrics::{InscriptionStage, METRICS},
 };
 
 #[derive(Debug)]
 pub struct L1ToL2MessageProcessor {
+    batch_fee_input_provider: Arc<dyn BatchFeeModelInputProvider>,
     bridge_address: BitcoinAddress,
     next_expected_priority_id: PriorityOpId,
 }
 
 impl L1ToL2MessageProcessor {
-    pub fn new(bridge_address: BitcoinAddress, next_expected_priority_id: PriorityOpId) -> Self {
+    pub fn new(
+        batch_fee_input_provider: Arc<dyn BatchFeeModelInputProvider>,
+        bridge_address: BitcoinAddress,
+        next_expected_priority_id: PriorityOpId,
+    ) -> Self {
         Self {
+            batch_fee_input_provider,
             bridge_address,
             next_expected_priority_id,
         }
@@ -63,7 +74,9 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                         continue;
                     }
                     let serial_id = self.next_expected_priority_id;
-                    let l1_tx = self.create_l1_tx_from_message(&l1_to_l2_msg, serial_id)?;
+                    let batch_fee = self.batch_fee_input_provider.get_batch_fee_input().await?;
+                    let l1_tx =
+                        self.create_l1_tx_from_message(batch_fee, &l1_to_l2_msg, serial_id)?;
                     priority_ops.push((l1_tx, tx_id));
                     self.next_expected_priority_id = self.next_expected_priority_id.next();
                 }
@@ -75,15 +88,13 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         }
 
         for (new_op, txid) in priority_ops {
-            METRICS.inscriptions_processed[&InscriptionStage::Deposit].inc();
+            METRICS.inscriptions_processed[&InscriptionStage::Deposit]
+                .set(new_op.common_data.serial_id.0 as usize);
             storage
                 .via_transactions_dal()
                 .insert_transaction_l1(&new_op, new_op.eth_block(), txid)
                 .await
-                .map_err(|e| {
-                    METRICS.errors[&ErrorType::DatabaseError].inc();
-                    MessageProcessorError::DatabaseError(e.to_string())
-                })?;
+                .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
         }
 
         Ok(())
@@ -93,6 +104,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
 impl L1ToL2MessageProcessor {
     fn create_l1_tx_from_message(
         &self,
+        batch_fee_input: BatchFeeInput,
         msg: &L1ToL2Message,
         serial_id: PriorityOpId,
     ) -> Result<L1Tx, MessageProcessorError> {
@@ -102,9 +114,9 @@ impl L1ToL2MessageProcessor {
 
         let mantissa = U256::from(10_000_000_000u64); // Eth 18 decimals - BTC 8 decimals
         let value = U256::from(amount) * mantissa;
-        let max_fee_per_gas = U256::from(100_000_000u64);
-        let gas_limit = U256::from(1_000_000u64);
-        let gas_per_pubdata_limit = U256::from(800u64);
+        let max_fee_per_gas = U256::from(batch_fee_input.fair_l2_gas_price());
+        let gas_limit = U256::from(300_000u64);
+        let gas_per_pubdata_limit = U256::from(REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE);
 
         let mut l1_tx = L1Tx {
             execute: Execute {

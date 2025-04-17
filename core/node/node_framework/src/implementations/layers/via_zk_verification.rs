@@ -1,12 +1,12 @@
 use async_trait::async_trait;
-use via_btc_client::types::{BitcoinNetwork, NodeAuth};
 use via_zk_verifier::ViaVerifier;
-use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
+use zksync_config::{configs::via_consensus::ViaGenesisConfig, ViaVerifierConfig};
 
 use crate::{
     implementations::resources::{
         da_client::DAClientResource,
         pools::{PoolResource, VerifierPool},
+        via_btc_indexer::BtcIndexerResource,
     },
     service::StopReceiver,
     task::{Task, TaskId},
@@ -16,8 +16,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ViaBtcProofVerificationLayer {
-    pub config: ViaVerifierConfig,
-    pub btc_watcher_config: ViaBtcWatchConfig,
+    via_genesis_config: ViaGenesisConfig,
+    verifier_config: ViaVerifierConfig,
 }
 
 #[derive(Debug, FromContext)]
@@ -25,6 +25,7 @@ pub struct ViaBtcProofVerificationLayer {
 pub struct ProofVerificationInput {
     pub master_pool: PoolResource<VerifierPool>,
     pub da_client: DAClientResource,
+    pub btc_indexer_resource: BtcIndexerResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -35,10 +36,10 @@ pub struct ProofVerificationOutput {
 }
 
 impl ViaBtcProofVerificationLayer {
-    pub fn new(config: ViaVerifierConfig, btc_watcher_config: ViaBtcWatchConfig) -> Self {
+    pub fn new(verifier_config: ViaVerifierConfig, via_genesis_config: ViaGenesisConfig) -> Self {
         Self {
-            config,
-            btc_watcher_config,
+            verifier_config,
+            via_genesis_config,
         }
     }
 }
@@ -54,31 +55,13 @@ impl WiringLayer for ViaBtcProofVerificationLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
-        let network = BitcoinNetwork::from_core_arg(self.btc_watcher_config.network())
-            .map_err(|_| WiringError::Configuration("Wrong network in config".to_string()))?;
-        let node_auth = NodeAuth::UserPass(
-            self.btc_watcher_config.rpc_user().to_string(),
-            self.btc_watcher_config.rpc_password().to_string(),
-        );
-        let bootstrap_txids = self
-            .btc_watcher_config
-            .bootstrap_txids()
-            .iter()
-            .map(|txid| {
-                txid.parse()
-                    .map_err(|_| WiringError::Configuration("Wrong txid in config".to_string()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
 
         let via_proof_verification = ViaVerifier::new(
-            self.btc_watcher_config.rpc_url(),
-            network,
-            node_auth,
-            bootstrap_txids,
+            self.verifier_config,
+            input.btc_indexer_resource.0.as_ref().clone(),
             main_pool,
             input.da_client.0,
-            self.config.clone(),
-            self.btc_watcher_config.zk_agreement_threshold,
+            self.via_genesis_config.zk_agreement_threshold,
         )
         .await
         .map_err(WiringError::internal)?;

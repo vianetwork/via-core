@@ -94,6 +94,7 @@ pub struct SigningSession {
     pub session_op: Option<SessionOperation>,
     pub received_nonces: HashMap<usize, PubNonce>,
     pub received_sigs: HashMap<usize, PartialSignature>,
+    pub created_at: u64,
 }
 
 /// Data posted by other signers to submit their nonce
@@ -118,4 +119,5 @@ pub struct SigningSessionResponse {
     pub required_signers: usize,
     pub received_nonces: usize,
     pub received_partial_signatures: usize,
+    pub created_at: u64,
 }

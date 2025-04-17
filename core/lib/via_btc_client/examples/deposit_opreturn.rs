@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
     let secp = Secp256k1::new();
 
     let args: Vec<String> = env::args().collect();
-    let amount = Amount::from_btc(args[1].parse::<f64>()?)?;
+    let amount = Amount::from_sat(args[1].parse::<u64>()?);
     let fees = Amount::from_btc(0.0001)?;
     let receiver_l2_address = EVMAddress::from_str(&args[2])?;
     info!(

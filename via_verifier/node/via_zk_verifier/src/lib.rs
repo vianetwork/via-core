@@ -1,14 +1,12 @@
 use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
+use metrics::METRICS;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, RwLock};
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
-    types::{
-        BitcoinNetwork, BitcoinTxid, FullInscriptionMessage, L1BatchDAReference, NodeAuth,
-        ProofDAReference,
-    },
+    types::{BitcoinTxid, FullInscriptionMessage, L1BatchDAReference, ProofDAReference},
     utils::bytes_to_txid,
 };
 use via_da_client::{pubdata::Pubdata, types::L2_BOOTLOADER_CONTRACT_ADDR};
@@ -23,6 +21,8 @@ use zksync_types::{
     commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, ProtocolVersionId,
     H160, H256,
 };
+
+mod metrics;
 
 /// Copy of `zksync_l1_contract_interface::i_executor::methods::ProveBatches`
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,36 +42,31 @@ pub struct L1BatchProofForL1 {
 
 #[derive(Debug)]
 pub struct ViaVerifier {
+    config: ViaVerifierConfig,
     pool: ConnectionPool<Verifier>,
     da_client: Box<dyn DataAvailabilityClient>,
     indexer: BitcoinInscriptionIndexer,
     test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
-    config: ViaVerifierConfig,
     zk_agreement_threshold: f64,
 }
 
 impl ViaVerifier {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
-        rpc_url: &str,
-        network: BitcoinNetwork,
-        node_auth: NodeAuth,
-        bootstrap_txids: Vec<BitcoinTxid>,
-        pool: ConnectionPool<Verifier>,
-        client: Box<dyn DataAvailabilityClient>,
         config: ViaVerifierConfig,
+        indexer: BitcoinInscriptionIndexer,
+        pool: ConnectionPool<Verifier>,
+        da_client: Box<dyn DataAvailabilityClient>,
         zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
-        let indexer =
-            BitcoinInscriptionIndexer::new(rpc_url, network, node_auth, bootstrap_txids).await?;
         Ok(Self {
+            config: config.clone(),
             pool,
-            da_client: client,
+            da_client,
             indexer,
             test_zk_proof_invalid_l1_batch_numbers: Arc::new(RwLock::new(
-                config.test_zk_proof_invalid_l1_batch_numbers.clone(),
+                config.test_zk_proof_invalid_l1_batch_numbers,
             )),
-            config,
             zk_agreement_threshold,
         })
     }
@@ -106,6 +101,7 @@ impl ViaVerifier {
             .get_first_not_verified_l1_batch_in_canonical_inscription_chain()
             .await?
         {
+            let latency = METRICS.verification_time.start();
             let db_raw_tx_id = H256::from_slice(&raw_tx_id);
             tracing::info!("New non executed block ready to be processed");
 
@@ -219,8 +215,15 @@ impl ViaVerifier {
                     .via_votes_dal()
                     .delete_invalid_votable_transactions_if_exists()
                     .await?;
+
+                METRICS.last_valid_l1_batch.set(l1_batch_number as usize);
+            } else {
+                METRICS.last_invalid_l1_batch.set(l1_batch_number as usize);
             }
+
             transaction.commit().await?;
+
+            latency.observe();
         }
 
         Ok(())

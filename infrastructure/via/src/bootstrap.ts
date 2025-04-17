@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { parse } from 'yaml';
 
 const DEFAULT_NETWORK = 'regtest';
 const DEFAULT_RPC_URL = 'http://0.0.0.0:18443';
@@ -23,42 +24,140 @@ async function updateEnvVariable(envFilePath: string, variableName: string, newV
     await fs.writeFile(envFilePath, newEnvContent, 'utf-8');
 }
 
-export async function updateBootstrapTxidsEnv() {
-    const txidsFilePath = path.join(process.env.VIA_HOME!, 'txids.via');
+export async function updateBootstrapTxidsEnv(network: string) {
+    let genesisTxIds = process.env.VIA_GENESIS_BOOTSTRAP_TXIDS;
 
-    const txidsContent = await fs.readFile(txidsFilePath, 'utf8');
-    const txidsLines = txidsContent.split('\n');
-    txidsLines.pop(); // Remove last empty line
+    if (!genesisTxIds) {
+        const genesisDir = path.join(process.env.VIA_HOME!, `etc/env/via/genesis/${network}`);
+        const files = await fs.readdir(genesisDir);
 
-    const newTxids = txidsLines.join(',');
+        const txids = [];
+        // Process first the System inscriptions
+        const data = JSON.parse(await fs.readFile(path.join(genesisDir, 'SystemBootstrapping.json'), 'utf-8'));
+        if (data.tx_type != 'SystemBootstrapping') {
+            throw Error('Invalid System Bootstrapping');
+        }
+        txids.push(data.system_tx_id);
+        txids.push(data.propose_sequencer_tx_id);
+
+        // Process the Attestation
+        for (let i = 0; i < files.length; i++) {
+            const data = JSON.parse(await fs.readFile(path.join(genesisDir, files[i]), 'utf-8'));
+            if (data.tx_type == 'Attest') {
+                txids.push(data.tx_id);
+            }
+        }
+        genesisTxIds = txids.join(',');
+    }
 
     const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);
-
     console.log(`Updating file ${envFilePath}`);
 
-    await updateEnvVariable(envFilePath, 'VIA_BTC_WATCH_BOOTSTRAP_TXIDS', newTxids);
+    await updateEnvVariable(envFilePath, 'VIA_GENESIS_BOOTSTRAP_TXIDS', genesisTxIds);
 
-    console.log(`Updated VIA_BTC_WATCH_BOOTSTRAP_TXIDS with: ${newTxids}`);
-
-    try {
-        // await fs.unlink(txidsFilePath);
-        console.log(`NOT Deleted txids.via file.`);
-    } catch (error) {
-        console.error(`Error deleting txids.via file`);
-    }
+    console.log(`Updated VIA_GENESIS_BOOTSTRAP_TXIDS with: ${genesisTxIds}`);
 }
 
-export async function via_bootstrap(network: string, rpcUrl: string, rpcUsername: string, rpcPassword: string) {
+export async function attestProposedSequencer(
+    network: string,
+    rpcUrl: string,
+    rpcUsername: string,
+    rpcPassword: string,
+    privateKey: string,
+    proposeSequencerFile: string
+) {
     process.chdir(`${process.env.VIA_HOME}`);
-    await utils.spawn(`cargo run --example bootstrap -- ${network} ${rpcUrl} ${rpcUsername} ${rpcPassword}`);
 
-    await updateBootstrapTxidsEnv();
+    if (!proposeSequencerFile) {
+        proposeSequencerFile = `etc/env/via/genesis/${network}/SystemBootstrapping.json`;
+    }
+    const proposeSequencer = JSON.parse(await fs.readFile(proposeSequencerFile, 'utf-8'));
+
+    let cmd = `cargo run --example bootstrap ${network} ${rpcUrl} ${rpcUsername} ${rpcPassword} Attest ${privateKey} `;
+    cmd += `${proposeSequencer['propose_sequencer_tx_id']}`;
+
+    await utils.spawn(cmd);
 }
 
-export const command = new Command('bootstrap')
-    .description('VIA bootstrap')
+export async function systemBootstrapping(
+    network: string,
+    rpcUrl: string,
+    rpcUsername: string,
+    rpcPassword: string,
+    privateKey: string,
+    startBlock: string,
+    verifiersPubKeys: string,
+    governanceAddress: string,
+    bridgeAddress: string,
+    sequencerAddress: string
+) {
+    process.chdir(`${process.env.VIA_HOME}`);
+
+    const genesisPath = `etc/env/file_based/genesis.yaml`;
+    const file = await fs.readFile(genesisPath, 'utf-8');
+    const genesisData = parse(file);
+
+    const default_aa_hash = genesisData['default_aa_hash'];
+    const bootloader_hash = genesisData['bootloader_hash'];
+
+    let cmd = `cargo run --example bootstrap ${network} ${rpcUrl} ${rpcUsername} ${rpcPassword} SystemBootstrapping ${privateKey} `;
+    cmd += `${startBlock} ${verifiersPubKeys} ${default_aa_hash} ${bootloader_hash} ${governanceAddress} ${bridgeAddress} ${sequencerAddress}`;
+
+    await utils.spawn(cmd);
+}
+
+export const command = new Command('bootstrap');
+
+command
+    .command('system-bootstrapping')
+    .description('Create a system bootstrapping inscription')
     .option('--network <network>', 'network', DEFAULT_NETWORK)
     .option('--rpc-url <rpcUrl>', 'RPC URL', DEFAULT_RPC_URL)
     .option('--rpc-username <rpcUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
-    .action((cmd: Command) => via_bootstrap(cmd.network, cmd.rpcUrl, cmd.rpcUsername, cmd.rpcPassword));
+    .requiredOption('--start-block <startBlock>', 'Start block')
+    .requiredOption('--private-key <privateKey>', 'The inscriber private key')
+    .requiredOption('--verifiers-pub-keys <verifiersPubKeys>', 'verifiers public keys')
+    .requiredOption('--governance-address <governanceAddress>', 'The governance address')
+    .requiredOption('--bridge-address <bridgeAddress>', 'The bridge address')
+    .requiredOption('--sequencer-address <sequencerAddress>', 'The sequencer address')
+    .action((cmd: Command) =>
+        systemBootstrapping(
+            cmd.network,
+            cmd.rpcUrl,
+            cmd.rpcUsername,
+            cmd.rpcPassword,
+            cmd.privateKey,
+            cmd.startBlock,
+            cmd.verifiersPubKeys,
+            cmd.governanceAddress,
+            cmd.bridgeAddress,
+            cmd.sequencerAddress
+        )
+    );
+
+command
+    .command('attest-sequencer-proposal')
+    .description('Verifier attestation sequencer proposal')
+    .option('--network <network>', 'network', DEFAULT_NETWORK)
+    .option('--rpc-url <rpcUrl>', 'RPC URL', DEFAULT_RPC_URL)
+    .option('--rpc-username <rpcUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
+    .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
+    .option('--propose-sequencer-file <proposeSequencerFile>', 'The sequencer proposal bitcoin file')
+    .requiredOption('--private-key <privateKey>', 'The inscriber private key')
+    .action((cmd: Command) =>
+        attestProposedSequencer(
+            cmd.network,
+            cmd.rpcUrl,
+            cmd.rpcUsername,
+            cmd.rpcPassword,
+            cmd.privateKey,
+            cmd.proposeSequencerFile
+        )
+    );
+
+command
+    .command('update-bootstrap-tx')
+    .description('Update the bootstrap envs')
+    .option('--network <network>', 'network', DEFAULT_NETWORK)
+    .action((cmd: Command) => updateBootstrapTxidsEnv(cmd.network));

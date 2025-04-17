@@ -118,6 +118,7 @@ services:
       - POSTGRES_PASSWORD=notsecurepassword
 
   celestia-node:
+    user: 1000:1000
     image: "ghcr.io/celestiaorg/celestia-node:v0.20.4-mocha"
     container_name: celestia-node
     volumes:

@@ -46,7 +46,7 @@ help:
 	@echo "  transactions       - Send random transactions on the Bitcoin regtest network."
 	@echo "  celestia           - Update Celestia config and obtain test tokens."
 	@echo "  btc-explorer       - Run a Bitcoin explorer."
-	@echo "  bootstrap          - Send the bootstrapping inscription to Bitcoin."
+	@echo "  bootstrap-dev      -- Send the bootstrapping inscription to Bitcoin (Development)."
 	@echo "  server-genesis     - Populate the genesis block data if no genesis block exists."
 	@echo "  server             - Run the sequencer software."
 	@echo "  clean              - Clean the project, remove Docker images, volumes, and generated files."
@@ -68,11 +68,11 @@ via-restart: env-soft server
 
 # Run the basic setup workflow in sequence
 .PHONY: via
-via: base transactions celestia bootstrap server-genesis server
+via: base transactions celestia bootstrap-dev server-genesis server
 
 # Run the full setup workflow in sequence
 .PHONY: all
-all: base transactions celestia btc-explorer bootstrap server-genesis server
+all: base transactions celestia btc-explorer bootstrap-dev server-genesis server
 
 # Run the basic setup workflow in verifier
 .PHONY: via-verifier
@@ -150,13 +150,26 @@ btc-explorer:
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) btc-explorer
 
-# Run 'via bootstrap'
-.PHONY: bootstrap
-bootstrap:
+# Run 'via bootstrap-dev'
+.PHONY: bootstrap-dev
+bootstrap-dev:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Sending bootstrapping inscription to Bitcoin...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) bootstrap
+	@$(CLI_TOOL) bootstrap system-bootstrapping \
+		--private-key cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
+		--start-block 1 \
+		--verifiers-pub-keys 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b,02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662 \
+		--governance-address bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56 \
+		--bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq \
+		--sequencer-address bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
+
+	@echo "$(YELLOW)Sending attestations...$(RESET)"
+	@$(CLI_TOOL) bootstrap attest-sequencer-proposal --private-key cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm
+	@$(CLI_TOOL) bootstrap attest-sequencer-proposal --private-key cQ4UHjdsGWFMcQ8zXcaSr7m4Kxq9x7g9EKqguTaFH7fA34mZAnqW
+
+	@echo "$(YELLOW)Update ENVs...$(RESET)"
+	@$(CLI_TOOL) bootstrap update-bootstrap-tx
 
 # Run 'via server --genesis'
 .PHONY: server-genesis

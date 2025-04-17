@@ -10,6 +10,8 @@ use zksync_config::{
         },
         fri_prover_group::FriProverGroupConfig,
         house_keeper::HouseKeeperConfig,
+        via_btc_client::ViaBtcClientConfig,
+        via_consensus::ViaGenesisConfig,
         vm_runner::BasicWitnessInputProducerConfig,
         wallets::{AddressWallet, EthSender, StateKeeper, TokenMultiplierSetter, Wallet, Wallets},
         CommitmentGeneratorConfig, DatabaseSecrets, ExperimentalVmConfig,
@@ -20,7 +22,8 @@ use zksync_config::{
     },
     ApiConfig, BaseTokenAdjusterConfig, ContractVerifierConfig, DADispatcherConfig, DBConfig,
     EthConfig, EthWatchConfig, ExternalProofIntegrationApiConfig, GasAdjusterConfig,
-    ObjectStoreConfig, PostgresConfig, SnapshotsCreatorConfig,
+    ObjectStoreConfig, PostgresConfig, SnapshotsCreatorConfig, ViaBtcSenderConfig,
+    ViaBtcWatchConfig, ViaCelestiaConfig, ViaGeneralConfig,
 };
 use zksync_env_config::FromEnv;
 use zksync_protobuf::repr::ProtoRepr;
@@ -201,6 +204,29 @@ fn load_env_config() -> anyhow::Result<TempConfigStore> {
         experimental_vm_config: ExperimentalVmConfig::from_env().ok(),
         prover_job_monitor_config: ProverJobMonitorConfig::from_env().ok(),
     })
+}
+
+#[derive(Debug, PartialEq, Default)]
+pub struct ViaTempConfigStore {}
+
+impl ViaTempConfigStore {
+    pub fn general() -> anyhow::Result<ViaGeneralConfig> {
+        let env_config = load_env_config()?;
+        let general_config = env_config.general();
+        let mut via_general_config = ViaGeneralConfig::from(general_config);
+
+        via_general_config.via_btc_watch_config =
+            Some(ViaBtcWatchConfig::from_env().context("Failed to load BTC watch config")?);
+        via_general_config.via_btc_sender_config =
+            Some(ViaBtcSenderConfig::from_env().context("Failed to load BTC sender config")?);
+        via_general_config.via_btc_client_config =
+            Some(ViaBtcClientConfig::from_env().context("Failed to load btc client config")?);
+        via_general_config.via_celestia_config =
+            Some(ViaCelestiaConfig::from_env().context("Failed to load celestia config")?);
+        via_general_config.via_genesis_config =
+            Some(ViaGenesisConfig::from_env().context("Failed to load genesis config")?);
+        Ok(via_general_config)
+    }
 }
 
 pub fn load_general_config(path: Option<PathBuf>) -> anyhow::Result<GeneralConfig> {

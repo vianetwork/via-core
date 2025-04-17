@@ -38,4 +38,5 @@ pub struct ViaBtcInscriptionRequestHistory {
     pub actual_fees: i64,
     pub sent_at_block: i64,
     pub confirmed_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
 }

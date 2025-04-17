@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use zksync_config::ViaCelestiaConfig;
+use zksync_config::{configs::via_secrets::ViaDASecrets, ViaCelestiaConfig};
 use zksync_da_client::DataAvailabilityClient;
 use zksync_node_framework::{
     implementations::resources::da_client::DAClientResource,
@@ -13,11 +13,12 @@ use crate::celestia::client::CelestiaClient;
 #[derive(Debug)]
 pub struct ViaCelestiaClientWiringLayer {
     config: ViaCelestiaConfig,
+    secrets: ViaDASecrets,
 }
 
 impl ViaCelestiaClientWiringLayer {
-    pub fn new(config: ViaCelestiaConfig) -> Self {
-        Self { config }
+    pub fn new(config: ViaCelestiaConfig, secrets: ViaDASecrets) -> Self {
+        Self { config, secrets }
     }
 }
 
@@ -36,7 +37,7 @@ impl WiringLayer for ViaCelestiaClientWiringLayer {
     }
 
     async fn wire(self, _input: Self::Input) -> Result<Self::Output, WiringError> {
-        let client = CelestiaClient::new(self.config).await?;
+        let client = CelestiaClient::new(self.secrets, self.config.blob_size_limit).await?;
         let client: Box<dyn DataAvailabilityClient> = Box::new(client);
 
         Ok(Output {
