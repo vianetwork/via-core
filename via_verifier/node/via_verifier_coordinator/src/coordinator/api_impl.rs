@@ -6,9 +6,11 @@ use musig2::{BinaryEncoding, PubNonce};
 use serde::Serialize;
 use tracing::instrument;
 use via_btc_client::traits::Serializable;
+use zksync_utils::time::seconds_since_epoch;
 
 use super::{api_decl::RestApi, error::ApiError};
 use crate::{
+    metrics::{MetricSessionType, METRICS},
     types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse},
     utils::{decode_signature, encode_signature},
 };
@@ -39,15 +41,18 @@ impl RestApi {
         }
 
         if let Some(session_op) = self_.session_manager.get_next_session().await? {
-            tracing::debug!(
+            tracing::info!(
                 "Create new {} signing session",
                 &session_op.get_session_type()
             );
+
+            METRICS.session_new[&MetricSessionType::from(session_op.get_session_type())].inc();
 
             let new_session = SigningSession {
                 session_op: Some(session_op),
                 received_nonces: HashMap::new(),
                 received_sigs: HashMap::new(),
+                created_at: seconds_since_epoch(),
             };
 
             let mut signing_session = self_.state.signing_session.write().await;
@@ -73,6 +78,7 @@ impl RestApi {
             required_signers: self_.state.required_signers,
             received_nonces: session.received_nonces.len(),
             received_partial_signatures: session.received_sigs.len(),
+            created_at: session.created_at,
         });
     }
 

@@ -5,9 +5,13 @@ use tokio::sync::watch;
 use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::via_btc_sender::ViaBtcInscriptionRequest;
+use zksync_shared_metrics::BlockL1Stage;
+use zksync_types::{
+    btc_inscription_operations::ViaBtcInscriptionRequestType,
+    via_btc_sender::ViaBtcInscriptionRequest,
+};
 
-use crate::config::BLOCK_RESEND;
+use crate::{config::INSCRIPTION_EXECUTION_BLOCK_DELAY, metrics::METRICS};
 
 #[derive(Debug)]
 pub struct ViaBtcInscriptionManager {
@@ -57,12 +61,12 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
-        self.update_inscription_status_or_resend(storage).await?;
+        self.update_inscription_status(storage).await?;
         self.send_new_inscription_txs(storage).await?;
         Ok(())
     }
 
-    async fn update_inscription_status_or_resend(
+    async fn update_inscription_status(
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> anyhow::Result<()> {
@@ -70,6 +74,12 @@ impl ViaBtcInscriptionManager {
             .btc_sender_dal()
             .list_inflight_inscription_ids()
             .await?;
+
+        METRICS
+            .inflight_inscriptions
+            .set(inflight_inscriptions_ids.len());
+
+        let mut report_blocked_l1_batch_inscription: Option<u32> = None;
 
         for inscription_id in inflight_inscriptions_ids {
             if let Some(last_inscription_history) = storage
@@ -83,12 +93,14 @@ impl ViaBtcInscriptionManager {
                     .await
                     .check_tx_confirmation(
                         &last_inscription_history.reveal_tx_id,
-                        self.config.block_confirmations(),
+                        self.config.block_confirmations,
                     )
                     .await?;
 
+                METRICS.track_block_numbers(storage).await;
+
                 if is_confirmed {
-                    storage
+                    let inscription = storage
                         .btc_sender_dal()
                         .confirm_inscription(inscription_id, last_inscription_history.id)
                         .await?;
@@ -96,6 +108,19 @@ impl ViaBtcInscriptionManager {
                         "Inscription confirmed {reveal_tx}",
                         reveal_tx = last_inscription_history.reveal_tx_id,
                     );
+
+                    METRICS
+                        .track_btc_tx_metrics(
+                            storage,
+                            BlockL1Stage::Mined,
+                            vec![(
+                                inscription.id as u32,
+                                ViaBtcInscriptionRequestType::from(inscription.request_type),
+                            )],
+                        )
+                        .await;
+
+                    METRICS.track_inscription_confirmation(last_inscription_history.created_at);
                 } else {
                     let current_block = self
                         .inscriber
@@ -104,15 +129,33 @@ impl ViaBtcInscriptionManager {
                         .fetch_block_height()
                         .await?;
 
-                    if last_inscription_history.sent_at_block + BLOCK_RESEND as i64
+                    if last_inscription_history.sent_at_block
+                        + INSCRIPTION_EXECUTION_BLOCK_DELAY as i64
                         > current_block as i64
                     {
                         continue;
                     }
-                    tracing::warn!(
-                        "Inscription {reveal_tx} stuck for more than {BLOCK_RESEND} block.",
+
+                    if report_blocked_l1_batch_inscription.is_none() {
+                        let l1_batch_number = storage
+                            .via_blocks_dal()
+                            .get_first_stuck_l1_batch_number_inscription_request(
+                                INSCRIPTION_EXECUTION_BLOCK_DELAY,
+                                current_block,
+                            )
+                            .await?;
+
+                        METRICS
+                            .report_blocked_l1_batch_inscription
+                            .set(l1_batch_number as usize);
+
+                        report_blocked_l1_batch_inscription = Some(l1_batch_number);
+
+                        tracing::warn!(
+                        "Inscription {reveal_tx} stuck for more than {INSCRIPTION_EXECUTION_BLOCK_DELAY} block.",
                         reveal_tx = last_inscription_history.reveal_tx_id
                     );
+                    }
                 }
             }
         }
@@ -137,7 +180,7 @@ impl ViaBtcInscriptionManager {
 
         let number_of_available_slots_for_inscription_txs = self
             .config
-            .max_txs_in_flight()
+            .max_txs_in_flight
             .saturating_sub(number_inflight_txs as i64);
 
         tracing::debug!(
@@ -173,7 +216,19 @@ impl ViaBtcInscriptionManager {
         let input =
             InscriptionMessage::from_bytes(&tx.inscription_message.clone().unwrap_or_default());
 
-        let inscribe_info = self.inscriber.inscribe(input).await?;
+        let latency = METRICS.broadcast_time.start();
+        let inscribe_info = match self.inscriber.inscribe(input).await {
+            Ok(info) => info,
+            Err(e) => {
+                METRICS.l1_transient_errors.inc();
+                return Err(anyhow::anyhow!(e));
+            }
+        };
+
+        latency.observe();
+
+        let balance = self.inscriber.get_balance().await?;
+        METRICS.btc_sender_account_balance.set(balance as usize);
 
         let signed_commit_tx = serialize(&inscribe_info.final_commit_tx.tx)
             .with_context(|| "Error serializing the commit tx")?;
@@ -210,6 +265,7 @@ impl ViaBtcInscriptionManager {
                 sent_at_block,
             )
             .await?;
+        METRICS.pending_inscription_requests.dec_by(1);
         Ok(())
     }
 }

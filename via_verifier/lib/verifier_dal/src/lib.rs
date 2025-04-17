@@ -4,6 +4,7 @@
 #![warn(clippy::cast_lossless)]
 
 pub use sqlx::{types::BigDecimal, Error as SqlxError};
+use via_protocol_versions_dal::ViaProtocolVersionsDal;
 use via_transactions_dal::ViaTransactionsDal;
 use zksync_db_connection::connection::DbMarker;
 pub use zksync_db_connection::{
@@ -21,6 +22,7 @@ pub mod models;
 pub mod via_blocks_dal;
 pub mod via_btc_sender_dal;
 pub mod via_indexer_dal;
+pub mod via_protocol_versions_dal;
 pub mod via_transactions_dal;
 pub mod via_votes_dal;
 
@@ -42,6 +44,7 @@ where
     fn via_btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a>;
     fn via_block_dal(&mut self) -> ViaBlocksDal<'_, 'a>;
     fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a>;
+    fn via_protocol_versions_dal(&mut self) -> ViaProtocolVersionsDal<'_, 'a>;
     fn via_indexer_dal(&mut self) -> ViaIndexerDal<'_, 'a>;
 }
 
@@ -68,6 +71,10 @@ impl<'a> VerifierDal<'a> for Connection<'a, Verifier> {
 
     fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a> {
         ViaTransactionsDal { storage: self }
+    }
+
+    fn via_protocol_versions_dal(&mut self) -> ViaProtocolVersionsDal<'_, 'a> {
+        ViaProtocolVersionsDal { storage: self }
     }
 
     fn via_indexer_dal(&mut self) -> ViaIndexerDal<'_, 'a> {

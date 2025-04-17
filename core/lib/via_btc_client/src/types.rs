@@ -80,6 +80,7 @@ pub struct SystemBootstrappingInput {
     pub bridge_musig2_address: BitcoinAddress<NetworkUnchecked>,
     pub bootloader_hash: H256,
     pub abstract_account_hash: H256,
+    pub governance_address: BitcoinAddress<NetworkUnchecked>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -96,6 +97,8 @@ pub struct SystemContractUpgradeInput {
     pub bootloader_code_hash: H256,
     /// New default account code hash.
     pub default_account_code_hash: H256,
+    /// Verfier key hash.
+    pub recursion_scheduler_level_vk_hash: H256,
     /// The L2 transaction calldata.
     pub system_contracts: Vec<(EVMAddress, H256)>,
 }

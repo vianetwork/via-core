@@ -1,0 +1,21 @@
+[package]
+name = "via_verifier_storage_init"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+via_verifier_dal.workspace = true
+zksync_config.workspace = true
+zksync_node_genesis.workspace = true
+zksync_node_storage_init.workspace = true
+zksync_types.workspace = true
+
+async-trait.workspace = true
+tokio.workspace = true
+anyhow.workspace = true

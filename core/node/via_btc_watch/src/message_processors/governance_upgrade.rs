@@ -73,7 +73,12 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                     verifier_address: None,
                     verifier_params: None,
                 };
-                upgrades.push(upgrade);
+                upgrades.push((
+                    upgrade,
+                    system_contract_upgrade_msg
+                        .input
+                        .recursion_scheduler_level_vk_hash,
+                ));
             }
         }
 
@@ -81,10 +86,8 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
             return Ok(());
         };
 
-        let last_version = last_upgrade.version;
-        for upgrade in upgrades {
-            METRICS.inscriptions_processed[&InscriptionStage::Upgrade].inc();
-
+        let last_version = last_upgrade.0.version;
+        for (upgrade, recursion_scheduler_level_vk_hash) in upgrades {
             let latest_semantic_version = storage
                 .protocol_versions_dal()
                 .latest_semantic_version()
@@ -105,7 +108,8 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                         )
                     })?;
 
-                let new_version = latest_version.apply_upgrade(upgrade, None);
+                let new_version =
+                    latest_version.apply_upgrade(upgrade, Some(recursion_scheduler_level_vk_hash));
                 if new_version.version.minor == latest_semantic_version.minor {
                     // Only verification parameters may change if only patch is bumped.
                     assert_eq!(
@@ -119,6 +123,9 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                     .save_protocol_version_with_tx(&new_version)
                     .await
                     .map_err(DalError::generalize)?;
+
+                METRICS.inscriptions_processed[&InscriptionStage::Upgrade]
+                    .set(new_version.version.minor as usize);
             }
         }
         self.last_seen_protocol_version = last_version;
