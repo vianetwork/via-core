@@ -76,7 +76,7 @@ impl Executor {
         // Deposit BTC to the paymaster
         self.deposit_btc_to_paymaster().await?;
 
-        // Distribute BTC on L1 to the accounts & Distribute BTC on L2 to the accounts
+        // Distribute BTC on L2 to the accounts
         self.distribute_btc(self.config.accounts_amount).await?;
 
         let final_result = self.initial_tests().await?;
@@ -129,6 +129,7 @@ impl Executor {
             deposit_amount,
             self.pool.eth_master_wallet.address(),
             master_wallet.btc_private_key,
+            self.config.bridge_address.clone(),
             self.config.l1_btc_rpc_address.clone(),
             self.config.l1_btc_rpc_username.clone(),
             self.config.l1_btc_rpc_password.clone(),
@@ -178,6 +179,7 @@ impl Executor {
             deposit_amount,
             paymaster_address,
             master_wallet.btc_private_key,
+            self.config.bridge_address.clone(),
             self.config.l1_btc_rpc_address.clone(),
             self.config.l1_btc_rpc_username.clone(),
             self.config.l1_btc_rpc_password.clone(),

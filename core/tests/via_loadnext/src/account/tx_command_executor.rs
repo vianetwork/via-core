@@ -110,6 +110,7 @@ impl AccountLifespan {
             command.amount.as_u64(),
             command.to,
             self.btc_wallet.btc_private_key,
+            self.config.bridge_address.clone(),
             self.config.l1_btc_rpc_address.clone(),
             self.config.l1_btc_rpc_username.clone(),
             self.config.l1_btc_rpc_password.clone(),

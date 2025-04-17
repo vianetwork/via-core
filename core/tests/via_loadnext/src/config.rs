@@ -140,6 +140,10 @@ pub struct LoadtestConfig {
     /// use pay master to pay the transaction fee
     #[serde(default)]
     pub use_paymaster: bool,
+
+    /// The via bridge address
+    #[serde(default = "default_bridge_address")]
+    pub bridge_address: String,
 }
 
 fn default_max_inflight_txs() -> usize {
@@ -265,6 +269,13 @@ fn default_prometheus_label() -> String {
     let result = "unset".to_string();
     tracing::info!("Using default PROMETHEUS_LABEL: {result:?}");
     result
+}
+
+fn default_bridge_address() -> String {
+    let bridge_musig2_address =
+        String::from("bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq");
+    tracing::info!("Using default Bridge address: {bridge_musig2_address:?}");
+    bridge_musig2_address
 }
 
 impl LoadtestConfig {

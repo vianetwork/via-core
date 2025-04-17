@@ -22,6 +22,7 @@ pub async fn deposit(
     amount: u64,
     receiver_l2_address: EVMAddress,
     depositor_private_key: PrivateKey,
+    bridge_musig2_address_str: String,
     rpc_url: String,
     rpc_username: String,
     rpc_password: String,
@@ -39,9 +40,10 @@ pub async fn deposit(
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     let address = Address::p2wpkh(&compressed_pk, network);
 
-    let bridge_musig2_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
+    let bridge_musig2_address = bridge_musig2_address_str
+        .as_str()
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
-        .require_network(network)?;
+        .assume_checked();
 
     let client = BitcoinClient::new(
         &rpc_url,
