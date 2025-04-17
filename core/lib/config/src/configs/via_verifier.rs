@@ -4,33 +4,25 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub enum VerifierMode {
-    VERIFIER = 0,
-    COORDINATOR = 1,
-}
+use zksync_basic_types::via_roles::ViaNodeRole;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ViaVerifierConfig {
-    /// Interval between polling db for verification requests (in ms).
+    /// The verifier role.
+    pub role: ViaNodeRole,
+
+    /// Service interval in milliseconds.
     pub poll_interval: u64,
-    /// Coordinator server port.
-    pub port: u16,
-    /// Coordinator server url.
-    pub url: String,
-    /// The signer private key.
-    pub private_key: String,
-    /// The verifiers public keys.
-    pub verifiers_pub_keys_str: Vec<String>,
-    /// The bridge address.
-    pub bridge_address_str: String,
-    /// The minimum required signers.
-    pub required_signers: usize,
+
+    /// Port to which the coordinator server is listening.
+    pub coordinator_port: u16,
+
+    /// The coordinator url.
+    pub coordinator_http_url: String,
+
     /// Verifier Request Timeout (in seconds)
     pub verifier_request_timeout: u8,
-    /// The role.
-    pub verifier_mode: VerifierMode,
+
     /// (TEST ONLY) returns the proof verification result.
     pub test_zk_proof_invalid_l1_batch_numbers: Vec<i64>,
 }
@@ -39,23 +31,20 @@ impl ViaVerifierConfig {
     pub fn polling_interval(&self) -> Duration {
         Duration::from_millis(self.poll_interval)
     }
-    pub fn bind_addr(&self) -> SocketAddr {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), self.port)
-    }
 }
 
 impl ViaVerifierConfig {
+    pub fn bind_addr(&self) -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), self.coordinator_port)
+    }
+
     pub fn for_tests() -> Self {
         Self {
-            private_key: "private".to_string(),
+            role: ViaNodeRole::Verifier,
             poll_interval: 1000,
-            port: 0,
-            url: "".to_string(),
-            verifiers_pub_keys_str: Vec::new(),
-            bridge_address_str: "".to_string(),
-            required_signers: 2,
+            coordinator_http_url: "http://localhost:3000".into(),
+            coordinator_port: 3000,
             verifier_request_timeout: 10,
-            verifier_mode: VerifierMode::VERIFIER,
             test_zk_proof_invalid_l1_batch_numbers: vec![],
         }
     }

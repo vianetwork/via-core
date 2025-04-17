@@ -5,7 +5,6 @@ import deepExtend from 'deep-extend';
 import * as env from './env';
 import path from 'path';
 import dotenv from 'dotenv';
-import { unpackStringSemVer } from 'utils';
 import { updateEnvVariable } from './helpers';
 
 function loadConfigFile(configPath: string, stack: string[] = []) {
@@ -142,7 +141,7 @@ export async function pushConfig(environment?: string, diff?: string) {
     env.modify('API_CONTRACT_VERIFICATION_PORT', `${3070 + 2 * difference}`, l2InitFile, false);
     env.modify('API_CONTRACT_VERIFICATION_URL', `http://127.0.0.1:${3070 + 2 * difference}`, l2InitFile, false);
 
-    env.modify('API_PROMETHEUS_LISTENER_PORT', `${3012 + 2 * difference}`, l2InitFile, false);
+    env.modify('API_PROMETHEUS_LISTENER_PORT', `${3312 + 2 * difference}`, l2InitFile, false);
     env.modify('API_PROMETHEUS_PUSHGATEWAY_URL', `http://127.0.0.1:${9091 + difference}`, l2InitFile, false);
     env.modify('API_HEALTHCHECK_PORT', `${3071 + 2 * difference}`, l2InitFile, false);
     env.modify(

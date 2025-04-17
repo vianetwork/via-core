@@ -6,7 +6,7 @@ use std::{
 };
 
 use tokio::sync::watch;
-use via_btc_client::inscriber::Inscriber;
+use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use zksync_config::GasAdjusterConfig;
 
 /// This component keeps track of the median `base_fee` from the last `max_base_fee_samples` blocks
@@ -16,24 +16,20 @@ use zksync_config::GasAdjusterConfig;
 pub struct ViaGasAdjuster {
     pub(super) base_fee_statistics: GasStatistics<u64>,
     pub(super) config: GasAdjusterConfig,
-    pub(super) inscriber: Inscriber,
+    pub(super) btc_client: Arc<BitcoinClient>,
 }
 
 impl ViaGasAdjuster {
-    pub async fn new(config: GasAdjusterConfig, inscriber: Inscriber) -> anyhow::Result<Self> {
+    pub async fn new(
+        config: GasAdjusterConfig,
+        btc_client: Arc<BitcoinClient>,
+    ) -> anyhow::Result<Self> {
         // Subtracting 1 from the "latest" block number to prevent errors in case
         // the info about the latest block is not yet present on the node.
         // This sometimes happens on Infura.
-        let current_block = inscriber
-            .get_client()
-            .await
-            .fetch_block_height()
-            .await?
-            .saturating_sub(1) as usize;
+        let current_block = btc_client.fetch_block_height().await?.saturating_sub(1) as usize;
 
-        let fee_history = inscriber
-            .get_client()
-            .await
+        let fee_history = btc_client
             .get_fee_history(
                 current_block as usize - config.max_base_fee_samples,
                 current_block,
@@ -46,7 +42,7 @@ impl ViaGasAdjuster {
         Ok(Self {
             base_fee_statistics,
             config,
-            inscriber,
+            btc_client,
         })
     }
 
@@ -54,9 +50,7 @@ impl ViaGasAdjuster {
     /// This method is intended to be invoked periodically.
     pub async fn keep_updated(&self) -> anyhow::Result<()> {
         let current_block = self
-            .inscriber
-            .get_client()
-            .await
+            .btc_client
             .fetch_block_height()
             .await?
             .saturating_sub(1) as usize;
@@ -65,9 +59,7 @@ impl ViaGasAdjuster {
         if current_block > last_processed_block {
             let n_blocks = current_block - last_processed_block;
             let fee_history = self
-                .inscriber
-                .get_client()
-                .await
+                .btc_client
                 .get_fee_history(current_block - n_blocks, current_block)
                 .await?;
 

@@ -1,5 +1,7 @@
 use std::{fmt, str::FromStr};
 
+use crate::aggregated_operations::AggregatedActionType;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ViaBtcInscriptionRequestType {
     CommitL1BatchOnchain,
@@ -27,6 +29,17 @@ impl From<String> for ViaBtcInscriptionRequestType {
             "CommitL1BatchOnchain" => ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
             "CommitProofOnchain" => ViaBtcInscriptionRequestType::CommitProofOnchain,
             _ => panic!("Unexpected value for ViaBtcInscriptionRequestType: {}", s),
+        }
+    }
+}
+
+impl From<ViaBtcInscriptionRequestType> for AggregatedActionType {
+    fn from(tx_type: ViaBtcInscriptionRequestType) -> Self {
+        match tx_type {
+            ViaBtcInscriptionRequestType::CommitL1BatchOnchain => AggregatedActionType::Commit,
+            ViaBtcInscriptionRequestType::CommitProofOnchain => {
+                AggregatedActionType::PublishProofOnchain
+            }
         }
     }
 }

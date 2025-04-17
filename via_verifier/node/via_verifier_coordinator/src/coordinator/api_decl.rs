@@ -1,6 +1,5 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use anyhow::Context;
 use axum::middleware;
 use bitcoin::Address;
 use tokio::sync::RwLock;
@@ -30,21 +29,19 @@ impl RestApi {
         master_connection_pool: ConnectionPool<Verifier>,
         btc_client: Arc<dyn BitcoinOps>,
         withdrawal_client: WithdrawalClient,
+        bridge_address: Address,
+        verifiers_pub_keys: Vec<String>,
+        required_signers: usize,
     ) -> anyhow::Result<Self> {
         let state = ViaWithdrawalState {
             signing_session: Arc::new(RwLock::new(SigningSession::default())),
-            required_signers: config.required_signers,
-            verifiers_pub_keys: config
-                .verifiers_pub_keys_str
+            required_signers,
+            verifiers_pub_keys: verifiers_pub_keys
                 .iter()
                 .map(|s| bitcoin::secp256k1::PublicKey::from_str(s).unwrap())
                 .collect(),
             verifier_request_timeout: config.verifier_request_timeout,
         };
-
-        let bridge_address = Address::from_str(config.bridge_address_str.as_str())
-            .with_context(|| "Error parse bridge address")?
-            .assume_checked();
 
         let transaction_builder =
             Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);

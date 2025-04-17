@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use via_btc_client::{inscriber::Inscriber, types::NodeAuth};
-use via_btc_watch::BitcoinNetwork;
+use via_btc_client::client::BitcoinClient;
 use via_fee_model::ViaGasAdjuster;
-use zksync_config::{GasAdjusterConfig, ViaBtcSenderConfig};
+use zksync_config::{
+    configs::{via_btc_client::ViaBtcClientConfig, via_secrets::ViaL1Secrets},
+    GasAdjusterConfig,
+};
 
 use crate::{
     implementations::resources::via_gas_adjuster::ViaGasAdjusterResource,
@@ -18,8 +20,9 @@ use crate::{
 /// Adds several resources that depend on L1 gas price.
 #[derive(Debug)]
 pub struct ViaGasAdjusterLayer {
+    via_btc_client: ViaBtcClientConfig,
     gas_adjuster_config: GasAdjusterConfig,
-    config: ViaBtcSenderConfig,
+    secrets: ViaL1Secrets,
 }
 
 #[derive(Debug, FromContext)]
@@ -36,10 +39,15 @@ pub struct Output {
 }
 
 impl ViaGasAdjusterLayer {
-    pub fn new(gas_adjuster_config: GasAdjusterConfig, config: ViaBtcSenderConfig) -> Self {
+    pub fn new(
+        via_btc_client: ViaBtcClientConfig,
+        gas_adjuster_config: GasAdjusterConfig,
+        secrets: ViaL1Secrets,
+    ) -> Self {
         Self {
+            via_btc_client,
             gas_adjuster_config,
-            config,
+            secrets,
         }
     }
 }
@@ -54,25 +62,18 @@ impl WiringLayer for ViaGasAdjusterLayer {
     }
 
     async fn wire(self, _: Self::Input) -> Result<Self::Output, WiringError> {
-        let network = BitcoinNetwork::from_core_arg(self.config.network())
-            .map_err(|_| WiringError::Configuration("Wrong network in config".to_string()))?;
+        let btc_client = Arc::new(
+            BitcoinClient::new(
+                self.secrets.rpc_url.expose_str(),
+                self.via_btc_client.network(),
+                self.secrets.auth_node(),
+            )
+            .unwrap(),
+        );
 
-        let inscriber = Inscriber::new(
-            self.config.rpc_url(),
-            network,
-            NodeAuth::UserPass(
-                self.config.rpc_user().to_string(),
-                self.config.rpc_password().to_string(),
-            ),
-            self.config.private_key(),
-            None,
-        )
-        .await
-        .context("Init inscriber")?;
-
-        let adjuster = ViaGasAdjuster::new(self.gas_adjuster_config, inscriber)
+        let adjuster = ViaGasAdjuster::new(self.gas_adjuster_config, btc_client)
             .await
-            .context("GasAdjuster::new()")?;
+            .with_context(|| "Error init gas adjuster")?;
         let gas_adjuster = Arc::new(adjuster);
 
         Ok(Output {

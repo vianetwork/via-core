@@ -11,11 +11,14 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+vise.workspace = true
 via_btc_client.workspace = true
 via_da_dispatcher.workspace = true
 zksync_dal.workspace = true
 zksync_config.workspace = true
 zksync_object_store.workspace = true
+zksync_shared_metrics.workspace = true
+zksync_utils.workspace = true
 zksync_l1_contract_interface.workspace = true
 zksync_types.workspace = true
 zksync_contracts.workspace = true

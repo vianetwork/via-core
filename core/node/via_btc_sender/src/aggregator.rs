@@ -28,7 +28,7 @@ impl ViaAggregator {
         Self {
             commit_l1_block_criteria: vec![
                 Box::from(ViaNumberCriterion {
-                    limit: config.max_aggregated_blocks_to_commit() as u32,
+                    limit: config.max_aggregated_blocks_to_commit as u32,
                 }),
                 Box::from(TimestampDeadlineCriterion {
                     deadline_seconds: BLOCK_TIME_TO_COMMIT,
@@ -36,7 +36,7 @@ impl ViaAggregator {
             ],
             commit_proof_criteria: vec![
                 Box::from(ViaNumberCriterion {
-                    limit: config.max_aggregated_proofs_to_commit() as u32,
+                    limit: config.max_aggregated_proofs_to_commit as u32,
                 }),
                 Box::from(TimestampDeadlineCriterion {
                     deadline_seconds: BLOCK_TIME_TO_PROOF,
@@ -103,7 +103,7 @@ impl ViaAggregator {
         let ready_for_commit_proof_l1_batches = storage
             .via_blocks_dal()
             .get_ready_for_commit_proof_l1_batches(
-                self.config.max_aggregated_proofs_to_commit() as usize
+                self.config.max_aggregated_proofs_to_commit as usize,
             )
             .await?;
 
@@ -177,7 +177,7 @@ impl ViaAggregator {
             let ready_for_commit_l1_batches = storage
                 .via_blocks_dal()
                 .get_ready_for_commit_l1_batches(
-                    self.config.max_aggregated_blocks_to_commit() as usize,
+                    self.config.max_aggregated_blocks_to_commit as usize,
                     &prev_base_system_contracts_hashes.bootloader,
                     &prev_base_system_contracts_hashes.default_aa,
                     prev_protocol_version_id,
@@ -192,7 +192,7 @@ impl ViaAggregator {
         let ready_for_commit_l1_batches = storage
             .via_blocks_dal()
             .get_ready_for_commit_l1_batches(
-                self.config.max_aggregated_blocks_to_commit() as usize,
+                self.config.max_aggregated_blocks_to_commit as usize,
                 &base_system_contracts_hashes.bootloader,
                 &base_system_contracts_hashes.default_aa,
                 protocol_version_id,
@@ -233,7 +233,7 @@ impl ViaAggregator {
         if let Some(prev_protocol_version_id) = prev_protocol_version_id_opt {
             return Ok(prev_protocol_version_id);
         }
-        return self.get_last_protocol_version_id(storage).await;
+        self.get_last_protocol_version_id(storage).await
     }
 
     async fn get_last_protocol_version_id(
@@ -282,11 +282,9 @@ fn validate_l1_batch_sequence(
     // The last_committed_l1_batch should be empty only in case of genesis.
     if let Some(last_committed_l1_batch) = last_committed_l1_batch_opt {
         all_batches.extend_from_slice(&[last_committed_l1_batch.clone()]);
-    } else {
-        if let Some(batch) = ready_for_commit_l1_batches.get(0) {
-            if batch.number.0 != 1 {
-                anyhow::bail!("Invalid batch after genesis, not sequential")
-            }
+    } else if let Some(batch) = ready_for_commit_l1_batches.first() {
+        if batch.number.0 != 1 {
+            anyhow::bail!("Invalid batch after genesis, not sequential")
         }
     }
 

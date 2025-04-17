@@ -1,7 +1,7 @@
 use anyhow::Context;
 use via_da_clients::celestia::wiring_layer::ViaCelestiaClientWiringLayer;
 use zksync_config::{
-    configs::{via_btc_sender::ProofSendingMode, wallets::Wallets, Secrets},
+    configs::{via_celestia::ProofSendingMode, via_secrets::ViaSecrets, via_wallets::ViaWallets},
     ContractsConfig, GenesisConfig, ViaGeneralConfig,
 };
 use zksync_metadata_calculator::MetadataCalculatorConfig;
@@ -65,17 +65,17 @@ macro_rules! try_load_config {
 pub struct ViaNodeBuilder {
     node: ZkStackServiceBuilder,
     configs: ViaGeneralConfig,
-    wallets: Wallets,
+    wallets: ViaWallets,
     genesis_config: GenesisConfig,
     contracts_config: ContractsConfig,
-    secrets: Secrets,
+    secrets: ViaSecrets,
 }
 
 impl ViaNodeBuilder {
     pub fn new(
         via_general_config: ViaGeneralConfig,
-        wallets: Wallets,
-        secrets: Secrets,
+        wallets: ViaWallets,
+        secrets: ViaSecrets,
         genesis_config: GenesisConfig,
         contracts_config: ContractsConfig,
     ) -> anyhow::Result<Self> {
@@ -100,7 +100,7 @@ impl ViaNodeBuilder {
 
     fn add_pools_layer(mut self) -> anyhow::Result<Self> {
         let config = try_load_config!(self.configs.postgres_config);
-        let secrets = try_load_config!(self.secrets.database);
+        let secrets = try_load_config!(self.secrets.base_secrets.database);
         let pools_layer = PoolsLayerBuilder::empty(config, secrets)
             .with_master(true)
             .with_replica(true)
@@ -145,7 +145,7 @@ impl ViaNodeBuilder {
     // QueryEthClientLayer is mock, it's not used in the current implementation
     fn add_query_eth_client_layer(mut self) -> anyhow::Result<Self> {
         let genesis = self.genesis_config.clone();
-        let eth_config = try_load_config!(self.secrets.l1);
+        let eth_config = try_load_config!(self.secrets.base_secrets.l1);
         let query_eth_client_layer = QueryEthClientLayer::new(
             genesis.settlement_layer_id(),
             eth_config.l1_rpc_url,
@@ -174,27 +174,47 @@ impl ViaNodeBuilder {
 
     // VIA related layers
     fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
-        let btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
-        self.node.add_layer(BtcWatchLayer::new(btc_watch_config));
+        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
+        let via_btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
+        let secrets = self.secrets.via_l1.clone().unwrap();
+        self.node.add_layer(BtcWatchLayer::new(
+            via_genesis_config,
+            via_btc_client_config,
+            via_btc_watch_config,
+            secrets,
+        ));
         Ok(self)
     }
 
     fn add_btc_sender_layer(mut self) -> anyhow::Result<Self> {
+        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
+        let secrets = self.secrets.via_l1.clone().unwrap();
+        let wallet = self.wallets.btc_sender.clone().unwrap();
         self.node.add_layer(ViaBtcInscriptionAggregatorLayer::new(
+            via_btc_client_config.clone(),
             btc_sender_config.clone(),
+            wallet.clone(),
+            secrets.clone(),
         ));
-        self.node
-            .add_layer(ViaInscriptionManagerLayer::new(btc_sender_config));
+        self.node.add_layer(ViaInscriptionManagerLayer::new(
+            via_btc_client_config,
+            btc_sender_config,
+            wallet.clone(),
+            secrets,
+        ));
         Ok(self)
     }
 
     fn add_gas_adjuster_layer(mut self) -> anyhow::Result<Self> {
+        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let gas_adjuster_config = try_load_config!(self.configs.eth)
             .gas_adjuster
             .context("Via gas adjuster")?;
-        let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
-        let gas_adjuster_layer = ViaGasAdjusterLayer::new(gas_adjuster_config, btc_sender_config);
+        let secrets = self.secrets.via_l1.clone().unwrap();
+        let gas_adjuster_layer =
+            ViaGasAdjusterLayer::new(via_btc_client_config, gas_adjuster_config, secrets);
         self.node.add_layer(gas_adjuster_layer);
         Ok(self)
     }
@@ -275,14 +295,17 @@ impl ViaNodeBuilder {
             response_body_size_limit: Some(rpc_config.max_response_body_size()),
             ..Default::default()
         };
-        let btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
+        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
+
         self.node.add_layer(Web3ServerLayer::http(
             rpc_config.http_port,
             InternalApiConfig::new(
                 &rpc_config,
                 &self.contracts_config,
                 &self.genesis_config,
-                &btc_watch_config,
+                via_genesis_config.bridge_address,
+                via_btc_client_config.network(),
             ),
             optional_config,
         ));
@@ -411,14 +434,12 @@ impl ViaNodeBuilder {
     fn add_da_dispatcher_layer(mut self) -> anyhow::Result<Self> {
         let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
         let da_config = try_load_config!(self.configs.da_dispatcher_config);
-        let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
+        let celestia_config = try_load_config!(self.configs.via_celestia_config);
 
-        let dispatch_real_proof =
-            btc_sender_config.proof_sending_mode != ProofSendingMode::SkipEveryProof;
         self.node.add_layer(DataAvailabilityDispatcherLayer::new(
             state_keeper_config,
             da_config,
-            dispatch_real_proof,
+            celestia_config.proof_sending_mode == ProofSendingMode::OnlyRealProofs,
         ));
 
         Ok(self)
@@ -426,8 +447,9 @@ impl ViaNodeBuilder {
 
     fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
         let celestia_config = try_load_config!(self.configs.via_celestia_config);
+        let secrets = self.secrets.via_da.clone().unwrap();
         self.node
-            .add_layer(ViaCelestiaClientWiringLayer::new(celestia_config));
+            .add_layer(ViaCelestiaClientWiringLayer::new(celestia_config, secrets));
         Ok(self)
     }
 

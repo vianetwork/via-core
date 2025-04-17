@@ -19,7 +19,7 @@ CREATE TABLE "via_btc_inscriptions_request_history" (
   "actual_fees" BIGINT NOT NULL,
   "confirmed_at" timestamp DEFAULT null,
   "sent_at_block" BIGINT NOT NULL,
-  "created_at" timestamp DEFAULT 'now()',
+  "created_at" timestamp NOT NULL DEFAULT 'now()',
   "updated_at" timestamp NOT NULL
 );
 
