@@ -88,8 +88,6 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
 
         let last_version = last_upgrade.0.version;
         for (upgrade, recursion_scheduler_level_vk_hash) in upgrades {
-            METRICS.inscriptions_processed[&InscriptionStage::Upgrade].inc();
-
             let latest_semantic_version = storage
                 .protocol_versions_dal()
                 .latest_semantic_version()
@@ -125,6 +123,9 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                     .save_protocol_version_with_tx(&new_version)
                     .await
                     .map_err(DalError::generalize)?;
+
+                METRICS.inscriptions_processed[&InscriptionStage::Upgrade]
+                    .set(new_version.version.minor as usize);
             }
         }
         self.last_seen_protocol_version = last_version;

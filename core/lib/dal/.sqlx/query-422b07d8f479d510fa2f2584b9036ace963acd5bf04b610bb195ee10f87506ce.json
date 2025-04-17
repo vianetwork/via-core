@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                MAX(l1_batch_number) AS l1_batch_number\n            FROM\n                via_l1_batch_inscription_request\n            WHERE\n                is_finalized = TRUE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "422b07d8f479d510fa2f2584b9036ace963acd5bf04b610bb195ee10f87506ce"
+}

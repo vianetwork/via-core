@@ -9,6 +9,7 @@ use zksync_node_framework::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
         healtcheck_server::HealthCheckLayer,
         pools_layer::PoolsLayerBuilder,
+        prometheus_exporter::PrometheusExporterLayer,
         sigint::SigintHandlerLayer,
         via_btc_sender::{
             vote::ViaBtcVoteInscriptionLayer, vote_manager::ViaInscriptionManagerLayer,
@@ -23,6 +24,7 @@ use zksync_node_framework::{
     service::{ZkStackService, ZkStackServiceBuilder},
 };
 use zksync_types::via_roles::ViaNodeRole;
+use zksync_vlog::prometheus::PrometheusExporterConfig;
 
 /// Macro that looks into a path to fetch an optional config,
 /// and clones it into a variable.
@@ -87,6 +89,13 @@ impl ViaNodeBuilder {
         let circuit_breaker_config = try_load_config!(self.configs.circuit_breaker_config);
         self.node
             .add_layer(CircuitBreakerCheckerLayer(circuit_breaker_config));
+        Ok(self)
+    }
+
+    fn add_prometheus_exporter_layer(mut self) -> anyhow::Result<Self> {
+        let prom_config = try_load_config!(self.configs.prometheus_config);
+        let prom_config = PrometheusExporterConfig::pull(prom_config.listener_port);
+        self.node.add_layer(PrometheusExporterLayer(prom_config));
         Ok(self)
     }
 
@@ -196,6 +205,7 @@ impl ViaNodeBuilder {
             .add_sigint_handler_layer()?
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
+            .add_prometheus_exporter_layer()?
             .add_pools_layer()?
             .add_storage_initialization_layer()?
             .add_btc_sender_layer()?

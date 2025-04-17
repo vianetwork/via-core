@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use bitcoin::{Address, TapSighashType, Witness};
@@ -12,8 +12,10 @@ use via_verifier_types::{protocol_version::get_sequencer_version, transaction::U
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::{via_verifier::ViaVerifierConfig, via_wallets::ViaWallet};
 use zksync_types::via_roles::ViaNodeRole;
+use zksync_utils::time::seconds_since_epoch;
 
 use crate::{
+    metrics::METRICS,
     sessions::{session_manager::SessionManager, withdrawal::WithdrawalSession},
     traits::ISession,
     types::{
@@ -153,6 +155,9 @@ impl ViaWithdrawalVerifier {
 
         if session_info.received_nonces < session_info.required_signers {
             if !self.session_manager.verify_message(&session_op).await? {
+                METRICS
+                    .session_invalid_message
+                    .set(session_op.get_l1_batche_number() as usize);
                 anyhow::bail!("Error when verify the session message");
             }
 
@@ -169,6 +174,10 @@ impl ViaWithdrawalVerifier {
                 return Ok(());
             }
             self.submit_partial_signature(session_nonces).await?;
+
+            METRICS
+                .session_last_valid_session
+                .set(session_op.get_l1_batche_number() as usize);
         }
 
         Ok(())
@@ -474,6 +483,10 @@ impl ViaWithdrawalVerifier {
                 {
                     return Ok(false);
                 }
+
+                METRICS.session_time.observe(Duration::from_secs(
+                    seconds_since_epoch() - session_info.created_at,
+                ));
 
                 self.reinit_signer()?;
 

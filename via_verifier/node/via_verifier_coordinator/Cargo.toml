@@ -10,7 +10,8 @@ authors = ["Via Network"]
 hex.workspace = true
 uuid = { version = "1.3", features = ["v4"] }
 zksync_config.workspace = true
-via_verifier_dal.workspace=true
+via_verifier_dal.workspace = true
+zksync_utils.workspace = true
 zksync_types.workspace = true
 vise.workspace = true
 via_btc_client.workspace = true

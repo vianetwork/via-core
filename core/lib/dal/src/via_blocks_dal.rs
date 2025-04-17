@@ -4,8 +4,9 @@ use zksync_db_connection::{
     instrument::{InstrumentExt, Instrumented},
 };
 use zksync_types::{
-    btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType,
-    L1BatchNumber, ProtocolVersionId, H256,
+    block::L1BatchStatistics, btc_block::ViaBtcL1BlockDetails,
+    btc_inscription_operations::ViaBtcInscriptionRequestType, L1BatchNumber, ProtocolVersionId,
+    H256,
 };
 
 pub use crate::models::storage_block::{L1BatchMetadataError, L1BatchWithOptionalMetadata};
@@ -408,5 +409,86 @@ impl ViaBlocksDal<'_, '_> {
         .fetch_optional(self.storage)
         .await?;
         Ok(batch.map(|details| details.into()))
+    }
+
+    pub async fn get_l1_batches_statistics_for_inscription_tx_id(
+        &mut self,
+        inscription_id: u32,
+    ) -> DalResult<Vec<L1BatchStatistics>> {
+        Ok(sqlx::query!(
+            r#"
+            SELECT
+                number,
+                l1_tx_count,
+                l2_tx_count,
+                timestamp
+            FROM
+                l1_batches
+                LEFT JOIN via_l1_batch_inscription_request ON l1_batches.number = via_l1_batch_inscription_request.l1_batch_number
+            WHERE
+                commit_l1_batch_inscription_id = $1
+                OR commit_proof_inscription_id = $1
+            "#,
+            inscription_id as i32
+        )
+        .instrument("get_l1_batches_statistics_for_inscription_tx_id")
+        .with_arg("inscription_id", &inscription_id)
+        .fetch_all(self.storage)
+        .await?
+        .into_iter()
+        .map(|row| L1BatchStatistics {
+            number: L1BatchNumber(row.number as u32),
+            timestamp: row.timestamp as u64,
+            l2_tx_count: row.l2_tx_count as u32,
+            l1_tx_count: row.l1_tx_count as u32,
+        })
+        .collect())
+    }
+
+    pub async fn get_last_finalized_l1_batch(&mut self) -> DalResult<u32> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                MAX(l1_batch_number) AS l1_batch_number
+            FROM
+                via_l1_batch_inscription_request
+            WHERE
+                is_finalized = TRUE
+            "#
+        )
+        .instrument("get_last_finalized_l1_batch")
+        .report_latency()
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(row.l1_batch_number.unwrap_or(0) as u32)
+    }
+
+    pub async fn get_first_stuck_l1_batch_number_inscription_request(
+        &mut self,
+        delay_btc_blocks: u32,
+        current_btc_blocks: u64,
+    ) -> DalResult<u32> {
+        let record = sqlx::query_scalar!(
+            r#"
+            SELECT 
+                MIN(l1_batch_number) as l1_batch_number
+            FROM
+                via_btc_inscriptions_request
+            LEFT JOIN
+                via_btc_inscriptions_request_history
+            ON
+                via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
+            WHERE
+                sent_at_block + $1 < $2 
+            "#,
+            i64::from(delay_btc_blocks),
+            current_btc_blocks as i64
+        )
+        .instrument("get_first_stuck_l1_batch_number_inscription_request")
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(record.unwrap_or(0) as u32)
     }
 }

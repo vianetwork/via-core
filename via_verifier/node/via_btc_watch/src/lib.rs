@@ -10,14 +10,8 @@ use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 
-use self::{
-    message_processors::{MessageProcessor, MessageProcessorError},
-    metrics::METRICS,
-};
-use crate::{
-    message_processors::{L1ToL2MessageProcessor, VerifierMessageProcessor},
-    metrics::ErrorType,
-};
+use self::message_processors::{MessageProcessor, MessageProcessorError};
+use crate::message_processors::{L1ToL2MessageProcessor, VerifierMessageProcessor};
 
 #[derive(Debug)]
 struct BtcWatchState {
@@ -100,7 +94,6 @@ impl VerifierBtcWatch {
                 _ = timer.tick() => { /* continue iterations */ }
                 _ = stop_receiver.changed() => break,
             }
-            METRICS.btc_poll.inc();
 
             let mut storage = pool
                 .connection_tagged(VerifierBtcWatch::module_name())
@@ -108,7 +101,6 @@ impl VerifierBtcWatch {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(MessageProcessorError::Internal(err)) => {
-                    METRICS.errors[&ErrorType::InternalError].inc();
                     tracing::error!("Internal error processing new blocks: {err:?}");
                     return Err(err);
                 }

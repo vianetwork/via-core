@@ -13,11 +13,8 @@ use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_node_fee_model::BatchFeeModelInputProvider;
 use zksync_types::PriorityOpId;
 
-use self::{
-    message_processors::{
-        L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError, VotableMessageProcessor,
-    },
-    metrics::{ErrorType, METRICS},
+use self::message_processors::{
+    L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError, VotableMessageProcessor,
 };
 
 #[derive(Debug)]
@@ -125,13 +122,11 @@ impl BtcWatch {
                 _ = timer.tick() => { /* continue iterations */ }
                 _ = stop_receiver.changed() => break,
             }
-            METRICS.btc_poll.inc();
 
             let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(MessageProcessorError::Internal(err)) => {
-                    METRICS.errors[&ErrorType::InternalError].inc();
                     tracing::error!("Internal error processing new blocks: {err:?}");
                     return Err(err);
                 }
