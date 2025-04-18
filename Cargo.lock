@@ -11559,6 +11559,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "via_btc_client",
  "vise",
  "zksync_block_reverter",
  "zksync_commitment_generator",
