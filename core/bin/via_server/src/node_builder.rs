@@ -304,8 +304,8 @@ impl ViaNodeBuilder {
                 &rpc_config,
                 &self.contracts_config,
                 &self.genesis_config,
-                via_genesis_config.bridge_address,
-                via_btc_client_config.network(),
+                Some(via_genesis_config.bridge_address),
+                Some(via_btc_client_config.network()),
             ),
             optional_config,
         ));
@@ -512,8 +512,8 @@ impl ViaNodeBuilder {
                 &rpc_config,
                 &self.contracts_config,
                 &self.genesis_config,
-                via_genesis_config.bridge_address,
-                via_btc_client_config.network(),
+                Some(via_genesis_config.bridge_address),
+                Some(via_btc_client_config.network()),
             ),
             optional_config,
         ));
