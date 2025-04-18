@@ -1,8 +1,6 @@
 mod message_processors;
 mod metrics;
 
-use std::sync::Arc;
-
 use message_processors::GovernanceUpgradesEventProcessor;
 use tokio::sync::watch;
 // re-export via_btc_client types
@@ -10,7 +8,6 @@ pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::BitcoinAddress};
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_node_fee_model::BatchFeeModelInputProvider;
 use zksync_types::PriorityOpId;
 
 use self::message_processors::{
@@ -37,7 +34,6 @@ impl BtcWatch {
     pub async fn new(
         btc_watch_config: ViaBtcWatchConfig,
         indexer: BitcoinInscriptionIndexer,
-        batch_fee_input_provider: Arc<dyn BatchFeeModelInputProvider>,
         pool: ConnectionPool<Core>,
         bridge_address: BitcoinAddress,
         zk_agreement_threshold: f64,
@@ -66,7 +62,6 @@ impl BtcWatch {
                 protocol_semantic_version,
             )),
             Box::new(L1ToL2MessageProcessor::new(
-                batch_fee_input_provider,
                 bridge_address,
                 state.next_expected_priority_id,
             )),
