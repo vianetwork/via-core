@@ -132,11 +132,6 @@ impl RemoteENConfig {
             .rpc_context("get_testnet_paymaster")
             .await?;
         let genesis = client.genesis_config().rpc_context("genesis").await.ok();
-        let ecosystem_contracts = client
-            .get_ecosystem_contracts()
-            .rpc_context("ecosystem_contracts")
-            .await
-            .ok();
         let diamond_proxy_addr = client
             .get_main_contract()
             .rpc_context("get_main_contract")
@@ -176,13 +171,9 @@ impl RemoteENConfig {
         }
 
         Ok(Self {
-            bridgehub_proxy_addr: ecosystem_contracts.as_ref().map(|a| a.bridgehub_proxy_addr),
-            state_transition_proxy_addr: ecosystem_contracts
-                .as_ref()
-                .map(|a| a.state_transition_proxy_addr),
-            transparent_proxy_admin_addr: ecosystem_contracts
-                .as_ref()
-                .map(|a| a.transparent_proxy_admin_addr),
+            bridgehub_proxy_addr: None,
+            state_transition_proxy_addr: None,
+            transparent_proxy_admin_addr: None,
             diamond_proxy_addr,
             l2_testnet_paymaster_addr,
             l1_erc20_bridge_proxy_addr: bridges.l1_erc20_default_bridge,
@@ -1369,6 +1360,8 @@ impl ExternalNodeConfig {
 impl From<&ExternalNodeConfig> for InternalApiConfig {
     fn from(config: &ExternalNodeConfig) -> Self {
         Self {
+            via_bridge_address: "".into(),
+            via_network: via_btc_client::types::BitcoinNetwork::Regtest,
             l1_chain_id: config.required.l1_chain_id,
             l2_chain_id: config.required.l2_chain_id,
             max_tx_size: config.optional.max_tx_size_bytes,
