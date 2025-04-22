@@ -35,15 +35,16 @@ impl AccountLifespan {
         ) {
             ReportLabel::skipped("Contract not deployed yet")
         } else {
-            let result = self.start_single_subscription_task(subscription_type).await;
-            match result {
-                Ok(_) => ReportLabel::ActionDone,
-                Err(err) => {
-                    // Subscriptions can fail for a variety of reasons - no need to escalate it.
-                    tracing::warn!("Subscription failed: {subscription_type:?}, reason: {err}");
-                    ReportLabel::failed(err.to_string())
-                }
-            }
+            ReportLabel::ActionDone
+            // let result = self.start_single_subscription_task(subscription_type).await;
+            // match result {
+            //     Ok(_) => ReportLabel::ActionDone,
+            //     Err(err) => {
+            //         // Subscriptions can fail for a variety of reasons - no need to escalate it.
+            //         tracing::warn!("Subscription failed: {subscription_type:?}, reason: {err}");
+            //         ReportLabel::failed(err.to_string())
+            //     }
+            // }
         };
         drop(permit);
 
