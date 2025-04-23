@@ -9776,6 +9776,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bincode",
  "circuit_definitions",
  "clap 4.5.16",
  "ethers",
@@ -9790,6 +9791,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "zksync_da_client",
  "zksync_types",
 ]
 
