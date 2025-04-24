@@ -59,6 +59,9 @@ async fn main() -> io::Result<()> {
         proof_data.prev_l1_batch.metadata.commitment,
         proof_data.l1_batches[0].metadata.commitment,
     );
+
+    println!("{:?}", &prev_commitment);
+    println!("{:?}", &curr_commitment);
     let mut proof = proof_data.proofs[0].scheduler_proof.clone();
 
     // Put correct inputs
