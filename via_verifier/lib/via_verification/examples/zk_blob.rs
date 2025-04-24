@@ -8,7 +8,9 @@ use via_verification::proof::{
     Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
 };
 use zksync_da_client::types::InclusionData;
-use zksync_types::{commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion};
+use zksync_types::{
+    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, H256,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProveBatches {
@@ -25,11 +27,20 @@ pub struct L1BatchProofForL1 {
     pub protocol_version: ProtocolSemanticVersion,
 }
 
-// Verify a proof from DA
+// Verify a proof from Blob
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    // Path to your .bin file
-    let path = "data_batch_10.bin";
+    // via-prover-blob-store-dev/proofs_fri/l1_batch_proof_{number}_{version}.bin (example: .../l1_batch_proof_1_0_26_0.bin)
+    let path = "proofs_fri_l1_batch_proof_1_0_26_0.bin";
+    let protocol_version: String = "26".into();
+
+    // Get the l1 batch commitments: select number, encode(commitment::bytea, 'hex') from l1_batches order by number
+    let prev_commitment = H256::from_slice(
+        &hex::decode("e81e1a4727269fe1ef3e2f8c3f5cfb9aab7c073722c278331b7e017033c13f8f").unwrap(),
+    );
+    let curr_commitment = H256::from_slice(
+        &hex::decode("2663276f8fdc1e9e29c0ca9d225efc6e6fdefccfb01f92e8c645666a9c271f40").unwrap(),
+    );
 
     // Open the file in read-only mode
     let mut file = File::open(path)?;
@@ -41,25 +52,14 @@ async fn main() -> io::Result<()> {
     file.read_to_end(&mut buffer)?;
 
     let proof_blob = InclusionData { data: buffer };
-    let proof_data: ProveBatches = bincode::deserialize(&proof_blob.data).unwrap();
+    let proof: L1BatchProofForL1 = bincode::deserialize(&proof_blob.data).unwrap();
 
-    println!("Block number {:?}", &proof_data.l1_batches[0].header.number);
+    let vk_inner =
+        via_verification::utils::load_verification_key_without_l1_check(protocol_version)
+            .await
+            .unwrap();
 
-    let vk_inner = via_verification::utils::load_verification_key_without_l1_check(
-        proof_data.l1_batches[0]
-            .header
-            .protocol_version
-            .unwrap()
-            .to_string(),
-    )
-    .await
-    .unwrap();
-
-    let (prev_commitment, curr_commitment) = (
-        proof_data.prev_l1_batch.metadata.commitment,
-        proof_data.l1_batches[0].metadata.commitment,
-    );
-    let mut proof = proof_data.proofs[0].scheduler_proof.clone();
+    let mut proof = proof.scheduler_proof.clone();
 
     // Put correct inputs
     proof.inputs =

@@ -31,3 +31,7 @@ bincode.workspace = true
 [[example]]
 name = "zk"
 path = "examples/zk.rs"
+
+# [[example]]
+# name = "zk_blob"
+# path = "examples/zk_blob.rs"
