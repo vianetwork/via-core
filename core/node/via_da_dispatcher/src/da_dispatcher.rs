@@ -275,14 +275,7 @@ impl ViaDataAvailabilityDispatcher {
     async fn load_real_proof_operation(&self, batch_to_prove: L1BatchNumber) -> Option<Vec<u8>> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
-        let previous_proven_batch_number =
-            match storage.blocks_dal().get_last_l1_batch_with_prove_tx().await {
-                Ok(batch_number) => batch_number,
-                Err(e) => {
-                    tracing::error!("Failed to retrieve the last L1 batch with proof tx: {}", e);
-                    return None;
-                }
-            };
+        let previous_batch_number = batch_to_prove - 1;
 
         let minor_version = match storage
             .blocks_dal()
@@ -355,21 +348,21 @@ impl ViaDataAvailabilityDispatcher {
 
         let previous_proven_batch_metadata = match storage
             .blocks_dal()
-            .get_l1_batch_metadata(previous_proven_batch_number)
+            .get_l1_batch_metadata(previous_batch_number)
             .await
         {
             Ok(Some(metadata)) => metadata,
             Ok(None) => {
                 tracing::error!(
                     "L1 batch #{} with submitted proof is not complete in the DB",
-                    previous_proven_batch_number
+                    previous_batch_number
                 );
                 return None;
             }
             Err(e) => {
                 tracing::error!(
                     "Failed to retrieve L1 batch #{} metadata: {}",
-                    previous_proven_batch_number,
+                    previous_batch_number,
                     e
                 );
                 return None;
