@@ -9,6 +9,7 @@ test_database_prover_url = "postgres://postgres:notsecurepassword@localhost:5433
 [via_btc_sender]
 # The btc sender private key.
 private_key = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R"
+wallet_address = "bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56"
 
 [via_celestia_client]
 # The celestia auth token.

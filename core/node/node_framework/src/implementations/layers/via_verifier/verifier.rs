@@ -82,7 +82,11 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
 
         let btc_client = Arc::new(
             BitcoinClient::new(
-                self.secrets.rpc_url.expose_str(),
+                &format!(
+                    "{}/wallet/{}",
+                    self.secrets.rpc_url.expose_str(),
+                    self.wallet.address
+                ),
                 self.via_btc_client.network(),
                 self.secrets.auth_node(),
             )

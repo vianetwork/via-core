@@ -75,7 +75,11 @@ impl WiringLayer for ViaCoordinatorApiLayer {
 
         let btc_client = Arc::new(
             BitcoinClient::new(
-                self.secrets.rpc_url.expose_str(),
+                &format!(
+                    "{}/wallet/{}",
+                    self.secrets.rpc_url.expose_str(),
+                    self.via_genesis_config.bridge_address()?.to_string()
+                ),
                 self.via_btc_client.network(),
                 self.secrets.auth_node(),
             )

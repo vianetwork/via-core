@@ -5,7 +5,9 @@ __imports__ = ["base", "l2-inits/via_coordinator.init.env"]
 role = "Coordinator"
 # The wallet used in musig2 sessions.
 private_key = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm"
+wallet_address = "bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv"
 
 [via_btc_sender]
 # The wallet used in the btc sender.
 private_key = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm"
+wallet_address = "bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv"
