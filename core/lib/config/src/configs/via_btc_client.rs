@@ -20,7 +20,12 @@ impl ViaBtcClientConfig {
             return base_rpc_url;
         }
         // Include the wallet endpoint to fetch the utxos.
-        format!("{}/wallet/{}", base_rpc_url, wallet)
+        let base_rpc_url = format!("{}/wallet/{}", base_rpc_url, wallet);
+        println!(
+            "------------------------------------------- {}",
+            base_rpc_url.clone()
+        );
+        base_rpc_url
     }
 }
 
