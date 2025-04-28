@@ -77,7 +77,7 @@ impl WiringLayer for ViaCoordinatorApiLayer {
             BitcoinClient::new(
                 &self.via_btc_client.rpc_url(
                     self.secrets.rpc_url.expose_str().to_string(),
-                    self.via_genesis_config.bridge_address()?.to_string(),
+                    self.via_genesis_config.bridge_address.clone(),
                 ),
                 self.via_btc_client.network(),
                 self.secrets.auth_node(),
