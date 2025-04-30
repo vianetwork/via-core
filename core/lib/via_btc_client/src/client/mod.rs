@@ -6,10 +6,11 @@ use bitcoincore_rpc::json::{EstimateMode, GetBlockStatsResult};
 use futures::future::join_all;
 use tracing::{debug, error, instrument};
 
+mod fee_limits;
 mod rpc_client;
 
 use crate::{
-    client::rpc_client::BitcoinRpcClient,
+    client::{fee_limits::FeeRateLimits, rpc_client::BitcoinRpcClient},
     traits::{BitcoinOps, BitcoinRpc},
     types::{BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth},
 };
@@ -120,7 +121,19 @@ impl BitcoinOps for BitcoinClient {
                 let fee_rate_sat_kb = fee_rate.to_sat();
                 let fee_rate_sat_byte = fee_rate_sat_kb.checked_div(1000);
                 match fee_rate_sat_byte {
-                    Some(fee_rate_sat_byte) => Ok(fee_rate_sat_byte),
+                    Some(fee_rate_sat_byte) => {
+                        // Get network-specific fee rate limits
+                        let limits = FeeRateLimits::from_network(self.network);
+
+                        // Cap between network-specific max and min values
+                        let capped_fee_rate =
+                            std::cmp::min(fee_rate_sat_byte, limits.max_fee_rate());
+                        let final_fee_rate = std::cmp::max(capped_fee_rate, limits.min_fee_rate());
+
+                        debug!("Final fee rate used: {} (sat/vB)", final_fee_rate);
+
+                        Ok(final_fee_rate)
+                    }
                     None => Err(BitcoinError::FeeEstimationFailed(
                         "Invalid fee rate".to_string(),
                     )),
