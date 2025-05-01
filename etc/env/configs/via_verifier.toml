@@ -5,7 +5,9 @@ __imports__ = ["base", "l2-inits/via_verifier.init.env"]
 role = "Verifier"
 # The wallet used in musig2 sessions.
 private_key = "cQ4UHjdsGWFMcQ8zXcaSr7m4Kxq9x7g9EKqguTaFH7fA34mZAnqW"
+wallet_address = "bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4"
 
 [via_btc_sender]
 # The wallet used in the btc sender.
 private_key = "cQ4UHjdsGWFMcQ8zXcaSr7m4Kxq9x7g9EKqguTaFH7fA34mZAnqW"
+wallet_address = "bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4"

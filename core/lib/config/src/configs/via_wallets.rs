@@ -6,6 +6,7 @@ use super::wallets::{AddressWallet, StateKeeper, TokenMultiplierSetter, Wallet};
 
 #[derive(Default, Clone, PartialEq)]
 pub struct ViaWallet {
+    pub address: String,
     pub private_key: String,
 }
 
@@ -13,14 +14,17 @@ impl fmt::Debug for ViaWallet {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Secret")
-            .field("private_key", &"******")
+            .field("address", &self.address)
             .finish()
     }
 }
 
 impl ViaWallet {
-    pub fn new(private_key: String) -> Self {
-        Self { private_key }
+    pub fn new(address: String, private_key: String) -> Self {
+        Self {
+            address,
+            private_key,
+        }
     }
 }
 
@@ -43,8 +47,8 @@ impl ViaWallets {
             token_multiplier_setter: Some(TokenMultiplierSetter {
                 wallet: Wallet::from_private_key_bytes(H256::repeat_byte(0x4), None).unwrap(),
             }),
-            btc_sender: Some(ViaWallet::new(String::from("pk"))),
-            vote_operator: Some(ViaWallet::new(String::from("pk"))),
+            btc_sender: Some(ViaWallet::new("".into(), String::from("pk"))),
+            vote_operator: Some(ViaWallet::new("".into(), String::from("pk"))),
         }
     }
 }

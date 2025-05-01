@@ -79,7 +79,10 @@ impl WiringLayer for ViaBtcInscriptionAggregatorLayer {
         let master_pool = input.master_pool.get().await.unwrap();
 
         let inscriber = Inscriber::new(
-            self.secrets.rpc_url.expose_str(),
+            &self.via_btc_client.rpc_url(
+                self.secrets.rpc_url.expose_str().into(),
+                self.wallet.address.clone(),
+            ),
             self.via_btc_client.network(),
             self.secrets.auth_node(),
             &self.wallet.private_key,

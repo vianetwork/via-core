@@ -23,6 +23,9 @@ pub struct ViaBtcSenderConfig {
 
     /// The identifier of the DA layer.
     pub da_identifier: Option<String>,
+
+    /// The btc sender wallet address.
+    pub wallet_address: String,
 }
 
 impl ViaBtcSenderConfig {
@@ -48,6 +51,7 @@ impl ViaBtcSenderConfig {
             max_txs_in_flight: 1,
             block_confirmations: 0,
             da_identifier: None,
+            wallet_address: "".into(),
         }
     }
 }
