@@ -195,6 +195,7 @@ pub async fn insert_genesis_batch(
 
     create_genesis_l1_batch(
         &mut transaction,
+        genesis_params.config.l2_chain_id,
         genesis_params.protocol_version(),
         genesis_params.base_system_contracts(),
         genesis_params.system_contracts(),
@@ -203,8 +204,10 @@ pub async fn insert_genesis_batch(
     .await?;
     tracing::info!("chain_schema_genesis is complete");
 
-    let deduped_log_queries =
-        get_deduped_log_queries(&get_storage_logs(genesis_params.system_contracts()));
+    let deduped_log_queries = get_deduped_log_queries(&get_storage_logs(
+        genesis_params.config.l2_chain_id,
+        genesis_params.system_contracts(),
+    ));
 
     let (deduplicated_writes, _): (Vec<_>, Vec<_>) = deduped_log_queries
         .into_iter()
@@ -325,6 +328,7 @@ pub async fn ensure_genesis_state(
 #[allow(clippy::too_many_arguments)]
 pub async fn create_genesis_l1_batch(
     storage: &mut Connection<'_, Core>,
+    l2_chain_id: L2ChainId,
     protocol_version: ProtocolSemanticVersion,
     base_system_contracts: &BaseSystemContracts,
     system_contracts: &[DeployedContract],
@@ -388,7 +392,7 @@ pub async fn create_genesis_l1_batch(
         .mark_l2_blocks_as_executed_in_l1_batch(L1BatchNumber(0))
         .await?;
 
-    let storage_logs = get_storage_logs(system_contracts);
+    let storage_logs = get_storage_logs(l2_chain_id, system_contracts);
 
     let factory_deps = system_contracts
         .iter()

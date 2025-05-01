@@ -8,7 +8,7 @@ network = "localhost"
 zksync_network = "localhost"
 # ID of current ZKsync network treated as ETH network ID.
 # Used to distinguish ZKsync from other Web3-capable networks.
-zksync_network_id = 270
+zksync_network_id = 25223
 
 [chain.state_keeper]
 fee_account_addr = "0xde03a0B5963f75f1C8485B355fF6D30f3093BDE7"

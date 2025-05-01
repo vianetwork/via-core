@@ -1,6 +1,6 @@
-genesis_root: '0x5d1b8d6f250d89b77b66a918e3e0f60f64ca959aee0c5f1031575491fd00bfa6'
+genesis_root: '0x3c957ca37179902a8957817ddf1469e08aef3f3f3a45fd41803d2ef61808f640'
 genesis_rollup_leaf_index: 54
-genesis_batch_commitment: '0xe81e1a4727269fe1ef3e2f8c3f5cfb9aab7c073722c278331b7e017033c13f8f'
+genesis_batch_commitment: '0x21e74d3a5d7ee470c0818bbd9ba5cc5960d84e0153b20d054881bc6fb07177ba'
 genesis_protocol_semantic_version: '0.26.0'
 # deprecated
 genesis_protocol_version: 26

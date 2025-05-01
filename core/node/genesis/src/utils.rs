@@ -7,7 +7,7 @@ use zksync_multivm::{
     circuit_sequencer_api_latest::sort_storage_access::sort_storage_access_queries,
     zk_evm_latest::aux_structures::{LogQuery as MultiVmLogQuery, Timestamp as MultiVMTimestamp},
 };
-use zksync_system_constants::{DEFAULT_ERA_CHAIN_ID, ETHEREUM_ADDRESS};
+use zksync_system_constants::ETHEREUM_ADDRESS;
 use zksync_types::{
     block::{DeployedContract, L1BatchTreeData},
     commitment::L1BatchCommitment,
@@ -41,11 +41,14 @@ pub(super) async fn add_btc_token(transaction: &mut Connection<'_, Core>) -> any
     Ok(())
 }
 
-pub(super) fn get_storage_logs(system_contracts: &[DeployedContract]) -> Vec<StorageLog> {
+pub(super) fn get_storage_logs(
+    chain_id: L2ChainId,
+    system_contracts: &[DeployedContract],
+) -> Vec<StorageLog> {
     let system_context_init_logs =
         // During the genesis all chains have the same id.
         // TODO(EVM-579): make sure that the logic is compatible with Era.
-        get_system_context_init_logs(L2ChainId::from(DEFAULT_ERA_CHAIN_ID))
+        get_system_context_init_logs(chain_id)
     ;
 
     let known_code_storage_logs: Vec<_> = system_contracts
