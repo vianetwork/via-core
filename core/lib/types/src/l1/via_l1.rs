@@ -18,8 +18,8 @@ const MAX_FEE_PER_GAS: u64 = 120_000_000;
 /// Gas limit to required to execute a deposit.
 const GAS_LIMIT: u64 = 300_000;
 
-/// The minimum address that can be used as l2 receiver address.
-const MIN_VALID_L2_RECEIVER_ADDRESS: &str = "0x0000000000000000000000000000000000010001";
+/// Max system contracts kernel space address.
+const MAX_SYSTEM_CONTRACT_ADDRESS: &str = "0x000000000000000000000000000000000000ffff";
 
 #[derive(Debug, Clone)]
 
@@ -30,9 +30,16 @@ pub struct ViaL1Deposit {
     pub serial_id: PriorityOpId,
     pub l1_block_number: u64,
 }
+
 impl ViaL1Deposit {
     pub fn is_valid_deposit(&self) -> bool {
-        self.l2_receiver_address >= H160::from_str(MIN_VALID_L2_RECEIVER_ADDRESS).unwrap()
+        if self.l2_receiver_address <= H160::from_str(MAX_SYSTEM_CONTRACT_ADDRESS).unwrap() {
+            return false;
+        }
+
+        // CHeck if the amount can cover the transaction cost.
+        let gas_fee = U256::from(GAS_LIMIT) * U256::from(MAX_FEE_PER_GAS);
+        self.value() >= gas_fee
     }
 
     pub fn l1_tx(&self) -> Option<L1Tx> {
@@ -41,11 +48,15 @@ impl ViaL1Deposit {
         }
         Some(L1Tx::from(self.clone()))
     }
+
+    fn value(&self) -> U256 {
+        U256::from(self.amount) * U256::from(MANTISSA)
+    }
 }
 
 impl From<ViaL1Deposit> for L1Tx {
     fn from(deposit: ViaL1Deposit) -> Self {
-        let value = U256::from(deposit.amount) * U256::from(MANTISSA);
+        let value = deposit.value();
 
         let l2_tx = L2CanonicalTransaction {
             tx_type: PRIORITY_OPERATION_L2_TX_TYPE.into(),
@@ -64,7 +75,7 @@ impl From<ViaL1Deposit> for L1Tx {
                 U256::zero(),
                 U256::zero(),
             ],
-            data: deposit.calldata.clone(),
+            data: vec![],
             signature: vec![],
             factory_deps: vec![],
             paymaster_input: vec![],
@@ -74,7 +85,7 @@ impl From<ViaL1Deposit> for L1Tx {
         Self {
             execute: Execute {
                 contract_address: deposit.l2_receiver_address,
-                calldata: deposit.calldata.clone(),
+                calldata: vec![],
                 value: U256::zero(),
                 factory_deps: vec![],
             },
