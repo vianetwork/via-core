@@ -75,7 +75,7 @@ impl From<ViaL1Deposit> for L1Tx {
                 U256::zero(),
                 U256::zero(),
             ],
-            data: deposit.calldata.clone(),
+            data: vec![],
             signature: vec![],
             factory_deps: vec![],
             paymaster_input: vec![],
@@ -85,7 +85,7 @@ impl From<ViaL1Deposit> for L1Tx {
         Self {
             execute: Execute {
                 contract_address: deposit.l2_receiver_address,
-                calldata: deposit.calldata.clone(),
+                calldata: vec![],
                 value: U256::zero(),
                 factory_deps: vec![],
             },
