@@ -543,7 +543,7 @@ impl ViaNodeBuilder {
             .add_api_caches_layer()?
             .add_tree_api_client_layer()?
             .add_http_web3_api_layer()?
-            .add_ws_web3_api_layer()?
+            // .add_ws_web3_api_layer()?
             .add_vm_runner_protective_reads_layer()?
             .add_vm_runner_bwip_layer()?
             .add_storage_initialization_layer(LayerKind::Task)?
