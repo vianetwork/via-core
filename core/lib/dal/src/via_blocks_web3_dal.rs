@@ -63,8 +63,6 @@ impl ViaBlocksWeb3Dal<'_, '_> {
                 LEFT JOIN via_btc_inscriptions_request_history proof_history ON proof_req.confirmed_inscriptions_request_history_id = proof_history.id
             WHERE
                 l1_batches.number = $1
-                AND commit_history.confirmed_at IS NOT NULL
-                AND proof_history.confirmed_at IS NOT NULL
             "#,
             i64::from(l1_batch_number.0)
         )
