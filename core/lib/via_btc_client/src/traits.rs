@@ -8,7 +8,10 @@ use bitcoin::{
     secp256k1::{All, Secp256k1},
     Address, Block, BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid,
 };
-use bitcoincore_rpc::{bitcoincore_rpc_json::GetBlockchainInfoResult, json::GetBlockStatsResult};
+use bitcoincore_rpc::{
+    bitcoincore_rpc_json::GetBlockchainInfoResult,
+    json::{GetBlockStatsResult, GetMempoolInfoResult},
+};
 use secp256k1::{
     ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, Message, PublicKey,
 };
@@ -80,6 +83,7 @@ pub trait BitcoinRpc: Send + Sync + Debug {
         estimate_mode: Option<bitcoincore_rpc::json::EstimateMode>,
     ) -> BitcoinRpcResult<bitcoincore_rpc::json::EstimateSmartFeeResult>;
     async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
+    async fn get_mempool_info(&self) -> BitcoinRpcResult<GetMempoolInfoResult>;
 }
 
 pub(crate) trait BitcoinSigner: Send + Sync {

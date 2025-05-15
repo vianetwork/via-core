@@ -393,7 +393,7 @@ impl Inscriber {
     #[instrument(skip(self), target = "bitcoin_inscriber")]
     async fn get_fee_rate(&self) -> Result<u64> {
         debug!("Getting fee rate");
-        let res = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await? * 2;
+        let res = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await?;
         debug!("Fee rate obtained: {}", res);
         Ok(std::cmp::max(res, 1))
     }
