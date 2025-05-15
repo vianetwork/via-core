@@ -115,10 +115,17 @@ impl BitcoinOps for BitcoinClient {
             .estimate_smart_fee(conf_target, Some(EstimateMode::Economical))
             .await?;
 
+        let mempool_info = self.rpc.get_mempool_info().await?;
+
         match estimation.fee_rate {
             Some(fee_rate) => {
-                // convert btc/kb to sat/byte
-                let fee_rate_sat_kb = fee_rate.to_sat();
+                // Select the maximum fee between the estimated fee and the minimum required mempool fee.
+                let mut fee_rate_sat_kb =
+                    std::cmp::max(fee_rate.to_sat(), mempool_info.mempool_min_fee.to_sat());
+
+                // Add 1 sat/kB to avoid precision loss when converting to sat/byte.
+                fee_rate_sat_kb += 1000;
+
                 let fee_rate_sat_byte = fee_rate_sat_kb.checked_div(1000);
                 match fee_rate_sat_byte {
                     Some(fee_rate_sat_byte) => {
@@ -225,7 +232,7 @@ mod tests {
     use bitcoin::{absolute::LockTime, hashes::Hash, transaction::Version, Amount, Wtxid};
     use bitcoincore_rpc::{
         bitcoincore_rpc_json::GetBlockchainInfoResult,
-        json::{EstimateSmartFeeResult, GetRawTransactionResult},
+        json::{EstimateSmartFeeResult, GetMempoolInfoResult, GetRawTransactionResult},
     };
     use mockall::{mock, predicate::*};
 
@@ -251,6 +258,7 @@ mod tests {
             async fn estimate_smart_fee(&self, conf_target: u16, estimate_mode: Option<EstimateMode>) -> BitcoinClientResult<EstimateSmartFeeResult>;
             async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
             async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
+            async fn get_mempool_info(&self) -> BitcoinRpcResult<GetMempoolInfoResult>;
         }
     }
 

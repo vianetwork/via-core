@@ -5,7 +5,8 @@ use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::{
     bitcoincore_rpc_json::EstimateMode,
     json::{
-        EstimateSmartFeeResult, GetBlockStatsResult, GetBlockchainInfoResult, ScanTxOutRequest,
+        EstimateSmartFeeResult, GetBlockStatsResult, GetBlockchainInfoResult, GetMempoolInfoResult,
+        ScanTxOutRequest,
     },
     Client, RpcApi,
 };
@@ -230,6 +231,15 @@ impl BitcoinRpc for BitcoinRpcClient {
         Self::retry_rpc(|| {
             debug!("Getting block stats");
             self.client.get_block_stats(height).map_err(|e| e.into())
+        })
+        .await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
+    async fn get_mempool_info(&self) -> BitcoinRpcResult<GetMempoolInfoResult> {
+        Self::retry_rpc(|| {
+            debug!("Getting mempool info");
+            self.client.get_mempool_info().map_err(|e| e.into())
         })
         .await
     }
