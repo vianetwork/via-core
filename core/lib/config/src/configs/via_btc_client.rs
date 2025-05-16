@@ -6,7 +6,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ViaBtcClientConfig {
     /// Name of the used Bitcoin network
-    network: String,
+    pub network: String,
+    /// External fee APIs
+    pub external_apis: Vec<String>,
+    /// Fee strategies
+    pub fee_strategies: Vec<String>,
+    /// Use external api to get the inscription fee rate.
+    pub use_rpc_for_fee_rate: Option<bool>,
 }
 
 impl ViaBtcClientConfig {
@@ -20,12 +26,14 @@ impl ViaBtcClientConfig {
             return base_rpc_url;
         }
         // Include the wallet endpoint to fetch the utxos.
-        let base_rpc_url = format!("{}wallet/{}", base_rpc_url, wallet);
-        println!(
-            "------------------------------------------- {}",
-            base_rpc_url.clone()
-        );
-        base_rpc_url
+        format!("{}wallet/{}", base_rpc_url, wallet)
+    }
+
+    pub fn use_rpc_for_fee_rate(&self) -> bool {
+        if let Some(use_external_api) = self.use_rpc_for_fee_rate {
+            return use_external_api;
+        }
+        true
     }
 }
 
@@ -34,6 +42,9 @@ impl ViaBtcClientConfig {
     pub fn for_tests() -> Self {
         Self {
             network: Network::Regtest.to_string(),
+            external_apis: vec![],
+            fee_strategies: vec![],
+            use_rpc_for_fee_rate: Some(false),
         }
     }
 }
