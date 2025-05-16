@@ -11,6 +11,7 @@ use zksync_node_framework::{
         pools_layer::PoolsLayerBuilder,
         prometheus_exporter::PrometheusExporterLayer,
         sigint::SigintHandlerLayer,
+        via_btc_client::BtcClientLayer,
         via_btc_sender::{
             vote::ViaBtcVoteInscriptionLayer, vote_manager::ViaInscriptionManagerLayer,
         },
@@ -71,6 +72,15 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_btc_client_layer(mut self) -> anyhow::Result<Self> {
+        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
+        let secrets = self.secrets.via_l1.clone().unwrap();
+
+        self.node
+            .add_layer(BtcClientLayer::new(via_btc_client_config, secrets));
+        Ok(self)
+    }
+
     fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
         let secrets = self.secrets.via_da.clone().unwrap();
         let celestia_config = try_load_config!(self.configs.via_celestia_config);
@@ -100,8 +110,6 @@ impl ViaNodeBuilder {
     }
 
     fn add_btc_sender_layer(mut self) -> anyhow::Result<Self> {
-        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
-        let secrets = self.secrets.via_l1.clone().expect("L1 secrets");
         let wallet = self
             .wallets
             .btc_sender
@@ -111,12 +119,8 @@ impl ViaNodeBuilder {
         let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
         self.node
             .add_layer(ViaBtcVoteInscriptionLayer::new(btc_sender_config.clone()));
-        self.node.add_layer(ViaInscriptionManagerLayer::new(
-            via_btc_client_config,
-            btc_sender_config,
-            wallet,
-            secrets,
-        ));
+        self.node
+            .add_layer(ViaInscriptionManagerLayer::new(btc_sender_config, wallet));
         Ok(self)
     }
 
@@ -124,14 +128,12 @@ impl ViaNodeBuilder {
     fn add_verifier_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
         let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
-        let secrets = self.secrets.via_l1.clone().unwrap();
         let via_btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
 
         self.node.add_layer(VerifierBtcWatchLayer::new(
             via_genesis_config,
             via_btc_client_config,
             via_btc_watch_config,
-            secrets,
         ));
         Ok(self)
     }
@@ -149,14 +151,12 @@ impl ViaNodeBuilder {
     fn add_verifier_coordinator_api_layer(mut self) -> anyhow::Result<Self> {
         let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
-        let secrets = self.secrets.via_l1.clone().unwrap();
         let via_verifier_config = try_load_config!(self.configs.via_verifier_config);
 
         self.node.add_layer(ViaCoordinatorApiLayer::new(
             via_genesis_config,
             via_btc_client_config,
             via_verifier_config,
-            secrets,
         ));
         Ok(self)
     }
@@ -164,7 +164,6 @@ impl ViaNodeBuilder {
     fn add_withdrawal_verifier_task_layer(mut self) -> anyhow::Result<Self> {
         let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
-        let secrets = self.secrets.via_l1.clone().unwrap();
         let via_verifier_config = try_load_config!(self.configs.via_verifier_config);
         let wallet = self
             .wallets
@@ -176,7 +175,6 @@ impl ViaNodeBuilder {
             via_genesis_config,
             via_btc_client_config,
             via_verifier_config,
-            secrets,
             wallet,
         ));
         Ok(self)
@@ -208,6 +206,7 @@ impl ViaNodeBuilder {
             .add_prometheus_exporter_layer()?
             .add_pools_layer()?
             .add_storage_initialization_layer()?
+            .add_btc_client_layer()?
             .add_btc_sender_layer()?
             .add_verifier_btc_watcher_layer()?
             .add_via_celestia_da_client_layer()?

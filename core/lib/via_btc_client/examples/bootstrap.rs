@@ -5,6 +5,7 @@ use std::{
     io::Write,
     path::Path,
     str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::Context;
@@ -15,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 use tracing::info;
 use via_btc_client::{
+    client::BitcoinClient,
     indexer::MessageParser,
     inscriber::Inscriber,
     types::{
@@ -23,6 +25,7 @@ use via_btc_client::{
     },
 };
 use zksync_basic_types::H256;
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 enum InscriptionType {
@@ -59,15 +62,17 @@ async fn create_inscriber(
     rpc_password: &str,
     network: BitcoinNetwork,
 ) -> anyhow::Result<Inscriber> {
-    Inscriber::new(
-        rpc_url,
-        network,
-        NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string()),
-        signer_private_key,
-        None,
-    )
-    .await
-    .context("Failed to create Inscriber")
+    let auth = NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string());
+    let config = ViaBtcClientConfig {
+        network: network.to_string(),
+        external_apis: vec![],
+        fee_strategies: vec![],
+        use_rpc_for_fee_rate: None,
+    };
+    let client = Arc::new(BitcoinClient::new(rpc_url, auth, config)?);
+    Inscriber::new(client, signer_private_key, None)
+        .await
+        .context("Failed to create Inscriber")
 }
 
 #[tokio::main]

@@ -11,7 +11,7 @@ use bitcoin::{
     transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence, TapLeafHash,
     TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use bitcoincore_rpc::{Auth, RawTx};
+use bitcoincore_rpc::RawTx;
 use secp256k1::Message;
 use tracing::{debug, info, instrument, warn};
 
@@ -27,7 +27,7 @@ use crate::{
     },
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
-    types::{BitcoinNetwork, InscriberContext, InscriptionMessage, Recipient},
+    types::{InscriberContext, InscriptionMessage, Recipient},
 };
 
 mod fee;
@@ -72,17 +72,17 @@ pub struct Inscriber {
 }
 
 impl Inscriber {
-    #[instrument(skip(rpc_url, auth, signer_private_key), target = "bitcoin_inscriber")]
+    #[instrument(skip(client, signer_private_key), target = "bitcoin_inscriber")]
     pub async fn new(
-        rpc_url: &str,
-        network: BitcoinNetwork,
-        auth: Auth,
+        client: Arc<BitcoinClient>,
         signer_private_key: &str,
         persisted_ctx: Option<InscriberContext>,
     ) -> Result<Self> {
         info!("Creating new Inscriber");
-        let client = Arc::new(BitcoinClient::new(rpc_url, network, auth)?);
-        let signer = Arc::new(KeyManager::new(signer_private_key, network)?);
+        let signer = Arc::new(KeyManager::new(
+            signer_private_key,
+            client.config.network(),
+        )?);
         let context = persisted_ctx.unwrap_or_default();
 
         Ok(Self {
@@ -833,7 +833,8 @@ mod tests {
 
     use super::*;
     use crate::types::{
-        BitcoinClientResult, BitcoinSignerResult, InscriptionMessage, L1BatchDAReferenceInput,
+        BitcoinClientResult, BitcoinNetwork, BitcoinSignerResult, InscriptionMessage,
+        L1BatchDAReferenceInput,
     };
 
     mock! {

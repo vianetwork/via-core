@@ -1,13 +1,15 @@
-use std::{env, str::FromStr};
+use std::{env, str::FromStr, sync::Arc};
 
 use anyhow::{Context, Result};
 use tracing::info;
 use via_btc_client::{
+    client::BitcoinClient,
     indexer::MessageParser,
     inscriber::Inscriber,
     types::{BitcoinNetwork, InscriptionMessage, NodeAuth, SystemContractUpgradeInput},
 };
 use zksync_basic_types::H256;
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 use zksync_types::{protocol_version::ProtocolSemanticVersion, H160};
 
 const TIMEOUT: u64 = 5;
@@ -18,16 +20,18 @@ async fn create_inscriber(
     rpc_username: &str,
     rpc_password: &str,
     network: BitcoinNetwork,
-) -> Result<Inscriber> {
-    Inscriber::new(
-        rpc_url,
-        network,
-        NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string()),
-        signer_private_key,
-        None,
-    )
-    .await
-    .context("Failed to create Inscriber")
+) -> anyhow::Result<Inscriber> {
+    let auth = NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string());
+    let config = ViaBtcClientConfig {
+        network: network.to_string(),
+        external_apis: vec![],
+        fee_strategies: vec![],
+        use_rpc_for_fee_rate: None,
+    };
+    let client = Arc::new(BitcoinClient::new(rpc_url, auth, config)?);
+    Inscriber::new(client, signer_private_key, None)
+        .await
+        .context("Failed to create Inscriber")
 }
 
 // Example:

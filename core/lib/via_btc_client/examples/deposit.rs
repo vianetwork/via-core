@@ -3,18 +3,21 @@ use std::{
     fs::File,
     io::{Read, Write},
     str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::{Context, Result};
 use bitcoin::{address::NetworkUnchecked, Amount};
 use tracing::info;
 use via_btc_client::{
+    client::BitcoinClient,
     inscriber::Inscriber,
     types::{
         BitcoinAddress, BitcoinNetwork, InscriberContext, InscriptionMessage, L1ToL2MessageInput,
         NodeAuth, Recipient,
     },
 };
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 use zksync_types::Address as EVMAddress;
 
 const CONTEXT_FILE: &str = concat!(
@@ -56,15 +59,18 @@ async fn main() -> Result<()> {
     // Load the previous context from the file if it exists
     let context = load_context_from_file(CONTEXT_FILE)?;
 
-    let mut inscriber = Inscriber::new(
-        &rpc_url,
-        network,
-        NodeAuth::UserPass(rpc_username, rpc_password),
-        &depositor_private_key,
-        context,
-    )
-    .await
-    .context("Failed to create Depositor Inscriber")?;
+    let auth = NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string());
+    let config = ViaBtcClientConfig {
+        network: network.to_string(),
+        external_apis: vec![],
+        fee_strategies: vec![],
+        use_rpc_for_fee_rate: None,
+    };
+    let client = Arc::new(BitcoinClient::new(&rpc_url, auth, config)?);
+
+    let mut inscriber = Inscriber::new(client, &depositor_private_key, context)
+        .await
+        .context("Failed to create Depositor Inscriber")?;
 
     info!(
         "Depositor L1 balance: {}",

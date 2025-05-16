@@ -27,6 +27,7 @@ use zksync_node_framework::{
         proof_data_handler::ProofDataHandlerLayer,
         query_eth_client::QueryEthClientLayer,
         sigint::SigintHandlerLayer,
+        via_btc_client::BtcClientLayer,
         via_btc_sender::{
             aggregator::ViaBtcInscriptionAggregatorLayer, manager::ViaInscriptionManagerLayer,
         },
@@ -173,36 +174,38 @@ impl ViaNodeBuilder {
     }
 
     // VIA related layers
+    fn add_btc_client_layer(mut self) -> anyhow::Result<Self> {
+        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
+        let secrets = self.secrets.via_l1.clone().unwrap();
+
+        self.node
+            .add_layer(BtcClientLayer::new(via_btc_client_config, secrets));
+        Ok(self)
+    }
+
     fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
         let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let via_btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
-        let secrets = self.secrets.via_l1.clone().unwrap();
+
         self.node.add_layer(BtcWatchLayer::new(
             via_genesis_config,
             via_btc_client_config,
             via_btc_watch_config,
-            secrets,
         ));
         Ok(self)
     }
 
     fn add_btc_sender_layer(mut self) -> anyhow::Result<Self> {
-        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let btc_sender_config = try_load_config!(self.configs.via_btc_sender_config);
-        let secrets = self.secrets.via_l1.clone().unwrap();
         let wallet = self.wallets.btc_sender.clone().unwrap();
         self.node.add_layer(ViaBtcInscriptionAggregatorLayer::new(
-            via_btc_client_config.clone(),
             btc_sender_config.clone(),
             wallet.clone(),
-            secrets.clone(),
         ));
         self.node.add_layer(ViaInscriptionManagerLayer::new(
-            via_btc_client_config,
             btc_sender_config,
             wallet.clone(),
-            secrets,
         ));
         Ok(self)
     }
@@ -533,6 +536,7 @@ impl ViaNodeBuilder {
             .add_prometheus_exporter_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?
             // VIA layers
+            .add_btc_client_layer()?
             .add_gas_adjuster_layer()?
             .add_l1_gas_layer()?
             .add_btc_watcher_layer()?

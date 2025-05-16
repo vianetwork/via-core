@@ -35,6 +35,7 @@ pub mod sync_state_updater;
 pub mod tee_verifier_input_producer;
 pub mod tree_data_fetcher;
 pub mod validate_chain_ids;
+pub mod via_btc_client;
 pub mod via_btc_sender;
 pub mod via_btc_watch;
 pub mod via_da_dispatcher;

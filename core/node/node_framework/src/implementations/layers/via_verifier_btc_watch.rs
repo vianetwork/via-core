@@ -2,16 +2,14 @@ use via_btc_client::indexer::BitcoinInscriptionIndexer;
 use via_btc_watch::BitcoinNetwork;
 use via_verifier_btc_watch::VerifierBtcWatch;
 use zksync_config::{
-    configs::{
-        via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig,
-        via_secrets::ViaL1Secrets,
-    },
+    configs::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig},
     ViaBtcWatchConfig,
 };
 
 use crate::{
     implementations::resources::{
         pools::{PoolResource, VerifierPool},
+        via_btc_client::BtcClientResource,
         via_btc_indexer::BtcIndexerResource,
     },
     service::StopReceiver,
@@ -28,13 +26,13 @@ pub struct VerifierBtcWatchLayer {
     via_genesis_config: ViaGenesisConfig,
     via_btc_client: ViaBtcClientConfig,
     btc_watch_config: ViaBtcWatchConfig,
-    secrets: ViaL1Secrets,
 }
 
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<VerifierPool>,
+    pub btc_client_resource: BtcClientResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -50,13 +48,11 @@ impl VerifierBtcWatchLayer {
         via_genesis_config: ViaGenesisConfig,
         via_btc_client: ViaBtcClientConfig,
         btc_watch_config: ViaBtcWatchConfig,
-        secrets: ViaL1Secrets,
     ) -> Self {
         Self {
             via_genesis_config,
             via_btc_client,
             btc_watch_config,
-            secrets,
         }
     }
 }
@@ -72,11 +68,10 @@ impl WiringLayer for VerifierBtcWatchLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
-
+        let client = input.btc_client_resource.0;
         let indexer = BitcoinInscriptionIndexer::new(
-            self.secrets.rpc_url.expose_str(),
-            self.via_btc_client.network(),
-            self.secrets.auth_node(),
+            client,
+            self.via_btc_client.clone(),
             self.via_genesis_config.bootstrap_txids()?,
         )
         .await
