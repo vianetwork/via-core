@@ -1,11 +1,13 @@
-use std::{env, str::FromStr};
+use std::{env, str::FromStr, sync::Arc};
 
 use anyhow::{Context, Result};
 use tracing::info;
 use via_btc_client::{
+    client::BitcoinClient,
     inscriber::Inscriber,
     types::{BitcoinNetwork, NodeAuth},
 };
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
 const RPC_USERNAME: &str = "rpcuser";
@@ -22,15 +24,17 @@ async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     let number_blocks = usize::from_str(&args[1].to_string())?;
 
-    let inscriber = Inscriber::new(
-        RPC_URL,
-        NETWORK,
-        NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string()),
-        PK,
-        None,
-    )
-    .await
-    .context("Failed to Inscriber")?;
+    let auth = NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string());
+    let config = ViaBtcClientConfig {
+        network: NETWORK.to_string(),
+        external_apis: vec![],
+        fee_strategies: vec![],
+        use_rpc_for_fee_rate: None,
+    };
+    let client = Arc::new(BitcoinClient::new(&RPC_URL, auth, config)?);
+    let inscriber = Inscriber::new(client, &PK, None)
+        .await
+        .context("Failed to create Depositor Inscriber")?;
 
     let client = inscriber.get_client().await;
 

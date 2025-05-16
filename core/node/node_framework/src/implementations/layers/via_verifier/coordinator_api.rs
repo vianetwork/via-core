@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
-use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
+use via_btc_client::traits::BitcoinOps;
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{
-    configs::{
-        via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig,
-        via_secrets::ViaL1Secrets,
-    },
+    configs::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig},
     ViaVerifierConfig,
 };
 
@@ -15,6 +12,7 @@ use crate::{
     implementations::resources::{
         da_client::DAClientResource,
         pools::{PoolResource, VerifierPool},
+        via_btc_client::BtcClientResource,
     },
     service::StopReceiver,
     task::{Task, TaskId},
@@ -28,14 +26,14 @@ pub struct ViaCoordinatorApiLayer {
     via_genesis_config: ViaGenesisConfig,
     via_btc_client: ViaBtcClientConfig,
     verifier_config: ViaVerifierConfig,
-    secrets: ViaL1Secrets,
 }
 
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<VerifierPool>,
-    pub client: DAClientResource,
+    pub da_client: DAClientResource,
+    pub btc_client_resource: BtcClientResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -50,13 +48,11 @@ impl ViaCoordinatorApiLayer {
         via_genesis_config: ViaGenesisConfig,
         via_btc_client: ViaBtcClientConfig,
         verifier_config: ViaVerifierConfig,
-        secrets: ViaL1Secrets,
     ) -> Self {
         Self {
             via_genesis_config,
             via_btc_client,
             verifier_config,
-            secrets,
         }
     }
 }
@@ -72,21 +68,10 @@ impl WiringLayer for ViaCoordinatorApiLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let master_pool = input.master_pool.get().await?;
-
-        let btc_client = Arc::new(
-            BitcoinClient::new(
-                &self.via_btc_client.rpc_url(
-                    self.secrets.rpc_url.expose_str().to_string(),
-                    self.via_genesis_config.bridge_address.clone(),
-                ),
-                self.via_btc_client.network(),
-                self.secrets.auth_node(),
-            )
-            .unwrap(),
-        );
+        let btc_client = input.btc_client_resource.0;
 
         let withdrawal_client =
-            WithdrawalClient::new(input.client.0, self.via_btc_client.network());
+            WithdrawalClient::new(input.da_client.0, self.via_btc_client.network());
 
         let via_coordinator_api_task = ViaCoordinatorApiTask {
             verifier_config: self.verifier_config,

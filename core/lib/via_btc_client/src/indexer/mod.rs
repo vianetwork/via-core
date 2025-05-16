@@ -1,12 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bitcoin::{Address, Amount, BlockHash, Network, Transaction as BitcoinTransaction, Txid};
-use bitcoincore_rpc::Auth;
 use tracing::{debug, error, info, instrument, warn};
 
 mod parser;
 pub use parser::{get_eth_address, MessageParser};
 use zksync_basic_types::L1BatchNumber;
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 use zksync_types::H256;
 
 use crate::{
@@ -80,19 +80,27 @@ pub struct BitcoinInscriptionIndexer {
 }
 
 impl BitcoinInscriptionIndexer {
-    #[instrument(skip(rpc_url, network, bootstrap_txids), target = "bitcoin_indexer")]
+    #[instrument(skip(client, config, bootstrap_txids), target = "bitcoin_indexer")]
     pub async fn new(
-        rpc_url: &str,
-        network: Network,
-        auth: Auth,
+        client: Arc<BitcoinClient>,
+        config: ViaBtcClientConfig,
         bootstrap_txids: Vec<Txid>,
+        // rpc_url: &str,
+        // network: Network,
+        // auth: Auth,
     ) -> BitcoinIndexerResult<Self>
     where
         Self: Sized,
     {
         info!("Creating new BitcoinInscriptionIndexer");
-        let client = Arc::new(BitcoinClient::new(rpc_url, network, auth)?);
-        let mut parser = MessageParser::new(network);
+        // let client = Arc::new(BitcoinClient::new(
+        //     rpc_url,
+        //     network,
+        //     auth,
+        //     vec![],
+        //     "".into(),
+        // )?);
+        let mut parser = MessageParser::new(config.network());
         let mut bootstrap_state = BootstrapState::new();
 
         for txid in bootstrap_txids {
@@ -101,7 +109,12 @@ impl BitcoinInscriptionIndexer {
             let messages = parser.parse_system_transaction(&tx, 0);
 
             for message in messages {
-                Self::process_bootstrap_message(&mut bootstrap_state, message, txid, network);
+                Self::process_bootstrap_message(
+                    &mut bootstrap_state,
+                    message,
+                    txid,
+                    config.network(),
+                );
             }
 
             if bootstrap_state.is_complete() {

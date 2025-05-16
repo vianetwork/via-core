@@ -1,8 +1,16 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use via_btc_client::{
+    client::BitcoinClient,
     inscriber::Inscriber,
     types::{self as inscribe_types, BitcoinNetwork, NodeAuth},
 };
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
+
+const RPC_USERNAME: &str = "rpcuser";
+const RPC_PASSWORD: &str = "rpcpassword";
+const NETWORK: BitcoinNetwork = BitcoinNetwork::Regtest;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -11,18 +19,20 @@ async fn main() -> Result<()> {
     // export BITCOIN_NODE_URL="http://example.com:8332"
     // export BITCOIN_PRV=example_wif
 
-    let url = std::env::var("BITCOIN_NODE_URL").context("BITCOIN_NODE_URL not set")?;
+    let rpc_url = std::env::var("BITCOIN_NODE_URL").context("BITCOIN_NODE_URL not set")?;
     let prv = std::env::var("BITCOIN_PRV").context("BITCOIN_PRV not set")?;
+    let auth = NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string());
+    let config = ViaBtcClientConfig {
+        network: NETWORK.to_string(),
+        external_apis: vec![],
+        fee_strategies: vec![],
+        use_rpc_for_fee_rate: None,
+    };
+    let client = Arc::new(BitcoinClient::new(&rpc_url, auth, config)?);
 
-    let mut inscriber_instance = Inscriber::new(
-        &url,
-        BitcoinNetwork::Regtest,
-        NodeAuth::UserPass("via".to_string(), "via".to_string()),
-        &prv,
-        None,
-    )
-    .await
-    .context("Failed to create Inscriber")?;
+    let mut inscriber_instance = Inscriber::new(client, &prv, None)
+        .await
+        .context("Failed to create Inscriber")?;
 
     println!(
         "balance: {}",
