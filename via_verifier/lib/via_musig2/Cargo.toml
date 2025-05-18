@@ -43,6 +43,7 @@ zksync_dal.workspace = true
 dotenv = "0.15"
 via_da_clients.workspace = true
 async-trait.workspace = true
+zksync_config.workspace = true
 mockall = "0.13.0"
 bitcoincore-rpc = "0.19.0"
 

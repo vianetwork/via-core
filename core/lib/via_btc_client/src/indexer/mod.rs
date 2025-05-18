@@ -85,21 +85,11 @@ impl BitcoinInscriptionIndexer {
         client: Arc<BitcoinClient>,
         config: ViaBtcClientConfig,
         bootstrap_txids: Vec<Txid>,
-        // rpc_url: &str,
-        // network: Network,
-        // auth: Auth,
     ) -> BitcoinIndexerResult<Self>
     where
         Self: Sized,
     {
         info!("Creating new BitcoinInscriptionIndexer");
-        // let client = Arc::new(BitcoinClient::new(
-        //     rpc_url,
-        //     network,
-        //     auth,
-        //     vec![],
-        //     "".into(),
-        // )?);
         let mut parser = MessageParser::new(config.network());
         let mut bootstrap_state = BootstrapState::new();
 

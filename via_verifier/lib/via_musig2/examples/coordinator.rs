@@ -19,6 +19,7 @@ use uuid::Uuid;
 use via_btc_client::{client::BitcoinClient, types::BitcoinNetwork};
 use via_musig2::{transaction_builder::TransactionBuilder, verify_signature, Signer};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -505,7 +506,14 @@ async fn create_test_withdrawal_builder(
     let rpc_url = "http://localhost:18443";
     let network = BitcoinNetwork::Regtest;
     let auth = bitcoincore_rpc::Auth::None;
-    let btc_client = Arc::new(BitcoinClient::new(rpc_url, network, auth).unwrap());
+    let config = ViaBtcClientConfig {
+        network: network.to_string(),
+        external_apis: vec![],
+        fee_strategies: vec![],
+        use_rpc_for_fee_rate: None,
+    };
+
+    let btc_client = Arc::new(BitcoinClient::new(rpc_url, auth, config).unwrap());
 
     let builder = TransactionBuilder::new(btc_client, bridge_address.clone())?;
     Ok(builder)

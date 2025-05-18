@@ -168,11 +168,8 @@ where
             .await
             .map_err(Into::into);
 
-        match &res {
-            Err(err) => {
-                println!("Failed to estimate fee: {err}");
-            }
-            _ => (),
+        if let Err(err) = &res {
+            println!("Failed to estimate fee: {err}");
         }
 
         res

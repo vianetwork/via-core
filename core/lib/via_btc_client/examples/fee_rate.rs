@@ -1,10 +1,9 @@
 use std::{env, str::FromStr, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tracing::info;
 use via_btc_client::{
     client::BitcoinClient,
-    inscriber::Inscriber,
     traits::BitcoinOps,
     types::{BitcoinNetwork, NodeAuth},
 };

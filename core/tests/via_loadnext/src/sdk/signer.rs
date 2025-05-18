@@ -92,6 +92,7 @@ impl<S: EthereumSigner> Signer<S> {
         Ok(transfer)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn sign_execute_contract(
         &self,
         contract: Address,
@@ -114,6 +115,7 @@ impl<S: EthereumSigner> Signer<S> {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn sign_execute_contract_for_deploy(
         &self,
         contract: Address,
