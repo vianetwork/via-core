@@ -24,3 +24,10 @@ tracing-subscriber.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 
+[dev-dependencies]
+zksync_da_client.workspace = true
+bincode.workspace = true
+
+[[example]]
+name = "zk"
+path = "examples/zk.rs"
