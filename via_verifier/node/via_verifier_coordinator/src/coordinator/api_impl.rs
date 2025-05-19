@@ -11,7 +11,7 @@ use zksync_utils::time::seconds_since_epoch;
 
 use super::{api_decl::RestApi, error::ApiError};
 use crate::{
-    metrics::{MetricSessionType, METRICS},
+    metrics::{MetricSessionType, VerifierErrorLabel, METRICS},
     types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse},
     utils::{decode_signature, encode_signature},
 };
@@ -153,6 +153,11 @@ impl RestApi {
                         // Reset the session if a partial signature is not valid.
                         // This will force the verifier to submit a new valid signature.
                         self_.reset_session().await;
+                        METRICS.verifier_errors[&VerifierErrorLabel {
+                            pubkey: individual_pubkey_str.clone(),
+                            kind: crate::metrics::ErrorKind::PartialSignature,
+                        }]
+                            .inc();
                         tracing::info!("Reset session due to: {}", e);
                         return Err(ApiError::BadRequest(
                             format!("Invalid partial signature for verifier pubkey: {individual_pubkey_str}"),

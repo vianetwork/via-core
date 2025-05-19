@@ -9518,6 +9518,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "vise",
  "zksync_basic_types",
  "zksync_config",
  "zksync_object_store",

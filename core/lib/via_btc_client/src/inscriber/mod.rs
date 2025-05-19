@@ -167,7 +167,7 @@ impl Inscriber {
         let inscriber_info = self
             .prepare_inscribe(&input, recipient)
             .await
-            .context("Error prepare inscriber infos")?;
+            .with_context(|| "Error prepare inscriber infos")?;
 
         self.broadcast_inscription(
             &inscriber_info.final_commit_tx,
@@ -433,7 +433,7 @@ impl Inscriber {
                     input.utxo_amounts[index],
                     sighash_type,
                 )
-                .context("Failed to create sighash")?;
+                .with_context(|| "Failed to create commit sighash")?;
 
             // Sign the sighash using the signer
             let msg = Message::from(sighash);
@@ -666,7 +666,7 @@ impl Inscriber {
                 input.prev_outs[REVEAL_TX_FEE_INPUT_INDEX as usize].value,
                 sighash_type,
             )
-            .context("Failed to create sighash")?;
+            .with_context(|| "Failed to create reveal sighash payer")?;
 
         // Sign the fee payer sighash using the signer
         let fee_payer_msg = Message::from(fee_payer_input_sighash);
@@ -701,7 +701,7 @@ impl Inscriber {
                 ),
                 sighash_type,
             )
-            .context("Failed to create sighash")?;
+            .with_context(|| "Failed to create reveal sighash")?;
 
         // Sign the tapscript reveal sighash using the signer
         let msg = Message::from_digest(reveal_input_sighash.to_byte_array());
