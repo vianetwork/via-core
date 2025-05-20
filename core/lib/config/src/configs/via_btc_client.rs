@@ -11,7 +11,7 @@ pub struct ViaBtcClientConfig {
     pub external_apis: Vec<String>,
     /// Fee strategies
     pub fee_strategies: Vec<String>,
-    /// Use external api to get the inscription fee rate.
+    /// Use the RPC node as main fee rate provider.
     pub use_rpc_for_fee_rate: Option<bool>,
 }
 
