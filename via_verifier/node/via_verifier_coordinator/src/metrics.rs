@@ -4,6 +4,18 @@ use vise::{Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Hi
 
 use crate::types::SessionType;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EncodeLabelValue)]
+#[metrics(rename_all = "snake_case")]
+pub enum ErrorKind {
+    PartialSignature,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, EncodeLabelSet)]
+pub struct VerifierErrorLabel {
+    pub pubkey: String,
+    pub kind: ErrorKind,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EncodeLabelValue, EncodeLabelSet)]
 #[metrics(label = "error_type", rename_all = "snake_case")]
 pub enum MetricSessionType {
@@ -36,6 +48,9 @@ pub struct ViaVerifierCoordinatorMetrics {
 
     /// The BTC balance of the account used in musig2 sessions.
     pub musig2_session_account_balance: Gauge<usize>,
+
+    /// Errors
+    pub verifier_errors: Family<VerifierErrorLabel, Counter>,
 }
 
 #[vise::register]
