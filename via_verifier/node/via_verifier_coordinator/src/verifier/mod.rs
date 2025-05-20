@@ -7,7 +7,7 @@ use reqwest::{header, Client, StatusCode};
 use tokio::sync::watch;
 use via_btc_client::traits::{BitcoinOps, Serializable};
 use via_musig2::{transaction_builder::TransactionBuilder, verify_signature, Signer};
-use via_verifier_dal::{ConnectionPool, Verifier};
+use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{protocol_version::get_sequencer_version, transaction::UnsignedBridgeTx};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::{via_verifier::ViaVerifierConfig, via_wallets::ViaWallet};
@@ -29,6 +29,7 @@ pub struct ViaWithdrawalVerifier {
     wallet: ViaWallet,
     session_manager: SessionManager,
     btc_client: Arc<dyn BitcoinOps>,
+    master_connection_pool: ConnectionPool<Verifier>,
     client: Client,
     signer: Signer,
     final_sig: Option<CompactSignature>,
@@ -51,7 +52,7 @@ impl ViaWithdrawalVerifier {
             Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
 
         let withdrawal_session = WithdrawalSession::new(
-            master_connection_pool,
+            master_connection_pool.clone(),
             transaction_builder.clone(),
             withdrawal_client,
         );
@@ -69,6 +70,7 @@ impl ViaWithdrawalVerifier {
             wallet,
             session_manager: SessionManager::new(sessions),
             btc_client,
+            master_connection_pool,
             client: Client::new(),
             signer,
             final_sig: None,
@@ -98,6 +100,10 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn loop_iteration(&mut self) -> Result<(), anyhow::Error> {
+        if self.sync_in_progress().await? {
+            return Ok(());
+        }
+
         let mut session_info = self.get_session().await?;
 
         if self.is_coordinator() {
@@ -471,7 +477,7 @@ impl ViaWithdrawalVerifier {
                     .await?;
 
                 tracing::info!(
-                    "Brodcast {} signed transaction with txid {}",
+                    "Broadcast {} signed transaction with txid {}",
                     &session_op.get_session_type(),
                     &txid.to_string()
                 );
@@ -498,5 +504,26 @@ impl ViaWithdrawalVerifier {
 
     fn is_coordinator(&self) -> bool {
         self.verifier_config.role == ViaNodeRole::Coordinator
+    }
+
+    async fn sync_in_progress(&self) -> anyhow::Result<bool> {
+        let last_indexed_l1_block_number = self
+            .master_connection_pool
+            .connection_tagged("verifier task")
+            .await?
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await?;
+        let current_l1_block_number = self.btc_client.fetch_block_height().await?;
+
+        if last_indexed_l1_block_number < current_l1_block_number {
+            tracing::debug!(
+                "The verifier synchronization in progress {}/{}",
+                last_indexed_l1_block_number,
+                current_l1_block_number
+            );
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
