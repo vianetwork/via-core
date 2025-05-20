@@ -1,12 +1,14 @@
-use std::{env, str::FromStr};
+use std::{env, str::FromStr, sync::Arc};
 
 use anyhow::{Context, Result};
 use bitcoin::Txid;
 use tracing::info;
 use via_btc_client::{
+    client::BitcoinClient,
     inscriber::Inscriber,
     types::{BitcoinNetwork, InscriptionMessage, NodeAuth, ValidatorAttestationInput, Vote},
 };
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
 const RPC_USERNAME: &str = "rpcuser";
@@ -14,16 +16,18 @@ const RPC_PASSWORD: &str = "rpcpassword";
 const NETWORK: BitcoinNetwork = BitcoinNetwork::Regtest;
 const TIMEOUT: u64 = 5;
 
-async fn create_inscriber(signer_private_key: &str) -> Result<Inscriber> {
-    Inscriber::new(
-        RPC_URL,
-        NETWORK,
-        NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string()),
-        signer_private_key,
-        None,
-    )
-    .await
-    .context("Failed to create Inscriber")
+async fn create_inscriber(signer_private_key: &str) -> anyhow::Result<Inscriber> {
+    let auth = NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string());
+    let config = ViaBtcClientConfig {
+        network: NETWORK.to_string(),
+        external_apis: vec![],
+        fee_strategies: vec![],
+        use_rpc_for_fee_rate: None,
+    };
+    let client = Arc::new(BitcoinClient::new(RPC_URL, auth, config)?);
+    Inscriber::new(client, signer_private_key, None)
+        .await
+        .context("Failed to create Inscriber")
 }
 
 #[tokio::main]

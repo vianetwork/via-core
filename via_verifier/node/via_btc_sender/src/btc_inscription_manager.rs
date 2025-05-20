@@ -143,6 +143,9 @@ impl ViaBtcInscriptionManager {
             }
         }
 
+        let balance = self.inscriber.get_balance().await?;
+        METRICS.btc_sender_account_balance.set(balance as usize);
+
         Ok(())
     }
 
@@ -208,9 +211,6 @@ impl ViaBtcInscriptionManager {
             }
         };
         latency.observe();
-
-        let balance = self.inscriber.get_balance().await?;
-        METRICS.btc_sender_account_balance.set(balance as usize);
 
         let signed_commit_tx = serialize(&inscribe_info.final_commit_tx.tx)
             .with_context(|| "Error serializing the commit tx")?;

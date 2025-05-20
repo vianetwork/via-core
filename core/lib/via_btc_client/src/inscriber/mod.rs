@@ -11,7 +11,7 @@ use bitcoin::{
     transaction, Address, Amount, EcdsaSighashType, OutPoint, ScriptBuf, Sequence, TapLeafHash,
     TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use bitcoincore_rpc::{Auth, RawTx};
+use bitcoincore_rpc::RawTx;
 use secp256k1::Message;
 use tracing::{debug, info, instrument, warn};
 
@@ -27,7 +27,7 @@ use crate::{
     },
     signer::KeyManager,
     traits::{BitcoinOps, BitcoinSigner},
-    types::{BitcoinNetwork, InscriberContext, InscriptionMessage, Recipient},
+    types::{InscriberContext, InscriptionMessage, Recipient},
 };
 
 mod fee;
@@ -72,17 +72,17 @@ pub struct Inscriber {
 }
 
 impl Inscriber {
-    #[instrument(skip(rpc_url, auth, signer_private_key), target = "bitcoin_inscriber")]
+    #[instrument(skip(client, signer_private_key), target = "bitcoin_inscriber")]
     pub async fn new(
-        rpc_url: &str,
-        network: BitcoinNetwork,
-        auth: Auth,
+        client: Arc<BitcoinClient>,
         signer_private_key: &str,
         persisted_ctx: Option<InscriberContext>,
     ) -> Result<Self> {
         info!("Creating new Inscriber");
-        let client = Arc::new(BitcoinClient::new(rpc_url, network, auth)?);
-        let signer = Arc::new(KeyManager::new(signer_private_key, network)?);
+        let signer = Arc::new(KeyManager::new(
+            signer_private_key,
+            client.config.network(),
+        )?);
         let context = persisted_ctx.unwrap_or_default();
 
         Ok(Self {
@@ -167,7 +167,7 @@ impl Inscriber {
         let inscriber_info = self
             .prepare_inscribe(&input, recipient)
             .await
-            .context("Error prepare inscriber infos")?;
+            .with_context(|| "Error prepare inscriber infos")?;
 
         self.broadcast_inscription(
             &inscriber_info.final_commit_tx,
@@ -393,7 +393,7 @@ impl Inscriber {
     #[instrument(skip(self), target = "bitcoin_inscriber")]
     async fn get_fee_rate(&self) -> Result<u64> {
         debug!("Getting fee rate");
-        let res = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await? * 2;
+        let res = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await?;
         debug!("Fee rate obtained: {}", res);
         Ok(std::cmp::max(res, 1))
     }
@@ -433,7 +433,7 @@ impl Inscriber {
                     input.utxo_amounts[index],
                     sighash_type,
                 )
-                .context("Failed to create sighash")?;
+                .with_context(|| "Failed to create commit sighash")?;
 
             // Sign the sighash using the signer
             let msg = Message::from(sighash);
@@ -666,7 +666,7 @@ impl Inscriber {
                 input.prev_outs[REVEAL_TX_FEE_INPUT_INDEX as usize].value,
                 sighash_type,
             )
-            .context("Failed to create sighash")?;
+            .with_context(|| "Failed to create reveal sighash payer")?;
 
         // Sign the fee payer sighash using the signer
         let fee_payer_msg = Message::from(fee_payer_input_sighash);
@@ -701,7 +701,7 @@ impl Inscriber {
                 ),
                 sighash_type,
             )
-            .context("Failed to create sighash")?;
+            .with_context(|| "Failed to create reveal sighash")?;
 
         // Sign the tapscript reveal sighash using the signer
         let msg = Message::from_digest(reveal_input_sighash.to_byte_array());
@@ -833,7 +833,8 @@ mod tests {
 
     use super::*;
     use crate::types::{
-        BitcoinClientResult, BitcoinSignerResult, InscriptionMessage, L1BatchDAReferenceInput,
+        BitcoinClientResult, BitcoinNetwork, BitcoinSignerResult, InscriptionMessage,
+        L1BatchDAReferenceInput,
     };
 
     mock! {

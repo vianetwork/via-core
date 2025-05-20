@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+vise.workspace = true
 zksync_types.workspace = true
 zksync_config.workspace = true
 zksync_basic_types.workspace = true

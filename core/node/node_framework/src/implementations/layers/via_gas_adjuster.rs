@@ -65,8 +65,8 @@ impl WiringLayer for ViaGasAdjusterLayer {
         let btc_client = Arc::new(
             BitcoinClient::new(
                 self.secrets.rpc_url.expose_str(),
-                self.via_btc_client.network(),
                 self.secrets.auth_node(),
+                self.via_btc_client,
             )
             .unwrap(),
         );

@@ -9518,6 +9518,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "vise",
  "zksync_basic_types",
  "zksync_config",
  "zksync_object_store",
@@ -9707,6 +9708,7 @@ dependencies = [
  "via_da_clients",
  "via_verifier_types",
  "via_withdrawal_client",
+ "zksync_config",
  "zksync_dal",
 ]
 

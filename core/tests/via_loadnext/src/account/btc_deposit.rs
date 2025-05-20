@@ -16,6 +16,7 @@ use via_btc_client::{
     traits::BitcoinOps,
     types::{BitcoinAddress, NodeAuth},
 };
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 use zksync_types::Address as EVMAddress;
 
 pub async fn deposit(
@@ -45,10 +46,17 @@ pub async fn deposit(
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
         .assume_checked();
 
+    let config = ViaBtcClientConfig {
+        network: network.to_string(),
+        external_apis: vec![],
+        fee_strategies: vec![],
+        use_rpc_for_fee_rate: None,
+    };
+
     let client = BitcoinClient::new(
         &rpc_url,
-        network,
         NodeAuth::UserPass(rpc_username, rpc_password),
+        config,
     )?;
 
     // Fetch UTXOs available at our address.

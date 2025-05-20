@@ -5,12 +5,14 @@ use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, 
 use bitcoincore_rpc::json::{EstimateMode, GetBlockStatsResult};
 use futures::future::join_all;
 use tracing::{debug, error, instrument};
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 mod fee_limits;
 mod rpc_client;
 
 use crate::{
     client::{fee_limits::FeeRateLimits, rpc_client::BitcoinRpcClient},
+    metrics::{RpcMethodLabel, METRICS},
     traits::{BitcoinOps, BitcoinRpc},
     types::{BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth},
 };
@@ -18,12 +20,16 @@ use crate::{
 #[derive(Debug)]
 pub struct BitcoinClient {
     rpc: Arc<dyn BitcoinRpc>,
-    network: BitcoinNetwork,
+    pub config: ViaBtcClientConfig,
 }
 
 impl BitcoinClient {
     #[instrument(skip(auth), target = "bitcoin_client")]
-    pub fn new(rpc_url: &str, network: BitcoinNetwork, auth: NodeAuth) -> BitcoinClientResult<Self>
+    pub fn new(
+        rpc_url: &str,
+        auth: NodeAuth,
+        config: ViaBtcClientConfig,
+    ) -> BitcoinClientResult<Self>
     where
         Self: Sized,
     {
@@ -31,7 +37,7 @@ impl BitcoinClient {
         let rpc = BitcoinRpcClient::new(rpc_url, auth)?;
         Ok(Self {
             rpc: Arc::new(rpc),
-            network,
+            config,
         })
     }
 }
@@ -41,7 +47,7 @@ impl BitcoinOps for BitcoinClient {
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128> {
         debug!("Getting balance");
-        match self.network {
+        match self.config.network() {
             BitcoinNetwork::Regtest => {
                 let balance = self.rpc.get_balance_scan(address).await?;
                 Ok(balance as u128)
@@ -70,7 +76,7 @@ impl BitcoinOps for BitcoinClient {
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>> {
         debug!("Fetching UTXOs");
-        let outpoints = match self.network {
+        let outpoints = match self.config.network() {
             Network::Regtest => self.rpc.list_unspent(address).await?,
             _ => self.rpc.list_unspent_based_on_node_wallet(address).await?,
         };
@@ -110,48 +116,110 @@ impl BitcoinOps for BitcoinClient {
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64> {
         debug!("Estimating fee rate");
-        let estimation = self
-            .rpc
-            .estimate_smart_fee(conf_target, Some(EstimateMode::Economical))
-            .await?;
+        let mut fee_rate_sat_kb: Option<u64> = None;
 
-        match estimation.fee_rate {
-            Some(fee_rate) => {
-                // convert btc/kb to sat/byte
-                let fee_rate_sat_kb = fee_rate.to_sat();
-                let fee_rate_sat_byte = fee_rate_sat_kb.checked_div(1000);
-                match fee_rate_sat_byte {
-                    Some(fee_rate_sat_byte) => {
-                        // Get network-specific fee rate limits
-                        let limits = FeeRateLimits::from_network(self.network);
+        if self.config.use_rpc_for_fee_rate() {
+            let estimation_result = self
+                .rpc
+                .estimate_smart_fee(conf_target, Some(EstimateMode::Economical))
+                .await;
 
-                        // Cap between network-specific max and min values
-                        let capped_fee_rate =
-                            std::cmp::min(fee_rate_sat_byte, limits.max_fee_rate());
-                        let final_fee_rate = std::cmp::max(capped_fee_rate, limits.min_fee_rate());
-
-                        debug!("Final fee rate used: {} (sat/vB)", final_fee_rate);
-
-                        Ok(final_fee_rate)
+            fee_rate_sat_kb = match estimation_result {
+                Ok(estimation) => {
+                    if let Some(fee_rate) = estimation.fee_rate {
+                        Some(fee_rate.to_sat())
+                    } else {
+                        error!(
+                            "RPC fee estimate missing value: {}",
+                            estimation
+                                .errors
+                                .map(|e| e.join(", "))
+                                .unwrap_or_else(|| "Unknown error".to_string())
+                        );
+                        None
                     }
-                    None => Err(BitcoinError::FeeEstimationFailed(
-                        "Invalid fee rate".to_string(),
-                    )),
+                }
+                Err(err) => {
+                    METRICS.rpc_errors[&RpcMethodLabel {
+                        method: "rpc_estimate_smart_fee".into(),
+                    }]
+                        .inc();
+                    error!("Failed to estimate smart fee via RPC: {:?}", err);
+                    None
+                }
+            };
+        }
+
+        // Fallback to external APIs if RPC failed or returned no fee
+        if fee_rate_sat_kb.is_none() {
+            let client = reqwest::Client::new();
+
+            for (api_url, fee_target_key) in self
+                .config
+                .external_apis
+                .iter()
+                .zip(self.config.fee_strategies.iter())
+            {
+                match client.get(api_url).send().await {
+                    Ok(resp) => match resp.json::<serde_json::Value>().await {
+                        Ok(json) => {
+                            if let Some(fee_rate_vb) =
+                                json.get(fee_target_key).and_then(|v| v.as_f64())
+                            {
+                                fee_rate_sat_kb = Some((fee_rate_vb * 1000.0).round() as u64);
+                                debug!(
+                                    "Fee rate from API {} [{}]: {} sat/vB",
+                                    api_url, fee_target_key, fee_rate_vb
+                                );
+                                break;
+                            } else {
+                                error!("Missing '{}' in response from {}", fee_target_key, api_url);
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to parse JSON from {}: {:?}", api_url, e);
+                        }
+                    },
+                    Err(e) => {
+                        METRICS.rpc_errors[&RpcMethodLabel {
+                            method: "estimate_smart_fee".into(),
+                        }]
+                            .inc();
+                        error!("Failed to fetch from {}: {:?}", api_url, e);
+                    }
                 }
             }
-            None => {
-                let err = estimation
-                    .errors
-                    .map(|errors| errors.join(", "))
-                    .unwrap_or_else(|| "Unknown error during fee estimation".to_string());
-                error!("Fee estimation failed: {}", err);
-                Err(BitcoinError::FeeEstimationFailed(err))
-            }
         }
+
+        // If no fee estimate was obtained
+        let mut fee_rate_sat_kb = fee_rate_sat_kb.ok_or_else(|| {
+            BitcoinError::FeeEstimationFailed("All fee estimation methods failed".into())
+        })?;
+
+        // Add a small buffer to avoid precision loss
+        fee_rate_sat_kb += 1000;
+
+        // Get mempool minimum fee
+        let mempool_info = self.rpc.get_mempool_info().await?;
+        let mempool_min_fee_sat_kb = mempool_info.mempool_min_fee.to_sat();
+        fee_rate_sat_kb = std::cmp::max(fee_rate_sat_kb, mempool_min_fee_sat_kb);
+
+        // Convert to sat/vB
+        let fee_rate_sat_vb = fee_rate_sat_kb.checked_div(1000).ok_or_else(|| {
+            BitcoinError::FeeEstimationFailed("Failed to convert sat/kB to sat/vB".into())
+        })?;
+
+        // Apply network-specific caps
+        let limits = FeeRateLimits::from_network(self.config.network());
+        let capped = std::cmp::min(fee_rate_sat_vb, limits.max_fee_rate());
+        let final_rate = std::cmp::max(capped, limits.min_fee_rate());
+
+        debug!("Final fee rate used: {} sat/vB", final_rate);
+        Ok(final_rate)
     }
 
     fn get_network(&self) -> BitcoinNetwork {
-        self.network
+        self.config.network()
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
@@ -213,7 +281,7 @@ impl Clone for BitcoinClient {
     fn clone(&self) -> Self {
         Self {
             rpc: Arc::clone(&self.rpc),
-            network: self.network,
+            config: ViaBtcClientConfig::for_tests(),
         }
     }
 }
@@ -225,7 +293,7 @@ mod tests {
     use bitcoin::{absolute::LockTime, hashes::Hash, transaction::Version, Amount, Wtxid};
     use bitcoincore_rpc::{
         bitcoincore_rpc_json::GetBlockchainInfoResult,
-        json::{EstimateSmartFeeResult, GetRawTransactionResult},
+        json::{EstimateSmartFeeResult, GetMempoolInfoResult, GetRawTransactionResult},
     };
     use mockall::{mock, predicate::*};
 
@@ -251,13 +319,14 @@ mod tests {
             async fn estimate_smart_fee(&self, conf_target: u16, estimate_mode: Option<EstimateMode>) -> BitcoinClientResult<EstimateSmartFeeResult>;
             async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
             async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
+            async fn get_mempool_info(&self) -> BitcoinRpcResult<GetMempoolInfoResult>;
         }
     }
 
     fn get_client_with_mock(mock_bitcoin_rpc: MockBitcoinRpc) -> BitcoinClient {
         BitcoinClient {
             rpc: Arc::new(mock_bitcoin_rpc),
-            network: BitcoinNetwork::Bitcoin,
+            config: ViaBtcClientConfig::for_tests(),
         }
     }
 
