@@ -1,23 +1,27 @@
 // SPDX-License-Identifier: CC0-1.0
 
-//! Demonstrate creating a transaction that spends to and from p2tr outputs with musig2.
+//! Demonstrate verify a partial signaturecreating a transaction that spends to and from p2tr outputs with musig2.
 
-use std::{str::FromStr, sync::Arc};
+use std::{io::Read, str::FromStr};
 
 use bitcoin::{
     hashes::Hash,
+    hex::DisplayHex,
     key::Keypair,
     locktime::absolute,
     secp256k1::{Secp256k1, SecretKey},
     sighash::{Prevouts, SighashCache, TapSighashType},
-    transaction, Address, Amount, Network, PrivateKey, ScriptBuf, Sequence, TapTweakHash,
-    Transaction, TxIn, TxOut, Witness,
+    transaction, Address, Amount, Network, OutPoint, PrivateKey, ScriptBuf, Sequence, TapTweakHash,
+    Transaction, TxIn, TxOut, Txid, Witness,
 };
-use musig2::{secp::Scalar, KeyAggContext};
+use musig2::{
+    secp::{MaybeScalar, Scalar},
+    verify_partial, AggNonce, KeyAggContext, PartialSignature,
+};
 use rand::Rng;
 use secp256k1_musig2::schnorr::Signature;
-use via_btc_client::{client::BitcoinClient, inscriber::Inscriber, types::NodeAuth};
-use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
+use via_btc_client::{inscriber::Inscriber, types::NodeAuth};
+use via_musig2::utils::verify_partial_signature;
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
 const RPC_USERNAME: &str = "rpcuser";
@@ -64,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap(),
     ];
 
-    let mut musig_key_agg_cache = KeyAggContext::new(pubkeys)?;
+    let mut musig_key_agg_cache = KeyAggContext::new(pubkeys.clone())?;
 
     let agg_pubkey = musig_key_agg_cache.aggregated_pubkey::<secp256k1_musig2::PublicKey>();
     let (xonly_agg_key, _) = agg_pubkey.x_only_public_key();
@@ -87,24 +91,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("address: {}", address);
 
     // -------------------------------------------
-    // Connect to Bitcoin node (adjust RPC credentials and URL)
-    // -------------------------------------------
-    let auth = NodeAuth::UserPass(RPC_USERNAME.to_string(), RPC_PASSWORD.to_string());
-    let config = ViaBtcClientConfig {
-        network: NETWORK.to_string(),
-        external_apis: vec![],
-        fee_strategies: vec![],
-        use_rpc_for_fee_rate: None,
-    };
-
-    let btc_client = Arc::new(BitcoinClient::new(RPC_URL, auth, config).unwrap());
-    let inscriber = Inscriber::new(btc_client, PK, None).await?;
-    let client = inscriber.get_client().await;
-
-    // -------------------------------------------
     // Fetching UTXOs from node
     // -------------------------------------------
-    let utxos = client.fetch_utxos(&address).await?;
+    let utxos = vec![(
+        OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0,
+        },
+        TxOut {
+            script_pubkey: ScriptBuf::new(),
+            value: Amount::from_sat(100000000),
+        },
+    )];
 
     // Get an unspent output that is locked to the key above that we control.
     // In a real application these would come from the chain.
@@ -212,6 +210,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let second_round_3 = first_round_3.finalize(secret_key_3, &binding)?;
     // Combine partial signatures
     let partial_sig_2: [u8; 32] = second_round_2.our_signature();
+
+    let pubkeys_str = vec![
+        internal_key_1
+            .clone()
+            .public_key(parity_1)
+            .serialize()
+            .to_hex_string(bitcoin::hex::Case::Lower),
+        internal_key_2
+            .clone()
+            .public_key(parity_2)
+            .serialize()
+            .to_hex_string(bitcoin::hex::Case::Lower),
+        internal_key_3
+            .clone()
+            .public_key(parity_3)
+            .serialize()
+            .to_hex_string(bitcoin::hex::Case::Lower),
+    ];
+
+    verify_partial_signature(
+        nonce_2.clone(),
+        vec![nonce_1.clone(), nonce_2.clone(), nonce_3.clone()],
+        internal_key_2
+            .public_key(parity_2)
+            .serialize()
+            .to_hex_string(bitcoin::hex::Case::Lower),
+        pubkeys_str,
+        PartialSignature::from_slice(&partial_sig_2.to_vec())?,
+        sighash.as_byte_array(),
+    )?;
+
     let partial_sig_3: [u8; 32] = second_round_3.our_signature();
 
     second_round_1.receive_signature(1, Scalar::from_slice(&partial_sig_2).unwrap())?;
@@ -233,10 +262,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // BOOM! Transaction signed and ready to broadcast.
     println!("{:#?}", tx);
-
-    let tx_hex = bitcoin::consensus::encode::serialize_hex(&tx);
-    let res = client.broadcast_signed_transaction(&tx_hex).await?;
-    println!("res: {:?}", res);
 
     Ok(())
 }

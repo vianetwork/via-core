@@ -1,4 +1,4 @@
-use std::{env, str::FromStr};
+use std::{env, str::FromStr, sync::Arc};
 
 use anyhow::Result;
 use bitcoin::{
@@ -16,6 +16,7 @@ use via_btc_client::{
     traits::BitcoinOps,
     types::{BitcoinAddress, NodeAuth},
 };
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 use zksync_types::Address as EVMAddress;
 
 #[tokio::main]
@@ -58,11 +59,14 @@ async fn main() -> Result<()> {
         .parse::<BitcoinAddress<NetworkUnchecked>>()?
         .require_network(network)?;
 
-    let client = BitcoinClient::new(
-        &rpc_url,
-        network,
-        NodeAuth::UserPass(rpc_username, rpc_password),
-    )?;
+    let auth = NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string());
+    let config = ViaBtcClientConfig {
+        network: network.to_string(),
+        external_apis: vec![],
+        fee_strategies: vec![],
+        use_rpc_for_fee_rate: None,
+    };
+    let client = Arc::new(BitcoinClient::new(&rpc_url, auth, config)?);
 
     // Fetch UTXOs available at our address.
     let all_utxos = client.fetch_utxos(&address).await?;

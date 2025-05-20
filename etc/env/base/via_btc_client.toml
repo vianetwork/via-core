@@ -6,3 +6,9 @@
 network = "regtest"
 # The Bitcoin RPC URL.
 rpc_url = "http://0.0.0.0:18443"
+# External fee APIs
+external_apis = ["https://mempool.space/testnet/api/v1/fees/recommended"]
+# Fee strategies
+fee_strategies = ["fastestFee"]
+# Use RPC to get the fee rate
+use_rpc_for_fee_rate = true

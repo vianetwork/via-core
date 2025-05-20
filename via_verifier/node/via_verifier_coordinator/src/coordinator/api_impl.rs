@@ -6,11 +6,12 @@ use musig2::{BinaryEncoding, PubNonce};
 use serde::Serialize;
 use tracing::instrument;
 use via_btc_client::traits::Serializable;
+use via_musig2::utils::verify_partial_signature;
 use zksync_utils::time::seconds_since_epoch;
 
 use super::{api_decl::RestApi, error::ApiError};
 use crate::{
-    metrics::{MetricSessionType, METRICS},
+    metrics::{MetricSessionType, VerifierErrorLabel, METRICS},
     types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse},
     utils::{decode_signature, encode_signature},
 };
@@ -116,10 +117,60 @@ impl RestApi {
             Ok(sig) => sig,
             Err(_) => {
                 return Err(ApiError::BadRequest(
-                    "Invalid partial signature submitted".to_string(),
+                    "Error when decode the partial signature".to_string(),
                 ))
             }
         };
+
+        // Verify if the partial sig is valid.
+        let session = self_.state.signing_session.read().await.clone();
+        if let Some(session_op) = session.session_op {
+            let pubkeys_str = self_
+                .state
+                .verifiers_pub_keys
+                .iter()
+                .map(|pubkey| pubkey.to_string())
+                .collect::<Vec<String>>();
+
+            let individual_pubkey_str = pubkeys_str[sig_pair.signer_index].clone();
+            if let Some(nonce) = session.received_nonces.get(&sig_pair.signer_index) {
+                let nonces = session
+                    .received_nonces
+                    .values()
+                    .cloned()
+                    .collect::<Vec<PubNonce>>();
+
+                match verify_partial_signature(
+                    nonce.clone(),
+                    nonces,
+                    individual_pubkey_str.clone(),
+                    pubkeys_str,
+                    partial_sig,
+                    &session_op.get_message_to_sign(),
+                ) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        // Reset the session if a partial signature is not valid.
+                        // This will force the verifier to submit a new valid signature.
+                        self_.reset_session().await;
+                        METRICS.verifier_errors[&VerifierErrorLabel {
+                            pubkey: individual_pubkey_str.clone(),
+                            kind: crate::metrics::ErrorKind::PartialSignature,
+                        }]
+                            .inc();
+                        tracing::info!("Reset session due to: {}", e);
+                        return Err(ApiError::BadRequest(
+                            format!("Invalid partial signature for verifier pubkey: {individual_pubkey_str}"),
+                        ));
+                    }
+                }
+            } else {
+                return Err(ApiError::BadRequest(
+                    "Session nonce not found for  verifier pubkey: {individual_pubkey_str}"
+                        .to_string(),
+                ));
+            }
+        }
 
         {
             let mut session = self_.state.signing_session.write().await;

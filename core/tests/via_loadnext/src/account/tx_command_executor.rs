@@ -5,6 +5,7 @@ use via_btc_client::{
     traits::BitcoinOps,
     types::{BitcoinError, BitcoinNetwork, NodeAuth},
 };
+use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 use zksync_types::{
     api::{BlockNumber, TransactionReceipt},
     l2::L2Tx,
@@ -80,13 +81,20 @@ impl AccountLifespan {
     async fn l1_btc_balances(&self) -> Result<U256, ClientError> {
         let wallet = &self.btc_wallet;
 
+        let config = ViaBtcClientConfig {
+            network: BitcoinNetwork::Regtest.to_string(),
+            external_apis: vec![],
+            fee_strategies: vec![],
+            use_rpc_for_fee_rate: None,
+        };
+
         let btc_client = BitcoinClient::new(
             &self.config.l1_btc_rpc_address,
-            BitcoinNetwork::Regtest,
             NodeAuth::UserPass(
                 self.config.l1_btc_rpc_username.clone(),
                 self.config.l1_btc_rpc_password.clone(),
             ),
+            config,
         )?;
 
         let balance = btc_client.get_balance(&wallet.btc_address).await?;

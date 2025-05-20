@@ -4,7 +4,10 @@ use anyhow::{Context, Result};
 use tracing::info;
 use via_da_clients::celestia::client::CelestiaClient;
 use via_withdrawal_client::client::WithdrawalClient;
-use zksync_config::ViaCelestiaConfig;
+use zksync_config::{
+    configs::{via_celestia::ProofSendingMode, via_secrets::ViaDASecrets},
+    ViaCelestiaConfig,
+};
 use zksync_da_client::DataAvailabilityClient;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_types::{url::SensitiveUrl, L1BatchNumber};
@@ -49,12 +52,17 @@ async fn main() -> Result<()> {
 
     let da_config = ViaCelestiaConfig {
         api_node_url: String::from(DEFAULT_CELESTIA),
-        auth_token: celestia_auth_token,
         blob_size_limit: 1973786,
+        proof_sending_mode: ProofSendingMode::SkipEveryProof,
+    };
+
+    let secrets = ViaDASecrets {
+        api_node_url: SensitiveUrl::from_str(da_config.api_node_url.as_str()).unwrap(),
+        auth_token: celestia_auth_token,
     };
 
     // Connect to withdrawl client
-    let client = CelestiaClient::new(da_config).await?;
+    let client = CelestiaClient::new(secrets, da_config.blob_size_limit).await?;
     let da_client: Box<dyn DataAvailabilityClient> = Box::new(client);
     let withdrawal_client = WithdrawalClient::new(da_client, bitcoin::Network::Regtest);
 
