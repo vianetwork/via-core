@@ -12,6 +12,7 @@ mod rpc_client;
 
 use crate::{
     client::{fee_limits::FeeRateLimits, rpc_client::BitcoinRpcClient},
+    metrics::{RpcMethodLabel, METRICS},
     traits::{BitcoinOps, BitcoinRpc},
     types::{BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth},
 };
@@ -139,6 +140,10 @@ impl BitcoinOps for BitcoinClient {
                     }
                 }
                 Err(err) => {
+                    METRICS.rpc_errors[&RpcMethodLabel {
+                        method: "rpc_estimate_smart_fee".into(),
+                    }]
+                        .inc();
                     error!("Failed to estimate smart fee via RPC: {:?}", err);
                     None
                 }
@@ -176,6 +181,10 @@ impl BitcoinOps for BitcoinClient {
                         }
                     },
                     Err(e) => {
+                        METRICS.rpc_errors[&RpcMethodLabel {
+                            method: "estimate_smart_fee".into(),
+                        }]
+                            .inc();
                         error!("Failed to fetch from {}: {:?}", api_url, e);
                     }
                 }

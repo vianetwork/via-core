@@ -74,7 +74,7 @@ impl InscriptionData {
         let mut builder = TaprootBuilder::new();
         builder = builder
             .add_leaf(0, inscription_script.clone())
-            .context("adding leaf should work")?;
+            .with_context(|| "Adding leaf should work")?;
 
         let taproot_spend_info = builder
             .finalize(secp, internal_key)

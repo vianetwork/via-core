@@ -1,7 +1,10 @@
 use bitcoin::{hashes::Hash, Txid};
 use tokio::time::Duration;
 
-use crate::types;
+use crate::{
+    metrics::{RpcMethodLabel, METRICS},
+    types,
+};
 
 pub(crate) async fn with_retry<F, T, E>(
     f: F,
@@ -27,7 +30,13 @@ where
                 retries += 1;
                 tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                METRICS.rpc_max_retries_exceeded[&RpcMethodLabel {
+                    method: operation_name.into(),
+                }]
+                    .inc();
+                return Err(e);
+            }
         }
     }
 }
