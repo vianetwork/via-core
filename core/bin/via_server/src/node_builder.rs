@@ -178,8 +178,12 @@ impl ViaNodeBuilder {
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let secrets = self.secrets.via_l1.clone().unwrap();
 
-        self.node
-            .add_layer(BtcClientLayer::new(via_btc_client_config, secrets));
+        self.node.add_layer(BtcClientLayer::new(
+            via_btc_client_config,
+            secrets,
+            self.wallets.clone(),
+            None,
+        ));
         Ok(self)
     }
 

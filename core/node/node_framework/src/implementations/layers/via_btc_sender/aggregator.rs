@@ -64,7 +64,7 @@ impl WiringLayer for ViaBtcInscriptionAggregatorLayer {
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         // Get resources.
         let master_pool = input.master_pool.get().await.unwrap();
-        let client = input.btc_client_resource.0;
+        let client = input.btc_client_resource.btc_sender.unwrap();
 
         let inscriber = Inscriber::new(client, &self.wallet.private_key, None)
             .await
