@@ -75,7 +75,7 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
         let withdrawal_client =
             WithdrawalClient::new(input.da_client.0, self.via_btc_client.network());
 
-        let btc_client = input.btc_client_resource.0;
+        let btc_client = input.btc_client_resource.verifier.unwrap();
 
         let via_withdrawal_verifier_task = ViaWithdrawalVerifier::new(
             self.verifier_config,

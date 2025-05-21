@@ -68,7 +68,7 @@ impl WiringLayer for ViaCoordinatorApiLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let master_pool = input.master_pool.get().await?;
-        let btc_client = input.btc_client_resource.0;
+        let btc_client = input.btc_client_resource.bridge.unwrap();
 
         let withdrawal_client =
             WithdrawalClient::new(input.da_client.0, self.via_btc_client.network());

@@ -75,9 +75,14 @@ impl ViaNodeBuilder {
     fn add_btc_client_layer(mut self) -> anyhow::Result<Self> {
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let secrets = self.secrets.via_l1.clone().unwrap();
+        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
 
-        self.node
-            .add_layer(BtcClientLayer::new(via_btc_client_config, secrets));
+        self.node.add_layer(BtcClientLayer::new(
+            via_btc_client_config,
+            secrets,
+            self.wallets.clone(),
+            Some(via_genesis_config.bridge_address),
+        ));
         Ok(self)
     }
 
