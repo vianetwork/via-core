@@ -84,6 +84,14 @@ services:
         IMPORT_DESCRIPTOR="[ { \"desc\": \"$${DESCRIPTOR}\", \"timestamp\": \"now\", \"watchonly\": true } ]"
         echo "Importing descriptor into Watcher wallet: $${IMPORT_DESCRIPTOR}"
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "$${IMPORT_DESCRIPTOR}"
+        
+        TEST_ADDRESS_LEGACY_DESCRIPTOR=$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($$TEST_ADDRESS_LEGACY)" | jq -r ".descriptor")
+        TEST_ADDRESS_NESTED_SEGWITH_DESCRIPTOR=$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($$TEST_ADDRESS_NESTED_SEGWITH)" | jq -r ".descriptor")
+        TEST_ADDRESS_TAPROOT_DESCRIPTOR=$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($$TEST_ADDRESS_TAPROOT)" | jq -r ".descriptor")
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "[ { \"desc\": \"$$TEST_ADDRESS_LEGACY_DESCRIPTOR\", \"timestamp\": \"now\", \"watchonly\": true } ]"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "[ { \"desc\": \"$$TEST_ADDRESS_NESTED_SEGWITH_DESCRIPTOR\", \"timestamp\": \"now\", \"watchonly\": true } ]"
+        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "[ { \"desc\": \"$$TEST_ADDRESS_TAPROOT_DESCRIPTOR\", \"timestamp\": \"now\", \"watchonly\": true } ]"
+        
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher rescanblockchain
 
         while true; do
@@ -101,6 +109,9 @@ services:
     environment:
       - BITCOIN_DATA=/home/bitcoin/.bitcoin
       - TEST_ADDRESS=bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
+      - TEST_ADDRESS_NESTED_SEGWITH=2NGECSjWS6YDaqX64qCrbyQp2DquQviG5Dv
+      - TEST_ADDRESS_TAPROOT=bcrt1pfceu92l2rz44acv6y37etczl73prv09esdp0ec0srttltf5yvj3qwtuky6
+      - TEST_ADDRESS_LEGACY=mk9HNmebx6A7XwaZvmA8woieCddKFCqwRd
       - TEST_ADDRESS_OP_RETURN=bcrt1qu7z4qrlwl33qqz8duph0k7hv8trvgx8dt8jzfz
       - VERIFIER_1_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
       - VERIFIER_2_ADDRESS=bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
