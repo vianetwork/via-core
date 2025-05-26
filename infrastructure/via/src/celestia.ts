@@ -3,6 +3,9 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { updateEnvVariable } from './helpers';
+import { VIA_DOCKER_COMPOSE } from './docker';
+
+const CONTAINER_NAME = 'celestia-node';
 
 // Function to execute a shell command and return it as a Promise
 function runCommand(command: string): Promise<string> {
@@ -19,11 +22,9 @@ function runCommand(command: string): Promise<string> {
     });
 }
 
-const get_node_address_command =
-    "docker exec $(docker ps -q -f name=celestia-node) celestia state account-address | jq -r '.result'";
-const get_auth_node_command =
-    'docker exec $(docker ps -q -f name=celestia-node) celestia light auth admin --p2p.network mocha';
-const restart_celestia_container_command = 'docker restart celestia-node';
+const get_node_address_command = `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME} celestia state account-address | jq -r '.result'`;
+const get_auth_node_command = `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME} celestia light auth admin --p2p.network mocha`;
+const restart_celestia_container_command = `docker compose -f ${VIA_DOCKER_COMPOSE} restart ${CONTAINER_NAME}`;
 
 async function updateEnvironment(auth_token: string) {
     const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);
@@ -116,7 +117,9 @@ async function fix_celestia_config() {
         }
     }
 
-    await runCommand(`docker exec celestia-node sed -i 's/  SampleFrom = 1/  SampleFrom = ${height}/' config.toml`);
+    await runCommand(
+        `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME} sed -i 's/  SampleFrom = 1/  SampleFrom = ${height}/' config.toml`
+    );
 
     // Join the updated lines back into a single string
     const updatedConfigFileContent = updatedLines.join('\n');
