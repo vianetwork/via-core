@@ -118,3 +118,65 @@ impl FromStr for Components {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ViaComponent {
+    /// Public Web3 API running on HTTP server.
+    HttpApi,
+    /// Public Web3 API (including PubSub) running on WebSocket server.
+    WsApi,
+    /// Metadata calculator.
+    Tree,
+    /// Merkle tree API.
+    TreeApi,
+    /// State keeper.
+    StateKeeper,
+    /// Component for housekeeping task such as cleaning blobs from GCS, reporting metrics etc.
+    Housekeeper,
+    /// Component for exposing APIs to prover for providing proof generation data and accepting proofs.
+    ProofDataHandler,
+    /// Component generating commitment for L1 batches.
+    CommitmentGenerator,
+    /// Component sending a pubdata to the DA layers.
+    DADispatcher,
+    /// VM runner-based component that saves protective reads to Postgres.
+    VmRunnerProtectiveReads,
+    /// VM runner-based component that saves VM execution data for basic witness generation.
+    VmRunnerBwip,
+    /// Component that interacts with Bitcoin network
+    Btc,
+    /// Component that writes data to Celestia network
+    Celestia,
+}
+
+#[derive(Debug)]
+pub struct ViaComponents(pub Vec<ViaComponent>);
+
+impl FromStr for ViaComponents {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<ViaComponents, String> {
+        match s {
+            "api" => Ok(ViaComponents(vec![
+                ViaComponent::HttpApi,
+                ViaComponent::WsApi,
+            ])),
+            "http_api" => Ok(ViaComponents(vec![ViaComponent::HttpApi])),
+            "ws_api" => Ok(ViaComponents(vec![ViaComponent::WsApi])),
+            "tree" => Ok(ViaComponents(vec![ViaComponent::Tree])),
+            "tree_api" => Ok(ViaComponents(vec![ViaComponent::TreeApi])),
+            "state_keeper" => Ok(ViaComponents(vec![ViaComponent::StateKeeper])),
+            "housekeeper" => Ok(ViaComponents(vec![ViaComponent::Housekeeper])),
+            "proof_data_handler" => Ok(ViaComponents(vec![ViaComponent::ProofDataHandler])),
+            "commitment_generator" => Ok(ViaComponents(vec![ViaComponent::CommitmentGenerator])),
+            "da_dispatcher" => Ok(ViaComponents(vec![ViaComponent::DADispatcher])),
+            "vm_runner_protective_reads" => {
+                Ok(ViaComponents(vec![ViaComponent::VmRunnerProtectiveReads]))
+            }
+            "vm_runner_bwip" => Ok(ViaComponents(vec![ViaComponent::VmRunnerBwip])),
+            "btc" => Ok(ViaComponents(vec![ViaComponent::Btc])),
+            "celestia" => Ok(ViaComponents(vec![ViaComponent::Celestia])),
+            other => Err(format!("{} is not a valid component name", other)),
+        }
+    }
+}
