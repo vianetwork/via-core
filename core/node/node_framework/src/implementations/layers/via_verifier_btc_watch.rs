@@ -68,7 +68,7 @@ impl WiringLayer for VerifierBtcWatchLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
-        let client = input.btc_client_resource.0;
+        let client = input.btc_client_resource.btc_sender.unwrap();
         let indexer = BitcoinInscriptionIndexer::new(
             client,
             self.via_btc_client.clone(),
