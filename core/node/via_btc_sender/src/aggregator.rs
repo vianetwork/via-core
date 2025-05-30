@@ -31,7 +31,7 @@ impl ViaAggregator {
                     limit: config.max_aggregated_blocks_to_commit as u32,
                 }),
                 Box::from(TimestampDeadlineCriterion {
-                    deadline_seconds: BLOCK_TIME_TO_COMMIT,
+                    deadline_seconds: config.block_time_to_commit(),
                 }),
             ],
             commit_proof_criteria: vec![
@@ -39,7 +39,7 @@ impl ViaAggregator {
                     limit: config.max_aggregated_proofs_to_commit as u32,
                 }),
                 Box::from(TimestampDeadlineCriterion {
-                    deadline_seconds: BLOCK_TIME_TO_PROOF,
+                    deadline_seconds: config.block_time_to_proof(),
                 }),
             ],
             config,
