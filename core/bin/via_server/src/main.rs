@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use anyhow::Context as _;
 use clap::Parser;
 use zksync_config::{
@@ -8,7 +10,7 @@ use zksync_config::{
     },
     ContractsConfig, GenesisConfig,
 };
-use zksync_core_leftovers::temp_config_store::ViaTempConfigStore;
+use zksync_core_leftovers::{temp_config_store::ViaTempConfigStore, ViaComponent, ViaComponents};
 use zksync_env_config::FromEnv;
 
 mod config;
@@ -24,6 +26,14 @@ struct Cli {
     /// Generate genesis block for the first contract deployment using temporary DB.
     #[arg(long)]
     genesis: bool,
+
+    /// Comma-separated list of components to launch.
+    #[arg(
+        long,
+        default_value = "api,btc,tree,tree_api,state_keeper,housekeeper,proof_data_handler,commitment_generator,celestia,da_dispatcher,vm_runner_protective_reads,vm_runner_bwip"
+    )]
+    components: ComponentsToRun,
+
     /// Path to the YAML config. If set, it will be used instead of env vars.
     #[arg(long)]
     config_path: Option<std::path::PathBuf>,
@@ -43,6 +53,22 @@ struct Cli {
     /// Path to the YAML with genesis configuration. If set, it will be used instead of env vars.
     #[arg(long)]
     genesis_path: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct ComponentsToRun(Vec<ViaComponent>);
+
+impl FromStr for ComponentsToRun {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let components = s.split(',').try_fold(vec![], |mut acc, component_str| {
+            let components = ViaComponents::from_str(component_str.trim())?;
+            acc.extend(components.0);
+            Ok::<_, String>(acc)
+        })?;
+        Ok(Self(components))
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -127,8 +153,9 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let node = node_builder.build()?;
-    node.run(observability_guard)?;
+    node_builder
+        .build(opt.components.0)?
+        .run(observability_guard)?;
 
     Ok(())
 }

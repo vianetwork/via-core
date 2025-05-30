@@ -67,6 +67,10 @@ help:
 via-restart: env-soft server
 
 # Run the basic setup workflow in sequence
+.PHONY: setup
+setup: base transactions celestia bootstrap-dev server-genesis
+
+# Run the basic setup workflow in sequence and server
 .PHONY: via
 via: base transactions celestia bootstrap-dev server-genesis server
 
@@ -186,6 +190,46 @@ server:
 	@echo "$(YELLOW)Running the sequencer software...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) server
+
+# Run 'via server --components state_keeper'
+.PHONY: server-core
+server-core:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the sequencer 'core' component...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) server --components state_keeper
+
+# Run 'via server --components tree_api,tree'
+.PHONY: server-tree
+server-tree:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the sequencer 'tree' component software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@API_HEALTHCHECK_PORT=3080 API_PROMETHEUS_LISTENER_PORT=3330 $(CLI_TOOL) server --components tree_api,tree
+
+# Run 'via server --components vm_runner_protective_reads'
+.PHONY: server-protective-reads
+server-protective-reads:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the sequencer 'vm_runner_protective_reads' component software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@API_HEALTHCHECK_PORT=3081 API_PROMETHEUS_LISTENER_PORT=3331 $(CLI_TOOL) server --components vm_runner_protective_reads
+
+# Run 'via server --components vm_runner_bwip'
+.PHONY: server-housekeeper
+server-bwip:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the sequencer 'vm_runner_bwip' component software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@API_HEALTHCHECK_PORT=3082 API_PROMETHEUS_LISTENER_PORT=3332 $(CLI_TOOL) server --components vm_runner_bwip
+
+# Run 'via server --components "api,btc,housekeeper,proof_data_handler,commitment_generator,celestia,da_dispatcher,vm_runner_bwip"'
+.PHONY: server-rest
+server-rest:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the sequencer '"api,btc,housekeeper,proof_data_handler,commitment_generator,celestia,da_dispatcher"' component software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@API_HEALTHCHECK_PORT=3083 API_PROMETHEUS_LISTENER_PORT=3333 $(CLI_TOOL) server --components "api,btc,housekeeper,proof_data_handler,commitment_generator,celestia,da_dispatcher"
 
 # Run 'via verifier'
 .PHONY: verifier

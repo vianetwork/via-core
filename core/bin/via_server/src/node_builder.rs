@@ -4,6 +4,7 @@ use zksync_config::{
     configs::{via_celestia::ProofSendingMode, via_secrets::ViaSecrets, via_wallets::ViaWallets},
     ContractsConfig, GenesisConfig, ViaGeneralConfig,
 };
+use zksync_core_leftovers::ViaComponent;
 use zksync_metadata_calculator::MetadataCalculatorConfig;
 use zksync_node_api_server::{
     tx_sender::{ApiContracts, TxSenderConfig},
@@ -528,8 +529,8 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
-    pub fn build(self) -> anyhow::Result<ZkStackService> {
-        Ok(self
+    pub fn build(mut self, mut components: Vec<ViaComponent>) -> anyhow::Result<ZkStackService> {
+        self = self
             .add_pools_layer()?
             .add_sigint_handler_layer()?
             .add_object_store_layer()?
@@ -538,33 +539,91 @@ impl ViaNodeBuilder {
             .add_postgres_metrics_layer()?
             .add_query_eth_client_layer()?
             .add_prometheus_exporter_layer()?
-            .add_storage_initialization_layer(LayerKind::Precondition)?
-            // VIA layers
-            .add_btc_client_layer()?
-            .add_gas_adjuster_layer()?
-            .add_l1_gas_layer()?
-            .add_btc_watcher_layer()?
-            .add_btc_sender_layer()?
-            .add_gas_adjuster_layer()?
-            .add_l1_gas_layer()?
-            .add_tx_sender_layer()?
-            .add_api_caches_layer()?
-            .add_tree_api_client_layer()?
-            .add_http_web3_api_layer()?
-            // .add_ws_web3_api_layer()?
-            .add_vm_runner_protective_reads_layer()?
-            .add_vm_runner_bwip_layer()?
-            .add_storage_initialization_layer(LayerKind::Task)?
-            .add_state_keeper_layer()?
-            .add_logs_bloom_backfill_layer()?
-            .add_metadata_calculator_layer(true)?
-            .add_commitment_generator_layer()?
-            .add_via_celestia_da_client_layer()?
-            .add_da_dispatcher_layer()?
-            .add_proof_data_handler_layer()?
-            .add_house_keeper_layer()?
-            .node
-            .build())
+            .add_storage_initialization_layer(LayerKind::Precondition)?;
+
+        // Sort the components, so that the components they may depend on each other are added in the correct order.
+        components.sort_unstable_by_key(|component| match component {
+            // API consumes the resources provided by other layers (multiple ones), so it has to come the last.
+            ViaComponent::HttpApi | ViaComponent::WsApi => 1,
+            // Default priority.
+            _ => 0,
+        });
+
+        // Add "component-specific" layers.
+        // Note that the layers are added only once, so it's fine to add the same layer multiple times.
+        for component in &components {
+            match component {
+                ViaComponent::StateKeeper => {
+                    // State keeper is the core component of the sequencer,
+                    // which is why we consider it to be responsible for the storage initialization.
+                    self = self
+                        .add_gas_adjuster_layer()?
+                        .add_l1_gas_layer()?
+                        .add_storage_initialization_layer(LayerKind::Task)?
+                        .add_state_keeper_layer()?
+                        .add_logs_bloom_backfill_layer()?;
+                }
+                ViaComponent::HttpApi => {
+                    self = self
+                        .add_l1_gas_layer()?
+                        .add_tx_sender_layer()?
+                        .add_tree_api_client_layer()?
+                        .add_api_caches_layer()?
+                        .add_http_web3_api_layer()?;
+                }
+                ViaComponent::WsApi => {
+                    self = self
+                        .add_l1_gas_layer()?
+                        .add_tx_sender_layer()?
+                        .add_tree_api_client_layer()?
+                        .add_api_caches_layer()?
+                        .add_ws_web3_api_layer()?;
+                }
+                ViaComponent::Tree => {
+                    let with_tree_api = components.contains(&ViaComponent::TreeApi);
+                    self = self.add_metadata_calculator_layer(with_tree_api)?;
+                }
+                ViaComponent::TreeApi => {
+                    anyhow::ensure!(
+                        components.contains(&ViaComponent::Tree),
+                        "Merkle tree API cannot be started without a tree component"
+                    );
+                    // Do nothing, will be handled by the `Tree` component.
+                }
+                ViaComponent::Housekeeper => {
+                    self = self
+                        .add_house_keeper_layer()?
+                        .add_postgres_metrics_layer()?;
+                }
+                ViaComponent::ProofDataHandler => {
+                    self = self.add_proof_data_handler_layer()?;
+                }
+                ViaComponent::CommitmentGenerator => {
+                    self = self.add_commitment_generator_layer()?;
+                }
+                ViaComponent::DADispatcher => {
+                    self = self.add_da_dispatcher_layer()?;
+                }
+                ViaComponent::VmRunnerProtectiveReads => {
+                    self = self.add_vm_runner_protective_reads_layer()?;
+                }
+                ViaComponent::VmRunnerBwip => {
+                    self = self.add_vm_runner_bwip_layer()?;
+                }
+                ViaComponent::Btc => {
+                    self = self
+                        .add_btc_client_layer()?
+                        .add_gas_adjuster_layer()?
+                        .add_btc_watcher_layer()?
+                        .add_btc_sender_layer()?
+                        .add_l1_gas_layer()?;
+                }
+                ViaComponent::Celestia => {
+                    self = self.add_via_celestia_da_client_layer()?;
+                }
+            }
+        }
+        Ok(self.node.build())
     }
 }
 

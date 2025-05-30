@@ -5,16 +5,10 @@ import * as env from './env';
 
 export async function server(rebuildTree: boolean, uring: boolean, components?: string, useNodeFramework?: boolean) {
     let options = '';
-    if (uring) {
-        options += '--features=rocksdb/io-uring';
-    }
-    if (rebuildTree || components || useNodeFramework) {
-        options += ' --';
-    }
-    if (components) {
-        options += ` --components=${components}`;
-    }
-    await utils.spawn(`cargo run --bin via_server ${options} --release`);
+    if (uring) options += '--features=rocksdb/io-uring';
+    if (rebuildTree || components || useNodeFramework) options += ' --';
+    if (components) options += ` --components=${components}`;
+    await utils.spawn(`cargo run --bin via_server --release ${options}`);
 }
 
 async function create_genesis(cmd: string) {
