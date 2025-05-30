@@ -11,3 +11,9 @@ max_txs_in_flight = 1
 da_identifier = "celestia"
 # The number of L1 block to mark the inscription as finalized. 
 block_confirmations = 0
+# The number of blocks to wait before considering an inscription stuck.
+stuck_inscription_block_number = 6
+# The required time (seconds) to wait before create a commit inscription.
+block_time_to_commit = 0
+# The required time (seconds) to wait before create a proof inscription.
+block_time_to_proof = 0

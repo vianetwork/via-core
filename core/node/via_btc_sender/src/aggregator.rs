@@ -10,7 +10,6 @@ use zksync_types::{
 
 use crate::{
     aggregated_operations::ViaAggregatedOperation,
-    config::{BLOCK_TIME_TO_COMMIT, BLOCK_TIME_TO_PROOF},
     publish_criterion::{
         TimestampDeadlineCriterion, ViaBtcL1BatchCommitCriterion, ViaNumberCriterion,
     },
@@ -31,7 +30,7 @@ impl ViaAggregator {
                     limit: config.max_aggregated_blocks_to_commit as u32,
                 }),
                 Box::from(TimestampDeadlineCriterion {
-                    deadline_seconds: BLOCK_TIME_TO_COMMIT,
+                    deadline_seconds: config.block_time_to_commit(),
                 }),
             ],
             commit_proof_criteria: vec![
@@ -39,7 +38,7 @@ impl ViaAggregator {
                     limit: config.max_aggregated_proofs_to_commit as u32,
                 }),
                 Box::from(TimestampDeadlineCriterion {
-                    deadline_seconds: BLOCK_TIME_TO_PROOF,
+                    deadline_seconds: config.block_time_to_proof(),
                 }),
             ],
             config,
@@ -260,18 +259,24 @@ async fn extract_ready_subrange(
         let l1_batch_by_criterion = criterion
             .last_l1_batch_to_publish(&uncommited_l1_batches)
             .await;
+        if l1_batch_by_criterion.is_none() {
+            return None;
+        }
+
         if let Some(l1_batch) = l1_batch_by_criterion {
             last_l1_batch = Some(last_l1_batch.map_or(l1_batch, |number| number.min(l1_batch)));
         }
     }
 
-    let last_l1_batch = last_l1_batch?;
-    Some(
-        uncommited_l1_batches
-            .into_iter()
-            .take_while(|l1_batch| l1_batch.number <= last_l1_batch)
-            .collect(),
-    )
+    if let Some(last_l1_batch_number) = last_l1_batch {
+        return Some(
+            uncommited_l1_batches
+                .into_iter()
+                .take_while(|l1_batch| l1_batch.number <= last_l1_batch_number)
+                .collect(),
+        );
+    }
+    None
 }
 
 fn validate_l1_batch_sequence(

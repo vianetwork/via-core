@@ -11,7 +11,7 @@ use zksync_types::{
     via_btc_sender::ViaBtcInscriptionRequest,
 };
 
-use crate::{config::INSCRIPTION_EXECUTION_BLOCK_DELAY, metrics::METRICS};
+use crate::metrics::METRICS;
 
 #[derive(Debug)]
 pub struct ViaBtcInscriptionManager {
@@ -130,7 +130,7 @@ impl ViaBtcInscriptionManager {
                         .await?;
 
                     if last_inscription_history.sent_at_block
-                        + INSCRIPTION_EXECUTION_BLOCK_DELAY as i64
+                        + self.config.stuck_inscription_block_number() as i64
                         > current_block as i64
                     {
                         continue;
@@ -140,7 +140,7 @@ impl ViaBtcInscriptionManager {
                         let l1_batch_number = storage
                             .via_blocks_dal()
                             .get_first_stuck_l1_batch_number_inscription_request(
-                                INSCRIPTION_EXECUTION_BLOCK_DELAY,
+                                self.config.stuck_inscription_block_number(),
                                 current_block,
                             )
                             .await?;
@@ -152,9 +152,10 @@ impl ViaBtcInscriptionManager {
                         report_blocked_l1_batch_inscription = Some(l1_batch_number);
 
                         tracing::warn!(
-                        "Inscription {reveal_tx} stuck for more than {INSCRIPTION_EXECUTION_BLOCK_DELAY} block.",
-                        reveal_tx = last_inscription_history.reveal_tx_id
-                    );
+                            "Inscription {} stuck for more than {} block.",
+                            last_inscription_history.reveal_tx_id,
+                            self.config.stuck_inscription_block_number()
+                        );
                     }
                 }
             }
