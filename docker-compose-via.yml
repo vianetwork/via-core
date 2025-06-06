@@ -139,7 +139,7 @@ services:
         source: ./volumes/celestia
         target: /home/celestia
       - ./celestia-keys/keys:/home/celestia/keys
-    command: celestia light start --headers.trusted-hash ${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip rpc-mocha.pops.one --p2p.network mocha --keyring.backend test --keyring.keyname via
+    command: celestia light start --headers.trusted-hash=${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip=rpc-mocha.pops.one --p2p.network=mocha --keyring.backend=test --keyring.keyname=via
     ports:
       - '26658:26658'
     environment:
