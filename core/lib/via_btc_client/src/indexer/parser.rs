@@ -12,11 +12,14 @@ use zksync_types::{
 };
 
 use crate::types::{
-    self, CommonFields, FullInscriptionMessage, L1BatchDAReference, L1BatchDAReferenceInput,
-    L1ToL2Message, L1ToL2MessageInput, ProofDAReference, ProofDAReferenceInput, ProposeSequencer,
-    ProposeSequencerInput, SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
+    self, BridgeWithdrawal, BridgeWithdrawalInput, CommonFields, FullInscriptionMessage,
+    L1BatchDAReference, L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput,
+    ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
+    SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
     SystemContractUpgradeInput, ValidatorAttestation, ValidatorAttestationInput, Vote,
 };
+
+const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
 
 // Using constants to define the minimum number of instructions can help to make parsing more quick
 const MIN_WITNESS_LENGTH: usize = 3;
@@ -104,6 +107,11 @@ impl MessageParser {
             self.parse_op_return_deposit(tx, block_height, bridge_output)
         {
             messages.push(op_return_message);
+        }
+
+        // Try to parse withdrawals.
+        if let Some(bridge_withdrawals) = self.parse_op_return_withdrawal(tx, block_height) {
+            messages.push(bridge_withdrawals);
         }
 
         messages
@@ -741,6 +749,71 @@ impl MessageParser {
             amount: bridge_output.value,
             input,
             tx_outputs: tx.output.clone(),
+        }))
+    }
+
+    fn parse_op_return_withdrawal(
+        &self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Option<FullInscriptionMessage> {
+        // Find OP_RETURN output
+        let op_return_output = tx
+            .output
+            .iter()
+            .find(|output| output.script_pubkey.is_op_return())?;
+
+        // Parse OP_RETURN data
+        let op_return_data = op_return_output.script_pubkey.as_bytes();
+        if op_return_data.len() < 2 {
+            return None;
+        }
+
+        if !op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX) {
+            return None;
+        }
+
+        let start = OP_RETURN_WITHDRAW_PREFIX.len() + 2;
+        // Parse l1_batch_reveal_tx_id from OP_RETURN data
+        let l1_batch_proof_reveal_tx_id = match Txid::from_slice(&op_return_data[start..start + 32])
+        {
+            Ok(tx_id) => tx_id.as_raw_hash().as_byte_array().to_vec(),
+            Err(_) => return None,
+        };
+
+        let mut withdrawals = Vec::new();
+        for output in &tx.output {
+            let address = match Address::from_script(&output.script_pubkey, self.network) {
+                Ok(address) => address,
+                Err(_) => continue,
+            };
+
+            withdrawals.push((address.to_string(), output.value.to_sat() as i64));
+        }
+
+        let input = BridgeWithdrawalInput {
+            l1_batch_proof_reveal_tx_id,
+            withdrawals,
+        };
+
+        // Try to parse p2wpkh address from the first input if possible
+        let p2wpkh_address = tx
+            .input
+            .first()
+            .and_then(|input| self.parse_p2wpkh(&input.witness));
+
+        // Create common fields with empty signature for OP_RETURN
+        let common_fields = CommonFields {
+            schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
+            encoded_public_key: PushBytesBuf::new(),
+            block_height,
+            tx_id: tx.compute_ntxid().into(),
+            p2wpkh_address,
+        };
+
+        Some(FullInscriptionMessage::BridgeWithdrawal(BridgeWithdrawal {
+            common: common_fields,
+            input,
         }))
     }
 }

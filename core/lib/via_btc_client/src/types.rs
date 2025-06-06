@@ -113,6 +113,20 @@ pub struct SystemContractUpgrade {
     pub input: SystemContractUpgradeInput,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct BridgeWithdrawal {
+    pub common: CommonFields,
+    pub input: BridgeWithdrawalInput,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BridgeWithdrawalInput {
+    /// The L1 batch proof reveal tx_id.
+    pub l1_batch_proof_reveal_tx_id: Vec<u8>,
+    /// The list of withdrawals.
+    pub withdrawals: Vec<(String, i64)>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProposeSequencerInput {
     pub sequencer_new_p2wpkh_address: BitcoinAddress<NetworkUnchecked>,
@@ -184,6 +198,7 @@ pub enum FullInscriptionMessage {
     ProposeSequencer(ProposeSequencer),
     L1ToL2Message(L1ToL2Message),
     SystemContractUpgrade(SystemContractUpgrade),
+    BridgeWithdrawal(BridgeWithdrawal),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
