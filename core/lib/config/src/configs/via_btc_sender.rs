@@ -26,6 +26,15 @@ pub struct ViaBtcSenderConfig {
 
     /// The btc sender wallet address.
     pub wallet_address: String,
+
+    /// The number of blocks to wait before considering an inscription stuck.
+    pub stuck_inscription_block_number: Option<u32>,
+
+    /// The required time (seconds) to wait before create a commit inscription.
+    pub block_time_to_commit: Option<u32>,
+
+    /// The required time (seconds) to wait before create a proof inscription.
+    pub block_time_to_proof: Option<u32>,
 }
 
 impl ViaBtcSenderConfig {
@@ -38,6 +47,18 @@ impl ViaBtcSenderConfig {
             .as_ref()
             .unwrap_or(&String::from(DEFAULT_DA_LAYER))
             .clone()
+    }
+
+    pub fn block_time_to_commit(&self) -> u32 {
+        self.block_time_to_commit.unwrap_or_default()
+    }
+
+    pub fn block_time_to_proof(&self) -> u32 {
+        self.block_time_to_proof.unwrap_or_default()
+    }
+
+    pub fn stuck_inscription_block_number(&self) -> u32 {
+        self.stuck_inscription_block_number.unwrap_or(6)
     }
 }
 
@@ -52,6 +73,9 @@ impl ViaBtcSenderConfig {
             block_confirmations: 0,
             da_identifier: None,
             wallet_address: "".into(),
+            block_time_to_commit: None,
+            block_time_to_proof: None,
+            stuck_inscription_block_number: None,
         }
     }
 }
