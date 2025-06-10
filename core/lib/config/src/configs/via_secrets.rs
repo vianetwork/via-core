@@ -58,3 +58,17 @@ pub struct ViaSecrets {
     pub via_l1: Option<ViaL1Secrets>,
     pub via_da: Option<ViaDASecrets>,
 }
+
+impl Default for ViaSecrets {
+    fn default() -> Self {
+        Self {
+            base_secrets: Secrets {
+                consensus: None,
+                database: None,
+                l1: None,
+            },
+            via_l1: None,
+            via_da: None,
+        }
+    }
+}
