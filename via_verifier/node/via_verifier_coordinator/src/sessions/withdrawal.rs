@@ -117,6 +117,8 @@ impl ISession for WithdrawalSession {
                 anyhow::format_err!("Invalid unsigned tx for batch {l1_batch_number}: {e}")
             })?;
 
+        tracing::debug!("Unsigned tx created");
+
         let mut sighash_cache = SighashCache::new(&unsigned_tx.tx);
         let sighash_type = TapSighashType::All;
         let mut txout_list = Vec::with_capacity(unsigned_tx.utxos.len());

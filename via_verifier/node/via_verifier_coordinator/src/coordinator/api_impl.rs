@@ -148,7 +148,12 @@ impl RestApi {
                     partial_sig,
                     &session_op.get_message_to_sign(),
                 ) {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        tracing::debug!(
+                            "Valid partial signature submitted by {:?}",
+                            individual_pubkey_str
+                        );
+                    }
                     Err(e) => {
                         // Reset the session if a partial signature is not valid.
                         // This will force the verifier to submit a new valid signature.

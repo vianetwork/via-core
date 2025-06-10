@@ -125,6 +125,7 @@ impl UtxoManager {
     }
 
     pub async fn sync_context_with_blockchain(&self) -> anyhow::Result<()> {
+        tracing::debug!("Sync context context {:?}", self.context.read().await);
         if self.context.read().await.is_empty() {
             return Ok(());
         }
@@ -134,12 +135,17 @@ impl UtxoManager {
                 .btc_client
                 .check_tx_confirmation(&tx.compute_txid(), CTX_REQUIRED_CONFIRMATIONS)
                 .await?;
+            tracing::debug!("Transaction {} not yet confirmed", &tx.compute_txid());
 
             if !res {
                 self.context.write().await.push_front(tx);
                 break;
             }
         }
+        tracing::debug!(
+            "Transaction after update context {:?}",
+            self.context.read().await
+        );
         Ok(())
     }
 

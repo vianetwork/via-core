@@ -59,6 +59,8 @@ impl TransactionBuilder {
         // Get available UTXOs first to estimate number of inputs
         let available_utxos = self.utxo_manager.get_available_utxos().await?;
 
+        tracing::debug!("Available UTXOs {:?}", &available_utxos);
+
         // Get fee rate
         let fee_rate = std::cmp::max(self.utxo_manager.get_btc_client().get_fee_rate(1).await?, 1);
 
@@ -82,6 +84,8 @@ impl TransactionBuilder {
             .utxo_manager
             .select_utxos_by_target_value(&available_utxos, total_needed)
             .await?;
+
+        tracing::debug!("Selected UTXOs {:?}", &selected_utxos);
 
         // Calculate total input amount
         let total_input_amount: Amount = selected_utxos
