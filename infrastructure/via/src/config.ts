@@ -186,6 +186,19 @@ export async function pushConfig(environment?: string, diff?: string) {
             l2InitFile,
             false
         );
+
+        env.modify(
+            `DATABASE_INDEXER_URL`,
+            `postgres://postgres:notsecurepassword@localhost/indexer_${environment}`,
+            l2InitFile,
+            false
+        );
+        env.modify(
+            `TEST_DATABASE_INDEXER_URL`,
+            `postgres://postgres:notsecurepassword@localhost:5433/indexer_${environment}_test`,
+            l2InitFile,
+            false
+        );
     }
 
     env.modify('DATABASE_STATE_KEEPER_DB_PATH', `./db/${environment}/state_keeper`, l2InitFile, false);
