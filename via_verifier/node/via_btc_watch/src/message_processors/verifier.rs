@@ -176,6 +176,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                 }
                 // Non-votable messages like L1BatchDAReference or L1ToL2Message are ignored by this processor
                 FullInscriptionMessage::L1ToL2Message(_)
+                | FullInscriptionMessage::BridgeWithdrawal(_)
                 | FullInscriptionMessage::L1BatchDAReference(_) => {
                     // do nothing
                 }
