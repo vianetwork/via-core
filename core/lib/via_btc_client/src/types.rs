@@ -8,7 +8,7 @@ pub use bitcoin::{
 };
 use bitcoin::{
     hashes::FromSliceError, script::PushBytesBuf, taproot::Signature as TaprootSignature, Amount,
-    TxIn, TxOut, Txid,
+    OutPoint, TxIn, TxOut, Txid,
 };
 pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
@@ -113,6 +113,28 @@ pub struct SystemContractUpgrade {
     pub input: SystemContractUpgradeInput,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct BridgeWithdrawal {
+    pub common: CommonFields,
+    pub input: BridgeWithdrawalInput,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BridgeWithdrawalInput {
+    /// The tx total size.
+    pub total_size: i64,
+    /// The transaction virtual size.
+    pub v_size: i64,
+    /// The input utxos.
+    pub inputs: Vec<OutPoint>,
+    /// The total amount out.
+    pub output_amount: u64,
+    /// The L1 batch proof reveal tx_id.
+    pub l1_batch_proof_reveal_tx_id: Vec<u8>,
+    /// The list of withdrawals.
+    pub withdrawals: Vec<(String, i64)>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProposeSequencerInput {
     pub sequencer_new_p2wpkh_address: BitcoinAddress<NetworkUnchecked>,
@@ -184,6 +206,7 @@ pub enum FullInscriptionMessage {
     ProposeSequencer(ProposeSequencer),
     L1ToL2Message(L1ToL2Message),
     SystemContractUpgrade(SystemContractUpgrade),
+    BridgeWithdrawal(BridgeWithdrawal),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

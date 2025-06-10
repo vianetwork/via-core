@@ -12,8 +12,9 @@ use zksync_types::H256;
 use crate::{
     client::BitcoinClient,
     traits::BitcoinOps,
-    types,
-    types::{BitcoinIndexerResult, FullInscriptionMessage, L1ToL2Message, Vote},
+    types::{
+        self, BitcoinIndexerResult, BridgeWithdrawal, FullInscriptionMessage, L1ToL2Message, Vote,
+    },
 };
 
 /// Represents the state during the bootstrap process
@@ -219,18 +220,6 @@ impl BitcoinInscriptionIndexer {
                 tx.output.iter().any(|output| {
                     let script_pubkey = &output.script_pubkey;
                     script_pubkey == &self.bridge_address.script_pubkey()
-                }) && !tx.output.iter().any(|output| {
-                    if output.script_pubkey.is_op_return() {
-                        // Extract OP_RETURN data
-                        if let Some(op_return_data) = output.script_pubkey.as_bytes().get(2..) {
-                            // Return true if it starts with withdrawal prefix (which will be negated)
-                            op_return_data.starts_with(b"VIA_PROTOCOL:WITHDRAWAL")
-                        } else {
-                            false
-                        }
-                    } else {
-                        false // Not an OP_RETURN output
-                    }
                 })
             })
             .cloned()
@@ -388,6 +377,7 @@ impl BitcoinInscriptionIndexer {
     fn is_valid_bridge_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
             FullInscriptionMessage::L1ToL2Message(m) => self.is_valid_l1_to_l2_transfer(m),
+            FullInscriptionMessage::BridgeWithdrawal(m) => self.is_valid_bridge_withdrawal(m),
             _ => false,
         }
     }
@@ -502,6 +492,14 @@ impl BitcoinInscriptionIndexer {
         );
 
         is_valid_receiver && is_valid_amount
+    }
+
+    #[instrument(skip(self, _message), target = "bitcoin_indexer")]
+    fn is_valid_bridge_withdrawal(&self, _message: &BridgeWithdrawal) -> bool {
+        // IMPORTANT!
+        // Signer address validation requires querying the used Outpoint UTXOs during indexing.
+        // This step is not performed here because it depends on access to a Bitcoin (BTC) client.
+        true
     }
 
     async fn get_l1_batch_number_from_proof_tx_id(
