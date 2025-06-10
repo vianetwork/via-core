@@ -7,6 +7,7 @@ use std::{
 };
 
 use tokio::sync::Mutex;
+use via_indexer_dal::Indexer;
 use via_verifier_dal::Verifier;
 use zksync_dal::{ConnectionPool, Core};
 use zksync_db_connection::connection_pool::ConnectionPoolBuilder;
@@ -118,6 +119,10 @@ pub struct ProverPool {}
 #[non_exhaustive]
 pub struct VerifierPool {}
 
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct IndexerPool {}
+
 pub trait PoolKind: Clone + Sync + Send + 'static {
     type DbMarker: zksync_db_connection::connection::DbMarker;
 
@@ -153,5 +158,13 @@ impl PoolKind for VerifierPool {
 
     fn kind_str() -> &'static str {
         "verifier"
+    }
+}
+
+impl PoolKind for IndexerPool {
+    type DbMarker = Indexer;
+
+    fn kind_str() -> &'static str {
+        "l1_indexer"
     }
 }
