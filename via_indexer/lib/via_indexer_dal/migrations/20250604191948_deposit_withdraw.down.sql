@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS deposits;
+DROP TABLE IF EXISTS withdrawals;

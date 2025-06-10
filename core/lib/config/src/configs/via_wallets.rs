@@ -28,7 +28,7 @@ impl ViaWallet {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct ViaWallets {
     pub state_keeper: Option<StateKeeper>,
     pub token_multiplier_setter: Option<TokenMultiplierSetter>,

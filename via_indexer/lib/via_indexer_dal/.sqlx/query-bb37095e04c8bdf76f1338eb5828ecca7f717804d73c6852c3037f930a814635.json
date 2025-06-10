@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE indexer_metadata\n            SET\n                last_indexer_l1_block = $1,\n                updated_at = NOW()\n            WHERE\n                module = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bb37095e04c8bdf76f1338eb5828ecca7f717804d73c6852c3037f930a814635"
+}

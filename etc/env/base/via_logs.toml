@@ -40,4 +40,5 @@ via_verifier_coordinator=info,\
 via_verifier_btc_sender=info,\
 via_verifier_btc_watch=info,\
 via_verifier_dal=info,\
+via_indexer=info,\
 """

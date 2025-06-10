@@ -41,6 +41,7 @@ pub mod via_btc_watch;
 pub mod via_da_dispatcher;
 pub mod via_gas_adjuster;
 pub mod via_l1_gas;
+pub mod via_l1_indexer;
 pub mod via_state_keeper;
 pub mod via_verifier_btc_watch;
 pub mod via_verifier_storage_init;

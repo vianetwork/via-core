@@ -9,6 +9,7 @@ pub struct DatabaseSecrets {
     pub prover_url: Option<SensitiveUrl>,
     pub server_replica_url: Option<SensitiveUrl>,
     pub verifier_url: Option<SensitiveUrl>,
+    pub indexer_url: Option<SensitiveUrl>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,5 +49,10 @@ impl DatabaseSecrets {
         self.verifier_url
             .clone()
             .context("Verifier DB URL is absent")
+    }
+
+    /// Returns a copy of the indexer database URL as a `Result` to simplify error propagation.
+    pub fn indexer_url(&self) -> anyhow::Result<SensitiveUrl> {
+        self.indexer_url.clone().context("Indexer DB URL is absent")
     }
 }

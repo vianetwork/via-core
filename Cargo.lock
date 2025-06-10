@@ -9645,6 +9645,64 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_indexer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "via_indexer_dal",
+ "via_verifier_types",
+ "vise",
+ "zksync_config",
+ "zksync_shared_metrics",
+ "zksync_types",
+]
+
+[[package]]
+name = "via_indexer_bin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.5.16",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+ "via_da_clients",
+ "zksync_config",
+ "zksync_core_leftovers",
+ "zksync_env_config",
+ "zksync_metadata_calculator",
+ "zksync_node_api_server",
+ "zksync_node_framework",
+ "zksync_protobuf_config",
+ "zksync_storage",
+ "zksync_types",
+ "zksync_utils",
+ "zksync_vlog",
+]
+
+[[package]]
+name = "via_indexer_dal"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "rand 0.8.5",
+ "sqlx",
+ "strum 0.26.3",
+ "thiserror",
+ "tokio",
+ "zksync_basic_types",
+ "zksync_db_connection",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_loadnext"
 version = "0.1.0"
 dependencies = [
@@ -12014,6 +12072,8 @@ dependencies = [
  "via_btc_watch",
  "via_da_dispatcher",
  "via_fee_model",
+ "via_indexer",
+ "via_indexer_dal",
  "via_musig2",
  "via_state_keeper",
  "via_verifier_btc_sender",

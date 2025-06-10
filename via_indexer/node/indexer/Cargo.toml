@@ -1,0 +1,31 @@
+[package]
+name = "via_indexer"
+description = "VIA indexer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+vise.workspace = true
+via_btc_client.workspace = true
+via_verifier_types.workspace = true
+zksync_shared_metrics.workspace = true
+zksync_types.workspace = true
+zksync_config.workspace = true
+
+tokio.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+sqlx.workspace = true
+
+via_indexer_dal.workspace = true
+
+
+[dev-dependencies]

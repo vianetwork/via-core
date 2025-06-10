@@ -11,18 +11,20 @@ export async function reset(opts: DbOpts) {
 export enum DalPath {
     CoreDal = 'core/lib/dal',
     ProverDal = 'prover/crates/lib/prover_dal',
-    ViaVerifierDal = 'via_verifier/lib/verifier_dal'
+    ViaVerifierDal = 'via_verifier/lib/verifier_dal',
+    ViaIndexerDal = 'via_indexer/lib/via_indexer_dal'
 }
 
 export interface DbOpts {
     core: boolean;
     prover: boolean;
     verifier: boolean;
+    indexer: boolean;
 }
 
 function getDals(opts: DbOpts): Map<DalPath, string> {
     let dals = new Map<DalPath, string>();
-    if (!opts.prover && !opts.core && !opts.verifier) {
+    if (!opts.prover && !opts.core && !opts.verifier && !opts.indexer) {
         dals.set(DalPath.CoreDal, process.env.DATABASE_URL!);
         if (process.env.DATABASE_PROVER_URL) {
             dals.set(DalPath.ProverDal, process.env.DATABASE_PROVER_URL);
@@ -37,12 +39,15 @@ function getDals(opts: DbOpts): Map<DalPath, string> {
     if (opts.verifier) {
         dals.set(DalPath.ViaVerifierDal, process.env.DATABASE_VERIFIER_URL!);
     }
+    if (opts.indexer) {
+        dals.set(DalPath.ViaIndexerDal, process.env.DATABASE_INDEXER_URL!);
+    }
     return dals;
 }
 
 function getTestDals(opts: DbOpts): Map<DalPath, string> {
     let dals = new Map<DalPath, string>();
-    if (!opts.prover && !opts.core && !opts.verifier) {
+    if (!opts.prover && !opts.core && !opts.verifier && !opts.indexer) {
         dals.set(DalPath.CoreDal, process.env.TEST_DATABASE_URL!);
         dals.set(DalPath.ProverDal, process.env.TEST_DATABASE_PROVER_URL!);
         dals.set(DalPath.ViaVerifierDal, process.env.TEST_DATABASE_VERIFIER_URL!);
@@ -55,6 +60,9 @@ function getTestDals(opts: DbOpts): Map<DalPath, string> {
     }
     if (opts.verifier) {
         dals.set(DalPath.ViaVerifierDal, process.env.TEST_DATABASE_VERIFIER_URL!);
+    }
+    if (opts.indexer) {
+        dals.set(DalPath.ViaIndexerDal, process.env.TEST_DATABASE_INDEXER_URL!);
     }
     return dals;
 }
@@ -89,7 +97,9 @@ export async function drop(opts: DbOpts) {
     await utils.confirmAction();
     let dals = getDals(opts);
     for (const [dalPath, dbUrl] of dals.entries()) {
+        console.log('00000000', dalPath, dbUrl);
         await dropForDal(dalPath, dbUrl);
+        console.log('22222222');
     }
 }
 
