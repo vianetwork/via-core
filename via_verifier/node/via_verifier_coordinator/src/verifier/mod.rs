@@ -274,6 +274,8 @@ impl ViaWithdrawalVerifier {
             .our_nonce()
             .ok_or_else(|| anyhow::anyhow!("No nonce available"))?;
 
+        tracing::debug!("Start submit nonce");
+
         let nonce_pair = encode_nonce(self.signer.signer_index(), nonce).unwrap();
         let url = format!(
             "{}/session/nonce",
@@ -290,6 +292,8 @@ impl ViaWithdrawalVerifier {
 
         if res.status().is_success() {
             self.signer.mark_nonce_submitted();
+
+            tracing::debug!("Nonce submitted successfully");
             Ok(())
         } else {
             anyhow::bail!(
@@ -349,6 +353,8 @@ impl ViaWithdrawalVerifier {
             }
         }
 
+        tracing::debug!("Start submit partial signature");
+
         let partial_sig = self.signer.create_partial_signature()?;
         let sig_pair = encode_signature(self.signer.signer_index(), partial_sig)?;
 
@@ -366,6 +372,7 @@ impl ViaWithdrawalVerifier {
             .await?;
         if resp.status().is_success() {
             self.signer.mark_partial_sig_submitted();
+            tracing::debug!("Partial signature submitted");
             Ok(())
         } else {
             anyhow::bail!(
@@ -424,9 +431,13 @@ impl ViaWithdrawalVerifier {
         }
 
         let final_sig = self.signer.create_final_signature()?;
+        tracing::debug!("Final signature created");
+
         let agg_pub = self.signer.aggregated_pubkey();
         verify_signature(agg_pub, final_sig, message)?;
         self.final_sig = Some(final_sig);
+
+        tracing::debug!("Final signature verified");
 
         Ok(())
     }
@@ -470,6 +481,8 @@ impl ViaWithdrawalVerifier {
                 }
 
                 let signed_tx = self.sign_transaction(unsigned_tx.clone(), musig2_signature);
+
+                tracing::debug!("Signed transaction {:?}", &signed_tx);
 
                 let txid = self
                     .btc_client

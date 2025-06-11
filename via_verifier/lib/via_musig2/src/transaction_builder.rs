@@ -83,6 +83,8 @@ impl TransactionBuilder {
             .select_utxos_by_target_value(&available_utxos, total_needed)
             .await?;
 
+        tracing::debug!("Selected UTXOs {:?}", &selected_utxos);
+
         // Calculate total input amount
         let total_input_amount: Amount = selected_utxos
             .iter()
