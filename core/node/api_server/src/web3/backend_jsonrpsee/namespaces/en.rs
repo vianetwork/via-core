@@ -1,5 +1,9 @@
 use zksync_config::GenesisConfig;
-use zksync_types::{api::en, tokens::TokenInfo, Address, L2BlockNumber};
+use zksync_types::{
+    api::{en, en::ViaConfig},
+    tokens::TokenInfo,
+    Address, L2BlockNumber,
+};
 use zksync_web3_decl::{
     jsonrpsee::core::{async_trait, RpcResult},
     namespaces::EnNamespaceServer,
@@ -49,9 +53,9 @@ impl EnNamespaceServer for EnNamespace {
             .map_err(|err| self.current_method().map_err(err))
     }
 
-    // async fn get_ecosystem_contracts(&self) -> RpcResult<EcosystemContracts> {
-    //     self.get_ecosystem_contracts_impl()
-    //         .await
-    //         .map_err(|err| self.current_method().map_err(err))
-    // }
+    async fn via_config(&self) -> RpcResult<ViaConfig> {
+        self.via_config_impl()
+            .await
+            .map_err(|err| self.current_method().map_err(err))
+    }
 }

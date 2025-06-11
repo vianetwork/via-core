@@ -31,7 +31,7 @@ use zksync_protobuf_config::proto;
 use zksync_snapshots_applier::SnapshotsApplierConfig;
 use zksync_types::{
     api::BridgeAddresses, commitment::L1BatchCommitmentMode, url::SensitiveUrl, Address,
-    L1BatchNumber, L1ChainId, L2ChainId, SLChainId, ETHEREUM_ADDRESS,
+    BitcoinNetwork, L1BatchNumber, L1ChainId, L2ChainId, SLChainId, ETHEREUM_ADDRESS,
 };
 use zksync_web3_decl::{
     client::{DynClient, L2},
@@ -119,6 +119,8 @@ pub(crate) struct RemoteENConfig {
     pub base_token_addr: Address,
     pub l1_batch_commit_data_generator_mode: L1BatchCommitmentMode,
     pub dummy_verifier: bool,
+    pub via_bridge_address: Option<String>,
+    pub via_network: Option<BitcoinNetwork>,
 }
 
 impl RemoteENConfig {
@@ -132,11 +134,6 @@ impl RemoteENConfig {
             .rpc_context("get_testnet_paymaster")
             .await?;
         let genesis = client.genesis_config().rpc_context("genesis").await.ok();
-        let ecosystem_contracts = client
-            .get_ecosystem_contracts()
-            .rpc_context("ecosystem_contracts")
-            .await
-            .ok();
         let diamond_proxy_addr = client
             .get_main_contract()
             .rpc_context("get_main_contract")
@@ -157,6 +154,7 @@ impl RemoteENConfig {
             }
             response => response.context("Failed to fetch base token address")?,
         };
+        let via = client.via_config().rpc_context("via_config").await.ok();
 
         // These two config variables should always have the same value.
         // TODO(EVM-578): double check and potentially forbid both of them being `None`.
@@ -176,13 +174,9 @@ impl RemoteENConfig {
         }
 
         Ok(Self {
-            bridgehub_proxy_addr: ecosystem_contracts.as_ref().map(|a| a.bridgehub_proxy_addr),
-            state_transition_proxy_addr: ecosystem_contracts
-                .as_ref()
-                .map(|a| a.state_transition_proxy_addr),
-            transparent_proxy_admin_addr: ecosystem_contracts
-                .as_ref()
-                .map(|a| a.transparent_proxy_admin_addr),
+            bridgehub_proxy_addr: None,
+            state_transition_proxy_addr: None,
+            transparent_proxy_admin_addr: None,
             diamond_proxy_addr,
             l2_testnet_paymaster_addr,
             l1_erc20_bridge_proxy_addr: bridges.l1_erc20_default_bridge,
@@ -200,6 +194,8 @@ impl RemoteENConfig {
                 .as_ref()
                 .map(|a| a.dummy_verifier)
                 .unwrap_or_default(),
+            via_bridge_address: via.as_ref().map(|c| c.via_bridge_address.clone()),
+            via_network: via.as_ref().map(|c| c.via_network),
         })
     }
 
@@ -220,6 +216,8 @@ impl RemoteENConfig {
             l2_shared_bridge_addr: Some(Address::repeat_byte(6)),
             l1_batch_commit_data_generator_mode: L1BatchCommitmentMode::Rollup,
             dummy_verifier: true,
+            via_bridge_address: None,
+            via_network: None,
         }
     }
 }
@@ -1367,6 +1365,8 @@ impl From<&ExternalNodeConfig> for InternalApiConfig {
             filters_disabled: config.optional.filters_disabled,
             dummy_verifier: config.remote.dummy_verifier,
             l1_batch_commit_data_generator_mode: config.remote.l1_batch_commit_data_generator_mode,
+            via_bridge_address: "Some string".to_string(),
+            via_network: config.remote.via_network.unwrap(),
         }
     }
 }
@@ -1382,7 +1382,7 @@ impl From<&ExternalNodeConfig> for TxSenderConfig {
             gas_price_scale_factor: config.optional.gas_price_scale_factor,
             max_nonce_ahead: config.optional.max_nonce_ahead,
             vm_execution_cache_misses_limit: config.optional.vm_execution_cache_misses_limit,
-            // We set these values to the maximum since we don't know the actual values
+            // We set these values to the maximum since we don't know the actual values,
             // and they will be enforced by the main node anyway.
             max_allowed_l2_tx_gas_limit: u64::MAX,
             validation_computational_gas_limit: u32::MAX,

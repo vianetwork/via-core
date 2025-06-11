@@ -46,6 +46,7 @@ pub trait EnNamespace {
     #[method(name = "whitelistedTokensForAA")]
     async fn whitelisted_tokens_for_aa(&self) -> RpcResult<Vec<Address>>;
 
-    // #[method(name = "getEcosystemContracts")]
-    // async fn get_ecosystem_contracts(&self) -> RpcResult<EcosystemContracts>;
+    /// Get VIA protocol configuration
+    #[method(name = "viaConfig")]
+    async fn via_config(&self) -> RpcResult<en::ViaConfig>;
 }

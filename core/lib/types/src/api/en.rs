@@ -1,5 +1,6 @@
 //! API types related to the External Node specific methods.
 
+use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 use zksync_basic_types::{Address, L1BatchNumber, L2BlockNumber, H256};
 use zksync_contracts::BaseSystemContractsHashes;
@@ -51,3 +52,14 @@ pub struct ConsensusGenesis(pub serde_json::Value);
 /// Used for testing L1 batch signing by consensus attesters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttestationStatus(pub serde_json::Value);
+
+/// VIA protocol configuration maintained by the main node.
+/// Used for fetching VIA bridge addresses and network configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViaConfig {
+    /// L1 bridge address.
+    pub via_bridge_address: String,
+    /// L1 network.
+    pub via_network: Network,
+}

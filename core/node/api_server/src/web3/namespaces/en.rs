@@ -2,8 +2,10 @@ use anyhow::Context as _;
 use zksync_config::{configs::EcosystemContracts, GenesisConfig};
 use zksync_dal::{CoreDal, DalError};
 use zksync_types::{
-    api::en, protocol_version::ProtocolSemanticVersion, tokens::TokenInfo, Address, L1BatchNumber,
-    L2BlockNumber,
+    api::{en, en::ViaConfig},
+    protocol_version::ProtocolSemanticVersion,
+    tokens::TokenInfo,
+    Address, L1BatchNumber, L2BlockNumber,
 };
 use zksync_web3_decl::error::Web3Error;
 
@@ -174,5 +176,12 @@ impl EnNamespace {
             .tx_sender
             .read_whitelisted_tokens_for_aa_cache()
             .await)
+    }
+
+    pub async fn via_config_impl(&self) -> Result<ViaConfig, Web3Error> {
+        Ok(ViaConfig {
+            via_bridge_address: self.state.api_config.via_bridge_address.clone(),
+            via_network: self.state.api_config.via_network.clone(),
+        })
     }
 }
