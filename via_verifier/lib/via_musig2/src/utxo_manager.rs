@@ -125,21 +125,32 @@ impl UtxoManager {
     }
 
     pub async fn sync_context_with_blockchain(&self) -> anyhow::Result<()> {
-        if self.context.read().await.is_empty() {
-            return Ok(());
-        }
+        loop {
+            let tx = {
+                match self.context.read().await.front() {
+                    Some(tx) => tx.clone(),
+                    None => break,
+                }
+            };
 
-        while let Some(tx) = self.context.write().await.pop_front() {
-            let res = self
+            let txid = tx.compute_txid();
+            let is_confirmed = self
                 .btc_client
-                .check_tx_confirmation(&tx.compute_txid(), CTX_REQUIRED_CONFIRMATIONS)
+                .check_tx_confirmation(&txid, CTX_REQUIRED_CONFIRMATIONS)
                 .await?;
 
-            if !res {
-                self.context.write().await.push_front(tx);
+            if is_confirmed {
+                self.context.write().await.pop_front();
+            } else {
                 break;
             }
         }
+
+        tracing::debug!(
+            "Transactions after update context {:?}",
+            self.context.read().await
+        );
+
         Ok(())
     }
 
