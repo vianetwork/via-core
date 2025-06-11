@@ -376,7 +376,8 @@ impl ViaWithdrawalVerifier {
             Ok(())
         } else {
             anyhow::bail!(
-                "Failed to submit partial signature, response: {}, url: {}, headers: {:?}, body: {:?} ",
+                "Failed to submit partial signature, status: {} response: {}, url: {}, headers: {:?}, body: {:?} ",
+                resp.status().as_str(),
                 resp.text().await?,
                 url,
                 headers,
@@ -408,7 +409,8 @@ impl ViaWithdrawalVerifier {
 
         if !resp.status().is_success() {
             tracing::warn!(
-                "Failed to create a new session, response: {}, url: {}, headers: {:?}",
+                "Failed to create a new session, status: {}, response: {}, url: {}, headers: {:?}",
+                resp.status().as_str(),
                 resp.text().await?,
                 url,
                 headers
