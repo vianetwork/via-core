@@ -44,6 +44,8 @@ impl UtxoManager {
 
         {
             if context.is_empty() {
+                // Sort UTXOs by value in descending order (big to small)
+                utxos.sort_by(|a, b| b.1.value.cmp(&a.1.value));
                 return Ok(utxos);
             }
         }
@@ -70,6 +72,9 @@ impl UtxoManager {
                 }
             }
         }
+
+        // Sort UTXOs by value in descending order (big to small)
+        utxos.sort_by(|a, b| b.1.value.cmp(&a.1.value));
 
         Ok(utxos)
     }
@@ -125,21 +130,32 @@ impl UtxoManager {
     }
 
     pub async fn sync_context_with_blockchain(&self) -> anyhow::Result<()> {
-        if self.context.read().await.is_empty() {
-            return Ok(());
-        }
+        loop {
+            let tx = {
+                match self.context.read().await.front() {
+                    Some(tx) => tx.clone(),
+                    None => break,
+                }
+            };
 
-        while let Some(tx) = self.context.write().await.pop_front() {
-            let res = self
+            let txid = tx.compute_txid();
+            let is_confirmed = self
                 .btc_client
-                .check_tx_confirmation(&tx.compute_txid(), CTX_REQUIRED_CONFIRMATIONS)
+                .check_tx_confirmation(&txid, CTX_REQUIRED_CONFIRMATIONS)
                 .await?;
 
-            if !res {
-                self.context.write().await.push_front(tx);
+            if is_confirmed {
+                self.context.write().await.pop_front();
+            } else {
                 break;
             }
         }
+
+        tracing::debug!(
+            "Transactions after update context {:?}",
+            self.context.read().await
+        );
+
         Ok(())
     }
 
@@ -456,5 +472,64 @@ mod tests {
 
         // The context should be empty now
         assert_eq!(manager.context.read().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_utxos_sorted_by_value() {
+        let bridge_address = bridge_address();
+        let mut config = MockBitcoinOpsConfig::default();
+
+        // Create UTXOs with different values in unsorted order
+        let utxos = vec![
+            (
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 0,
+                },
+                TxOut {
+                    value: Amount::from_sat(300),
+                    script_pubkey: bridge_address.script_pubkey(),
+                },
+            ),
+            (
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 1,
+                },
+                TxOut {
+                    value: Amount::from_sat(700),
+                    script_pubkey: bridge_address.script_pubkey(),
+                },
+            ),
+            (
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 2,
+                },
+                TxOut {
+                    value: Amount::from_sat(500),
+                    script_pubkey: bridge_address.script_pubkey(),
+                },
+            ),
+        ];
+
+        config.set_utxos(utxos.clone());
+
+        let client = Arc::new(MockBitcoinOps::new(config));
+        let manager = UtxoManager::new(client, bridge_address, Amount::ZERO, 100);
+
+        // Get available UTXOs which should be sorted
+        let sorted_utxos = manager.get_available_utxos().await.unwrap();
+
+        // Verify UTXOs are sorted by value from big to small
+        assert_eq!(sorted_utxos.len(), 3);
+        assert_eq!(sorted_utxos[0].1.value, Amount::from_sat(700));
+        assert_eq!(sorted_utxos[1].1.value, Amount::from_sat(500));
+        assert_eq!(sorted_utxos[2].1.value, Amount::from_sat(300));
+
+        // Verify the order is descending
+        for i in 1..sorted_utxos.len() {
+            assert!(sorted_utxos[i - 1].1.value >= sorted_utxos[i].1.value);
+        }
     }
 }

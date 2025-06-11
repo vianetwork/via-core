@@ -1,9 +1,10 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use axum::middleware;
 use bitcoin::Address;
 use tokio::sync::RwLock;
-use tower_http::cors::CorsLayer;
+use tower::ServiceBuilder;
+use tower_http::{cors::CorsLayer, timeout::TimeoutLayer};
 use via_btc_client::traits::BitcoinOps;
 use via_musig2::transaction_builder::TransactionBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier};
@@ -22,6 +23,8 @@ pub struct RestApi {
     pub session_manager: SessionManager,
     pub master_connection_pool: ConnectionPool<Verifier>,
 }
+
+const API_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl RestApi {
     pub fn new(
@@ -93,7 +96,12 @@ impl RestApi {
             .route_layer(body_mw)
             .route_layer(auth_mw)
             .with_state(shared_state.clone())
-            .layer(CorsLayer::permissive());
+            .layer(
+                ServiceBuilder::new()
+                    .layer(TimeoutLayer::new(API_TIMEOUT))
+                    .layer(CorsLayer::permissive())
+                    .into_inner(),
+            );
 
         axum::Router::new().nest("/session", router)
     }

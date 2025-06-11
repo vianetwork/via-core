@@ -23,7 +23,7 @@ via_verifier_types.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 tokio = { workspace = true, features = ["time"] }
-tower-http = { workspace = true, features = ["cors"] }
+tower-http = { workspace = true, features = ["cors", "timeout"] }
 tower = { workspace = true }
 tracing.workspace = true
 serde.workspace = true
