@@ -31,13 +31,12 @@ use zksync_protobuf_config::proto;
 use zksync_snapshots_applier::SnapshotsApplierConfig;
 use zksync_types::{
     api::BridgeAddresses, commitment::L1BatchCommitmentMode, url::SensitiveUrl, Address,
-    L1BatchNumber, L1ChainId, L2ChainId, SLChainId, ETHEREUM_ADDRESS,
+    BitcoinNetwork, L1BatchNumber, L1ChainId, L2ChainId, SLChainId, ETHEREUM_ADDRESS,
 };
 use zksync_web3_decl::{
     client::{DynClient, L2},
     error::ClientRpcContext,
-    jsonrpsee::{core::ClientError, types::error::ErrorCode},
-    namespaces::{EnNamespaceClient, ZksNamespaceClient},
+    namespaces::{EnNamespaceClient, ViaNamespaceClient, ZksNamespaceClient},
 };
 
 use crate::config::observability::ObservabilityENConfig;
@@ -119,79 +118,39 @@ pub(crate) struct RemoteENConfig {
     pub base_token_addr: Address,
     pub l1_batch_commit_data_generator_mode: L1BatchCommitmentMode,
     pub dummy_verifier: bool,
+    pub via_bridge_address: String,
+    pub via_network: BitcoinNetwork,
 }
 
 impl RemoteENConfig {
     pub async fn fetch(client: &DynClient<L2>) -> anyhow::Result<Self> {
-        let bridges = client
-            .get_bridge_contracts()
-            .rpc_context("get_bridge_contracts")
-            .await?;
         let l2_testnet_paymaster_addr = client
             .get_testnet_paymaster()
             .rpc_context("get_testnet_paymaster")
             .await?;
         let genesis = client.genesis_config().rpc_context("genesis").await.ok();
-        let ecosystem_contracts = client
-            .get_ecosystem_contracts()
-            .rpc_context("ecosystem_contracts")
-            .await
-            .ok();
-        let diamond_proxy_addr = client
-            .get_main_contract()
-            .rpc_context("get_main_contract")
+        let via_bridge_address = client
+            .get_bridge_address()
+            .rpc_context("get_bridge_address")
             .await?;
-        let base_token_addr = match client.get_base_token_l1_address().await {
-            Err(ClientError::Call(err))
-                if [
-                    ErrorCode::MethodNotFound.code(),
-                    // This what `Web3Error::NotImplemented` gets
-                    // `casted` into in the `api` server.
-                    ErrorCode::InternalError.code(),
-                ]
-                .contains(&(err.code())) =>
-            {
-                // This is the fallback case for when the EN tries to interact
-                // with a node that does not implement the `zks_baseTokenL1Address` endpoint.
-                ETHEREUM_ADDRESS
-            }
-            response => response.context("Failed to fetch base token address")?,
-        };
-
-        // These two config variables should always have the same value.
-        // TODO(EVM-578): double check and potentially forbid both of them being `None`.
-        let l2_erc20_default_bridge = bridges
-            .l2_erc20_default_bridge
-            .or(bridges.l2_shared_default_bridge);
-        let l2_erc20_shared_bridge = bridges
-            .l2_shared_default_bridge
-            .or(bridges.l2_erc20_default_bridge);
-
-        if let (Some(legacy_addr), Some(shared_addr)) =
-            (l2_erc20_default_bridge, l2_erc20_shared_bridge)
-        {
-            if legacy_addr != shared_addr {
-                panic!("L2 erc20 bridge address and L2 shared bridge address are different.");
-            }
-        }
+        let via_network = client
+            .get_bitcoin_network()
+            .rpc_context("get_bitcoin_network")
+            .await?;
 
         Ok(Self {
-            bridgehub_proxy_addr: ecosystem_contracts.as_ref().map(|a| a.bridgehub_proxy_addr),
-            state_transition_proxy_addr: ecosystem_contracts
-                .as_ref()
-                .map(|a| a.state_transition_proxy_addr),
-            transparent_proxy_admin_addr: ecosystem_contracts
-                .as_ref()
-                .map(|a| a.transparent_proxy_admin_addr),
-            diamond_proxy_addr,
+            bridgehub_proxy_addr: None,
+            state_transition_proxy_addr: None,
+            transparent_proxy_admin_addr: None,
+            diamond_proxy_addr: Address::repeat_byte(1),
             l2_testnet_paymaster_addr,
-            l1_erc20_bridge_proxy_addr: bridges.l1_erc20_default_bridge,
-            l2_erc20_bridge_addr: l2_erc20_default_bridge,
-            l1_shared_bridge_proxy_addr: bridges.l1_shared_default_bridge,
-            l2_shared_bridge_addr: l2_erc20_shared_bridge,
-            l1_weth_bridge_addr: bridges.l1_weth_bridge,
-            l2_weth_bridge_addr: bridges.l2_weth_bridge,
-            base_token_addr,
+            l1_erc20_bridge_proxy_addr: None,
+            l2_erc20_bridge_addr: None,
+            l1_shared_bridge_proxy_addr: None,
+            l2_shared_bridge_addr: Some(Address::repeat_byte(1)), // required in state keeper constructor
+            l1_weth_bridge_addr: None,
+            l2_weth_bridge_addr: None,
+            base_token_addr: ETHEREUM_ADDRESS,
             l1_batch_commit_data_generator_mode: genesis
                 .as_ref()
                 .map(|a| a.l1_batch_commit_data_generator_mode)
@@ -200,6 +159,8 @@ impl RemoteENConfig {
                 .as_ref()
                 .map(|a| a.dummy_verifier)
                 .unwrap_or_default(),
+            via_bridge_address,
+            via_network,
         })
     }
 
@@ -220,6 +181,8 @@ impl RemoteENConfig {
             l2_shared_bridge_addr: Some(Address::repeat_byte(6)),
             l1_batch_commit_data_generator_mode: L1BatchCommitmentMode::Rollup,
             dummy_verifier: true,
+            via_bridge_address: String::new(),
+            via_network: BitcoinNetwork::Regtest,
         }
     }
 }
@@ -1282,19 +1245,7 @@ impl ExternalNodeConfig<()> {
         let remote = RemoteENConfig::fetch(main_node_client)
             .await
             .context("Unable to fetch required config values from the main node")?;
-        let remote_diamond_proxy_addr = remote.diamond_proxy_addr;
-        if let Some(local_diamond_proxy_addr) = self.optional.contracts_diamond_proxy_addr {
-            anyhow::ensure!(
-                local_diamond_proxy_addr == remote_diamond_proxy_addr,
-                "Diamond proxy address {local_diamond_proxy_addr:?} specified in config doesn't match one returned \
-                by main node ({remote_diamond_proxy_addr:?})"
-            );
-        } else {
-            tracing::info!(
-                "Diamond proxy address is not specified in config; will use address \
-                returned by main node: {remote_diamond_proxy_addr:?}"
-            );
-        }
+
         Ok(ExternalNodeConfig {
             required: self.required,
             postgres: self.postgres,
@@ -1367,6 +1318,8 @@ impl From<&ExternalNodeConfig> for InternalApiConfig {
             filters_disabled: config.optional.filters_disabled,
             dummy_verifier: config.remote.dummy_verifier,
             l1_batch_commit_data_generator_mode: config.remote.l1_batch_commit_data_generator_mode,
+            via_bridge_address: config.remote.via_bridge_address.clone(),
+            via_network: config.remote.via_network,
         }
     }
 }
@@ -1382,7 +1335,7 @@ impl From<&ExternalNodeConfig> for TxSenderConfig {
             gas_price_scale_factor: config.optional.gas_price_scale_factor,
             max_nonce_ahead: config.optional.max_nonce_ahead,
             vm_execution_cache_misses_limit: config.optional.vm_execution_cache_misses_limit,
-            // We set these values to the maximum since we don't know the actual values
+            // We set these values to the maximum since we don't know the actual values,
             // and they will be enforced by the main node anyway.
             max_allowed_l2_tx_gas_limit: u64::MAX,
             validation_computational_gas_limit: u32::MAX,

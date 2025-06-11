@@ -1,7 +1,10 @@
 import { Command } from 'commander';
 import * as utils from 'utils';
+import * as path from 'path';
 import fs from 'fs';
 import * as env from './env';
+import * as clean from './clean';
+import * as db from './database';
 
 export async function server(rebuildTree: boolean, uring: boolean, components?: string, useNodeFramework?: boolean) {
     let options = '';
@@ -25,7 +28,7 @@ export async function externalNode(reinit: boolean = false, args: string[]) {
     if (reinit) {
         await utils.confirmAction();
         await db.reset({ core: true, prover: false, verifier: false });
-        clean(path.dirname(process.env.EN_MERKLE_TREE_PATH!));
+        clean.clean(path.dirname(process.env.EN_MERKLE_TREE_PATH!));
     }
 
     await utils.spawn(`cargo run  --bin via_external_node --release -- ${args.join(' ')}`);

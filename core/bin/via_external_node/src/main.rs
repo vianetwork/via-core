@@ -21,9 +21,9 @@ enum Command {
     GenerateSecrets,
 }
 
-/// External node for ZKsync Era.
+/// External node for Via protocol.
 #[derive(Debug, Parser)]
-#[command(author = "Matter Labs", version)]
+#[command(author = "Via Protocol", version, about = "Via external node", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
