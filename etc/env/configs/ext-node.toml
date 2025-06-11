@@ -8,15 +8,15 @@ database_pool_size = 50
 zksync_action = "dont_ask"
 
 [en]
-main_node_url = "https://sepolia.era.zksync.dev"
-pruning_data_retention_hours = 1
-snapshots_recovery_enabled = true
+main_node_url = "http://127.0.0.1:3050"
+pruning_data_retention_hours = "forever"
+snapshots_recovery_enabled = false
 http_port = 3060
 ws_port = 3061
 prometheus_port = 3322
 healthcheck_port = 3081
 threads_per_server = 128
-l2_chain_id = 270
+l2_chain_id = 25223
 l1_chain_id = 9
 
 req_entities_limit = 10000
@@ -27,7 +27,7 @@ max_l1_batches_per_tree_iter = 20
 
 eth_client_url = "https://ethereum-sepolia-rpc.publicnode.com"
 
-api_namespaces = ["eth", "web3", "net", "pubsub", "zks", "en", "debug"]
+api_namespaces = ["via", "eth", "web3", "net", "pubsub", "zks", "en", "debug"]
 
 # Note:
 # `bootloader_hash` and `default_aa_hash` are overridden from the `.init.env` values by `zk` tool.
