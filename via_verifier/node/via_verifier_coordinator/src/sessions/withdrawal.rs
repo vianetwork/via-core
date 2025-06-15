@@ -2,11 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Ok};
 use axum::async_trait;
-use bitcoin::{
-    hashes::Hash,
-    sighash::{Prevouts, SighashCache},
-    Address, Amount, TapSighashType, TxOut, Txid,
-};
+use bitcoin::{hashes::Hash, Address, Amount, TxOut, Txid};
 use via_musig2::transaction_builder::TransactionBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
@@ -117,23 +113,14 @@ impl ISession for WithdrawalSession {
                 anyhow::format_err!("Invalid unsigned tx for batch {l1_batch_number}: {e}")
             })?;
 
-        let mut sighash_cache = SighashCache::new(&unsigned_tx.tx);
-        let sighash_type = TapSighashType::All;
-        let mut txout_list = Vec::with_capacity(unsigned_tx.utxos.len());
-
-        for (_, txout) in unsigned_tx.utxos.clone() {
-            txout_list.push(txout);
-        }
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(0, &Prevouts::All(&txout_list), sighash_type)
-            .with_context(|| "Error taproot_key_spend_signature_hash")?;
+        let sighashes = self.transaction_builder.get_tr_sighashes(&unsigned_tx)?;
 
         tracing::info!("New withdrawal session found for l1 batch {l1_batch_number}");
 
         Ok(Some(SessionOperation::Withdrawal(
             l1_batch_number,
             unsigned_tx,
-            sighash.to_byte_array().to_vec(),
+            sighashes,
             raw_proof_tx_id,
         )))
     }
@@ -154,7 +141,7 @@ impl ISession for WithdrawalSession {
     }
 
     async fn verify_message(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
-        if let Some((unsigned_tx, message_bytes)) = session_op.session() {
+        if let Some((unsigned_tx, messages)) = session_op.session() {
             // Get the l1 batches finilized but withdrawals not yet processed
             if let Some((blob_id, proof_tx_id)) = self
                 .master_connection_pool
@@ -176,13 +163,8 @@ impl ISession for WithdrawalSession {
                     return Ok(false);
                 }
 
-                let message_to_sign = hex::encode(message_bytes);
                 return self
-                    ._verify_sighash(
-                        session_op.get_l1_batche_number(),
-                        unsigned_tx,
-                        message_to_sign,
-                    )
+                    ._verify_sighashes(session_op.get_l1_batche_number(), unsigned_tx, messages)
                     .await;
             }
         }
@@ -342,25 +324,21 @@ impl WithdrawalSession {
         Ok(true)
     }
 
-    async fn _verify_sighash(
+    async fn _verify_sighashes(
         &self,
         l1_batch_number: i64,
         unsigned_tx: &UnsignedBridgeTx,
-        message: String,
+        sighashes_inputs: &Vec<Vec<u8>>,
     ) -> anyhow::Result<bool> {
-        if message
-            != self
-                .transaction_builder
-                .get_tr_sighash(unsigned_tx)?
-                .to_string()
-        {
+        let sighashes = &self.transaction_builder.get_tr_sighashes(unsigned_tx)?;
+        if sighashes_inputs != sighashes {
             tracing::error!(
-                "Invalid transaction sighash for session with block id {}",
+                "Invalid transaction sighashes for session with block id {}",
                 l1_batch_number
             );
             return Ok(false);
         }
-        tracing::info!("Sighash for batch {} is valid", l1_batch_number);
+        tracing::info!("Sighashes for batch {} is valid", l1_batch_number);
         Ok(true)
     }
 }
