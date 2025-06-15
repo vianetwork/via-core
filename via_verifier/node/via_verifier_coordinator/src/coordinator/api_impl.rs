@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use axum::{extract::State, response::Response, Json};
 use base64::Engine;
@@ -51,8 +51,8 @@ impl RestApi {
 
             let new_session = SigningSession {
                 session_op: Some(session_op),
-                received_nonces: HashMap::new(),
-                received_sigs: HashMap::new(),
+                received_nonces: BTreeMap::new(),
+                received_sigs: BTreeMap::new(),
                 created_at: seconds_since_epoch(),
             };
 
@@ -74,11 +74,23 @@ impl RestApi {
             session_op_bytes = session_op.to_bytes();
         };
 
+        let received_nonces = session
+            .received_nonces
+            .iter()
+            .map(|(k, inner_map)| (*k, inner_map.len()))
+            .collect();
+
+        let received_partial_signatures = session
+            .received_sigs
+            .iter()
+            .map(|(k, inner_map)| (*k, inner_map.len()))
+            .collect();
+
         return ok_json(SigningSessionResponse {
             session_op: session_op_bytes,
             required_signers: self_.state.required_signers,
-            received_nonces: session.received_nonces.len(),
-            received_partial_signatures: session.received_sigs.len(),
+            received_nonces,
+            received_partial_signatures,
             created_at: session.created_at,
         });
     }
@@ -86,24 +98,25 @@ impl RestApi {
     #[instrument(skip(self_))]
     pub async fn submit_nonce(
         State(self_): State<Arc<Self>>,
-        Json(nonce_pair): Json<NoncePair>,
+        Json(nonce_pair_per_input): Json<BTreeMap<usize, NoncePair>>,
     ) -> anyhow::Result<Response<String>, ApiError> {
-        let decoded_nonce =
-            match base64::engine::general_purpose::STANDARD.decode(&nonce_pair.nonce) {
-                Ok(nonce) => nonce,
-                Err(_) => return Err(ApiError::BadRequest("Invalid nonce pair".to_string())),
-            };
-
-        let pub_nonce = match PubNonce::from_bytes(&decoded_nonce) {
-            Ok(nonce) => nonce,
-            Err(_) => return Err(ApiError::BadRequest("Invalid pub nonce".to_string())),
-        };
-
         let mut session = self_.state.signing_session.write().await;
 
-        session
-            .received_nonces
-            .insert(nonce_pair.signer_index, pub_nonce);
+        for (input_index, nonce_pair) in nonce_pair_per_input {
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(&nonce_pair.nonce)
+                .map_err(|_| ApiError::BadRequest("Invalid base64-encoded nonce".to_string()))?;
+
+            let pub_nonce = PubNonce::from_bytes(&decoded)
+                .map_err(|_| ApiError::BadRequest("Invalid public nonce format".to_string()))?;
+
+            let inner_map = session
+                .received_nonces
+                .entry(input_index)
+                .or_insert_with(BTreeMap::new);
+
+            inner_map.insert(nonce_pair.signer_index, pub_nonce);
+        }
 
         Ok(ok_json("Success"))
     }
@@ -111,79 +124,93 @@ impl RestApi {
     #[instrument(skip(self_))]
     pub async fn submit_partial_signature(
         State(self_): State<Arc<Self>>,
-        Json(sig_pair): Json<PartialSignaturePair>,
+        Json(sig_pair_per_input): Json<BTreeMap<usize, PartialSignaturePair>>,
     ) -> anyhow::Result<Response<String>, ApiError> {
-        let partial_sig = match decode_signature(sig_pair.signature) {
-            Ok(sig) => sig,
-            Err(_) => {
-                return Err(ApiError::BadRequest(
-                    "Error when decode the partial signature".to_string(),
-                ))
-            }
+        let mut session = self_.state.signing_session.write().await;
+
+        // Temporarily move session_op out to avoid mutable borrow overlap
+        let session_op = match session.session_op.as_mut() {
+            Some(op) => op,
+            None => return Ok(ok_json("no session")),
         };
 
-        // Verify if the partial sig is valid.
-        let session = self_.state.signing_session.read().await.clone();
-        if let Some(session_op) = session.session_op {
-            let pubkeys_str = self_
-                .state
-                .verifiers_pub_keys
-                .iter()
-                .map(|pubkey| pubkey.to_string())
-                .collect::<Vec<String>>();
+        let pubkeys_str: Vec<String> = self_
+            .state
+            .verifiers_pub_keys
+            .iter()
+            .map(ToString::to_string)
+            .collect();
 
-            let individual_pubkey_str = pubkeys_str[sig_pair.signer_index].clone();
-            if let Some(nonce) = session.received_nonces.get(&sig_pair.signer_index) {
-                let nonces = session
-                    .received_nonces
-                    .values()
-                    .cloned()
-                    .collect::<Vec<PubNonce>>();
+        let messages = session_op.get_message_to_sign();
 
-                match verify_partial_signature(
-                    nonce.clone(),
-                    nonces,
-                    individual_pubkey_str.clone(),
-                    pubkeys_str,
-                    partial_sig,
-                    &session_op.get_message_to_sign(),
-                ) {
-                    Ok(_) => {
-                        tracing::debug!(
-                            "Valid partial signature submitted by {:?}",
-                            individual_pubkey_str
-                        );
-                    }
-                    Err(e) => {
-                        // Reset the session if a partial signature is not valid.
-                        // This will force the verifier to submit a new valid signature.
-                        self_.reset_session().await;
-                        METRICS.verifier_errors[&VerifierErrorLabel {
-                            pubkey: individual_pubkey_str.clone(),
-                            kind: crate::metrics::ErrorKind::PartialSignature,
-                        }]
-                            .inc();
-                        tracing::info!("Reset session due to: {}", e);
-                        return Err(ApiError::BadRequest(
-                            format!("Invalid partial signature for verifier pubkey: {individual_pubkey_str}"),
-                        ));
-                    }
-                }
-            } else {
-                return Err(ApiError::BadRequest(
-                    "Session nonce not found for  verifier pubkey: {individual_pubkey_str}"
-                        .to_string(),
-                ));
+        for (input_index, sig_pair) in sig_pair_per_input {
+            let partial_sig = decode_signature(sig_pair.signature.clone()).map_err(|_| {
+                ApiError::BadRequest("Error decoding the partial signature".to_string())
+            })?;
+
+            let input_nonces = session.received_nonces.get(&input_index).ok_or_else(|| {
+                ApiError::BadRequest(format!(
+                    "Session nonce not found for verifier index {}",
+                    sig_pair.signer_index
+                ))
+            })?;
+
+            let nonce = input_nonces.get(&sig_pair.signer_index).ok_or_else(|| {
+                ApiError::BadRequest(format!(
+                    "Nonce not found for verifier index {}",
+                    sig_pair.signer_index
+                ))
+            })?;
+
+            let all_nonces = input_nonces.values().cloned().collect::<Vec<_>>();
+
+            let individual_pubkey_str = pubkeys_str
+                .get(sig_pair.signer_index)
+                .cloned()
+                .ok_or_else(|| {
+                    ApiError::BadRequest("Invalid signer index in pubkey list".to_string())
+                })?;
+
+            let message = messages.get(input_index).ok_or_else(|| {
+                ApiError::BadRequest("Invalid input index in message list".to_string())
+            })?;
+
+            if let Err(e) = verify_partial_signature(
+                nonce.clone(),
+                all_nonces,
+                individual_pubkey_str.clone(),
+                pubkeys_str.clone(),
+                partial_sig,
+                message,
+            ) {
+                self_.reset_session().await;
+
+                METRICS.verifier_errors[&VerifierErrorLabel {
+                    pubkey: individual_pubkey_str.clone(),
+                    kind: crate::metrics::ErrorKind::PartialSignature,
+                }]
+                    .inc();
+
+                tracing::info!("Reset session due to: {}", e);
+
+                return Err(ApiError::BadRequest(format!(
+                    "Invalid partial signature for verifier pubkey: {}",
+                    individual_pubkey_str
+                )));
             }
-        }
-
-        {
-            let mut session = self_.state.signing_session.write().await;
 
             session
                 .received_sigs
+                .entry(input_index)
+                .or_insert_with(BTreeMap::new)
                 .insert(sig_pair.signer_index, partial_sig);
+
+            tracing::debug!(
+                "Valid partial signature submitted by {}",
+                individual_pubkey_str
+            );
         }
+        drop(session);
         Ok(ok_json("Success"))
     }
 
@@ -191,24 +218,41 @@ impl RestApi {
     pub async fn get_nonces(State(self_): State<Arc<Self>>) -> Response<String> {
         let session = self_.state.signing_session.read().await;
 
-        let mut nonces = HashMap::new();
-        for (&idx, nonce) in &session.received_nonces {
-            nonces.insert(
-                idx,
-                base64::engine::general_purpose::STANDARD.encode(nonce.to_bytes()),
-            );
+        let mut nonces: BTreeMap<usize, BTreeMap<usize, String>> = BTreeMap::new();
+
+        for (&input_index, signer_nonces) in &session.received_nonces {
+            let mut encoded_signer_nonces = BTreeMap::new();
+
+            for (&signer_index, pub_nonce) in signer_nonces {
+                let encoded =
+                    base64::engine::general_purpose::STANDARD.encode(pub_nonce.to_bytes());
+                encoded_signer_nonces.insert(signer_index, encoded);
+            }
+
+            nonces.insert(input_index, encoded_signer_nonces);
         }
+        drop(session);
         ok_json(nonces)
     }
 
     #[instrument(skip(self_))]
     pub async fn get_submitted_signatures(State(self_): State<Arc<Self>>) -> Response<String> {
         let session = self_.state.signing_session.read().await;
-        let mut signatures = HashMap::new();
-        for (&signer_index, signature) in &session.received_sigs {
-            let sig = encode_signature(signer_index, *signature).unwrap();
-            signatures.insert(signer_index, sig);
+
+        let mut signatures: BTreeMap<usize, Vec<PartialSignaturePair>> = BTreeMap::new();
+
+        for (&input_index, sigs_per_signer) in &session.received_sigs {
+            let mut encoded_sigs = vec![];
+
+            for (&signer_index, signature) in sigs_per_signer {
+                if let Ok(encoded) = encode_signature(signer_index, *signature) {
+                    encoded_sigs.push(encoded);
+                }
+            }
+
+            signatures.insert(input_index, encoded_sigs);
         }
+        drop(session);
         ok_json(signatures)
     }
 

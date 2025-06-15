@@ -2,7 +2,7 @@
 
 //! Demonstrate verify a partial signaturecreating a transaction that spends to and from p2tr outputs with musig2.
 
-use std::{io::Read, str::FromStr};
+use std::str::FromStr;
 
 use bitcoin::{
     hashes::Hash,
@@ -14,20 +14,12 @@ use bitcoin::{
     transaction, Address, Amount, Network, OutPoint, PrivateKey, ScriptBuf, Sequence, TapTweakHash,
     Transaction, TxIn, TxOut, Txid, Witness,
 };
-use musig2::{
-    secp::{MaybeScalar, Scalar},
-    verify_partial, AggNonce, KeyAggContext, PartialSignature,
-};
+use musig2::{secp::Scalar, KeyAggContext, PartialSignature};
 use rand::Rng;
 use secp256k1_musig2::schnorr::Signature;
-use via_btc_client::{inscriber::Inscriber, types::NodeAuth};
 use via_musig2::utils::verify_partial_signature;
 
-const RPC_URL: &str = "http://0.0.0.0:18443";
-const RPC_USERNAME: &str = "rpcuser";
-const RPC_PASSWORD: &str = "rpcpassword";
 const NETWORK: Network = Network::Regtest;
-const PK: &str = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm";
 const SPEND_AMOUNT: Amount = Amount::from_sat(5_000_000);
 
 #[tokio::main]

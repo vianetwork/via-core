@@ -1,4 +1,4 @@
-use std::{clone::Clone, collections::HashMap, fmt, sync::Arc};
+use std::{clone::Clone, collections::BTreeMap, fmt, sync::Arc};
 
 use bincode::{deserialize, serialize};
 use musig2::{PartialSignature, PubNonce};
@@ -27,7 +27,7 @@ impl fmt::Display for SessionType {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SessionOperation {
-    Withdrawal(i64, UnsignedBridgeTx, Vec<u8>, Vec<u8>),
+    Withdrawal(i64, UnsignedBridgeTx, Vec<Vec<u8>>, Vec<u8>),
 }
 
 impl SessionOperation {
@@ -43,7 +43,7 @@ impl SessionOperation {
         }
     }
 
-    pub fn get_message_to_sign(&self) -> Vec<u8> {
+    pub fn get_message_to_sign(&self) -> Vec<Vec<u8>> {
         match self {
             Self::Withdrawal(_, _, message, _) => message.clone(),
         }
@@ -61,7 +61,7 @@ impl SessionOperation {
         }
     }
 
-    pub fn session(&self) -> Option<(&UnsignedBridgeTx, &Vec<u8>)> {
+    pub fn session(&self) -> Option<(&UnsignedBridgeTx, &Vec<Vec<u8>>)> {
         match self {
             Self::Withdrawal(_, unsigned_tx, message, _) => Some((unsigned_tx, message)),
         }
@@ -92,8 +92,8 @@ pub struct ViaWithdrawalState {
 #[derive(Default, Debug, Clone)]
 pub struct SigningSession {
     pub session_op: Option<SessionOperation>,
-    pub received_nonces: HashMap<usize, PubNonce>,
-    pub received_sigs: HashMap<usize, PartialSignature>,
+    pub received_nonces: BTreeMap<usize, BTreeMap<usize, PubNonce>>,
+    pub received_sigs: BTreeMap<usize, BTreeMap<usize, PartialSignature>>,
     pub created_at: u64,
 }
 
@@ -117,7 +117,7 @@ pub struct PartialSignaturePair {
 pub struct SigningSessionResponse {
     pub session_op: Vec<u8>,
     pub required_signers: usize,
-    pub received_nonces: usize,
-    pub received_partial_signatures: usize,
+    pub received_nonces: BTreeMap<usize, usize>,
+    pub received_partial_signatures: BTreeMap<usize, usize>,
     pub created_at: u64,
 }

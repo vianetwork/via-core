@@ -1,6 +1,7 @@
-use std::fmt;
+use std::{fmt, str::FromStr};
 
-use bitcoin::TapTweakHash;
+use anyhow::Context;
+use bitcoin::{PrivateKey, TapTweakHash};
 use musig2::{
     verify_single, CompactSignature, FirstRound, KeyAggContext, PartialSignature, PubNonce,
     SecNonceSpices, SecondRound,
@@ -248,6 +249,33 @@ pub fn verify_signature(
     message: &[u8],
 ) -> Result<(), MusigError> {
     verify_single(pubkey, signature, message).map_err(|e| MusigError::Musig2Error(e.to_string()))
+}
+
+pub fn get_signer(
+    private_key_wif: &str,
+    verifiers_pub_keys_str: Vec<String>,
+) -> anyhow::Result<Signer> {
+    let private_key = PrivateKey::from_wif(private_key_wif)?;
+    let secret_key =
+        secp256k1_musig2::SecretKey::from_byte_array(&private_key.inner.secret_bytes())
+            .with_context(|| "Error to compute the coordinator sk")?;
+    let secp = secp256k1_musig2::Secp256k1::new();
+    let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+
+    let mut all_pubkeys = Vec::new();
+
+    let mut signer_index = 0;
+
+    for (i, key) in verifiers_pub_keys_str.iter().enumerate() {
+        let pk = PublicKey::from_str(key)?;
+        all_pubkeys.push(pk);
+        if pk == public_key {
+            signer_index = i;
+        }
+    }
+
+    let signer = Signer::new(secret_key, signer_index, all_pubkeys.clone())?;
+    Ok(signer)
 }
 
 #[cfg(test)]

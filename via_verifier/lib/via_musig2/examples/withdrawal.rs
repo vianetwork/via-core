@@ -6,63 +6,64 @@ use std::{str::FromStr, sync::Arc};
 
 use bitcoin::{
     hashes::Hash,
+    hex::{Case, DisplayHex},
     key::Keypair,
-    locktime::absolute,
     secp256k1::{Secp256k1, SecretKey},
-    sighash::{Prevouts, SighashCache, TapSighashType},
-    transaction, Address, Amount, Network, PrivateKey, ScriptBuf, Sequence, TapTweakHash,
-    Transaction, TxIn, TxOut, Witness,
+    sighash::TapSighashType,
+    Address, Amount, Network, PrivateKey, TapTweakHash, TxOut, Txid, Witness,
 };
-use musig2::{secp::Scalar, KeyAggContext};
-use rand::Rng;
-use secp256k1_musig2::schnorr::Signature;
-use via_btc_client::{client::BitcoinClient, inscriber::Inscriber, types::NodeAuth};
+use musig2::KeyAggContext;
+use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
+use via_musig2::{get_signer, transaction_builder::TransactionBuilder, verify_signature};
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
 const RPC_USERNAME: &str = "rpcuser";
 const RPC_PASSWORD: &str = "rpcpassword";
 const NETWORK: Network = Network::Regtest;
-const PK: &str = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm";
-const SPEND_AMOUNT: Amount = Amount::from_sat(5_000_000);
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secp = Secp256k1::new();
 
     // Get a keypair we control. In a real application these would come from a stored secret.
-    let private_key_1 =
-        PrivateKey::from_wif("cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R").unwrap();
+    let pk_str_1 = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R";
+    let pk_str_2 = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm";
 
-    let private_key_2 =
-        PrivateKey::from_wif("cUWA5dZXc6NwLovW3Kr9DykfY5ysFigKZM5Annzty7J8a43Fe2YF").unwrap();
-
-    let private_key_3 =
-        PrivateKey::from_wif("cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm").unwrap();
+    let private_key_1 = PrivateKey::from_wif(pk_str_1).unwrap();
+    let private_key_2 = PrivateKey::from_wif(pk_str_2).unwrap();
 
     let secret_key_1 = SecretKey::from_slice(&private_key_1.inner.secret_bytes()).unwrap();
     let secret_key_2 = SecretKey::from_slice(&private_key_2.inner.secret_bytes()).unwrap();
-    let secret_key_3 = SecretKey::from_slice(&private_key_3.inner.secret_bytes()).unwrap();
 
     let keypair_1 = Keypair::from_secret_key(&secp, &secret_key_1);
     let keypair_2 = Keypair::from_secret_key(&secp, &secret_key_2);
-    let keypair_3 = Keypair::from_secret_key(&secp, &secret_key_3);
 
     let (internal_key_1, parity_1) = keypair_1.x_only_public_key();
     let (internal_key_2, parity_2) = keypair_2.x_only_public_key();
-    let (internal_key_3, parity_3) = keypair_3.x_only_public_key();
 
     // -------------------------------------------
     // Key aggregation (MuSig2)
     // -------------------------------------------
+    let pubkeys_str = vec![
+        internal_key_1
+            .public_key(parity_1)
+            .serialize()
+            .to_hex_string(Case::Lower),
+        internal_key_2
+            .public_key(parity_2)
+            .serialize()
+            .to_hex_string(Case::Lower),
+    ];
     let pubkeys = vec![
         musig2::secp256k1::PublicKey::from_slice(&internal_key_1.public_key(parity_1).serialize())
             .unwrap(),
         musig2::secp256k1::PublicKey::from_slice(&internal_key_2.public_key(parity_2).serialize())
             .unwrap(),
-        musig2::secp256k1::PublicKey::from_slice(&internal_key_3.public_key(parity_3).serialize())
-            .unwrap(),
     ];
+
+    let mut signer1 = get_signer(pk_str_1, pubkeys_str.clone())?;
+    let mut signer2 = get_signer(pk_str_2, pubkeys_str.clone())?;
 
     let mut musig_key_agg_cache = KeyAggContext::new(pubkeys)?;
 
@@ -97,145 +98,111 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         use_rpc_for_fee_rate: None,
     };
 
-    let btc_client = Arc::new(BitcoinClient::new(RPC_URL, auth, config).unwrap());
-    let inscriber = Inscriber::new(btc_client, PK, None).await?;
-    let client = inscriber.get_client().await;
+    let btc_client = BitcoinClient::new(RPC_URL, auth, config).unwrap();
 
     // -------------------------------------------
     // Fetching UTXOs from node
     // -------------------------------------------
-    let utxos = client.fetch_utxos(&address).await?;
+    let receivers_address = receivers_address();
 
-    // Get an unspent output that is locked to the key above that we control.
-    // In a real application these would come from the chain.
-    let (dummy_out_point, dummy_utxo) = utxos[0].clone();
+    // Create outputs for grouped withdrawals
+    let outputs: Vec<TxOut> = vec![
+        TxOut {
+            value: Amount::from_sat(150000000),
+            script_pubkey: receivers_address.script_pubkey(),
+        },
+        TxOut {
+            value: Amount::from_sat(40000000),
+            script_pubkey: address.script_pubkey(),
+        },
+    ];
 
-    let change_amount = dummy_utxo.value - SPEND_AMOUNT - Amount::from_sat(1000);
+    let op_return_prefix: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
+    let op_return_data = Txid::all_zeros().to_byte_array();
 
-    // Get an address to send to.
-    let address = receivers_address();
+    let tx_builder = TransactionBuilder::new(Arc::new(btc_client.clone()), address.clone())?;
+    let mut unsigned_tx = tx_builder
+        .build_transaction_with_op_return(outputs, op_return_prefix, vec![op_return_data])
+        .await?;
+    let messages = tx_builder.get_tr_sighashes(&unsigned_tx)?;
+    let message1 = messages[0].clone();
+    let message2 = messages[1].clone();
 
-    // The input for the transaction we are constructing.
-    let input = TxIn {
-        previous_output: dummy_out_point, // The dummy output we are spending.
-        script_sig: ScriptBuf::default(), // For a p2tr script_sig is empty.
-        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-        witness: Witness::default(), // Filled in after signing.
-    };
-
-    // The spend output is locked to a key controlled by the receiver.
-    let spend = TxOut {
-        value: SPEND_AMOUNT,
-        script_pubkey: address.script_pubkey(),
-    };
-
-    // The change output is locked to a key controlled by us.
-    let change = TxOut {
-        value: change_amount,
-        script_pubkey: ScriptBuf::new_p2tr(&secp, internal_key, None), // Change comes back to us.
-    };
-
-    // The transaction we want to sign and broadcast.
-    let mut unsigned_tx = Transaction {
-        version: transaction::Version::TWO,  // Post BIP-68.
-        lock_time: absolute::LockTime::ZERO, // Ignore the locktime.
-        input: vec![input],                  // Input goes into index 0.
-        output: vec![spend, change],         // Outputs, order does not matter.
-    };
-    let input_index = 0;
-
-    // Get the sighash to sign.
-    let sighash_type = TapSighashType::Default;
-    let prevouts = vec![dummy_utxo];
-    let prevouts = Prevouts::All(&prevouts);
-
-    let mut sighasher = SighashCache::new(&mut unsigned_tx);
-    let sighash = sighasher
-        .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
-        .expect("failed to construct sighash");
+    unsigned_tx.utxos.iter().for_each(|utxo| {
+        println!(
+            "{:?}",
+            utxo.1.script_pubkey == address.clone().script_pubkey()
+        )
+    });
 
     // -------------------------------------------
     // MuSig2 Signing Process
     // -------------------------------------------
-    use musig2::{FirstRound, SecNonceSpices};
-    use rand::thread_rng;
 
-    // Convert bitcoin::SecretKey to musig2::SecretKey for each participant
-    let secret_key_1 = musig2::secp256k1::SecretKey::from_slice(&secret_key_1[..]).unwrap();
-    let secret_key_2 = musig2::secp256k1::SecretKey::from_slice(&secret_key_2[..]).unwrap();
-    let secret_key_3 = musig2::secp256k1::SecretKey::from_slice(&secret_key_3[..]).unwrap();
+    signer1.start_signing_session(message1.clone())?;
+    signer2.start_signing_session(message1.clone())?;
 
-    // First round: Generate nonces
-    let mut first_round_1 = FirstRound::new(
-        musig_key_agg_cache.clone(), // Use tweaked context
-        thread_rng().gen::<[u8; 32]>(),
-        0,
-        SecNonceSpices::new()
-            .with_seckey(secret_key_1)
-            .with_message(&sighash.to_byte_array()),
-    )?;
+    let nonce1 = signer1.our_nonce().unwrap();
+    let nonce2 = signer2.our_nonce().unwrap();
 
-    let mut first_round_2 = FirstRound::new(
-        musig_key_agg_cache.clone(),
-        thread_rng().gen::<[u8; 32]>(),
-        1,
-        SecNonceSpices::new()
-            .with_seckey(secret_key_2)
-            .with_message(&sighash.to_byte_array()),
-    )?;
+    signer1.mark_nonce_submitted();
+    signer2.mark_nonce_submitted();
 
-    let mut first_round_3 = FirstRound::new(
-        musig_key_agg_cache.clone(),
-        thread_rng().gen::<[u8; 32]>(),
-        2,
-        SecNonceSpices::new()
-            .with_seckey(secret_key_3)
-            .with_message(&sighash.to_byte_array()),
-    )?;
+    signer1.receive_nonce(1, nonce2.clone())?;
+    signer2.receive_nonce(0, nonce1.clone())?;
 
-    // Exchange nonces
-    let nonce_1 = first_round_1.our_public_nonce();
-    let nonce_2 = first_round_2.our_public_nonce();
-    let nonce_3 = first_round_3.our_public_nonce();
+    signer1.create_partial_signature()?;
+    let partial_sig2 = signer2.create_partial_signature()?;
 
-    first_round_1.receive_nonce(1, nonce_2.clone())?;
-    first_round_1.receive_nonce(2, nonce_3.clone())?;
-    first_round_2.receive_nonce(0, nonce_1.clone())?;
-    first_round_2.receive_nonce(2, nonce_3.clone())?;
-    first_round_3.receive_nonce(0, nonce_1.clone())?;
-    first_round_3.receive_nonce(1, nonce_2.clone())?;
+    signer1.mark_partial_sig_submitted();
+    signer2.mark_partial_sig_submitted();
 
-    // Second round: Create partial signatures
-    let binding = sighash.to_byte_array();
-    let mut second_round_1 = first_round_1.finalize(secret_key_1, &binding)?;
-    let second_round_2 = first_round_2.finalize(secret_key_2, &binding)?;
-    let second_round_3 = first_round_3.finalize(secret_key_3, &binding)?;
-    // Combine partial signatures
-    let partial_sig_2: [u8; 32] = second_round_2.our_signature();
-    let partial_sig_3: [u8; 32] = second_round_3.our_signature();
+    signer1.receive_partial_signature(1, partial_sig2)?;
 
-    second_round_1.receive_signature(1, Scalar::from_slice(&partial_sig_2).unwrap())?;
-    second_round_1.receive_signature(2, Scalar::from_slice(&partial_sig_3).unwrap())?;
+    let musig2_signature1 = signer1.create_final_signature()?;
 
-    let final_signature: Signature = second_round_1.finalize()?;
+    let mut signer1 = get_signer(pk_str_1, pubkeys_str.clone())?;
+    let mut signer2 = get_signer(pk_str_2, pubkeys_str.clone())?;
 
-    // Update the witness stack with the aggregated signature
-    let signature = bitcoin::taproot::Signature {
-        signature: bitcoin::secp256k1::schnorr::Signature::from_slice(
-            &final_signature.to_byte_array(),
-        )?,
-        sighash_type,
-    };
-    *sighasher.witness_mut(input_index).unwrap() = Witness::p2tr_key_spend(&signature);
+    signer1.start_signing_session(message2.clone())?;
+    signer2.start_signing_session(message2.clone())?;
 
-    // Get the signed transaction
-    let tx = sighasher.into_transaction();
+    let nonce1 = signer1.our_nonce().unwrap();
+    let nonce2 = signer2.our_nonce().unwrap();
 
-    // BOOM! Transaction signed and ready to broadcast.
-    println!("{:#?}", tx);
+    signer1.mark_nonce_submitted();
+    signer2.mark_nonce_submitted();
 
-    let tx_hex = bitcoin::consensus::encode::serialize_hex(&tx);
-    let res = client.broadcast_signed_transaction(&tx_hex).await?;
+    signer1.receive_nonce(1, nonce2.clone())?;
+    signer2.receive_nonce(0, nonce1.clone())?;
+
+    signer1.create_partial_signature()?;
+    let partial_sig2 = signer2.create_partial_signature()?;
+
+    signer1.mark_partial_sig_submitted();
+    signer2.mark_partial_sig_submitted();
+
+    signer1.receive_partial_signature(1, partial_sig2)?;
+
+    let musig2_signature2 = signer1.create_final_signature()?;
+
+    let mut final_sig_with_hashtype1 = musig2_signature1.serialize().to_vec();
+    let mut final_sig_with_hashtype2 = musig2_signature2.serialize().to_vec();
+
+    let sighash_type = TapSighashType::All;
+    final_sig_with_hashtype1.push(sighash_type as u8);
+    final_sig_with_hashtype2.push(sighash_type as u8);
+
+    unsigned_tx.tx.input[0].witness = Witness::from(vec![final_sig_with_hashtype1.clone()]);
+    unsigned_tx.tx.input[1].witness = Witness::from(vec![final_sig_with_hashtype2.clone()]);
+
+    let tx_hex = bitcoin::consensus::encode::serialize_hex(&unsigned_tx.tx);
+    let agg_pub = signer1.aggregated_pubkey();
+
+    verify_signature(agg_pub.clone(), musig2_signature1, &message1)?;
+    verify_signature(agg_pub, musig2_signature2, &message2)?;
+
+    let res = btc_client.broadcast_signed_transaction(&tx_hex).await?;
     println!("res: {:?}", res);
 
     Ok(())
