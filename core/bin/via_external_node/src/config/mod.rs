@@ -11,7 +11,7 @@ use serde::Deserialize;
 use zksync_config::{
     configs::{
         api::{MaxResponseSize, MaxResponseSizeOverrides},
-        consensus::ConsensusConfig,
+        consensus::{ConsensusConfig, ConsensusSecrets},
         en_config::ENConfig,
         GeneralConfig,
     },
@@ -1093,6 +1093,17 @@ pub fn generate_consensus_secrets() {
     println!("attester_key: {}", attester_key.encode());
     println!("# {}", node_key.public().encode());
     println!("node_key: {}", node_key.encode());
+}
+
+pub(crate) fn read_consensus_secrets() -> anyhow::Result<Option<ConsensusSecrets>> {
+    let Ok(path) = env::var("EN_CONSENSUS_SECRETS_PATH") else {
+        return Ok(None);
+    };
+    let cfg = std::fs::read_to_string(&path).context(path)?;
+    Ok(Some(
+        decode_yaml_repr::<proto::secrets::ConsensusSecrets>(&cfg)
+            .context("failed decoding YAML")?,
+    ))
 }
 
 pub(crate) fn read_consensus_config() -> anyhow::Result<Option<ConsensusConfig>> {

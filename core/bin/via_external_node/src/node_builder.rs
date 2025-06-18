@@ -18,6 +18,7 @@ use zksync_node_framework::{
         batch_status_updater::BatchStatusUpdaterLayer,
         block_reverter::BlockReverterLayer,
         commitment_generator::CommitmentGeneratorLayer,
+        consensus::ExternalNodeConsensusLayer,
         consistency_checker::ConsistencyCheckerLayer,
         healtcheck_server::HealthCheckLayer,
         l1_batch_commitment_mode_validation::L1BatchCommitmentModeValidationLayer,
@@ -53,7 +54,11 @@ use zksync_node_framework::{
 };
 use zksync_state::RocksdbStorageOptions;
 
-use crate::{config::ExternalNodeConfig, metrics::framework::ExternalNodeMetricsLayer, Component};
+use crate::{
+    config::{self, ExternalNodeConfig},
+    metrics::framework::ExternalNodeMetricsLayer,
+    Component,
+};
 
 /// Builder for the external node.
 #[derive(Debug)]
@@ -218,6 +223,15 @@ impl ExternalNodeBuilder {
             .add_layer(persistence_layer)
             .add_layer(main_node_batch_executor_builder_layer)
             .add_layer(state_keeper_layer);
+        Ok(self)
+    }
+
+    fn add_consensus_layer(mut self) -> anyhow::Result<Self> {
+        let config = self.config.consensus.clone();
+        let secrets =
+            config::read_consensus_secrets().context("config::read_consensus_secrets()")?;
+        let layer = ExternalNodeConsensusLayer { config, secrets };
+        self.node.add_layer(layer);
         Ok(self)
     }
 
@@ -571,9 +585,10 @@ impl ExternalNodeBuilder {
                     // Main tasks
                     self = self
                         .add_state_keeper_layer()?
+                        .add_consensus_layer()?
                         .add_pruning_layer()?
                         // .add_consistency_checker_layer()?
-                        .add_commitment_generator_layer()?
+                        // .add_commitment_generator_layer()?
                         .add_batch_status_updater_layer()?
                         .add_logs_bloom_backfill_layer()?;
                 }
