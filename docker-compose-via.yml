@@ -158,6 +158,7 @@ services:
     environment:
       - NODE_TYPE=light
       - P2P_NETWORK=mocha
+    restart: unless-stopped
 
 volumes:
   bitcoin_data:

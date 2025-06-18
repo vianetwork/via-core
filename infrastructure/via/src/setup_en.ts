@@ -49,7 +49,7 @@ async function selectEnvironment(): Promise<Environment> {
         name: 'environment',
         message: 'Select the environment:',
         choices: [
-            { name: Environment.Testnet, message: 'Testnet (Sepolia)' },
+            { name: Environment.Testnet, message: 'Testnet' },
             { name: Environment.Mainnet, message: 'Mainnet' },
             { name: Environment.Local, message: 'Local' }
         ]
@@ -142,8 +142,8 @@ async function configExternalNode() {
     const success = chalk.green;
     const failure = chalk.red;
 
-    console.log(`Changing active env to ext-node (${cmd('via env ext-node')})`);
-    setEnv('ext-node');
+    console.log(`Changing active env to via_ext_node (${cmd('via env via_ext_node')})`);
+    setEnv('via_ext_node');
 
     const cleaningSucceeded = await clearIfNeeded();
     if (!cleaningSucceeded) {
@@ -153,9 +153,9 @@ async function configExternalNode() {
     const env = await selectEnvironment();
 
     const retention = await selectDataRetentionDurationHours();
-    await commentOutConfigKey('ext-node', 'template_database_url');
-    await changeConfigKey('ext-node', 'mode', 'GCSAnonymousReadOnly', 'en.snapshots.object_store');
-    await changeConfigKey('ext-node', 'snapshots_recovery_enabled', true, 'en');
+    await commentOutConfigKey('via_ext_node', 'template_database_url');
+    await changeConfigKey('via_ext_node', 'mode', 'GCSAnonymousReadOnly', 'en.snapshots.object_store');
+    await changeConfigKey('via_ext_node', 'snapshots_recovery_enabled', true, 'en');
     if (retention !== null) {
         await changeConfigKey('ext-node', 'pruning_data_retention_hours', retention, 'en');
     } else {
@@ -164,44 +164,54 @@ async function configExternalNode() {
 
     switch (env) {
         case Environment.Mainnet:
-            await changeConfigKey('ext-node', 'l1_chain_id', 1, 'en');
-            await changeConfigKey('ext-node', 'l2_chain_id', 324, 'en');
-            await changeConfigKey('ext-node', 'main_node_url', 'https://mainnet.era.zksync.io', 'en');
-            await changeConfigKey('ext-node', 'eth_client_url', 'https://ethereum-rpc.publicnode.com', 'en');
+            await changeConfigKey('via_ext_node', 'l1_chain_id', 1, 'en');
+            await changeConfigKey('via_ext_node', 'l2_chain_id', 324, 'en');
+            await changeConfigKey('via_ext_node', 'main_node_url', 'https://mainnet.era.zksync.io', 'en');
+            await changeConfigKey('via_ext_node', 'eth_client_url', 'https://ethereum-rpc.publicnode.com', 'en');
             await changeConfigKey(
-                'ext-node',
+                'via_ext_node',
                 'bucket_base_url',
                 'zksync-era-mainnet-external-node-snapshots',
                 'en.snapshots.object_store'
             );
             break;
         case Environment.Testnet:
-            await changeConfigKey('ext-node', 'l1_chain_id', 11155111, 'en');
-            await changeConfigKey('ext-node', 'l2_chain_id', 300, 'en');
-            await changeConfigKey('ext-node', 'main_node_url', 'https://sepolia.era.zksync.dev', 'en');
-            await changeConfigKey('ext-node', 'eth_client_url', 'https://ethereum-sepolia-rpc.publicnode.com', 'en');
+            await changeConfigKey('via_ext_node', 'l1_chain_id', 11155111, 'en');
+            await changeConfigKey('via_ext_node', 'l2_chain_id', 300, 'en');
+            await changeConfigKey('via_ext_node', 'main_node_url', 'https://sepolia.era.zksync.dev', 'en');
             await changeConfigKey(
-                'ext-node',
+                'via_ext_node',
+                'eth_client_url',
+                'https://ethereum-sepolia-rpc.publicnode.com',
+                'en'
+            );
+            await changeConfigKey(
+                'via_ext_node',
                 'bucket_base_url',
                 'zksync-era-boojnet-external-node-snapshots',
                 'en.snapshots.object_store'
             );
             break;
         case Environment.Local:
-            await changeConfigKey('ext-node', 'l1_chain_id', 9, 'en');
-            await changeConfigKey('ext-node', 'l2_chain_id', 270, 'en');
-            await changeConfigKey('ext-node', 'main_node_url', 'https://sepolia.era.zksync.dev', 'en');
-            await changeConfigKey('ext-node', 'eth_client_url', 'https://ethereum-sepolia-rpc.publicnode.com', 'en');
+            await changeConfigKey('via_ext_node', 'l1_chain_id', 9, 'en');
+            await changeConfigKey('via_ext_node', 'l2_chain_id', 25223, 'en');
+            await changeConfigKey('via_ext_node', 'main_node_url', 'https://sepolia.era.zksync.dev', 'en');
             await changeConfigKey(
-                'ext-node',
+                'via_ext_node',
+                'eth_client_url',
+                'https://ethereum-sepolia-rpc.publicnode.com',
+                'en'
+            );
+            await changeConfigKey(
+                'via_ext_node',
                 'bucket_base_url',
                 'zksync-era-boojnet-external-node-snapshots',
                 'en.snapshots.object_store'
             );
             break;
     }
-    compileConfig('ext-node');
-    setEnv('ext-node');
+    compileConfig('via_ext_node');
+    setEnv('via_ext_node');
     console.log(`Setting up postgres (${cmd('via db setup')})`);
     await setupDb({ prover: false, core: true, verifier: false });
 

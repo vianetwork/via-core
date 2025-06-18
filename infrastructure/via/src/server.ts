@@ -15,9 +15,9 @@ export async function server(rebuildTree: boolean, uring: boolean, components?: 
 }
 
 export async function externalNode(reinit: boolean = false, args: string[]) {
-    if (process.env.VIA_ENV != 'ext-node') {
+    if (process.env.VIA_ENV != 'via_ext_node') {
         console.warn(`WARNING: using ${process.env.VIA_ENV} environment for external node`);
-        console.warn('If this is a mistake, set $VIA_ENV to "ext-node" or other environment');
+        console.warn('If this is a mistake, set $VIA_ENV to "via_ext_node" or other environment');
     }
 
     // Set proper environment variables for external node.
