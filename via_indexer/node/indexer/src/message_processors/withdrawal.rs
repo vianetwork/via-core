@@ -38,9 +38,12 @@ impl MessageProcessor for WithdrawalProcessor {
     ) -> anyhow::Result<()> {
         for msg in msgs {
             if let FullInscriptionMessage::BridgeWithdrawal(withdrawal_msg) = msg {
+                let mut tx_id_bytes = withdrawal_msg.common.tx_id.as_raw_hash()[..].to_vec();
+                tx_id_bytes.reverse();
+
                 if storage
                     .via_transactions_dal()
-                    .withdrawal_exists(&withdrawal_msg.common.tx_id.to_byte_array())
+                    .withdrawal_exists(&tx_id_bytes)
                     .await?
                 {
                     tracing::warn!(
@@ -68,18 +71,17 @@ impl MessageProcessor for WithdrawalProcessor {
 
                 let fee: i64 = (total_input - withdrawal_msg.input.output_amount).try_into()?;
 
+                let mut l1_batch_proof_reveal_tx_id_bytes =
+                    withdrawal_msg.input.l1_batch_proof_reveal_tx_id;
+                l1_batch_proof_reveal_tx_id_bytes.reverse();
+
                 let mut withdrawals: Vec<WithdrawalParam> = Vec::new();
                 let bridge_withdrawal = BridgeWithdrawalParam {
                     vsize: withdrawal_msg.input.v_size,
                     total_size: withdrawal_msg.input.total_size,
-                    tx_id: withdrawal_msg
-                        .common
-                        .tx_id
-                        .as_raw_hash()
-                        .to_byte_array()
-                        .into(),
+                    tx_id: tx_id_bytes,
                     block_number: withdrawal_msg.common.block_height as i64,
-                    l1_batch_reveal_tx_id: withdrawal_msg.input.l1_batch_proof_reveal_tx_id,
+                    l1_batch_reveal_tx_id: l1_batch_proof_reveal_tx_id_bytes,
                     fee,
                     withdrawals_count: withdrawal_msg.input.withdrawals.len() as i64,
                 };

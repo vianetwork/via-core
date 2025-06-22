@@ -24,18 +24,20 @@ impl ViaTransactionsDal<'_, '_> {
             sqlx::query!(
                 r#"
                 INSERT INTO
-                    deposits (priority_id, tx_id, block_number, receiver, value, calldata, canonical_tx_hash)
+                    deposits (priority_id, tx_id, block_number, sender, receiver, value, calldata, canonical_tx_hash, created_at)
                 VALUES
-                    ($1, $2, $3, $4, $5, $6, $7)
+                    ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ON CONFLICT (tx_id) DO NOTHING
                 "#,
                 deposit.priority_id,
                 deposit.tx_id,
                 i64::from(deposit.block_number),
+                deposit.sender,
                 deposit.receiver,
                 deposit.value,
                 deposit.calldata,
                 deposit.canonical_tx_hash,
+                deposit.block_timestamp as i64,
             )
             .instrument("insert_deposit")
             .execute(&mut transaction)

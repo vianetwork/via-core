@@ -45,7 +45,7 @@ impl L1Indexer {
         drop(storage);
 
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
-            Box::new(L1ToL2MessageProcessor::new()),
+            Box::new(L1ToL2MessageProcessor::new(client.clone())),
             Box::new(WithdrawalProcessor::new(
                 via_genesis_config.bridge_address()?,
                 client,

@@ -2,11 +2,12 @@ CREATE TABLE IF NOT EXISTS deposits (
     "priority_id" BIGINT NOT NULL,
     "tx_id" BYTEA NOT NULL,
     "block_number" BIGINT NOT NULL,
-    "receiver" BYTEA NOT NULL,
+    "sender" VARCHAR NOT NULL,
+    "receiver" VARCHAR NOT NULL,
     "value" BIGINT NOT NULL,
     "calldata" BYTEA,
     "canonical_tx_hash" BYTEA NOT NULL UNIQUE,
-    "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "created_at" BIGINT NOT NULL,
     PRIMARY KEY (tx_id)
 );
 
