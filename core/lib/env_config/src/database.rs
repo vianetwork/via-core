@@ -51,11 +51,18 @@ impl FromEnv for DatabaseSecrets {
             .transpose()?
             .or_else(|| server_url.clone());
 
+        let indexer_url = env::var("DATABASE_INDEXER_URL")
+            .ok()
+            .map(|s| s.parse())
+            .transpose()?
+            .or_else(|| server_url.clone());
+
         Ok(Self {
             server_url,
             prover_url,
             server_replica_url,
             verifier_url,
+            indexer_url,
         })
     }
 }

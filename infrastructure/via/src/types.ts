@@ -1,5 +1,6 @@
 export enum Mode {
     SEQUENCER = 'sequencer',
     VERIFIER = 'verifier',
-    COORDINATOR = 'coordinator'
+    COORDINATOR = 'coordinator',
+    INDEXER = 'indexer'
 }

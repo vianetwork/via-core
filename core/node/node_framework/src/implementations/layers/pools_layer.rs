@@ -3,7 +3,7 @@ use zksync_dal::{ConnectionPool, Core};
 
 use crate::{
     implementations::resources::pools::{
-        MasterPool, PoolResource, ProverPool, ReplicaPool, VerifierPool,
+        IndexerPool, MasterPool, PoolResource, ProverPool, ReplicaPool, VerifierPool,
     },
     wiring_layer::{WiringError, WiringLayer},
     IntoContext,
@@ -17,6 +17,7 @@ pub struct PoolsLayerBuilder {
     with_replica: bool,
     with_prover: bool,
     with_verifier: bool,
+    with_indexer: bool,
     secrets: DatabaseSecrets,
 }
 
@@ -30,6 +31,7 @@ impl PoolsLayerBuilder {
             with_replica: false,
             with_prover: false,
             with_verifier: false,
+            with_indexer: false,
             secrets: database_secrets,
         }
     }
@@ -58,6 +60,12 @@ impl PoolsLayerBuilder {
         self
     }
 
+    /// Allows to enable the indexer pool.
+    pub fn with_indexer(mut self, with_indexer: bool) -> Self {
+        self.with_indexer = with_indexer;
+        self
+    }
+
     /// Builds the [`PoolsLayer`] with the provided configuration.
     pub fn build(self) -> PoolsLayer {
         PoolsLayer {
@@ -67,6 +75,7 @@ impl PoolsLayerBuilder {
             with_replica: self.with_replica,
             with_prover: self.with_prover,
             with_verifier: self.with_verifier,
+            with_indexer: self.with_indexer,
         }
     }
 }
@@ -87,6 +96,7 @@ pub struct PoolsLayer {
     with_replica: bool,
     with_prover: bool,
     with_verifier: bool,
+    with_indexer: bool,
 }
 
 #[derive(Debug, IntoContext)]
@@ -96,6 +106,7 @@ pub struct Output {
     pub replica_pool: Option<PoolResource<ReplicaPool>>,
     pub prover_pool: Option<PoolResource<ProverPool>>,
     pub verifier_pool: Option<PoolResource<VerifierPool>>,
+    pub indexer_pool: Option<PoolResource<IndexerPool>>,
 }
 
 #[async_trait::async_trait]
@@ -108,7 +119,12 @@ impl WiringLayer for PoolsLayer {
     }
 
     async fn wire(self, _input: Self::Input) -> Result<Self::Output, WiringError> {
-        if !self.with_master && !self.with_replica && !self.with_prover && !self.with_verifier {
+        if !self.with_master
+            && !self.with_replica
+            && !self.with_prover
+            && !self.with_verifier
+            && !self.with_indexer
+        {
             return Err(WiringError::Configuration(
                 "At least one pool should be enabled".to_string(),
             ));
@@ -172,11 +188,23 @@ impl WiringLayer for PoolsLayer {
             None
         };
 
+        let indexer_pool = if self.with_indexer {
+            Some(PoolResource::<IndexerPool>::new(
+                self.secrets.indexer_url()?,
+                self.config.max_connections()?,
+                None,
+                None,
+            ))
+        } else {
+            None
+        };
+
         Ok(Output {
             master_pool,
             replica_pool,
             prover_pool,
             verifier_pool,
+            indexer_pool,
         })
     }
 }

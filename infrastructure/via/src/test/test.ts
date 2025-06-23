@@ -4,7 +4,7 @@ import * as utils from 'utils';
 import * as db from '../database';
 
 export async function rust(options: string[]) {
-    await db.resetTest({ core: true, prover: false, verifier: true });
+    await db.resetTest({ core: true, prover: false, verifier: true, indexer: true });
 
     let result = await utils.exec('cargo install --list');
     let test_runner = 'cargo nextest run';

@@ -59,11 +59,18 @@ impl ProtoRepr for proto::DatabaseSecrets {
             .map(str::parse::<SensitiveUrl>)
             .transpose()
             .context("verifier_url")?;
+        let indexer_url = self
+            .indexer_url
+            .as_deref()
+            .map(str::parse::<SensitiveUrl>)
+            .transpose()
+            .context("indexer_url")?;
         Ok(Self::Type {
             server_url,
             prover_url,
             server_replica_url,
             verifier_url,
+            indexer_url,
         })
     }
 
@@ -77,6 +84,10 @@ impl ProtoRepr for proto::DatabaseSecrets {
             prover_url: this.prover_url.as_ref().map(|a| a.expose_str().to_string()),
             verifier_url: this
                 .verifier_url
+                .as_ref()
+                .map(|a| a.expose_str().to_string()),
+            indexer_url: this
+                .indexer_url
                 .as_ref()
                 .map(|a| a.expose_str().to_string()),
         }

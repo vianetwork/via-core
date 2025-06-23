@@ -855,6 +855,7 @@ impl Distribution<configs::secrets::DatabaseSecrets> for EncodeDist {
             server_replica_url: Some(format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
             prover_url: Some(format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
             verifier_url: Some(format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
+            indexer_url: Some(format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
         }
     }
 }

@@ -26,6 +26,12 @@ else ifeq ($(CMD), via-coordinator)
 	MODE := coordinator
 else ifeq ($(CMD), via-restart-coordinator)
 	VIA_ENV := via_coordinator
+else ifeq ($(CMD), via-indexer)
+	VIA_ENV := via_indexer
+	DIFF := 3
+	MODE := indexer
+else ifeq ($(CMD), via-restart-indexer)
+	VIA_ENV := via_indexer
 endif
 
 # Default target: Show help message
@@ -93,6 +99,14 @@ via-coordinator: base celestia verifier
 # Restart the coordinator
 .PHONY: via-restart-coordinator
 via-restart-coordinator: env-soft verifier
+
+# Run the L1 indexer
+.PHONY: via-indexer
+via-indexer: base l1-indexer
+
+# Restart the coordinator
+.PHONY: via-restart-indexer
+via-restart-indexer: env-soft l1-indexer
 
 # Run minimal required setup
 .PHONY: base
@@ -246,6 +260,14 @@ clean:
 	@echo "$(YELLOW)Cleaning the project, removing images, volumes, and generated files...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) clean
+
+# Run 'via l1-indexer'
+.PHONY: l1-indexer
+l1-indexer:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Running the L1 indexer software...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) indexer
 
 # Require 'to_batch' args as input, ex: `make rollback to_batch=2`
 .PHONY: rollback

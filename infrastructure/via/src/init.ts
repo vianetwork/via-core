@@ -73,10 +73,11 @@ const initDatabase = async (
     shouldCheck: boolean = true,
     core = true,
     prover = true,
-    verifier = false
+    verifier = false,
+    indexer = false
 ): Promise<void> => {
-    await announced('Drop postgres db', db.drop({ core, prover, verifier }));
-    await announced('Setup postgres db', db.setup({ core, prover, verifier }, shouldCheck));
+    await announced('Drop postgres db', db.drop({ core, prover, verifier, indexer }));
+    await announced('Setup postgres db', db.setup({ core, prover, verifier, indexer }, shouldCheck));
     await announced('Clean rocksdb', clean(`db/${process.env.VIA_ENV!}`));
     await announced('Clean backups', clean(`backups/${process.env.VIA_ENV!}`));
 };
@@ -85,6 +86,12 @@ const initVerifierSetup = async (skipEnvSetup: boolean): Promise<void> => {
     await announced(`Initializing the verifier'}`);
     await announced('Checking environment', checkEnv());
     await initDatabase(true, false, false, true);
+};
+
+const initIndexerSetup = async (skipEnvSetup: boolean): Promise<void> => {
+    await announced(`Initializing the indexer'}`);
+    await announced('Checking environment', checkEnv());
+    await initDatabase(true, false, false, false, true);
 };
 
 // Deploys ERC20 and WETH tokens to localhost
@@ -162,10 +169,16 @@ export const initVerifierDevCmdAction = async ({ skipEnvSetup }: InitDevCmdActio
     await initVerifierSetup(skipEnvSetup);
 };
 
+export const initIndexerDevCmdAction = async ({ skipEnvSetup }: InitDevCmdActionOptions): Promise<void> => {
+    await initIndexerSetup(skipEnvSetup);
+};
+
 const init = async (options: InitDevCmdActionOptions) => {
     switch (options.mode) {
         case Mode.SEQUENCER:
             return await initDevCmdAction(options);
+        case Mode.INDEXER:
+            return await initIndexerDevCmdAction(options);
         case Mode.VERIFIER:
         case Mode.COORDINATOR:
             return await initVerifierDevCmdAction(options);
