@@ -49,3 +49,4 @@ contracts/.git
 !rust-toolchain
 
 !via_verifier
+!via_indexer
