@@ -3,10 +3,11 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use bitcoin::{
     absolute,
+    hashes::Hash,
     script::PushBytesBuf,
     sighash::{Prevouts, SighashCache},
-    transaction, Address, Amount, OutPoint, ScriptBuf, Sequence, TapSighash, TapSighashType,
-    Transaction, TxIn, TxOut, Witness,
+    transaction, Address, Amount, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn,
+    TxOut, Witness,
 };
 use tracing::{debug, instrument};
 use via_btc_client::traits::BitcoinOps;
@@ -82,6 +83,8 @@ impl TransactionBuilder {
             .utxo_manager
             .select_utxos_by_target_value(&available_utxos, total_needed)
             .await?;
+
+        tracing::debug!("Selected UTXOs {:?}", &selected_utxos);
 
         // Calculate total input amount
         let total_input_amount: Amount = selected_utxos
@@ -169,19 +172,25 @@ impl TransactionBuilder {
     }
 
     #[instrument(skip(self, unsigned_tx), target = "bitcoin_transaction_builder")]
-    pub fn get_tr_sighash(&self, unsigned_tx: &UnsignedBridgeTx) -> anyhow::Result<TapSighash> {
+    pub fn get_tr_sighashes(&self, unsigned_tx: &UnsignedBridgeTx) -> anyhow::Result<Vec<Vec<u8>>> {
         let mut sighash_cache = SighashCache::new(&unsigned_tx.tx);
         let sighash_type = TapSighashType::All;
-        let mut txout_list = Vec::with_capacity(unsigned_tx.utxos.len());
 
-        for (_, txout) in unsigned_tx.utxos.clone() {
-            txout_list.push(txout);
+        let txout_list: Vec<TxOut> = unsigned_tx
+            .utxos
+            .iter()
+            .map(|(_, txout)| txout.clone())
+            .collect();
+
+        let mut sighashes = vec![];
+        for (i, _) in txout_list.iter().enumerate() {
+            let sighash = sighash_cache
+                .taproot_key_spend_signature_hash(i, &Prevouts::All(&txout_list), sighash_type)
+                .with_context(|| "Error taproot_key_spend_signature_hash")?;
+            sighashes.push(sighash.to_raw_hash().to_byte_array().to_vec());
         }
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(0, &Prevouts::All(&txout_list), sighash_type)
-            .with_context(|| "Error taproot_key_spend_signature_hash")?;
 
-        Ok(sighash)
+        Ok(sighashes)
     }
 
     // Helper function to create OP_RETURN script
