@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n                indexer_metadata (last_indexer_l1_block, module, updated_at)\n            VALUES\n                ($1, $2, NOW())\n            ON CONFLICT DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4c43ab69ec21a9964c6199b14d1d2d6122607a800648a31d051e869d3a31319b"
+}
