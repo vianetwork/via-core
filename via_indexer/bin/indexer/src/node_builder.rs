@@ -33,7 +33,7 @@ impl ViaNodeBuilder {
     }
 
     fn add_healthcheck_layer(mut self) -> anyhow::Result<Self> {
-        let healthcheck_config = self.via_indexer_config.api_config.healthcheck.clone();
+        let healthcheck_config = self.via_indexer_config.health_check.clone();
         self.node.add_layer(HealthCheckLayer(healthcheck_config));
         Ok(self)
     }
