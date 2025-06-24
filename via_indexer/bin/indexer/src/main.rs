@@ -1,12 +1,13 @@
 use zksync_config::{
     configs::{
+        api::HealthCheckConfig,
         via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
         via_l1_indexer::ViaIndexerConfig,
         via_secrets::{ViaL1Secrets, ViaSecrets},
         DatabaseSecrets, ObservabilityConfig, PrometheusConfig, Secrets,
     },
-    ApiConfig, PostgresConfig, ViaBtcWatchConfig,
+    PostgresConfig, ViaBtcWatchConfig,
 };
 use zksync_env_config::FromEnv;
 
@@ -18,7 +19,7 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> anyhow::Result<()> {
     let via_indexer_config = ViaIndexerConfig {
-        api_config: ApiConfig::from_env()?,
+        health_check: HealthCheckConfig::from_env()?,
         postgres_config: PostgresConfig::from_env()?,
         prometheus_config: PrometheusConfig::from_env()?,
         via_btc_client_config: ViaBtcClientConfig::from_env()?,
