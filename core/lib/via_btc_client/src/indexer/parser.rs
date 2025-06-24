@@ -725,7 +725,7 @@ impl MessageParser {
             }
             // Parse receiver address from OP_RETURN data
 
-            let receiver_l2_address = EVMAddress::from_slice(&op_return_data[2..22]);
+            let receiver_l2_address = EVMAddress::from_slice(&op_return_data[0..20]);
 
             let input = L1ToL2MessageInput {
                 receiver_l2_address,
