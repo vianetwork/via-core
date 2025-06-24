@@ -155,7 +155,7 @@ async function configExternalNode() {
     const retention = await selectDataRetentionDurationHours();
     await commentOutConfigKey('via_ext_node', 'template_database_url');
     await changeConfigKey('via_ext_node', 'mode', 'GCSAnonymousReadOnly', 'en.snapshots.object_store');
-    await changeConfigKey('via_ext_node', 'snapshots_recovery_enabled', true, 'en');
+    await changeConfigKey('via_ext_node', 'snapshots_recovery_enabled', false, 'en');
     if (retention !== null) {
         await changeConfigKey('ext-node', 'pruning_data_retention_hours', retention, 'en');
     } else {
@@ -213,7 +213,7 @@ async function configExternalNode() {
     compileConfig('via_ext_node');
     setEnv('via_ext_node');
     console.log(`Setting up postgres (${cmd('via db setup')})`);
-    await setupDb({ prover: false, core: true, verifier: false });
+    await setupDb({ prover: false, core: true, verifier: false, indexer: false });
 
     console.log(`${success('Everything done!')} You can now run your external node using ${cmd('via external-node')}`);
     await runEnIfAskedTo();

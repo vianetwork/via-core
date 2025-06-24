@@ -116,6 +116,7 @@ impl ExternalNodeBuilder {
             server_replica_url: Some(self.config.postgres.database_url()),
             prover_url: None,
             verifier_url: None,
+            indexer_url: None,
         };
         let pools_layer = PoolsLayerBuilder::empty(config, secrets)
             .with_master(true)
