@@ -9646,6 +9646,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "via_fee_model",
  "vise",
  "zksync_block_reverter",
  "zksync_commitment_generator",
@@ -9699,6 +9700,7 @@ dependencies = [
  "zksync_node_fee_model",
  "zksync_types",
  "zksync_utils",
+ "zksync_web3_decl",
 ]
 
 [[package]]

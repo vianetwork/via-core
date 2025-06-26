@@ -337,4 +337,20 @@ impl FeeParams {
             l1_gas_price: 1_000_000_000,
         })
     }
+
+    pub fn sensible_v2_default() -> Self {
+        Self::V2(FeeParamsV2::new(
+            FeeModelConfigV2 {
+                minimal_l2_gas_price: 100_000_000,
+                compute_overhead_part: 0.0,
+                pubdata_overhead_part: 1.0,
+                batch_overhead_l1_gas: 5000,
+                max_gas_per_batch: 10000000,
+                max_pubdata_per_batch: 100000,
+            },
+            2,
+            50000,
+            BaseTokenConversionRatio::default(),
+        ))
+    }
 }

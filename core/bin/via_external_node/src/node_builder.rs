@@ -24,7 +24,6 @@ use zksync_node_framework::{
         l1_batch_commitment_mode_validation::L1BatchCommitmentModeValidationLayer,
         logs_bloom_backfill::LogsBloomBackfillLayer,
         main_node_client::MainNodeClientLayer,
-        main_node_fee_params_fetcher::MainNodeFeeParamsFetcherLayer,
         metadata_calculator::MetadataCalculatorLayer,
         node_storage_init::{
             external_node_strategy::{ExternalNodeInitStrategyLayer, SnapshotRecoveryConfig},
@@ -42,6 +41,7 @@ use zksync_node_framework::{
         sync_state_updater::SyncStateUpdaterLayer,
         tree_data_fetcher::TreeDataFetcherLayer,
         validate_chain_ids::ValidateChainIdsLayer,
+        via_main_node_fee_params_fetcher::ViaMainNodeFeeParamsFetcherLayer,
         web3_api::{
             caches::MempoolCacheLayer,
             server::{Web3ServerLayer, Web3ServerOptionalConfig},
@@ -398,7 +398,7 @@ impl ExternalNodeBuilder {
     }
 
     fn add_main_node_fee_params_fetcher_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(MainNodeFeeParamsFetcherLayer);
+        self.node.add_layer(ViaMainNodeFeeParamsFetcherLayer);
         Ok(self)
     }
 
