@@ -17,6 +17,7 @@ zksync_config.workspace = true
 zksync_dal.workspace = true
 zksync_utils.workspace = true
 zksync_node_fee_model.workspace = true
+zksync_web3_decl.workspace = true
 via_btc_client.workspace = true
 
 tokio = { workspace = true, features = ["time"] }
