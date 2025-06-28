@@ -40,6 +40,7 @@ pub mod via_btc_sender;
 pub mod via_btc_watch;
 pub mod via_da_dispatcher;
 pub mod via_gas_adjuster;
+pub mod via_indexer;
 pub mod via_l1_gas;
 pub mod via_l1_indexer;
 pub mod via_main_node_fee_params_fetcher;
