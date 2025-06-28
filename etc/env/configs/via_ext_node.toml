@@ -10,7 +10,7 @@ zksync_action = "dont_ask"
 [en]
 main_node_url = "https://sepolia.era.zksync.dev"
 pruning_data_retention_hours = "forever"
-snapshots_recovery_enabled = false
+snapshots_recovery_enabled = true
 http_port = 3060
 ws_port = 3061
 prometheus_port = 3322
@@ -47,7 +47,7 @@ slow_query_threshold_ms = 100
 
 [en.snapshots.object_store]
 bucket_base_url = "zksync-era-boojnet-external-node-snapshots"
-mode = "GCSAnonymousReadOnly"
+mode = "FileBacked"
 file_backed_base_path = "artifacts"
 # ^ Intentionally set to coincide with main node's in order to read locally produced snapshots
 

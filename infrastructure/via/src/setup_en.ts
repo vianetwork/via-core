@@ -155,7 +155,7 @@ async function configExternalNode() {
     const retention = await selectDataRetentionDurationHours();
     await commentOutConfigKey('via_ext_node', 'template_database_url');
     await changeConfigKey('via_ext_node', 'mode', 'GCSAnonymousReadOnly', 'en.snapshots.object_store');
-    await changeConfigKey('via_ext_node', 'snapshots_recovery_enabled', false, 'en');
+    await changeConfigKey('via_ext_node', 'snapshots_recovery_enabled', true, 'en');
     if (retention !== null) {
         await changeConfigKey('ext-node', 'pruning_data_retention_hours', retention, 'en');
     } else {
@@ -193,21 +193,8 @@ async function configExternalNode() {
             );
             break;
         case Environment.Local:
-            await changeConfigKey('via_ext_node', 'l1_chain_id', 9, 'en');
             await changeConfigKey('via_ext_node', 'l2_chain_id', 25223, 'en');
-            await changeConfigKey('via_ext_node', 'main_node_url', 'https://sepolia.era.zksync.dev', 'en');
-            await changeConfigKey(
-                'via_ext_node',
-                'eth_client_url',
-                'https://ethereum-sepolia-rpc.publicnode.com',
-                'en'
-            );
-            await changeConfigKey(
-                'via_ext_node',
-                'bucket_base_url',
-                'zksync-era-boojnet-external-node-snapshots',
-                'en.snapshots.object_store'
-            );
+            await changeConfigKey('via_ext_node', 'mode', 'FileBacked', 'en.snapshots.object_store_mode');
             break;
     }
     compileConfig('via_ext_node');
