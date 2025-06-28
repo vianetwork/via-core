@@ -27,6 +27,7 @@ zksync_concurrency.workspace = true
 vise.workspace = true
 zksync_vm_utils.workspace = true
 via_state_keeper.workspace= true
+via_btc_client.workspace= true
 
 anyhow.workspace = true
 async-trait.workspace = true
