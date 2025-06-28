@@ -13,6 +13,9 @@ use zksync_config::{
         api::{MaxResponseSize, MaxResponseSizeOverrides},
         consensus::{ConsensusConfig, ConsensusSecrets},
         en_config::ENConfig,
+        via_btc_client::ViaBtcClientConfig,
+        via_consensus::ViaGenesisConfig,
+        via_secrets::ViaL1Secrets,
         GeneralConfig,
     },
     ObjectStoreConfig,
@@ -22,6 +25,7 @@ use zksync_consensus_roles as roles;
 use zksync_core_leftovers::temp_config_store::{decode_yaml_repr, read_yaml_repr};
 #[cfg(test)]
 use zksync_dal::{ConnectionPool, Core};
+use zksync_env_config::FromEnv;
 use zksync_metadata_calculator::MetadataCalculatorRecoveryConfig;
 use zksync_node_api_server::{
     tx_sender::TxSenderConfig,
@@ -1169,6 +1173,8 @@ pub(crate) struct ExternalNodeConfig<R = RemoteENConfig> {
     pub consensus: Option<ConsensusConfig>,
     pub api_component: ApiComponentConfig,
     pub tree_component: TreeComponentConfig,
+    pub via_secrets: Option<ViaL1Secrets>,
+    pub via_genesis_config: Option<ViaGenesisConfig>,
     pub remote: R,
 }
 
@@ -1190,6 +1196,12 @@ impl ExternalNodeConfig<()> {
             tree_component: envy::prefixed("EN_TREE_")
                 .from_env::<TreeComponentConfig>()
                 .context("could not load external node config (tree component params)")?,
+            via_secrets: Some(
+                ViaL1Secrets::from_env().context("Failed to load VIA BTC client secrets config")?,
+            ),
+            via_genesis_config: Some(
+                ViaGenesisConfig::from_env().context("Failed to load VIA genesis config")?,
+            ),
             remote: (),
         })
     }
@@ -1244,6 +1256,8 @@ impl ExternalNodeConfig<()> {
             consensus,
             api_component,
             tree_component,
+            via_secrets: None,
+            via_genesis_config: None,
             remote: (),
         })
     }
@@ -1266,6 +1280,8 @@ impl ExternalNodeConfig<()> {
             consensus: self.consensus,
             tree_component: self.tree_component,
             api_component: self.api_component,
+            via_secrets: self.via_secrets,
+            via_genesis_config: self.via_genesis_config,
             remote,
         })
     }
@@ -1285,6 +1301,8 @@ impl ExternalNodeConfig {
             api_component: ApiComponentConfig {
                 tree_api_remote_url: None,
             },
+            via_secrets: None,
+            via_genesis_config: None,
             tree_component: TreeComponentConfig { api_port: None },
         }
     }

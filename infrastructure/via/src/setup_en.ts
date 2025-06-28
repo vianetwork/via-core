@@ -7,6 +7,7 @@ import path from 'path';
 import { set as setEnv } from './env';
 import { setup as setupDb } from './database';
 import * as utils from 'utils';
+import { updateBootstrapTxidsEnv } from './bootstrap';
 
 enum Environment {
     Mainnet = 'mainnet',
@@ -161,6 +162,7 @@ async function configExternalNode() {
         await removeConfigKey('via_ext_node', 'pruning_data_retention_hours');
     }
 
+    let network = 'regtest';
     switch (env) {
         case Environment.Mainnet:
             await changeConfigKey('via_ext_node', 'l1_chain_id', 1, 'en');
@@ -173,6 +175,7 @@ async function configExternalNode() {
                 'zksync-era-mainnet-external-node-snapshots',
                 'en.snapshots.object_store'
             );
+            network = 'bitcoin';
             break;
         case Environment.Testnet:
             await changeConfigKey('via_ext_node', 'l1_chain_id', 11155111, 'en');
@@ -190,6 +193,7 @@ async function configExternalNode() {
                 'zksync-era-boojnet-external-node-snapshots',
                 'en.snapshots.object_store'
             );
+            network = 'testnet';
             break;
         case Environment.Local:
             await changeConfigKey('via_ext_node', 'l2_chain_id', 25223, 'en');
@@ -200,9 +204,10 @@ async function configExternalNode() {
     setEnv('via_ext_node');
     console.log(`Setting up postgres (${cmd('via db setup')})`);
     await setupDb({ prover: false, core: true, verifier: false, indexer: false });
+    await updateBootstrapTxidsEnv(network);
 
-    console.log(`${success('Everything done!')} You can now run your external node using ${cmd('via external-node')}`);
-    await runEnIfAskedTo();
+    // console.log(`${success('Everything done!')} You can now run your external node using ${cmd('via external-node')}`);
+    // await runEnIfAskedTo();
 }
 
 export const command = new Command('setup-external-node')

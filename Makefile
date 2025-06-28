@@ -32,6 +32,8 @@ else ifeq ($(CMD), via-indexer)
 	MODE := indexer
 else ifeq ($(CMD), via-restart-indexer)
 	VIA_ENV := via_indexer
+else ifeq ($(CMD), via-ext-node)
+	VIA_ENV := via_ext_node
 endif
 
 # Default target: Show help message
@@ -104,7 +106,7 @@ via-restart-coordinator: env-soft verifier
 .PHONY: via-indexer
 via-indexer: base l1-indexer
 
-# Restart the indexer
+# Restart the L1 indexer
 .PHONY: via-restart-indexer
 via-restart-indexer: env-soft l1-indexer
 
