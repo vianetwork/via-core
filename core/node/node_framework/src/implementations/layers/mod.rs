@@ -46,6 +46,7 @@ pub mod via_l1_gas;
 pub mod via_l1_indexer;
 pub mod via_main_node_fee_params_fetcher;
 pub mod via_state_keeper;
+pub mod via_validate_chain_ids;
 pub mod via_verifier_btc_watch;
 pub mod via_verifier_storage_init;
 // TODO: TMP in sequencer

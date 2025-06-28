@@ -11,6 +11,7 @@ pub mod testonly;
 mod tests;
 pub mod tree_data_fetcher;
 pub mod validate_chain_ids_task;
+pub mod via_validate_chain_ids_task;
 
 pub use self::{
     client::{MainNodeClient, MainNodeHealthCheck},
