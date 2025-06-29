@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS bridge_withdrawals (
     "vsize" BIGINT NOT NULL,
     "total_size" BIGINT NOT NULL,
     "withdrawals_count" BIGINT NOT NULL,
-    "block_number" BIGINT NOT NULL UNIQUE,
+    "block_number" BIGINT NOT NULL,
     "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
