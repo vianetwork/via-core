@@ -51,7 +51,14 @@ impl WiringLayer for BtcClientLayer {
     }
 
     async fn wire(self, _: Self::Input) -> Result<Self::Output, WiringError> {
-        let mut btc_client_resource = BtcClientResource::new();
+        let default_btc_client = BitcoinClient::new(
+            self.secrets.rpc_url.expose_str(),
+            self.secrets.auth_node(),
+            self.via_btc_client.clone(),
+        )
+        .map_err(|e| WiringError::Internal(e.into()))?;
+
+        let mut btc_client_resource = BtcClientResource::new(Arc::new(default_btc_client));
 
         if let Some(wallet) = self.wallets.btc_sender {
             let btc_client = BitcoinClient::new(
