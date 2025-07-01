@@ -45,11 +45,11 @@ impl ValidateChainIdsTask {
         let network = btc_client.get_network();
         anyhow::ensure!(
                 expected == network,
-                "Configured L1 chain ID doesn't match the one from Ethereum node. \
-                Make sure your configuration is correct and you are corrected to the right Ethereum node. \
+                "Configured L1 chain ID doesn't match the one from Bitcoin node. \
+                Make sure your configuration is correct and you are corrected to the right Bitcoin node. \
                 Eth node chain ID: {network}. Local config value: {expected}"
             );
-        tracing::info!("Checked that L1 chain ID {network} is returned by Ethereum client");
+        tracing::info!("Checked that L1 chain ID {network} is returned by Bitcoin client");
         return Ok(());
     }
 
@@ -128,13 +128,13 @@ impl ValidateChainIdsTask {
 
     /// Runs the task once, exiting either when all the checks are performed or when the stop signal is received.
     pub async fn run_once(self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
-        let eth_client_check = Self::check_btc_client(self.btc_client, self.btc_network);
+        let btc_client_check = Self::check_btc_client(self.btc_client, self.btc_network);
         let main_node_l1_check =
             Self::check_l1_chain_using_main_node(self.main_node_client.clone(), self.btc_network);
         let main_node_l2_check =
             Self::check_l2_chain_using_main_node(self.main_node_client, self.l2_chain_id);
         let joined_futures =
-            futures::future::try_join3(eth_client_check, main_node_l1_check, main_node_l2_check)
+            futures::future::try_join3(btc_client_check, main_node_l1_check, main_node_l2_check)
                 .fuse();
         tokio::select! {
             res = joined_futures => res.map(drop),
@@ -146,14 +146,14 @@ impl ValidateChainIdsTask {
     pub async fn run(self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
         // Since check futures are fused, they are safe to poll after getting resolved; they will never resolve again,
         // so we'll just wait for another check or a stop signal.
-        let eth_client_check = Self::check_btc_client(self.btc_client, self.btc_network).fuse();
+        let btc_client_check = Self::check_btc_client(self.btc_client, self.btc_network).fuse();
         let main_node_l1_check =
             Self::check_l1_chain_using_main_node(self.main_node_client.clone(), self.btc_network)
                 .fuse();
         let main_node_l2_check =
             Self::check_l2_chain_using_main_node(self.main_node_client, self.l2_chain_id).fuse();
         tokio::select! {
-            Err(err) = eth_client_check =>  Err(err),
+            Err(err) = btc_client_check =>  Err(err),
             Err(err) = main_node_l1_check =>  Err(err),
             Err(err) = main_node_l2_check =>  Err(err),
             _ = stop_receiver.changed() =>  Ok(()),
