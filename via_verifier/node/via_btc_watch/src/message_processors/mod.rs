@@ -6,11 +6,13 @@ use via_btc_client::{
     types::{BitcoinTxid, FullInscriptionMessage, IndexerError},
 };
 use via_verifier_dal::{Connection, Verifier};
+pub(crate) use withdrawal::WithdrawalProcessor;
 use zksync_types::H256;
 
 mod governance_upgrade;
 mod l1_to_l2;
 mod verifier;
+mod withdrawal;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum MessageProcessorError {
@@ -18,6 +20,8 @@ pub(super) enum MessageProcessorError {
     Internal(#[from] anyhow::Error),
     #[error("database error: {0}")]
     DatabaseError(String),
+    #[error("sync error: {0}")]
+    SyncError(String),
 }
 
 impl From<IndexerError> for MessageProcessorError {

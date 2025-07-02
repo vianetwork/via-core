@@ -7,6 +7,7 @@ pub enum InscriptionStage {
     Deposit,
     Upgrade,
     Vote,
+    Withdrawal,
 }
 
 #[derive(Debug, Metrics)]

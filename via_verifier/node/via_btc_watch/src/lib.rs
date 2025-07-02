@@ -1,7 +1,7 @@
 mod message_processors;
 mod metrics;
 
-use message_processors::GovernanceUpgradesEventProcessor;
+use message_processors::{GovernanceUpgradesEventProcessor, WithdrawalProcessor};
 use tokio::sync::watch;
 // re-export via_btc_client types
 use via_btc_client::indexer::BitcoinInscriptionIndexer;
@@ -51,6 +51,7 @@ impl VerifierBtcWatch {
             Box::new(GovernanceUpgradesEventProcessor::new()),
             Box::new(L1ToL2MessageProcessor::new(indexer.get_state().0)),
             Box::new(VerifierMessageProcessor::new(zk_agreement_threshold)),
+            Box::new(WithdrawalProcessor::new()),
         ];
 
         Ok(Self {
