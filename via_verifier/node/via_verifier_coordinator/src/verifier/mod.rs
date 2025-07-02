@@ -1,10 +1,11 @@
 use std::{
+    any::Any,
     collections::{BTreeMap, HashMap},
     sync::Arc,
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use bitcoin::{Address, TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
@@ -141,6 +142,42 @@ impl ViaWithdrawalVerifier {
         }
         let session_op = SessionOperation::from_bytes(&session_info.session_op);
         let messages = session_op.get_message_to_sign();
+
+        // The verifier checks if the session is sequential.
+        if session_op.get_session_type() == SessionType::Withdrawal {
+            let session = self
+                .session_manager
+                .sessions
+                .get(&session_op.get_session_type())
+                .ok_or_else(|| anyhow!("Failed to get session withdrawal"))?
+                .clone();
+
+            let withdrawal_session = session
+                .as_ref()
+                .as_any()
+                .downcast_ref::<WithdrawalSession>()
+                .ok_or_else(|| anyhow!("Failed to cast to WithdrawalSession"))?;
+
+            let (expected_l1_batch_number, _, _) =
+                withdrawal_session.prepare_withdrawal_session().await?;
+
+            let actual_batch_number = session_op.get_l1_batche_number();
+            if expected_l1_batch_number > 0 && actual_batch_number != expected_l1_batch_number {
+                tracing::warn!(
+                    "Withdrawal session not yet sequential: last processed {}, found {}",
+                    expected_l1_batch_number,
+                    actual_batch_number
+                );
+                return Ok(());
+            }
+        }
+
+        if self
+            .is_bridge_session_already_processed(session_op.get_l1_batche_number())
+            .await?
+        {
+            return Ok(());
+        }
 
         if self.signer_per_utxo_input.len() < messages.len() {
             self.init_signers(messages.len())?;
@@ -700,5 +737,20 @@ impl ViaWithdrawalVerifier {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    async fn is_bridge_session_already_processed(
+        &self,
+        l1_batch_number: i64,
+    ) -> anyhow::Result<bool> {
+        let bridge_tx_id = self
+            .master_connection_pool
+            .connection_tagged("verifier task")
+            .await?
+            .via_votes_dal()
+            .get_vote_transaction_bridge_tx_id(l1_batch_number)
+            .await?;
+
+        Ok(bridge_tx_id.is_some())
     }
 }

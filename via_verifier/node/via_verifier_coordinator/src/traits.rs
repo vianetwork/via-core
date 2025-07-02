@@ -1,10 +1,12 @@
+use std::any::Any;
+
 use axum::async_trait;
 use bitcoin::Txid;
 
 use crate::types::SessionOperation;
 
 #[async_trait]
-pub trait ISession: Send + Sync {
+pub trait ISession: Any + Send + Sync {
     async fn session(&self) -> anyhow::Result<Option<SessionOperation>>;
 
     async fn is_session_in_progress(
@@ -26,4 +28,6 @@ pub trait ISession: Send + Sync {
         txid: Txid,
         session_op: &SessionOperation,
     ) -> anyhow::Result<bool>;
+
+    fn as_any(&self) -> &dyn Any;
 }

@@ -579,4 +579,51 @@ impl ViaVotesDal<'_, '_> {
 
         Ok(result)
     }
+
+    pub async fn get_vote_transaction_info(
+        &mut self,
+        proof_reveal_tx_id: H256,
+    ) -> DalResult<Option<(i64, Option<Vec<u8>>)>> {
+        let res = sqlx::query!(
+            r#"
+            SELECT
+                l1_batch_number,
+                bridge_tx_id
+            FROM
+                via_votable_transactions
+            WHERE
+                proof_reveal_tx_id = $1
+            "#,
+            proof_reveal_tx_id.as_bytes()
+        )
+        .instrument("get_vote_transaction_info")
+        .fetch_optional(self.storage)
+        .await?;
+
+        let result = res.map(|row| (row.l1_batch_number, row.bridge_tx_id));
+        Ok(result)
+    }
+
+    pub async fn update_bridge_tx_id(
+        &mut self,
+        bridge_tx_id: H256,
+        l1_batch_number: i64,
+    ) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            UPDATE via_votable_transactions
+            SET
+                bridge_tx_id = $1
+            WHERE
+                l1_batch_number = $2
+            "#,
+            bridge_tx_id.as_bytes(),
+            l1_batch_number,
+        )
+        .instrument("update_bridge_tx_id")
+        .execute(self.storage)
+        .await?;
+
+        Ok(())
+    }
 }

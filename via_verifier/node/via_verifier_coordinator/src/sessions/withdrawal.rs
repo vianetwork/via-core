@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Ok};
 use axum::async_trait;
@@ -37,63 +37,8 @@ impl WithdrawalSession {
 #[async_trait]
 impl ISession for WithdrawalSession {
     async fn session(&self) -> anyhow::Result<Option<SessionOperation>> {
-        // Get the l1 batches finilized but withdrawals not yet processed
-        let l1_batches = self
-            .master_connection_pool
-            .connection_tagged("withdrawal session")
-            .await?
-            .via_votes_dal()
-            .list_finalized_blocks_and_non_processed_withdrawals()
-            .await?;
-
-        if l1_batches.is_empty() {
-            return Ok(None);
-        }
-
-        let mut withdrawals_to_process: Vec<WithdrawalRequest> = Vec::new();
-        let mut raw_proof_tx_id: Vec<u8> = vec![];
-
-        tracing::info!(
-            "Found {} finalized unprocessed L1 batch(es) with withdrawals waiting to be processed",
-            l1_batches.len()
-        );
-
-        let mut l1_batch_number: i64 = 0;
-        for (batch_number, blob_id, proof_tx_id) in l1_batches.iter() {
-            let withdrawals: Vec<WithdrawalRequest> = self
-                .withdrawal_client
-                .get_withdrawals(blob_id)
-                .await
-                .with_context(|| "Error to get withdrawals from DA")?;
-            raw_proof_tx_id = proof_tx_id.clone();
-
-            if !withdrawals.is_empty() {
-                l1_batch_number = *batch_number;
-                withdrawals_to_process = withdrawals;
-                tracing::info!(
-                    "L1 batch {} includes withdrawal requests {}",
-                    batch_number.clone(),
-                    withdrawals_to_process.len()
-                );
-                break;
-            } else {
-                // If there is no withdrawals to process in a batch, update the status and mark it as processed
-                self.master_connection_pool
-                    .connection_tagged("coordinator")
-                    .await?
-                    .via_votes_dal()
-                    .mark_vote_transaction_as_processed(
-                        H256::zero(),
-                        &raw_proof_tx_id,
-                        *batch_number,
-                    )
-                    .await?;
-                tracing::info!(
-                    "There is no withdrawal to process in l1 batch {}",
-                    batch_number.clone()
-                );
-            }
-        }
+        let (l1_batch_number, raw_proof_tx_id, withdrawals_to_process) =
+            self.prepare_withdrawal_session().await?;
 
         if withdrawals_to_process.is_empty() {
             return Ok(None);
@@ -214,9 +159,76 @@ impl ISession for WithdrawalSession {
 
         Ok(true)
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl WithdrawalSession {
+    pub async fn prepare_withdrawal_session(
+        &self,
+    ) -> anyhow::Result<(i64, Vec<u8>, Vec<WithdrawalRequest>)> {
+        // Get the l1 batches finilized but withdrawals not yet processed
+        let l1_batches = self
+            .master_connection_pool
+            .connection_tagged("withdrawal session")
+            .await?
+            .via_votes_dal()
+            .list_finalized_blocks_and_non_processed_withdrawals()
+            .await?;
+
+        if l1_batches.is_empty() {
+            return Ok((0, vec![], vec![]));
+        }
+
+        let mut withdrawals_to_process: Vec<WithdrawalRequest> = Vec::new();
+        let mut raw_proof_tx_id: Vec<u8> = vec![];
+
+        tracing::info!(
+            "Found {} finalized unprocessed L1 batch(es) with withdrawals waiting to be processed",
+            l1_batches.len()
+        );
+
+        let mut l1_batch_number: i64 = 0;
+        for (batch_number, blob_id, proof_tx_id) in l1_batches.iter() {
+            let withdrawals: Vec<WithdrawalRequest> = self
+                .withdrawal_client
+                .get_withdrawals(blob_id)
+                .await
+                .with_context(|| "Error to get withdrawals from DA")?;
+            raw_proof_tx_id = proof_tx_id.clone();
+
+            if !withdrawals.is_empty() {
+                l1_batch_number = *batch_number;
+                withdrawals_to_process = withdrawals;
+                tracing::info!(
+                    "L1 batch {} includes withdrawal requests {}",
+                    batch_number.clone(),
+                    withdrawals_to_process.len()
+                );
+                break;
+            } else {
+                // If there is no withdrawals to process in a batch, update the status and mark it as processed
+                self.master_connection_pool
+                    .connection_tagged("withdrawal session")
+                    .await?
+                    .via_votes_dal()
+                    .mark_vote_transaction_as_processed(
+                        H256::zero(),
+                        &raw_proof_tx_id,
+                        *batch_number,
+                    )
+                    .await?;
+                tracing::info!(
+                    "There is no withdrawal to process in l1 batch {}",
+                    batch_number.clone()
+                );
+            }
+        }
+        Ok((l1_batch_number, raw_proof_tx_id, withdrawals_to_process))
+    }
+
     pub async fn create_unsigned_tx(
         &self,
         withdrawals: Vec<WithdrawalRequest>,
