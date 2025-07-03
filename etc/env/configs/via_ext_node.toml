@@ -9,15 +9,15 @@ zksync_action = "dont_ask"
 
 [en]
 main_node_url = "https://sepolia.era.zksync.dev"
-pruning_data_retention_hours = "forever"
-snapshots_recovery_enabled = true
+pruning_data_retention_hours = 24
+snapshots_recovery_enabled = false
 http_port = 3060
 ws_port = 3061
 prometheus_port = 3322
 healthcheck_port = 3081
 threads_per_server = 128
 l2_chain_id = 25223
-l1_chain_id = 9
+l1_chain_id = 11155111
 
 req_entities_limit = 10000
 

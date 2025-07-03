@@ -90,7 +90,7 @@ async function changeConfigKey(env: string, key: string, newValue: string | numb
 }
 
 async function clearIfNeeded() {
-    const filePath = path.join(path.join(process.env.VIA_HOME as string, `etc/env/ext-node.env`));
+    const filePath = path.join(path.join(process.env.VIA_HOME as string, `etc/env/target/via_ext_node.env`));
     if (!fs.existsSync(filePath)) {
         return true;
     }
@@ -107,8 +107,8 @@ async function clearIfNeeded() {
         return false;
     }
     const cmd = chalk.yellow;
-    console.log(`cleaning up database (${cmd('via clean --config ext-node --database')})`);
-    await utils.exec('via clean --config ext-node --database');
+    console.log(`cleaning up database (${cmd('via clean --config via_ext_node --database')})`);
+    await utils.exec('via clean --config via_ext_node --database');
     console.log(`cleaning up db (${cmd('via db drop')})`);
     await utils.exec('via db drop');
     return true;
@@ -155,11 +155,10 @@ async function configExternalNode() {
     const retention = await selectDataRetentionDurationHours();
     await commentOutConfigKey('via_ext_node', 'template_database_url');
     await changeConfigKey('via_ext_node', 'mode', 'GCSAnonymousReadOnly', 'en.snapshots.object_store');
-    await changeConfigKey('via_ext_node', 'snapshots_recovery_enabled', true, 'en');
     if (retention !== null) {
-        await changeConfigKey('ext-node', 'pruning_data_retention_hours', retention, 'en');
+        await changeConfigKey('via_ext_node', 'pruning_data_retention_hours', retention, 'en');
     } else {
-        await removeConfigKey('ext-node', 'pruning_data_retention_hours');
+        await removeConfigKey('via_ext_node', 'pruning_data_retention_hours');
     }
 
     switch (env) {
