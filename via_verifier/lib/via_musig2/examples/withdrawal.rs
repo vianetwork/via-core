@@ -14,7 +14,10 @@ use bitcoin::{
 };
 use musig2::KeyAggContext;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
-use via_musig2::{get_signer, transaction_builder::TransactionBuilder, verify_signature};
+use via_musig2::{
+    fee::WithdrawalFeeStrategy, get_signer, transaction_builder::TransactionBuilder,
+    verify_signature,
+};
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
@@ -122,8 +125,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let tx_builder = TransactionBuilder::new(Arc::new(btc_client.clone()), address.clone())?;
     let mut unsigned_tx = tx_builder
-        .build_transaction_with_op_return(outputs, op_return_prefix, vec![op_return_data])
+        .build_transaction_with_op_return(
+            outputs,
+            op_return_prefix,
+            vec![op_return_data],
+            Arc::new(WithdrawalFeeStrategy::new()),
+            None,
+        )
         .await?;
+
     let messages = tx_builder.get_tr_sighashes(&unsigned_tx)?;
     let message1 = messages[0].clone();
     let message2 = messages[1].clone();
