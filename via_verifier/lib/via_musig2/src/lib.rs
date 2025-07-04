@@ -8,9 +8,13 @@ use musig2::{
 };
 use rand::{rngs::OsRng, Rng};
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
+pub mod fee;
 pub mod transaction_builder;
 pub mod utils;
 pub mod utxo_manager;
+
+#[cfg(test)]
+mod test;
 
 #[derive(Debug)]
 pub enum MusigError {

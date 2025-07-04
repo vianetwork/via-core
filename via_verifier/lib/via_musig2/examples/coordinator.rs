@@ -17,7 +17,9 @@ use tokio::sync::RwLock;
 use tracing::{info, instrument};
 use uuid::Uuid;
 use via_btc_client::{client::BitcoinClient, types::BitcoinNetwork};
-use via_musig2::{transaction_builder::TransactionBuilder, verify_signature, Signer};
+use via_musig2::{
+    fee::WithdrawalFeeStrategy, transaction_builder::TransactionBuilder, verify_signature, Signer,
+};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
@@ -444,6 +446,8 @@ async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessi
                 outputs,
                 OP_RETURN_WITHDRAW_PREFIX,
                 vec![proof_txid.as_raw_hash().to_byte_array()],
+                Arc::new(WithdrawalFeeStrategy::new()),
+                None
             )
             .await?
     };

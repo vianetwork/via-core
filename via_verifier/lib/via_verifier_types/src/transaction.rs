@@ -9,6 +9,18 @@ pub struct UnsignedBridgeTx {
     pub txid: Txid,
     pub utxos: Vec<(OutPoint, TxOut)>,
     pub change_amount: Amount,
+    pub fee: Amount,
+    pub fee_rate: u64,
+}
+
+impl UnsignedBridgeTx {
+    pub fn get_fee_per_user(&self) -> Amount {
+        Amount::from_sat(self.tx.output.len() as u64 - 2)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tx.output.len() as u64 - 2 == 0
+    }
 }
 
 impl Serializable for UnsignedBridgeTx {
