@@ -31,7 +31,7 @@ pub enum SessionOperation {
 }
 
 impl SessionOperation {
-    pub fn get_l1_batche_number(&self) -> i64 {
+    pub fn get_l1_batch_number(&self) -> i64 {
         match self {
             Self::Withdrawal(l1_batch_number, _, _, _) => *l1_batch_number,
         }

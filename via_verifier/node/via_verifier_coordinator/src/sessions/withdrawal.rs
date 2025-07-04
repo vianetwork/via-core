@@ -71,13 +71,13 @@ impl ISession for WithdrawalSession {
     }
 
     async fn is_session_in_progress(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
-        if session_op.get_l1_batche_number() != 0 {
+        if session_op.get_l1_batch_number() != 0 {
             let bridge_tx = self
                 .master_connection_pool
                 .connection_tagged("verifier withdrawal session")
                 .await?
                 .via_votes_dal()
-                .get_vote_transaction_bridge_tx_id(session_op.get_l1_batche_number())
+                .get_vote_transaction_bridge_tx_id(session_op.get_l1_batch_number())
                 .await?;
 
             return Ok(bridge_tx.is_none());
@@ -93,12 +93,12 @@ impl ISession for WithdrawalSession {
                 .connection_tagged("verifier withdrawal session verify message")
                 .await?
                 .via_votes_dal()
-                .get_finalized_block_and_non_processed_withdrawal(session_op.get_l1_batche_number())
+                .get_finalized_block_and_non_processed_withdrawal(session_op.get_l1_batch_number())
                 .await?
             {
                 if !self
                     ._verify_withdrawals(
-                        session_op.get_l1_batche_number(),
+                        session_op.get_l1_batch_number(),
                         unsigned_tx,
                         &blob_id,
                         proof_tx_id,
@@ -109,7 +109,7 @@ impl ISession for WithdrawalSession {
                 }
 
                 return self
-                    ._verify_sighashes(session_op.get_l1_batche_number(), unsigned_tx, messages)
+                    ._verify_sighashes(session_op.get_l1_batch_number(), unsigned_tx, messages)
                     .await;
             }
         }
@@ -129,7 +129,7 @@ impl ISession for WithdrawalSession {
             .connection_tagged("verifier task")
             .await?
             .via_votes_dal()
-            .get_vote_transaction_bridge_tx_id(session_op.get_l1_batche_number())
+            .get_vote_transaction_bridge_tx_id(session_op.get_l1_batch_number())
             .await?;
 
         Ok(bridge_txid.is_none())
@@ -147,13 +147,13 @@ impl ISession for WithdrawalSession {
             .mark_vote_transaction_as_processed(
                 H256::from_slice(&txid.as_raw_hash().to_byte_array()),
                 &session_op.get_proof_tx_id(),
-                session_op.get_l1_batche_number(),
+                session_op.get_l1_batch_number(),
             )
             .await?;
 
         tracing::info!(
             "New withdrawal transaction processed, l1 batch {} musig2 tx_id {}",
-            session_op.get_l1_batche_number(),
+            session_op.get_l1_batch_number(),
             txid
         );
 

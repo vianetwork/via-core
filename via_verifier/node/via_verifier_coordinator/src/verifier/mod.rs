@@ -161,7 +161,7 @@ impl ViaWithdrawalVerifier {
             let (expected_l1_batch_number, _, _) =
                 withdrawal_session.prepare_withdrawal_session().await?;
 
-            let actual_batch_number = session_op.get_l1_batche_number();
+            let actual_batch_number = session_op.get_l1_batch_number();
             if expected_l1_batch_number > 0 && actual_batch_number != expected_l1_batch_number {
                 tracing::warn!(
                     "Withdrawal session not yet sequential: last processed {}, found {}",
@@ -173,7 +173,7 @@ impl ViaWithdrawalVerifier {
         }
 
         if self
-            .is_bridge_session_already_processed(session_op.get_l1_batche_number())
+            .is_bridge_session_already_processed(session_op.get_l1_batch_number())
             .await?
         {
             return Ok(());
@@ -221,7 +221,7 @@ impl ViaWithdrawalVerifier {
             if !self.session_manager.verify_message(&session_op).await? {
                 METRICS
                     .session_invalid_message
-                    .set(session_op.get_l1_batche_number() as usize);
+                    .set(session_op.get_l1_batch_number() as usize);
                 anyhow::bail!("Invalid session message");
             }
 
@@ -237,7 +237,7 @@ impl ViaWithdrawalVerifier {
 
             METRICS
                 .session_last_valid_session
-                .set(session_op.get_l1_batche_number() as usize);
+                .set(session_op.get_l1_batch_number() as usize);
         }
 
         Ok(())
