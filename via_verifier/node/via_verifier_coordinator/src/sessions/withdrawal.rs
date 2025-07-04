@@ -3,7 +3,7 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 use anyhow::{Context, Ok};
 use axum::async_trait;
 use bitcoin::{hashes::Hash, Address, Amount, TxOut, Txid};
-use via_musig2::transaction_builder::TransactionBuilder;
+use via_musig2::{fee::WithdrawalFeeStrategy, transaction_builder::TransactionBuilder};
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 use via_withdrawal_client::client::WithdrawalClient;
@@ -258,6 +258,8 @@ impl WithdrawalSession {
                 outputs,
                 OP_RETURN_WITHDRAW_PREFIX,
                 vec![proof_txid.as_raw_hash().to_byte_array()],
+                Arc::new(WithdrawalFeeStrategy::new()),
+                None,
             )
             .await
     }
@@ -271,9 +273,33 @@ impl WithdrawalSession {
     ) -> anyhow::Result<bool> {
         let withdrawals = self.withdrawal_client.get_withdrawals(blob_id).await?;
 
+        // Verify the fee used to build the withdrawal transaction.
+        let fee_rate = self
+            .transaction_builder
+            .utxo_manager
+            .get_btc_client()
+            .get_fee_rate(1)
+            .await?;
+
+        // If the difference between the rate used to build the withdrawal and the current fetched rate is ±1, then the rate is considered valid.
+        if (unsigned_tx.fee_rate as i32 - fee_rate as i32).abs() == 1 {
+            tracing::error!(
+                "Invalid session, the fee rate used to build the withdrawal session doesn't match network fee, used_fee_rate {}, network_fee_rate {}",
+                unsigned_tx.fee_rate, fee_rate
+            );
+            return Ok(false);
+        }
+
+        let fee_per_user = unsigned_tx.get_fee_per_user();
+        // Remove small withdrawals, it's possible that there is empty withdrawals.
+        let adjusted_withdrawals = withdrawals
+            .into_iter()
+            .filter(|withdrawal| withdrawal.amount > fee_per_user)
+            .collect::<Vec<WithdrawalRequest>>();
+
         // Group withdrawals by address and sum amounts
         let mut grouped_withdrawals: HashMap<String, Amount> = HashMap::new();
-        for w in &withdrawals {
+        for w in &adjusted_withdrawals {
             let key = w.address.script_pubkey().to_string();
             *grouped_withdrawals.entry(key).or_insert(Amount::ZERO) = grouped_withdrawals
                 .get(&key)
@@ -282,15 +308,7 @@ impl WithdrawalSession {
                 .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
         }
 
-        let len = grouped_withdrawals.len();
-        if len == 0 {
-            tracing::error!(
-                "Invalid session, there are no withdrawals to process, l1 batch: {}",
-                l1_batch_number
-            );
-            return Ok(false);
-        }
-        if len + 2 != unsigned_tx.tx.output.len() {
+        if grouped_withdrawals.len() + 2 != unsigned_tx.tx.output.len() {
             tracing::error!("Invalid unsigned withdrawal tx output lenght");
             return Ok(false);
         }
@@ -304,7 +322,7 @@ impl WithdrawalSession {
             .take(unsigned_tx.tx.output.len().saturating_sub(2))
         {
             let amount = &grouped_withdrawals[&txout.script_pubkey.to_string()];
-            if amount != &txout.value {
+            if *amount - fee_per_user != txout.value {
                 tracing::error!(
                     "Invalid request withdrawal for batch {}, index: {}",
                     l1_batch_number,
