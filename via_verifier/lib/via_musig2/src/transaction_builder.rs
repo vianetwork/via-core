@@ -129,20 +129,24 @@ impl TransactionBuilder {
 
         let txid = unsigned_tx.compute_txid();
 
-        self.utxo_manager
-            .insert_transaction(unsigned_tx.clone())
-            .await;
-
-        debug!("Unsigned created successfully");
-
-        Ok(UnsignedBridgeTx {
-            tx: unsigned_tx,
+        let bridge_tx = UnsignedBridgeTx {
+            tx: unsigned_tx.clone(),
             txid,
             utxos: selected_utxos,
             change_amount,
             fee_rate,
             fee: actual_fee,
-        })
+        };
+
+        // When there are no withdrawal to process due to low value requested by a user. The verifier network will not broadcast it to network,
+        // in this case no need to insert it inside the utxo manager.
+        if !bridge_tx.is_empty() {
+            self.utxo_manager.insert_transaction(unsigned_tx).await;
+        }
+
+        debug!("Unsigned created successfully");
+
+        Ok(bridge_tx)
     }
 
     pub async fn prepare_build_transaction(

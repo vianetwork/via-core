@@ -447,7 +447,7 @@ async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessi
                 OP_RETURN_WITHDRAW_PREFIX,
                 vec![proof_txid.as_raw_hash().to_byte_array()],
                 Arc::new(WithdrawalFeeStrategy::new()),
-                None
+                None,
             )
             .await?
     };

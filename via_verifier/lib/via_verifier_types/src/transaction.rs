@@ -15,7 +15,11 @@ pub struct UnsignedBridgeTx {
 
 impl UnsignedBridgeTx {
     pub fn get_fee_per_user(&self) -> Amount {
-        Amount::from_sat(self.tx.output.len() as u64 - 2)
+        let withdrawals_count = self.tx.output.len() as u64 - 2;
+        if withdrawals_count == 0 {
+            return self.fee;
+        }
+        Amount::from_sat(self.fee.to_sat() / withdrawals_count)
     }
 
     pub fn is_empty(&self) -> bool {

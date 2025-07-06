@@ -322,7 +322,8 @@ impl WithdrawalSession {
             .take(unsigned_tx.tx.output.len().saturating_sub(2))
         {
             let amount = &grouped_withdrawals[&txout.script_pubkey.to_string()];
-            if *amount - fee_per_user != txout.value {
+            let user_should_receive = *amount - fee_per_user;
+            if user_should_receive != txout.value {
                 tracing::error!(
                     "Invalid request withdrawal for batch {}, index: {}",
                     l1_batch_number,

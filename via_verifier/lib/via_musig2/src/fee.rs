@@ -19,7 +19,9 @@ pub trait FeeStrategy: Send + Sync {
         let total_size = base_size + input_size + output_size;
         let fee = fee_rate * total_size;
 
-        Ok(Amount::from_sat(fee))
+        let remainder = fee % std::cmp::max(output_count, 1) as u64;
+
+        Ok(Amount::from_sat(fee + remainder))
     }
 
     fn apply_fee_to_inputs(
@@ -86,8 +88,9 @@ impl FeeStrategy for WithdrawalFeeStrategy {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use bitcoin::{Amount, ScriptBuf};
+
+    use super::*;
 
     fn dummy_output(value: Amount) -> TxOut {
         TxOut {
