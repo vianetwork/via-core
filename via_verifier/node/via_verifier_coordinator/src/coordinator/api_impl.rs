@@ -39,6 +39,14 @@ impl RestApi {
                 tracing::debug!("Session in progress {}", current_session.get_session_type());
                 return Ok(ok_json(""));
             }
+
+            if !self_.is_session_timeout().await {
+                tracing::debug!(
+                    "Wait for session timeout {}",
+                    current_session.get_session_type()
+                );
+                return Ok(ok_json(""));
+            }
         }
 
         if let Some(session_op) = self_.session_manager.get_next_session().await? {

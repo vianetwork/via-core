@@ -11,4 +11,5 @@ verifier_request_timeout = 10
 role = "Coordinator"
 # (TEST ONLY) returns the proof verification result.
 test_zk_proof_invalid_l1_batch_numbers = []
-
+# The session timeout (seconds).
+session_timeout = 30

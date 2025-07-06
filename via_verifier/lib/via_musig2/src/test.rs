@@ -1,23 +1,22 @@
 #[cfg(test)]
 mod tests {
-    use crate::fee::WithdrawalFeeStrategy;
-    use crate::transaction_builder::TransactionBuilder;
+    use std::{str::FromStr, sync::Arc};
+
     use anyhow::Result;
     use async_trait::async_trait;
-    use bitcoin::secp256k1::{Secp256k1, SecretKey};
     use bitcoin::{
-        hashes::Hash, Address, Amount, CompressedPublicKey, Network, NetworkKind, OutPoint,
-        PrivateKey, ScriptBuf, Transaction, TxOut, Txid,
+        hashes::Hash,
+        secp256k1::{Secp256k1, SecretKey},
+        Address, Amount, CompressedPublicKey, Network, NetworkKind, OutPoint, PrivateKey,
+        ScriptBuf, Transaction, TxOut, Txid,
     };
     use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
-    use rand::rngs::OsRng;
-    use rand::RngCore;
-    use std::str::FromStr;
-    use std::sync::Arc;
-    use via_btc_client::traits::BitcoinOps;
-    use via_btc_client::types::BitcoinError;
+    use rand::{rngs::OsRng, RngCore};
+    use via_btc_client::{traits::BitcoinOps, types::BitcoinError};
     use via_verifier_types::transaction::UnsignedBridgeTx;
+
+    use crate::{fee::WithdrawalFeeStrategy, transaction_builder::TransactionBuilder};
 
     mock! {
         BitcoinOpsService {}

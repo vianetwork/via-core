@@ -74,8 +74,8 @@ async function depositWithOpReturn(
         `cargo run --example deposit_opreturn -- ${amountWithFees} ${receiverL2Address} ${senderPrivateKey} ${network} ${l1RpcUrl} ${rpcUsername} ${rpcPassword}`
     );
 }
-async function withdraw(amount: number, receiverL1Address: string, userL2PrivateKey: string, rpcUrl: string) {
-    if (isNaN(amount)) {
+async function withdraw(amount: string, receiverL1Address: string, userL2PrivateKey: string, rpcUrl: string) {
+    if (isNaN(Number(amount))) {
         console.error('Error: Invalid withdraw amount. Please provide a valid number.');
         return;
     }
@@ -202,7 +202,7 @@ command
 command
     .command('withdraw')
     .description('withdraw BTC to l1')
-    .requiredOption('--amount <amount>', 'amount of BTC to withdraw', parseFloat)
+    .requiredOption('--amount <amount>', 'amount of BTC to withdraw')
     .requiredOption('--receiver-l1-address <receiverL1Address>', 'receiver l1 address')
     .option('--user-private-key <userPrivateKey>', 'user private key', DEFAULT_L2_PRIVATE_KEY)
     .option('--rpc-url <rcpUrl>', 'RPC URL', DEFAULT_L2_RPC_URL)

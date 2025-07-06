@@ -87,6 +87,7 @@ pub struct ViaWithdrawalState {
     pub required_signers: usize,
     pub verifiers_pub_keys: Vec<bitcoin::secp256k1::PublicKey>,
     pub verifier_request_timeout: u8,
+    pub session_timeout: u64,
 }
 
 #[derive(Default, Debug, Clone)]
