@@ -61,34 +61,30 @@ impl FeeStrategy for WithdrawalFeeStrategy {
             }
 
             let fee_per_user = Amount::from_sat(fee.to_sat() / outputs.len() as u64);
-            let mut new_outputs = vec![];
-            let mut new_outputs_with_fee = vec![];
             let mut total_value_needed = Amount::ZERO;
+            let mut valid_outputs_count = 0;
 
             for output in &outputs {
-                if output.value < fee_per_user {
-                    continue; // This output can't pay the fee
+                if output.value >= fee_per_user {
+                    valid_outputs_count += 1;
+                    total_value_needed += output.value - fee_per_user;
+                }
+            }
+
+            if valid_outputs_count == outputs.len() {
+                let mut new_outputs_with_fee = Vec::with_capacity(outputs.len());
+
+                for output in outputs {
+                    new_outputs_with_fee.push(TxOut {
+                        script_pubkey: output.script_pubkey,
+                        value: output.value - fee_per_user,
+                    });
                 }
 
-                let value = output.value - fee_per_user;
-                new_outputs_with_fee.push(TxOut {
-                    script_pubkey: output.script_pubkey.clone(),
-                    value,
-                });
-                new_outputs.push(TxOut {
-                    script_pubkey: output.script_pubkey.clone(),
-                    value: output.value,
-                });
-                total_value_needed += value
+                return Ok((new_outputs_with_fee, fee, total_value_needed));
             }
 
-            if new_outputs.len() != outputs.len() {
-                // Output set has changed, need to re-estimate fee
-                outputs = new_outputs;
-                continue;
-            }
-
-            return Ok((new_outputs_with_fee, fee, total_value_needed));
+            outputs.retain(|output| output.value >= fee_per_user);
         }
     }
 }
