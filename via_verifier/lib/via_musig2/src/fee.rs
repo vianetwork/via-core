@@ -31,7 +31,7 @@ pub trait FeeStrategy: Send + Sync {
         Ok(Amount::from_sat(adjusted_fee))
     }
 
-    fn apply_fee_to_inputs(
+    fn apply_fee_to_outputs(
         &self,
         outputs: Vec<TxOut>,
         input_count: u32,
@@ -48,7 +48,7 @@ impl WithdrawalFeeStrategy {
 }
 
 impl FeeStrategy for WithdrawalFeeStrategy {
-    fn apply_fee_to_inputs(
+    fn apply_fee_to_outputs(
         &self,
         mut outputs: Vec<TxOut>,
         input_count: u32,
@@ -116,7 +116,7 @@ mod tests {
         let fee_rate = 2;
 
         let (adjusted_outputs, fee, _) = strategy
-            .apply_fee_to_inputs(outputs.clone(), input_count, fee_rate)
+            .apply_fee_to_outputs(outputs.clone(), input_count, fee_rate)
             .expect("fee application failed");
 
         assert_eq!(adjusted_outputs.len(), 2);
@@ -149,7 +149,7 @@ mod tests {
         let fee_rate = 10;
 
         let (adjusted_outputs, fee, _) = strategy
-            .apply_fee_to_inputs(outputs.clone(), input_count, fee_rate)
+            .apply_fee_to_outputs(outputs.clone(), input_count, fee_rate)
             .expect("fee application failed");
 
         // One output should be removed
@@ -176,7 +176,7 @@ mod tests {
         let fee_rate = 100;
 
         let (adjusted_outputs, fee, total_value_needed) = strategy
-            .apply_fee_to_inputs(outputs.clone(), input_count, fee_rate)
+            .apply_fee_to_outputs(outputs.clone(), input_count, fee_rate)
             .expect("fee application failed");
         let expected_fee = strategy
             .estimate_fee(input_count, adjusted_outputs.len() as u32, fee_rate)
@@ -198,7 +198,7 @@ mod tests {
         let fee_rate = 0;
 
         let (adjusted_outputs, fee, _) = strategy
-            .apply_fee_to_inputs(outputs.clone(), input_count, fee_rate)
+            .apply_fee_to_outputs(outputs.clone(), input_count, fee_rate)
             .expect("fee application failed");
 
         assert_eq!(adjusted_outputs.len(), 2);
@@ -233,7 +233,7 @@ mod tests {
         struct MockFeeEstimator;
 
         impl FeeStrategy for MockFeeEstimator {
-            fn apply_fee_to_inputs(
+            fn apply_fee_to_outputs(
                 &self,
                 _: Vec<TxOut>,
                 _: u32,

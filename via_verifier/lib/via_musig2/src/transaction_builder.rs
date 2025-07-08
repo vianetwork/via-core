@@ -173,7 +173,7 @@ impl TransactionBuilder {
 
         // Apply the fee to the outputs.
         let (new_adjusted_outputs, fee, adjusted_total_value_needed) = fee_strategy
-            .apply_fee_to_inputs(
+            .apply_fee_to_outputs(
                 adjusted_outputs.clone(),
                 selected_utxos.len() as u32,
                 fee_rate,
