@@ -19,9 +19,16 @@ pub trait FeeStrategy: Send + Sync {
         let total_size = base_size + input_size + output_size;
         let fee = fee_rate * total_size;
 
-        let remainder = fee % std::cmp::max(output_count, 1) as u64;
+        // Ensure fee is divisible by output_count to avoid decimals when splitting
+        let output_count_u64 = std::cmp::max(output_count, 1) as u64;
+        let remainder = fee % output_count_u64;
+        let adjusted_fee = if remainder == 0 {
+            fee
+        } else {
+            fee + (output_count_u64 - remainder)
+        };
 
-        Ok(Amount::from_sat(fee + remainder))
+        Ok(Amount::from_sat(adjusted_fee))
     }
 
     fn apply_fee_to_inputs(
@@ -198,5 +205,76 @@ mod tests {
         assert_eq!(adjusted_outputs[0].value, amount1);
         assert_eq!(adjusted_outputs[1].value, amount2);
         assert_eq!(fee.to_sat(), 0);
+    }
+
+    #[test]
+    fn test_estimate_fee_multiple_cases() {
+        // Test cases: (input_count, output_count, fee_rate, expected_fee)
+        let test_cases = vec![
+            // Case 1: Fee already divisible
+            (2, 3, 10, 4761), // 476 bytes * 10 = 4760, remainder 2, adjusted to 4761
+            // Case 2: Fee needs adjustment
+            (1, 4, 15, 5432), // 362 bytes * 15 = 5430, remainder 2, adjusted to 5432
+            // Case 3: Single output (edge case)
+            (1, 1, 20, 5200), // 260 bytes * 20 = 5200, remainder 0, no adjustment
+            // Case 4: Perfect divisibility
+            (3, 5, 8, 5540), // 692 bytes * 8 = 5536, remainder 1, adjusted to 5540
+            // Case 5: High fee rate scenario
+            (2, 7, 50, 30604), // 612 bytes * 50 = 30600, remainder 3, adjusted to 30604
+            // Case 6: Zero outputs (edge case - should use max(1))
+            (1, 0, 10, 2260), // 260 bytes * 10 = 2260, remainder 0, no adjustment
+            // Case 7: Large number of inputs and outputs
+            (5, 10, 25, 28950), // 1158 bytes * 25 = 28950, remainder 0, no adjustment
+            // Case 8: Minimum fee rate
+            (1, 2, 1, 294), // 294 bytes * 1 = 294, remainder 0, no adjustment
+        ];
+
+        // Mock struct for testing (replace with your actual struct)
+        struct MockFeeEstimator;
+
+        impl FeeStrategy for MockFeeEstimator {
+            fn apply_fee_to_inputs(
+                &self,
+                _: Vec<TxOut>,
+                _: u32,
+                _: u64,
+            ) -> anyhow::Result<(Vec<TxOut>, Amount, Amount)> {
+                Ok((vec![], Amount::ZERO, Amount::ZERO))
+            }
+        }
+
+        let estimator = MockFeeEstimator;
+
+        for (i, (input_count, output_count, fee_rate, expected_fee)) in
+            test_cases.iter().enumerate()
+        {
+            let result = estimator.estimate_fee(*input_count, *output_count, *fee_rate);
+
+            assert!(
+                result.is_ok(),
+                "Test case {} failed: estimate_fee returned error: {:?}",
+                i + 1,
+                result.err()
+            );
+
+            let actual_fee = result.unwrap().to_sat();
+            assert_eq!(
+                actual_fee, *expected_fee,
+                "Test case {} failed: input_count={}, output_count={}, fee_rate={}, expected={}, actual={}",
+                i + 1, input_count, output_count, fee_rate, expected_fee, actual_fee
+            );
+
+            // Verify the fee is divisible by output_count (unless output_count is 0)
+            if *output_count > 0 {
+                assert_eq!(
+                    actual_fee % (*output_count as u64),
+                    0,
+                    "Test case {} failed: fee {} is not divisible by output_count {}",
+                    i + 1,
+                    actual_fee,
+                    output_count
+                );
+            }
+        }
     }
 }
