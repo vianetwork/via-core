@@ -291,15 +291,10 @@ impl WithdrawalSession {
         }
 
         let fee_per_user = unsigned_tx.get_fee_per_user();
-        // Remove small withdrawals, it's possible that there is empty withdrawals.
-        let adjusted_withdrawals = withdrawals
-            .into_iter()
-            .filter(|withdrawal| withdrawal.amount > fee_per_user)
-            .collect::<Vec<WithdrawalRequest>>();
 
         // Group withdrawals by address and sum amounts
         let mut grouped_withdrawals: HashMap<String, Amount> = HashMap::new();
-        for w in &adjusted_withdrawals {
+        for w in &withdrawals {
             let key = w.address.script_pubkey().to_string();
             *grouped_withdrawals.entry(key).or_insert(Amount::ZERO) = grouped_withdrawals
                 .get(&key)
@@ -308,7 +303,14 @@ impl WithdrawalSession {
                 .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
         }
 
-        if grouped_withdrawals.len() + 2 != unsigned_tx.tx.output.len() {
+        // Remove small withdrawals, it's possible that there is empty withdrawals.
+        let adjusted_withdrawals: HashMap<String, Amount> = grouped_withdrawals
+            .into_iter()
+            .filter(|(_, amount)| *amount > fee_per_user)
+            .map(|(address, amount)| (address.to_string(), amount))
+            .collect();
+
+        if adjusted_withdrawals.len() + 2 != unsigned_tx.tx.output.len() {
             tracing::error!("Invalid unsigned withdrawal tx output lenght");
             return Ok(false);
         }
@@ -321,7 +323,7 @@ impl WithdrawalSession {
             .enumerate()
             .take(unsigned_tx.tx.output.len().saturating_sub(2))
         {
-            let amount = &grouped_withdrawals[&txout.script_pubkey.to_string()];
+            let amount = &adjusted_withdrawals[&txout.script_pubkey.to_string()];
             let user_should_receive = *amount - fee_per_user;
             if user_should_receive != txout.value {
                 tracing::error!(
