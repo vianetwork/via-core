@@ -59,13 +59,12 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                     continue;
                 }
 
-                let serial_id = next_expected_priority_id;
                 let block = self
                     .client
                     .get_block_stats(u64::from(l1_to_l2_msg.common.block_height))
                     .await?;
                 let Some(l1_tx) =
-                    self.create_l1_tx_from_message(block.time, tx_id, serial_id, &l1_to_l2_msg)
+                    self.create_l1_tx_from_message(block.time, tx_id, &l1_to_l2_msg)?
                 else {
                     tracing::warn!("Invalid deposit, l1 tx_id {}", &l1_to_l2_msg.common.tx_id);
                     continue;
@@ -91,15 +90,21 @@ impl L1ToL2MessageProcessor {
         &self,
         block_time: u64,
         tx_id: H256,
-        serial_id: PriorityOpId,
         msg: &L1ToL2Message,
-    ) -> Option<Deposit> {
+    ) -> anyhow::Result<Option<Deposit>> {
         let deposit = ViaL1Deposit {
             l2_receiver_address: msg.input.receiver_l2_address.clone(),
             amount: msg.amount.to_sat().clone(),
             calldata: msg.input.call_data.clone(),
-            serial_id,
             l1_block_number: msg.common.block_height.clone() as u64,
+            tx_index: msg
+                .common
+                .tx_index
+                .ok_or_else(|| anyhow::anyhow!("deposit missing tx_index"))?,
+            output_vout: msg
+                .common
+                .output_vout
+                .ok_or_else(|| anyhow::anyhow!("deposit missing output_vout"))?,
         };
 
         if let Some(l1_tx) = deposit.l1_tx() {
@@ -116,8 +121,8 @@ impl L1ToL2MessageProcessor {
                 None => "".into(),
             };
 
-            return Some(Deposit {
-                priority_id: serial_id.0 as i64,
+            return Ok(Some(Deposit {
+                priority_id: deposit.priority_id().0 as i64,
                 tx_id: tx_id.as_bytes().to_vec(),
                 sender,
                 receiver: format!(
@@ -129,8 +134,8 @@ impl L1ToL2MessageProcessor {
                 calldata: deposit.calldata,
                 canonical_tx_hash: l1_tx.common_data.canonical_tx_hash.0.into(),
                 block_timestamp: block_time,
-            });
+            }));
         }
-        None
+        Ok(None)
     }
 }
