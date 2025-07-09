@@ -8,7 +8,7 @@ pub use bitcoin::{
 };
 use bitcoin::{
     hashes::FromSliceError, script::PushBytesBuf, taproot::Signature as TaprootSignature, Amount,
-    OutPoint, TxIn, TxOut, Txid,
+    OutPoint, Transaction, TxIn, TxOut, Txid,
 };
 pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
@@ -74,6 +74,8 @@ pub struct CommonFields {
     pub encoded_public_key: PushBytesBuf,
     pub block_height: u32,
     pub tx_id: Txid,
+    pub tx_index: Option<usize>,
+    pub output_vout: Option<usize>,
     pub p2wpkh_address: Option<BitcoinAddress>,
 }
 
@@ -369,6 +371,27 @@ pub enum IndexerError {
     BitcoinClientError(#[from] BitcoinError),
     #[error("Tx_id parsing error: {0}")]
     TxIdParsingError(#[from] FromSliceError),
+}
+
+#[derive(Debug, Clone)]
+pub struct TransactionWithMetadata {
+    pub tx: Transaction,
+    pub tx_index: usize,
+    pub output_vout: Option<usize>,
+}
+
+impl TransactionWithMetadata {
+    pub fn new(tx: Transaction, tx_index: usize) -> Self {
+        Self {
+            tx,
+            tx_index,
+            output_vout: None,
+        }
+    }
+
+    pub fn set_output_vout(&mut self, output_vout: usize) {
+        self.output_vout = Some(output_vout);
+    }
 }
 
 pub type BitcoinIndexerResult<T> = std::result::Result<T, IndexerError>;

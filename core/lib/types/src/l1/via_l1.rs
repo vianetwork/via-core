@@ -27,8 +27,9 @@ pub struct ViaL1Deposit {
     pub l2_receiver_address: Address,
     pub amount: u64,
     pub calldata: Vec<u8>,
-    pub serial_id: PriorityOpId,
     pub l1_block_number: u64,
+    pub tx_index: usize,
+    pub output_vout: usize,
 }
 
 impl ViaL1Deposit {
@@ -52,6 +53,18 @@ impl ViaL1Deposit {
     fn value(&self) -> U256 {
         U256::from(self.amount) * U256::from(MANTISSA)
     }
+
+    pub fn priority_id(&self) -> PriorityOpId {
+        // 28 bits for block (268M blocks = 5,100 years when block time = 10min)
+        // 24 bits for tx_index (16M transactions per block)
+        // 12 bits for vout (4,096 outputs per transaction)
+
+        PriorityOpId(
+            ((self.l1_block_number as u64 & 0xFFFFFFF) << 36)
+                | ((self.tx_index as u64 & 0xFFFFFF) << 12)
+                | (self.output_vout as u64 & 0xFFF),
+        )
+    }
 }
 
 impl From<ViaL1Deposit> for L1Tx {
@@ -67,7 +80,7 @@ impl From<ViaL1Deposit> for L1Tx {
             max_fee_per_gas: U256::from(MAX_FEE_PER_GAS),
             max_priority_fee_per_gas: U256::zero(),
             paymaster: U256::zero(),
-            nonce: deposit.serial_id.0.into(),
+            nonce: deposit.priority_id().0.into(),
             value: U256::zero(),
             reserved: [
                 value,
@@ -91,7 +104,7 @@ impl From<ViaL1Deposit> for L1Tx {
             },
             common_data: L1TxCommonData {
                 sender: deposit.l2_receiver_address,
-                serial_id: deposit.serial_id,
+                serial_id: deposit.priority_id(),
                 layer_2_tip_fee: U256::zero(),
                 full_fee: U256::zero(),
                 max_fee_per_gas: U256::from(MAX_FEE_PER_GAS),

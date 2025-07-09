@@ -13,7 +13,8 @@ use crate::{
     client::BitcoinClient,
     traits::BitcoinOps,
     types::{
-        self, BitcoinIndexerResult, BridgeWithdrawal, FullInscriptionMessage, L1ToL2Message, Vote,
+        self, BitcoinIndexerResult, BridgeWithdrawal, FullInscriptionMessage, L1ToL2Message,
+        TransactionWithMetadata, Vote,
     },
 };
 
@@ -157,7 +158,7 @@ impl BitcoinInscriptionIndexer {
         if let Some(system_tx) = system_tx {
             let parsed_messages: Vec<_> = system_tx
                 .iter()
-                .flat_map(|tx| self.parser.parse_system_transaction(tx, block_height))
+                .flat_map(|tx| self.parser.parse_system_transaction(&tx.tx, block_height))
                 .collect();
 
             let messages: Vec<_> = parsed_messages
@@ -168,9 +169,9 @@ impl BitcoinInscriptionIndexer {
             valid_messages.extend(messages);
         }
 
-        if let Some(bridge_tx) = bridge_tx {
+        if let Some(mut bridge_tx) = bridge_tx {
             let parsed_messages: Vec<_> = bridge_tx
-                .iter()
+                .iter_mut()
                 .flat_map(|tx| self.parser.parse_bridge_transaction(tx, block_height))
                 .collect();
 
@@ -196,35 +197,46 @@ impl BitcoinInscriptionIndexer {
         &self,
         transactions: &[BitcoinTransaction],
     ) -> (
-        Option<Vec<BitcoinTransaction>>,
-        Option<Vec<BitcoinTransaction>>,
+        Option<Vec<TransactionWithMetadata>>,
+        Option<Vec<TransactionWithMetadata>>,
     ) {
         // We only care about the transactions that sequencer, verifiers are sending and the bridge is receiving
-        let system_txs: Vec<BitcoinTransaction> = transactions
+        let system_txs: Vec<TransactionWithMetadata> = transactions
             .iter()
-            .filter(|tx| {
-                tx.input.iter().any(|input| {
+            .enumerate()
+            .filter_map(|(tx_index, tx)| {
+                let is_valid = tx.input.iter().any(|input| {
                     if let Some(btc_address) = self.parser.parse_p2wpkh(&input.witness) {
                         btc_address == self.sequencer_address
                             || self.verifier_addresses.contains(&btc_address)
                     } else {
                         false
                     }
-                })
+                });
+
+                if is_valid {
+                    Some(TransactionWithMetadata::new(tx.clone(), tx_index))
+                } else {
+                    None
+                }
             })
-            .cloned()
             .collect();
 
-        let bridge_txs: Vec<BitcoinTransaction> = transactions
+        let bridge_txs: Vec<TransactionWithMetadata> = transactions
             .iter()
-            .filter(|tx| {
-                // Check if bridge address is in outputs (deposit destination)
-                tx.output.iter().any(|output| {
-                    let script_pubkey = &output.script_pubkey;
-                    script_pubkey == &self.bridge_address.script_pubkey()
-                })
+            .enumerate()
+            .filter_map(|(tx_index, tx)| {
+                let is_bridge_output = tx
+                    .output
+                    .iter()
+                    .any(|output| &output.script_pubkey == &self.bridge_address.script_pubkey());
+
+                if is_bridge_output {
+                    Some(TransactionWithMetadata::new(tx.clone(), tx_index))
+                } else {
+                    None
+                }
             })
-            .cloned()
             .collect();
 
         let system_txs = if !system_txs.is_empty() {
@@ -596,6 +608,8 @@ mod tests {
             block_height: 0,
             tx_id: Txid::all_zeros(),
             p2wpkh_address: Some(get_test_addr()),
+            tx_index: None,
+            output_vout: None,
         }
     }
 
@@ -716,6 +730,8 @@ mod tests {
                     block_height: 0,
                     tx_id: Txid::all_zeros(),
                     p2wpkh_address: Some(get_test_addr()),
+                    tx_index: None,
+                    output_vout: None,
                 },
                 input: types::L1BatchDAReferenceInput {
                     l1_batch_hash: zksync_basic_types::H256::zero(),

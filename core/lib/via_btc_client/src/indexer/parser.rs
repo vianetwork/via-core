@@ -16,7 +16,8 @@ use crate::types::{
     L1BatchDAReference, L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput,
     ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
     SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
-    SystemContractUpgradeInput, ValidatorAttestation, ValidatorAttestationInput, Vote,
+    SystemContractUpgradeInput, TransactionWithMetadata, ValidatorAttestation,
+    ValidatorAttestationInput, Vote,
 };
 
 const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL";
@@ -79,22 +80,30 @@ impl MessageParser {
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
     pub fn parse_bridge_transaction(
         &mut self,
-        tx: &Transaction,
+        tx: &mut TransactionWithMetadata,
         block_height: u32,
     ) -> Vec<FullInscriptionMessage> {
         let mut messages = Vec::new();
 
-        // Find bridge output and amount first
-        let bridge_output = match tx.output.iter().find(|output| {
+        let vout = match tx.tx.output.iter().enumerate().find_map(|(index, output)| {
             if let Some(bridge_addr) = &self.bridge_address {
-                output.script_pubkey == bridge_addr.script_pubkey()
+                if output.script_pubkey == bridge_addr.script_pubkey() {
+                    Some(index)
+                } else {
+                    None
+                }
             } else {
-                false
+                None
             }
         }) {
-            Some(output) => output,
-            None => return messages, // Not a bridge transaction
+            Some(index) => {
+                tx.set_output_vout(index);
+                index
+            }
+            None => return messages,
         };
+
+        let bridge_output = &tx.tx.output[vout];
 
         // Try to parse as inscription-based deposit first
         if let Some(inscription_message) = self.parse_inscription_deposit(tx, block_height) {
@@ -109,7 +118,7 @@ impl MessageParser {
         }
 
         // Try to parse withdrawals processed by the bridge address.
-        if let Some(bridge_withdrawals) = self.parse_op_return_withdrawal(tx, block_height) {
+        if let Some(bridge_withdrawals) = self.parse_op_return_withdrawal(&tx.tx, block_height) {
             messages.push(bridge_withdrawals);
         }
 
@@ -161,6 +170,8 @@ impl MessageParser {
             block_height,
             tx_id: tx.compute_ntxid().into(),
             p2wpkh_address: Some(address),
+            tx_index: None,
+            output_vout: None,
         };
 
         self.parse_system_message(tx, &instructions[via_index..], &common_fields)
@@ -664,11 +675,11 @@ impl MessageParser {
 
     fn parse_inscription_deposit(
         &self,
-        tx: &Transaction,
+        tx: &TransactionWithMetadata,
         block_height: u32,
     ) -> Option<FullInscriptionMessage> {
         // Try to find any witness data that contains a valid inscription
-        for input in tx.input.iter() {
+        for input in tx.tx.input.iter() {
             let witness = &input.witness;
             if witness.len() < MIN_WITNESS_LENGTH {
                 continue;
@@ -689,12 +700,14 @@ impl MessageParser {
                 schnorr_signature: signature,
                 encoded_public_key: PushBytesBuf::from(control_block.internal_key.serialize()),
                 block_height,
-                tx_id: tx.compute_ntxid().into(),
+                tx_id: tx.tx.compute_ntxid().into(),
                 p2wpkh_address,
+                tx_index: Some(tx.tx_index),
+                output_vout: tx.output_vout,
             };
 
             // Parse L1ToL2Message from instructions
-            return self.parse_l1_to_l2_message(tx, &instructions[via_index..], &common_fields);
+            return self.parse_l1_to_l2_message(&tx.tx, &instructions[via_index..], &common_fields);
         }
 
         None
@@ -702,12 +715,13 @@ impl MessageParser {
 
     fn parse_op_return_deposit(
         &self,
-        tx: &Transaction,
+        tx: &TransactionWithMetadata,
         block_height: u32,
         bridge_output: &TxOut,
     ) -> Option<FullInscriptionMessage> {
         // Find OP_RETURN output
         let op_return_output = tx
+            .tx
             .output
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
@@ -735,6 +749,7 @@ impl MessageParser {
 
             // Try to parse p2wpkh address from the first input if possible
             let p2wpkh_address = tx
+                .tx
                 .input
                 .first()
                 .and_then(|input| self.parse_p2wpkh(&input.witness));
@@ -744,15 +759,17 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
-                tx_id: tx.compute_ntxid().into(),
+                tx_id: tx.tx.compute_ntxid().into(),
                 p2wpkh_address,
+                tx_index: Some(tx.tx_index),
+                output_vout: tx.output_vout,
             };
 
             return Some(FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
                 common: common_fields,
                 amount: bridge_output.value,
                 input,
-                tx_outputs: tx.output.clone(),
+                tx_outputs: tx.tx.output.clone(),
             }));
         }
         None
@@ -817,6 +834,8 @@ impl MessageParser {
                 block_height,
                 tx_id: tx.compute_ntxid().into(),
                 p2wpkh_address: None,
+                tx_index: None,
+                output_vout: None,
             };
 
             return Some(FullInscriptionMessage::BridgeWithdrawal(BridgeWithdrawal {
