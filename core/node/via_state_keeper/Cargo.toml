@@ -19,6 +19,7 @@ zksync_dal.workspace = true
 zksync_state.workspace = true
 zksync_storage.workspace = true
 zksync_mempool.workspace = true
+via_mempool.workspace = true
 zksync_shared_metrics.workspace = true
 zksync_config.workspace = true
 zksync_utils.workspace = true
