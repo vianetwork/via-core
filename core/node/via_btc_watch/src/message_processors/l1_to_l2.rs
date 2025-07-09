@@ -5,7 +5,7 @@ use via_btc_client::{
 use zksync_dal::{Connection, Core, CoreDal};
 use zksync_types::{
     l1::{via_l1::ViaL1Deposit, L1Tx},
-    PriorityOpId, H256,
+    H256,
 };
 
 use crate::{
@@ -16,15 +16,11 @@ use crate::{
 #[derive(Debug)]
 pub struct L1ToL2MessageProcessor {
     bridge_address: BitcoinAddress,
-    next_expected_priority_id: PriorityOpId,
 }
 
 impl L1ToL2MessageProcessor {
-    pub fn new(bridge_address: BitcoinAddress, next_expected_priority_id: PriorityOpId) -> Self {
-        Self {
-            bridge_address,
-            next_expected_priority_id,
-        }
+    pub fn new(bridge_address: BitcoinAddress) -> Self {
+        Self { bridge_address }
     }
 }
 
@@ -60,15 +56,12 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                         );
                         continue;
                     }
-                    let serial_id = self.next_expected_priority_id;
-                    let Some(l1_tx) = self.create_l1_tx_from_message(&l1_to_l2_msg, serial_id)
-                    else {
+                    let Some(l1_tx) = self.create_l1_tx_from_message(&l1_to_l2_msg)? else {
                         tracing::warn!("Invalid deposit, l1 tx_id {}", &l1_to_l2_msg.common.tx_id);
                         continue;
                     };
 
                     priority_ops.push((l1_tx, tx_id));
-                    self.next_expected_priority_id = self.next_expected_priority_id.next();
                 }
             }
         }
@@ -95,14 +88,18 @@ impl L1ToL2MessageProcessor {
     fn create_l1_tx_from_message(
         &self,
         msg: &L1ToL2Message,
-        serial_id: PriorityOpId,
-    ) -> Option<L1Tx> {
+    ) -> Result<Option<L1Tx>, MessageProcessorError> {
         let deposit = ViaL1Deposit {
             l2_receiver_address: msg.input.receiver_l2_address,
             amount: msg.amount.to_sat(),
             calldata: msg.input.call_data.clone(),
-            serial_id,
             l1_block_number: msg.common.block_height as u64,
+            tx_index: msg.common.tx_index.ok_or_else(|| {
+                MessageProcessorError::Internal(anyhow::anyhow!("deposit missing tx_index"))
+            })?,
+            output_vout: msg.common.output_vout.ok_or_else(|| {
+                MessageProcessorError::Internal(anyhow::anyhow!("deposit missing output_vout"))
+            })?,
         };
 
         if let Some(l1_tx) = deposit.l1_tx() {
@@ -113,8 +110,8 @@ impl L1ToL2MessageProcessor {
                 deposit.amount,
                 l1_tx.common_data.canonical_tx_hash,
             );
-            return Some(l1_tx);
+            return Ok(Some(l1_tx));
         }
-        None
+        Ok(None)
     }
 }

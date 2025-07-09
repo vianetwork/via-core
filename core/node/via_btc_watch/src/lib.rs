@@ -8,7 +8,6 @@ pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::BitcoinAddress};
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::PriorityOpId;
 
 use self::message_processors::{
     L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError, VotableMessageProcessor,
@@ -17,7 +16,6 @@ use self::message_processors::{
 #[derive(Debug)]
 struct BtcWatchState {
     last_processed_bitcoin_block: u32,
-    next_expected_priority_id: PriorityOpId,
 }
 
 #[derive(Debug)]
@@ -61,10 +59,7 @@ impl BtcWatch {
             Box::new(GovernanceUpgradesEventProcessor::new(
                 protocol_semantic_version,
             )),
-            Box::new(L1ToL2MessageProcessor::new(
-                bridge_address,
-                state.next_expected_priority_id,
-            )),
+            Box::new(L1ToL2MessageProcessor::new(bridge_address)),
             Box::new(VotableMessageProcessor::new(zk_agreement_threshold)),
         ];
 
@@ -95,16 +90,8 @@ impl BtcWatch {
             last_processed_bitcoin_block = start_l1_block_number - 1;
         }
 
-        let next_expected_priority_id = storage
-            .via_transactions_dal()
-            .last_priority_id()
-            .await?
-            .map(|id| id + 1)
-            .unwrap_or(PriorityOpId(0));
-
         Ok(BtcWatchState {
             last_processed_bitcoin_block,
-            next_expected_priority_id,
         })
     }
 
