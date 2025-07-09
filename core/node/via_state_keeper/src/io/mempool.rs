@@ -8,10 +8,10 @@ use std::{
 use anyhow::Context as _;
 use async_trait::async_trait;
 use via_fee_model::BatchFeeModelInputProvider;
+use via_mempool::L2TxFilter;
 use zksync_config::configs::chain::StateKeeperConfig;
 use zksync_contracts::BaseSystemContracts;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
-use via_mempool::L2TxFilter;
 use zksync_multivm::{interface::Halt, utils::derive_base_fee_and_gas_per_pubdata};
 use zksync_types::{
     protocol_upgrade::ProtocolUpgradeTx, utils::display_timestamp, Address, L1BatchNumber,
