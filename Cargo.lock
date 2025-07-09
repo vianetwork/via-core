@@ -9827,6 +9827,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_mempool"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_musig2"
 version = "0.1.0"
 dependencies = [
@@ -9901,6 +9909,7 @@ dependencies = [
  "tracing",
  "via_btc_client",
  "via_fee_model",
+ "via_mempool",
  "vise",
  "zksync_config",
  "zksync_contracts",
