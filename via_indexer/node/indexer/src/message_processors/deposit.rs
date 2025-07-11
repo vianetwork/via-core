@@ -10,7 +10,7 @@ use via_btc_client::{
     },
 };
 use via_indexer_dal::{models::deposit::Deposit, Connection, Indexer, IndexerDal};
-use zksync_types::{l1::via_l1::ViaL1Deposit, PriorityOpId, H256};
+use zksync_types::{l1::via_l1::ViaL1Deposit, H256};
 
 use crate::message_processors::MessageProcessor;
 
@@ -34,12 +34,6 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         _: &mut BitcoinInscriptionIndexer,
     ) -> anyhow::Result<()> {
         let mut deposits = Vec::new();
-        let last_priority_id = storage
-            .via_transactions_dal()
-            .get_last_priority_id()
-            .await?;
-
-        let mut next_expected_priority_id = PriorityOpId::from(last_priority_id as u64);
 
         for msg in msgs {
             if let FullInscriptionMessage::L1ToL2Message(l1_to_l2_msg) = msg {
@@ -71,8 +65,6 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                 };
 
                 deposits.push(l1_tx);
-
-                next_expected_priority_id = next_expected_priority_id.next();
             }
         }
 
