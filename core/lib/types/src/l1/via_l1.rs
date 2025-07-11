@@ -4,7 +4,9 @@ use zksync_basic_types::{Address, PriorityOpId, H160, U256};
 use zksync_system_constants::REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE;
 use zksync_utils::address_to_u256;
 
-use super::{L1Tx, L1TxCommonData, OpProcessingType, PriorityQueueType};
+use super::{
+    priority_id::ViaPriorityOpId, L1Tx, L1TxCommonData, OpProcessingType, PriorityQueueType,
+};
 use crate::{
     abi::L2CanonicalTransaction, helpers::unix_timestamp_ms, Execute, PRIORITY_OPERATION_L2_TX_TYPE,
 };
@@ -55,14 +57,13 @@ impl ViaL1Deposit {
     }
 
     pub fn priority_id(&self) -> PriorityOpId {
-        // 28 bits for block (268M blocks = 5,100 years when block time = 10min)
-        // 24 bits for tx_index (16M transactions per block)
-        // 12 bits for vout (4,096 outputs per transaction)
-
         PriorityOpId(
-            ((self.l1_block_number as u64 & 0xFFFFFFF) << 36)
-                | ((self.tx_index as u64 & 0xFFFFFF) << 12)
-                | (self.output_vout as u64 & 0xFFF),
+            ViaPriorityOpId::new(
+                self.l1_block_number,
+                self.tx_index as u64,
+                self.output_vout as u64,
+            )
+            .raw(),
         )
     }
 }
