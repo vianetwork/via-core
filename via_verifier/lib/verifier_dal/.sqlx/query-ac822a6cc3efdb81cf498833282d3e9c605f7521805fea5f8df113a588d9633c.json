@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE via_votable_transactions\n            SET\n                bridge_tx_id = $1,\n                updated_at = Now()\n            WHERE\n                l1_batch_number = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ac822a6cc3efdb81cf498833282d3e9c605f7521805fea5f8df113a588d9633c"
+}
