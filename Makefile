@@ -32,6 +32,8 @@ else ifeq ($(CMD), via-indexer)
 	MODE := indexer
 else ifeq ($(CMD), via-restart-indexer)
 	VIA_ENV := via_indexer
+else ifeq ($(CMD), via-ext-node)
+	VIA_ENV := via_ext_node
 endif
 
 # Default target: Show help message
@@ -104,9 +106,13 @@ via-restart-coordinator: env-soft verifier
 .PHONY: via-indexer
 via-indexer: base l1-indexer
 
-# Restart the coordinator
+# Restart the L1 indexer
 .PHONY: via-restart-indexer
 via-restart-indexer: env-soft l1-indexer
+
+# Run the external node
+.PHONY: via-external-node
+via-external-node: setup-external-node
 
 # Run minimal required setup
 .PHONY: base
@@ -268,6 +274,14 @@ l1-indexer:
 	@echo "$(YELLOW)Running the L1 indexer software...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) indexer
+
+# Run 'via setup-external-node'
+.PHONY: setup-external-node
+setup-external-node:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Configuring the external node...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) setup-external-node
 
 # Require 'to_batch' args as input, ex: `make rollback to_batch=2`
 .PHONY: rollback

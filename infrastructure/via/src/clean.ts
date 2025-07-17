@@ -38,7 +38,7 @@ export const command = new Command('clean')
         }
 
         if (cmd.all || cmd.database) {
-            const dbPaths = process.env.VIA_ENV?.startsWith('ext-node')
+            const dbPaths = process.env.VIA_ENV?.startsWith('via_ext_node')
                 ? [process.env.EN_MERKLE_TREE_PATH!]
                 : [process.env.DATABASE_STATE_KEEPER_DB_PATH!, process.env.DATABASE_MERKLE_TREE_PATH!];
             for (const dbPath of dbPaths) {

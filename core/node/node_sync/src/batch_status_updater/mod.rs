@@ -212,6 +212,10 @@ impl UpdaterCursor {
         let Some(l1_tx_hash) = l1_tx_hash else {
             return Ok(());
         };
+        // via server returns zero hash instead of None
+        if l1_tx_hash == H256::zero() {
+            return Ok(());
+        }
         if batch_info.l1_batch_number != last_l1_batch.next() {
             return Ok(());
         }

@@ -9,25 +9,25 @@ zksync_action = "dont_ask"
 
 [en]
 main_node_url = "https://sepolia.era.zksync.dev"
-pruning_data_retention_hours = 1
-snapshots_recovery_enabled = true
+pruning_data_retention_hours = 24
+snapshots_recovery_enabled = false
 http_port = 3060
 ws_port = 3061
 prometheus_port = 3322
 healthcheck_port = 3081
 threads_per_server = 128
-l2_chain_id = 270
-l1_chain_id = 9
+l2_chain_id = 25223
+l1_chain_id = 11155111
 
 req_entities_limit = 10000
 
-state_cache_path = "./db/ext-node/state_keeper"
-merkle_tree_path = "./db/ext-node/lightweight"
+state_cache_path = "./db/via_ext_node/state_keeper"
+merkle_tree_path = "./db/via_ext_node/lightweight"
 max_l1_batches_per_tree_iter = 20
 
 eth_client_url = "https://ethereum-sepolia-rpc.publicnode.com"
 
-api_namespaces = ["eth", "web3", "net", "pubsub", "zks", "en", "debug"]
+api_namespaces = ["via", "eth", "web3", "net", "pubsub", "zks", "en", "debug"]
 
 # Note:
 # `bootloader_hash` and `default_aa_hash` are overridden from the `.init.env` values by `zk` tool.
@@ -47,7 +47,7 @@ slow_query_threshold_ms = 100
 
 [en.snapshots.object_store]
 bucket_base_url = "zksync-era-boojnet-external-node-snapshots"
-mode = "GCSAnonymousReadOnly"
+mode = "FileBacked"
 file_backed_base_path = "artifacts"
 # ^ Intentionally set to coincide with main node's in order to read locally produced snapshots
 
@@ -56,6 +56,40 @@ url = "http://127.0.0.1:3050"
 
 [en.gateway]
 url = "http://127.0.0.1:3052"
+
+
+[via_genesis]
+# The bridge address
+bridge_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
+# The coordinator address
+coordinator_pub_key = "03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b"
+# The verifiers public keys
+verifiers_pub_keys = [
+    "03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b",
+    "02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662",
+]
+# Minimum required signers to finalise a musig2 session
+required_signers = 2
+# Minimum vote threshold to finalise an L1 batch
+zk_agreement_threshold = 0.5
+# The bootstraping inscriptions
+bootstrap_txids = []
+
+[via_btc_client]
+# The btc client user.
+rpc_user = "rpcuser"
+# The btc client password.
+rpc_password = "rpcpassword"
+# Name of the used Bitcoin network
+network = "regtest"
+# The Bitcoin RPC URL.
+rpc_url = "http://0.0.0.0:18443"
+# External fee APIs
+external_apis = ["https://mempool.space/testnet/api/v1/fees/recommended"]
+# Fee strategies
+fee_strategies = ["fastestFee"]
+# Use RPC to get the fee rate
+use_rpc_for_fee_rate = true
 
 [rust]
 # `RUST_LOG` environment variable for `env_logger`
@@ -81,7 +115,7 @@ zksync_merkle_tree=info,\
 zksync_node_api_server=info,\
 zksync_node_db_pruner=info,\
 zksync_reorg_detector=info,\
-zksync_consistency_checker=info,\
+via_consistency_checker=info,\
 zksync_state=debug,\
 zksync_utils=debug,\
 zksync_types=info,\
