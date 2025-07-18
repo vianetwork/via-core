@@ -229,7 +229,7 @@ impl BitcoinInscriptionIndexer {
                 let is_bridge_output = tx
                     .output
                     .iter()
-                    .any(|output| &output.script_pubkey == &self.bridge_address.script_pubkey());
+                    .any(|output| output.script_pubkey == self.bridge_address.script_pubkey());
 
                 if is_bridge_output {
                     Some(TransactionWithMetadata::new(tx.clone(), tx_index))

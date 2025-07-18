@@ -91,7 +91,7 @@ async function changeConfigKey(env: string, key: string, newValue: string | numb
 }
 
 async function clearIfNeeded() {
-    const filePath = path.join(path.join(process.env.VIA_HOME as string, `etc/env/ext-node.env`));
+    const filePath = path.join(path.join(process.env.VIA_HOME as string, `etc/env/target/via_ext_node.env`));
     if (!fs.existsSync(filePath)) {
         return true;
     }
@@ -108,8 +108,8 @@ async function clearIfNeeded() {
         return false;
     }
     const cmd = chalk.yellow;
-    console.log(`cleaning up database (${cmd('via clean --config ext-node --database')})`);
-    await utils.exec('via clean --config ext-node --database');
+    console.log(`cleaning up database (${cmd('via clean --config via_ext_node --database')})`);
+    await utils.exec('via clean --config via_ext_node --database');
     console.log(`cleaning up db (${cmd('via db drop')})`);
     await utils.exec('via db drop');
     return true;
@@ -146,21 +146,16 @@ async function configExternalNode() {
     console.log(`Changing active env to via_ext_node (${cmd('via env via_ext_node')})`);
     setEnv('via_ext_node');
 
-    const cleaningSucceeded = await clearIfNeeded();
-    if (!cleaningSucceeded) {
-        console.log(failure('Cleanup not allowed, but needed to proceed, exiting!'));
-        return;
-    }
+    await clearIfNeeded();
     const env = await selectEnvironment();
 
     const retention = await selectDataRetentionDurationHours();
     await commentOutConfigKey('via_ext_node', 'template_database_url');
     await changeConfigKey('via_ext_node', 'mode', 'GCSAnonymousReadOnly', 'en.snapshots.object_store');
-    await changeConfigKey('via_ext_node', 'snapshots_recovery_enabled', false, 'en');
     if (retention !== null) {
-        await changeConfigKey('ext-node', 'pruning_data_retention_hours', retention, 'en');
+        await changeConfigKey('via_ext_node', 'pruning_data_retention_hours', retention, 'en');
     } else {
-        await removeConfigKey('ext-node', 'pruning_data_retention_hours');
+        await removeConfigKey('via_ext_node', 'pruning_data_retention_hours');
     }
 
     let network = 'regtest';
@@ -197,21 +192,8 @@ async function configExternalNode() {
             network = 'testnet';
             break;
         case Environment.Local:
-            await changeConfigKey('via_ext_node', 'l1_chain_id', 9, 'en');
             await changeConfigKey('via_ext_node', 'l2_chain_id', 25223, 'en');
-            await changeConfigKey('via_ext_node', 'main_node_url', 'https://sepolia.era.zksync.dev', 'en');
-            await changeConfigKey(
-                'via_ext_node',
-                'eth_client_url',
-                'https://ethereum-sepolia-rpc.publicnode.com',
-                'en'
-            );
-            await changeConfigKey(
-                'via_ext_node',
-                'bucket_base_url',
-                'zksync-era-boojnet-external-node-snapshots',
-                'en.snapshots.object_store'
-            );
+            await changeConfigKey('via_ext_node', 'mode', 'FileBacked', 'en.snapshots.object_store_mode');
             break;
     }
     compileConfig('via_ext_node');
@@ -219,9 +201,7 @@ async function configExternalNode() {
     console.log(`Setting up postgres (${cmd('via db setup')})`);
     await setupDb({ prover: false, core: true, verifier: false, indexer: false });
     await updateBootstrapTxidsEnv(network);
-
-    // console.log(`${success('Everything done!')} You can now run your external node using ${cmd('via external-node')}`);
-    // await runEnIfAskedTo();
+    await runEnIfAskedTo();
 }
 
 export const command = new Command('setup-external-node')

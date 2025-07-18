@@ -34,8 +34,6 @@ else ifeq ($(CMD), via-restart-indexer)
 	VIA_ENV := via_indexer
 else ifeq ($(CMD), via-ext-node)
 	VIA_ENV := via_ext_node
-else ifeq ($(CMD), via-restart-ext-node)
-	VIA_ENV := via_ext_node
 endif
 
 # Default target: Show help message
@@ -113,12 +111,8 @@ via-indexer: base l1-indexer
 via-restart-indexer: env-soft l1-indexer
 
 # Run the external node
-.PHONY: via-ext-node
-via-ext-node: env setup-ext-node ext-node
-
-# Restart the external node
-.PHONY: via-restart-ext-node
-via-restart-ext-node: env-soft ext-node
+.PHONY: via-external-node
+via-external-node: setup-external-node
 
 # Run minimal required setup
 .PHONY: base
@@ -281,21 +275,13 @@ l1-indexer:
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) indexer
 
-# Run 'via setup-ext-node'
-.PHONY: setup-ext-node
-setup-ext-node:
+# Run 'via setup-external-node'
+.PHONY: setup-external-node
+setup-external-node:
 	@echo "------------------------------------------------------------------------------------"
-	@echo "$(YELLOW)Setup the external node software...$(RESET)"
+	@echo "$(YELLOW)Configuring the external node...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) setup-external-node
-
-# Run 'via ext-node'
-.PHONY: ext-node
-ext-node:
-	@echo "------------------------------------------------------------------------------------"
-	@echo "$(YELLOW)Running the external node software...$(RESET)"
-	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) external-node
 
 # Require 'to_batch' args as input, ex: `make rollback to_batch=2`
 .PHONY: rollback

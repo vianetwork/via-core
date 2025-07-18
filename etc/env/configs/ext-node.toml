@@ -9,7 +9,7 @@ zksync_action = "dont_ask"
 
 [en]
 main_node_url = "https://sepolia.era.zksync.dev"
-pruning_data_retention_hours = "forever"
+pruning_data_retention_hours = 1
 snapshots_recovery_enabled = true
 http_port = 3060
 ws_port = 3061
