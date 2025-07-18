@@ -4,7 +4,9 @@ use zksync_basic_types::{Address, PriorityOpId, H160, U256};
 use zksync_system_constants::REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE;
 use zksync_utils::address_to_u256;
 
-use super::{L1Tx, L1TxCommonData, OpProcessingType, PriorityQueueType};
+use super::{
+    priority_id::ViaPriorityOpId, L1Tx, L1TxCommonData, OpProcessingType, PriorityQueueType,
+};
 use crate::{
     abi::L2CanonicalTransaction, helpers::unix_timestamp_ms, Execute, PRIORITY_OPERATION_L2_TX_TYPE,
 };
@@ -27,8 +29,9 @@ pub struct ViaL1Deposit {
     pub l2_receiver_address: Address,
     pub amount: u64,
     pub calldata: Vec<u8>,
-    pub serial_id: PriorityOpId,
     pub l1_block_number: u64,
+    pub tx_index: usize,
+    pub output_vout: usize,
 }
 
 impl ViaL1Deposit {
@@ -52,6 +55,17 @@ impl ViaL1Deposit {
     fn value(&self) -> U256 {
         U256::from(self.amount) * U256::from(MANTISSA)
     }
+
+    pub fn priority_id(&self) -> PriorityOpId {
+        PriorityOpId(
+            ViaPriorityOpId::new(
+                self.l1_block_number,
+                self.tx_index as u64,
+                self.output_vout as u64,
+            )
+            .raw(),
+        )
+    }
 }
 
 impl From<ViaL1Deposit> for L1Tx {
@@ -67,7 +81,7 @@ impl From<ViaL1Deposit> for L1Tx {
             max_fee_per_gas: U256::from(MAX_FEE_PER_GAS),
             max_priority_fee_per_gas: U256::zero(),
             paymaster: U256::zero(),
-            nonce: deposit.serial_id.0.into(),
+            nonce: deposit.priority_id().0.into(),
             value: U256::zero(),
             reserved: [
                 value,
@@ -91,7 +105,7 @@ impl From<ViaL1Deposit> for L1Tx {
             },
             common_data: L1TxCommonData {
                 sender: deposit.l2_receiver_address,
-                serial_id: deposit.serial_id,
+                serial_id: deposit.priority_id(),
                 layer_2_tip_fee: U256::zero(),
                 full_fee: U256::zero(),
                 max_fee_per_gas: U256::from(MAX_FEE_PER_GAS),

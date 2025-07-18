@@ -3,7 +3,7 @@ use via_btc_client::{
     types::{BitcoinAddress, FullInscriptionMessage, L1ToL2Message},
 };
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
-use zksync_types::{ethabi::Address, l1::via_l1::ViaL1Deposit, PriorityOpId, H256};
+use zksync_types::{ethabi::Address, l1::via_l1::ViaL1Deposit, H256};
 
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
@@ -40,12 +40,6 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<(), MessageProcessorError> {
         let mut priority_ops = Vec::new();
-        let last_priority_id = storage
-            .via_transactions_dal()
-            .get_last_priority_id()
-            .await
-            .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
-        let mut next_expected_priority_id = PriorityOpId::from(last_priority_id as u64);
 
         for msg in msgs {
             if let FullInscriptionMessage::L1ToL2Message(l1_to_l2_msg) = msg {
@@ -70,16 +64,12 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                         );
                         continue;
                     }
-                    let serial_id = next_expected_priority_id;
-                    let Some(l1_tx) =
-                        self.create_l1_tx_from_message(tx_id, serial_id, &l1_to_l2_msg)
-                    else {
+                    let Some(l1_tx) = self.create_l1_tx_from_message(tx_id, &l1_to_l2_msg)? else {
                         tracing::warn!("Invalid deposit, l1 tx_id {}", &l1_to_l2_msg.common.tx_id);
                         continue;
                     };
 
                     priority_ops.push(l1_tx);
-                    next_expected_priority_id = next_expected_priority_id.next();
                 }
             }
         }
@@ -111,15 +101,19 @@ impl L1ToL2MessageProcessor {
     fn create_l1_tx_from_message(
         &self,
         tx_id: H256,
-        serial_id: PriorityOpId,
         msg: &L1ToL2Message,
-    ) -> Option<L1ToL2Transaction> {
+    ) -> Result<Option<L1ToL2Transaction>, MessageProcessorError> {
         let deposit = ViaL1Deposit {
             l2_receiver_address: msg.input.receiver_l2_address,
             amount: msg.amount.to_sat(),
             calldata: msg.input.call_data.clone(),
-            serial_id,
             l1_block_number: msg.common.block_height as u64,
+            tx_index: msg.common.tx_index.ok_or_else(|| {
+                MessageProcessorError::Internal(anyhow::anyhow!("deposit missing tx_index"))
+            })?,
+            output_vout: msg.common.output_vout.ok_or_else(|| {
+                MessageProcessorError::Internal(anyhow::anyhow!("deposit missing output_vout"))
+            })?,
         };
 
         if let Some(l1_tx) = deposit.l1_tx() {
@@ -131,7 +125,8 @@ impl L1ToL2MessageProcessor {
                 l1_tx.common_data.canonical_tx_hash,
             );
 
-            METRICS.inscriptions_processed[&InscriptionStage::Deposit].set(serial_id.0 as usize);
+            METRICS.inscriptions_processed[&InscriptionStage::Deposit]
+                .set(deposit.priority_id().0 as usize);
 
             tracing::info!(
                 "Created L1 transaction with serial id {:?} (block {}) with deposit amount {} and tx hash {}",
@@ -141,15 +136,15 @@ impl L1ToL2MessageProcessor {
                 l1_tx.common_data.canonical_tx_hash,
             );
 
-            return Some(L1ToL2Transaction {
-                priority_id: serial_id.0 as i64,
+            return Ok(Some(L1ToL2Transaction {
+                priority_id: deposit.priority_id().0 as i64,
                 tx_id,
                 receiver: deposit.l2_receiver_address,
                 value: deposit.amount as i64,
                 calldata: deposit.calldata,
                 canonical_tx_hash: l1_tx.common_data.canonical_tx_hash,
-            });
+            }));
         }
-        None
+        Ok(None)
     }
 }
