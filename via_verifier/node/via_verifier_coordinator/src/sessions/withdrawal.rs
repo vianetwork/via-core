@@ -3,7 +3,7 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 use anyhow::{Context, Ok};
 use axum::async_trait;
 use bitcoin::{hashes::Hash, Address, Amount, TxOut, Txid};
-use via_musig2::transaction_builder::TransactionBuilder;
+use via_musig2::{fee::WithdrawalFeeStrategy, transaction_builder::TransactionBuilder};
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 use via_withdrawal_client::client::WithdrawalClient;
@@ -71,13 +71,13 @@ impl ISession for WithdrawalSession {
     }
 
     async fn is_session_in_progress(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
-        if session_op.get_l1_batche_number() != 0 {
+        if session_op.get_l1_batch_number() != 0 {
             let bridge_tx = self
                 .master_connection_pool
                 .connection_tagged("verifier withdrawal session")
                 .await?
                 .via_votes_dal()
-                .get_vote_transaction_bridge_tx_id(session_op.get_l1_batche_number())
+                .get_vote_transaction_bridge_tx_id(session_op.get_l1_batch_number())
                 .await?;
 
             return Ok(bridge_tx.is_none());
@@ -93,12 +93,12 @@ impl ISession for WithdrawalSession {
                 .connection_tagged("verifier withdrawal session verify message")
                 .await?
                 .via_votes_dal()
-                .get_finalized_block_and_non_processed_withdrawal(session_op.get_l1_batche_number())
+                .get_finalized_block_and_non_processed_withdrawal(session_op.get_l1_batch_number())
                 .await?
             {
                 if !self
                     ._verify_withdrawals(
-                        session_op.get_l1_batche_number(),
+                        session_op.get_l1_batch_number(),
                         unsigned_tx,
                         &blob_id,
                         proof_tx_id,
@@ -109,7 +109,7 @@ impl ISession for WithdrawalSession {
                 }
 
                 return self
-                    ._verify_sighashes(session_op.get_l1_batche_number(), unsigned_tx, messages)
+                    ._verify_sighashes(session_op.get_l1_batch_number(), unsigned_tx, messages)
                     .await;
             }
         }
@@ -129,7 +129,7 @@ impl ISession for WithdrawalSession {
             .connection_tagged("verifier task")
             .await?
             .via_votes_dal()
-            .get_vote_transaction_bridge_tx_id(session_op.get_l1_batche_number())
+            .get_vote_transaction_bridge_tx_id(session_op.get_l1_batch_number())
             .await?;
 
         Ok(bridge_txid.is_none())
@@ -147,13 +147,13 @@ impl ISession for WithdrawalSession {
             .mark_vote_transaction_as_processed(
                 H256::from_slice(&txid.as_raw_hash().to_byte_array()),
                 &session_op.get_proof_tx_id(),
-                session_op.get_l1_batche_number(),
+                session_op.get_l1_batch_number(),
             )
             .await?;
 
         tracing::info!(
             "New withdrawal transaction processed, l1 batch {} musig2 tx_id {}",
-            session_op.get_l1_batche_number(),
+            session_op.get_l1_batch_number(),
             txid
         );
 
@@ -258,6 +258,8 @@ impl WithdrawalSession {
                 outputs,
                 OP_RETURN_WITHDRAW_PREFIX,
                 vec![proof_txid.as_raw_hash().to_byte_array()],
+                Arc::new(WithdrawalFeeStrategy::new()),
+                None,
             )
             .await
     }
@@ -271,6 +273,25 @@ impl WithdrawalSession {
     ) -> anyhow::Result<bool> {
         let withdrawals = self.withdrawal_client.get_withdrawals(blob_id).await?;
 
+        // Verify the fee used to build the withdrawal transaction.
+        let fee_rate = self
+            .transaction_builder
+            .utxo_manager
+            .get_btc_client()
+            .get_fee_rate(1)
+            .await?;
+
+        // If the difference between the rate used to build the withdrawal and the current fetched rate is ±1, then the rate is considered valid.
+        if (unsigned_tx.fee_rate as i32 - fee_rate as i32).abs() == 1 {
+            tracing::error!(
+                "Invalid session, the fee rate used to build the withdrawal session doesn't match network fee, used_fee_rate {}, network_fee_rate {}",
+                unsigned_tx.fee_rate, fee_rate
+            );
+            return Ok(false);
+        }
+
+        let fee_per_user = unsigned_tx.get_fee_per_user();
+
         // Group withdrawals by address and sum amounts
         let mut grouped_withdrawals: HashMap<String, Amount> = HashMap::new();
         for w in &withdrawals {
@@ -282,15 +303,14 @@ impl WithdrawalSession {
                 .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
         }
 
-        let len = grouped_withdrawals.len();
-        if len == 0 {
-            tracing::error!(
-                "Invalid session, there are no withdrawals to process, l1 batch: {}",
-                l1_batch_number
-            );
-            return Ok(false);
-        }
-        if len + 2 != unsigned_tx.tx.output.len() {
+        // Remove small withdrawals, it's possible that there is empty withdrawals.
+        let adjusted_withdrawals: HashMap<String, Amount> = grouped_withdrawals
+            .into_iter()
+            .filter(|(_, amount)| *amount > fee_per_user)
+            .map(|(address, amount)| (address.to_string(), amount))
+            .collect();
+
+        if adjusted_withdrawals.len() + 2 != unsigned_tx.tx.output.len() {
             tracing::error!("Invalid unsigned withdrawal tx output lenght");
             return Ok(false);
         }
@@ -303,8 +323,9 @@ impl WithdrawalSession {
             .enumerate()
             .take(unsigned_tx.tx.output.len().saturating_sub(2))
         {
-            let amount = &grouped_withdrawals[&txout.script_pubkey.to_string()];
-            if amount != &txout.value {
+            let amount = &adjusted_withdrawals[&txout.script_pubkey.to_string()];
+            let user_should_receive = *amount - fee_per_user;
+            if user_should_receive != txout.value {
                 tracing::error!(
                     "Invalid request withdrawal for batch {}, index: {}",
                     l1_batch_number,

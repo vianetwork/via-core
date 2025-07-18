@@ -5,11 +5,11 @@ use std::{
     time::Duration,
 };
 
+use via_mempool::MempoolStore;
 use vise::{
     Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Histogram, LatencyObserver,
     Metrics,
 };
-use zksync_mempool::MempoolStore;
 use zksync_multivm::interface::{
     DeduplicatedWritesMetrics, VmExecutionResultAndLogs, VmRevertReason,
 };

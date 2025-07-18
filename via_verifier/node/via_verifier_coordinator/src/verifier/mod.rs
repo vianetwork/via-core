@@ -16,7 +16,7 @@ use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{protocol_version::get_sequencer_version, transaction::UnsignedBridgeTx};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::{via_verifier::ViaVerifierConfig, via_wallets::ViaWallet};
-use zksync_types::via_roles::ViaNodeRole;
+use zksync_types::{via_roles::ViaNodeRole, H256};
 use zksync_utils::time::seconds_since_epoch;
 
 use crate::{
@@ -127,13 +127,6 @@ impl ViaWithdrawalVerifier {
                 tracing::debug!("Empty session, nothing to process");
                 return Ok(());
             }
-
-            if self
-                .build_and_broadcast_final_transaction(&session_info, &session_op)
-                .await?
-            {
-                return Ok(());
-            }
         }
 
         if session_info.session_op.is_empty() {
@@ -141,6 +134,14 @@ impl ViaWithdrawalVerifier {
             return Ok(());
         }
         let session_op = SessionOperation::from_bytes(&session_info.session_op);
+
+        if self
+            .build_and_broadcast_final_transaction(&session_info, &session_op)
+            .await?
+        {
+            return Ok(());
+        }
+
         let messages = session_op.get_message_to_sign();
 
         // The verifier checks if the session is sequential.
@@ -161,7 +162,7 @@ impl ViaWithdrawalVerifier {
             let (expected_l1_batch_number, _, _) =
                 withdrawal_session.prepare_withdrawal_session().await?;
 
-            let actual_batch_number = session_op.get_l1_batche_number();
+            let actual_batch_number = session_op.get_l1_batch_number();
             if expected_l1_batch_number > 0 && actual_batch_number != expected_l1_batch_number {
                 tracing::warn!(
                     "Withdrawal session not yet sequential: last processed {}, found {}",
@@ -173,9 +174,13 @@ impl ViaWithdrawalVerifier {
         }
 
         if self
-            .is_bridge_session_already_processed(session_op.get_l1_batche_number())
+            .is_bridge_session_already_processed(session_op.get_l1_batch_number())
             .await?
         {
+            tracing::info!(
+                "Session already processed l1_batch_number {}",
+                session_op.get_l1_batch_number()
+            );
             return Ok(());
         }
 
@@ -221,8 +226,23 @@ impl ViaWithdrawalVerifier {
             if !self.session_manager.verify_message(&session_op).await? {
                 METRICS
                     .session_invalid_message
-                    .set(session_op.get_l1_batche_number() as usize);
+                    .set(session_op.get_l1_batch_number() as usize);
                 anyhow::bail!("Invalid session message");
+            }
+
+            // If the session is valid but there is no withdrawal to process, insert and empty hash.
+            if session_op.get_unsigned_bridge_tx().is_empty() {
+                self.master_connection_pool
+                    .connection_tagged("withdrawal session")
+                    .await?
+                    .via_votes_dal()
+                    .mark_vote_transaction_as_processed(
+                        H256::zero(),
+                        &session_op.get_proof_tx_id(),
+                        session_op.get_l1_batch_number(),
+                    )
+                    .await?;
+                return Ok(());
             }
 
             if !already_sent_nonce {
@@ -237,7 +257,7 @@ impl ViaWithdrawalVerifier {
 
             METRICS
                 .session_last_valid_session
-                .set(session_op.get_l1_batche_number() as usize);
+                .set(session_op.get_l1_batch_number() as usize);
         }
 
         Ok(())
@@ -558,6 +578,7 @@ impl ViaWithdrawalVerifier {
         }
         Ok(())
     }
+
     pub async fn create_final_signature(&mut self, messages: &[Vec<u8>]) -> anyhow::Result<()> {
         if !self.final_sig_per_utxo_input.is_empty() {
             return Ok(());

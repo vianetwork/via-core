@@ -3,8 +3,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use via_mempool::{L2TxFilter, MempoolInfo, MempoolStore};
 use zksync_dal::{Connection, Core, CoreDal};
-use zksync_mempool::{L2TxFilter, MempoolInfo, MempoolStore};
 use zksync_multivm::interface::{VmExecutionMetrics, VmExecutionResultAndLogs};
 use zksync_types::{block::BlockGasCount, Address, Nonce, PriorityOpId, Transaction};
 
@@ -66,7 +66,7 @@ impl MempoolGuard {
     }
 
     #[cfg(test)]
-    pub fn stats(&self) -> zksync_mempool::MempoolStats {
+    pub fn stats(&self) -> via_mempool::MempoolStats {
         self.0
             .lock()
             .expect("failed to acquire mempool lock")

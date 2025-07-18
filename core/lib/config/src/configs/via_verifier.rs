@@ -28,6 +28,9 @@ pub struct ViaVerifierConfig {
 
     /// The verifier btc wallet address.
     pub wallet_address: String,
+
+    /// The session timeout.
+    pub session_timeout: u64,
 }
 
 impl ViaVerifierConfig {
@@ -50,6 +53,7 @@ impl ViaVerifierConfig {
             verifier_request_timeout: 10,
             test_zk_proof_invalid_l1_batch_numbers: vec![],
             wallet_address: "".into(),
+            session_timeout: 30,
         }
     }
 }

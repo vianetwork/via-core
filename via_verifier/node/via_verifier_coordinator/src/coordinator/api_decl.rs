@@ -10,6 +10,7 @@ use via_musig2::transaction_builder::TransactionBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
+use zksync_utils::time::seconds_since_epoch;
 
 use crate::{
     coordinator::auth_middleware,
@@ -44,6 +45,7 @@ impl RestApi {
                 .map(|s| bitcoin::secp256k1::PublicKey::from_str(s).unwrap())
                 .collect(),
             verifier_request_timeout: config.verifier_request_timeout,
+            session_timeout: config.session_timeout,
         };
 
         let transaction_builder =
@@ -104,5 +106,10 @@ impl RestApi {
             );
 
         axum::Router::new().nest("/session", router)
+    }
+
+    pub async fn is_session_timeout(&self) -> bool {
+        let created_at = self.state.signing_session.read().await.created_at.clone();
+        created_at + self.state.session_timeout < seconds_since_epoch()
     }
 }

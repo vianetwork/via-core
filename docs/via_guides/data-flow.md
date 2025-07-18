@@ -847,7 +847,7 @@ self.master_connection_pool
     .mark_vote_transaction_as_processed(
         H256::from_slice(&txid.as_raw_hash().to_byte_array()),
         &session_op.get_proof_tx_id(),
-        session_op.get_l1_batche_number(),
+        session_op.get_l1_batch_number(),
     )
     .await?;
 ```

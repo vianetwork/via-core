@@ -31,7 +31,7 @@ pub enum SessionOperation {
 }
 
 impl SessionOperation {
-    pub fn get_l1_batche_number(&self) -> i64 {
+    pub fn get_l1_batch_number(&self) -> i64 {
         match self {
             Self::Withdrawal(l1_batch_number, _, _, _) => *l1_batch_number,
         }
@@ -87,6 +87,7 @@ pub struct ViaWithdrawalState {
     pub required_signers: usize,
     pub verifiers_pub_keys: Vec<bitcoin::secp256k1::PublicKey>,
     pub verifier_request_timeout: u8,
+    pub session_timeout: u64,
 }
 
 #[derive(Default, Debug, Clone)]

@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use test_casing::test_casing;
+use via_mempool::L2TxFilter;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
-use zksync_mempool::L2TxFilter;
 use zksync_multivm::{
     interface::{TransactionExecutionMetrics, VmEvent, VmExecutionMetrics},
     utils::derive_base_fee_and_gas_per_pubdata,

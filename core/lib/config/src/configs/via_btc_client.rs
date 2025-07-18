@@ -44,7 +44,7 @@ impl ViaBtcClientConfig {
             network: Network::Regtest.to_string(),
             external_apis: vec![],
             fee_strategies: vec![],
-            use_rpc_for_fee_rate: Some(false),
+            use_rpc_for_fee_rate: Some(true),
         }
     }
 }
