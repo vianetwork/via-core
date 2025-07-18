@@ -775,7 +775,7 @@ impl MessageParser {
                 return None;
             }
 
-            let start = OP_RETURN_WITHDRAW_PREFIX.len();
+            let start = OP_RETURN_WITHDRAW_PREFIX.len() + 1;
             // Parse l1_batch_reveal_tx_id from OP_RETURN data
             let l1_batch_proof_reveal_tx_id =
                 match Txid::from_slice(&op_return_data[start..start + 32]) {

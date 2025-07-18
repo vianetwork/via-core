@@ -174,10 +174,12 @@ impl BitcoinInscriptionIndexer {
                 .flat_map(|tx| self.parser.parse_bridge_transaction(tx, block_height))
                 .collect();
 
-            let messages: Vec<_> = parsed_messages
-                .into_iter()
-                .filter(|message| self.is_valid_bridge_message(message))
-                .collect();
+            let mut messages = vec![];
+            for message in parsed_messages {
+                if self.is_valid_bridge_message(&message).await {
+                    messages.push(message);
+                }
+            }
 
             valid_messages.extend(messages);
         }
@@ -374,10 +376,12 @@ impl BitcoinInscriptionIndexer {
         }
     }
 
-    fn is_valid_bridge_message(&self, message: &FullInscriptionMessage) -> bool {
+    async fn is_valid_bridge_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
             FullInscriptionMessage::L1ToL2Message(m) => self.is_valid_l1_to_l2_transfer(m),
-            FullInscriptionMessage::BridgeWithdrawal(m) => self.is_valid_bridge_withdrawal(m),
+            FullInscriptionMessage::BridgeWithdrawal(m) => {
+                self.is_valid_bridge_withdrawal(m).await.unwrap_or(false)
+            }
             _ => false,
         }
     }
@@ -494,12 +498,15 @@ impl BitcoinInscriptionIndexer {
         is_valid_receiver && is_valid_amount
     }
 
-    #[instrument(skip(self, _message), target = "bitcoin_indexer")]
-    fn is_valid_bridge_withdrawal(&self, _message: &BridgeWithdrawal) -> bool {
-        // IMPORTANT!
-        // Signer address validation requires querying the used Outpoint UTXOs during indexing.
-        // This step is not performed here because it depends on access to a Bitcoin (BTC) client.
-        true
+    #[instrument(skip(self, message), target = "bitcoin_indexer")]
+    async fn is_valid_bridge_withdrawal(&self, message: &BridgeWithdrawal) -> anyhow::Result<bool> {
+        if let Some(outpoint) = message.input.inputs.first() {
+            let tx = self.client.get_transaction(&outpoint.txid).await?;
+            if let Some(txout) = tx.output.get(outpoint.vout as usize) {
+                return Ok(txout.script_pubkey == self.bridge_address.script_pubkey());
+            }
+        }
+        Ok(false)
     }
 
     async fn get_l1_batch_number_from_proof_tx_id(
@@ -734,7 +741,7 @@ mod tests {
                 script_pubkey: indexer.bridge_address.script_pubkey(),
             }],
         });
-        assert!(indexer.is_valid_bridge_message(&l1_to_l2_message));
+        assert!(indexer.is_valid_bridge_message(&l1_to_l2_message).await);
 
         let system_bootstrapping =
             FullInscriptionMessage::SystemBootstrapping(types::SystemBootstrapping {
