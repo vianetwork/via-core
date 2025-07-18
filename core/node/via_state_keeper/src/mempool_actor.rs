@@ -7,7 +7,7 @@ use tokio::sync::watch;
 use via_fee_model::BatchFeeModelInputProvider;
 use zksync_config::configs::chain::MempoolConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_mempool::L2TxFilter;
+use via_mempool::L2TxFilter;
 use zksync_multivm::utils::derive_base_fee_and_gas_per_pubdata;
 #[cfg(test)]
 use zksync_types::H256;

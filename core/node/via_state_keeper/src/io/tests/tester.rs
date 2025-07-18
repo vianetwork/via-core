@@ -5,11 +5,10 @@ use std::{slice, sync::Arc, time::Duration};
 use via_btc_client::{
     client::BitcoinClient,
     inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOpsConfig},
-    types::BitcoinNetwork,
 };
 use via_fee_model::{ViaGasAdjuster, ViaMainNodeFeeInputProvider};
 use zksync_config::{
-    configs::{chain::StateKeeperConfig, wallets::Wallets},
+    configs::{chain::StateKeeperConfig, via_btc_client::ViaBtcClientConfig, wallets::Wallets},
     GasAdjusterConfig,
 };
 use zksync_contracts::BaseSystemContracts;
@@ -64,8 +63,8 @@ impl Tester {
         inscriber.get_client().await;
         let client = BitcoinClient::new(
             "",
-            BitcoinNetwork::Regtest,
             via_btc_client::types::NodeAuth::None,
+            ViaBtcClientConfig::for_tests(),
         )
         .unwrap();
         ViaMainNodeFeeInputProvider::new(
@@ -126,6 +125,7 @@ impl Tester {
         if storage.blocks_dal().is_genesis_needed().await.unwrap() {
             create_genesis_l1_batch(
                 &mut storage,
+                L2ChainId::max(),
                 ProtocolSemanticVersion {
                     minor: ProtocolVersionId::latest(),
                     patch: 0.into(),
