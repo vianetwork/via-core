@@ -126,13 +126,6 @@ impl ViaWithdrawalVerifier {
                 tracing::debug!("Empty session, nothing to process");
                 return Ok(());
             }
-
-            if self
-                .build_and_broadcast_final_transaction(&session_info, &session_op)
-                .await?
-            {
-                return Ok(());
-            }
         }
 
         if session_info.session_op.is_empty() {
@@ -140,6 +133,14 @@ impl ViaWithdrawalVerifier {
             return Ok(());
         }
         let session_op = SessionOperation::from_bytes(&session_info.session_op);
+
+        if self
+            .build_and_broadcast_final_transaction(&session_info, &session_op)
+            .await?
+        {
+            return Ok(());
+        }
+
         let messages = session_op.get_message_to_sign();
 
         // The verifier checks if the session is sequential.
@@ -576,6 +577,7 @@ impl ViaWithdrawalVerifier {
         }
         Ok(())
     }
+
     pub async fn create_final_signature(&mut self, messages: &[Vec<u8>]) -> anyhow::Result<()> {
         if !self.final_sig_per_utxo_input.is_empty() {
             return Ok(());

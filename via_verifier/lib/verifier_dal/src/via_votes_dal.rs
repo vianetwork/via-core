@@ -486,7 +486,8 @@ impl ViaVotesDal<'_, '_> {
             r#"
             UPDATE via_votable_transactions
             SET
-                bridge_tx_id = $1
+                bridge_tx_id = $1,
+                updated_at = NOW()
             WHERE
                 bridge_tx_id IS NULL
                 AND l1_batch_number = $2
@@ -613,7 +614,8 @@ impl ViaVotesDal<'_, '_> {
             r#"
             UPDATE via_votable_transactions
             SET
-                bridge_tx_id = $1
+                bridge_tx_id = $1,
+                updated_at = NOW()
             WHERE
                 l1_batch_number = $2
             "#,
