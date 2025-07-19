@@ -206,12 +206,8 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
             .unwrap();
         if vote {
             storage
-                .via_votes_dal()
-                .mark_vote_transaction_as_processed(
-                    H256::zero(),
-                    proof_reveal_tx_id.as_bytes(),
-                    i64::from(l1_batch_number),
-                )
+                .via_bridge_dal()
+                .update_bridge_tx(votable_transaction_id, 0, H256::zero().as_bytes())
                 .await
                 .unwrap();
         }
@@ -282,12 +278,8 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
             .unwrap();
 
         storage
-            .via_votes_dal()
-            .mark_vote_transaction_as_processed(
-                H256::zero(),
-                proof_reveal_tx_id.as_bytes(),
-                i64::from(l1_batch_number),
-            )
+            .via_bridge_dal()
+            .update_bridge_tx(votable_transaction_id, 0, H256::zero().as_bytes())
             .await
             .unwrap();
     }
