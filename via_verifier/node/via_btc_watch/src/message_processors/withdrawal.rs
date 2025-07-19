@@ -40,9 +40,12 @@ impl MessageProcessor for WithdrawalProcessor {
                     .to_byte_array()
                     .to_vec();
 
-                let Some((l1_batch_number, bridge_tx_id)) = storage
+                let Some((votable_tx_id, l1_batch_number, bridge_tx_id)) = storage
                     .via_votes_dal()
-                    .get_vote_transaction_info(proof_reveal_tx_id.clone())
+                    .get_vote_transaction_info(
+                        proof_reveal_tx_id.clone(),
+                        withdrawal_msg.input.index_withdrawal,
+                    )
                     .await
                     .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                 else {
@@ -62,7 +65,6 @@ impl MessageProcessor for WithdrawalProcessor {
                         return Ok(());
                     }
 
-                    // TODO: cover the case where an L1 batch contains a lots of withdrawals that can not be included in one transaction.
                     return Err(MessageProcessorError::SyncError(format!(
                         "Multiple withdrawals detected for L1 batch {}",
                         l1_batch_number
@@ -70,8 +72,12 @@ impl MessageProcessor for WithdrawalProcessor {
                 }
 
                 storage
-                    .via_votes_dal()
-                    .update_bridge_tx_id(H256::from_slice(&indexed_bridge_tx_id), l1_batch_number)
+                    .via_bridge_dal()
+                    .update_bridge_tx(
+                        votable_tx_id,
+                        withdrawal_msg.input.index_withdrawal,
+                        &indexed_bridge_tx_id,
+                    )
                     .await
                     .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 

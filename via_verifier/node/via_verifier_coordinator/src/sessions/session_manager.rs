@@ -84,4 +84,18 @@ impl SessionManager {
             .after_broadcast_final_transaction(txid, session_op)
             .await
     }
+
+    pub async fn is_bridge_session_already_processed(
+        &self,
+        session_op: &SessionOperation,
+    ) -> anyhow::Result<bool> {
+        let session = self
+            .sessions
+            .get(&session_op.get_session_type())
+            .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+
+        session
+            .is_bridge_session_already_processed(session_op)
+            .await
+    }
 }

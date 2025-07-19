@@ -3,6 +3,7 @@ use std::{
     time::Duration,
 };
 
+use bitcoin::policy::MAX_STANDARD_TX_WEIGHT;
 use serde::{Deserialize, Serialize};
 use zksync_basic_types::via_roles::ViaNodeRole;
 
@@ -31,6 +32,9 @@ pub struct ViaVerifierConfig {
 
     /// The session timeout.
     pub session_timeout: u64,
+
+    /// Transaction weight limit.
+    pub max_tx_weight: Option<u64>,
 }
 
 impl ViaVerifierConfig {
@@ -44,6 +48,10 @@ impl ViaVerifierConfig {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), self.coordinator_port)
     }
 
+    pub fn max_tx_weight(&self) -> u64 {
+        self.max_tx_weight.unwrap_or(380000)
+    }
+
     pub fn for_tests() -> Self {
         Self {
             role: ViaNodeRole::Verifier,
@@ -54,6 +62,7 @@ impl ViaVerifierConfig {
             test_zk_proof_invalid_l1_batch_numbers: vec![],
             wallet_address: "".into(),
             session_timeout: 30,
+            max_tx_weight: None,
         }
     }
 }

@@ -13,3 +13,5 @@ role = "Coordinator"
 test_zk_proof_invalid_l1_batch_numbers = []
 # The session timeout (seconds).
 session_timeout = 30
+# The transaction weight limit
+max_tx_weight = 380000
