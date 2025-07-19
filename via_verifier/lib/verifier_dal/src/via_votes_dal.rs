@@ -56,7 +56,7 @@ impl ViaVotesDal<'_, '_> {
 
     pub async fn get_votable_transaction_id(
         &mut self,
-        proof_reveal_tx_id: H256,
+        proof_reveal_tx_id: &[u8],
     ) -> DalResult<Option<i64>> {
         let row = sqlx::query!(
             r#"
@@ -67,7 +67,7 @@ impl ViaVotesDal<'_, '_> {
             WHERE
                 proof_reveal_tx_id = $1
             "#,
-            proof_reveal_tx_id.as_bytes(),
+            proof_reveal_tx_id,
         )
         .instrument("get_votable_transaction_id")
         .fetch_optional(self.storage)
@@ -416,31 +416,34 @@ impl ViaVotesDal<'_, '_> {
         &mut self,
         l1_batch_number: i64,
     ) -> DalResult<Option<(String, Vec<u8>)>> {
-        // Query the database to fetch the desired row
         let result = sqlx::query!(
             r#"
             SELECT
-                pubdata_blob_id,
-                proof_reveal_tx_id
+                v.pubdata_blob_id,
+                v.proof_reveal_tx_id
             FROM
-                via_votable_transactions
+                via_votable_transactions v
+                LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
             WHERE
-                is_finalized = TRUE
-                AND l1_batch_status = TRUE
-                AND bridge_tx_id IS NULL
-                AND l1_batch_number = $1
+                v.is_finalized = TRUE
+                AND v.l1_batch_status = TRUE
+                AND v.l1_batch_number = $1
+                AND (
+                    b.hash IS NULL
+                    OR b.id IS NULL
+                )
+            ORDER BY
+                v.l1_batch_number ASC
             LIMIT
                 1
             "#,
             l1_batch_number
         )
         .instrument("get_finalized_block_and_non_processed_withdrawal")
-        .fetch_optional(self.storage) // Use fetch_optional to handle None results
+        .fetch_optional(self.storage)
         .await?;
 
-        // Map the result into the desired output format
         let mapped_result = result.map(|row| (row.pubdata_blob_id, row.proof_reveal_tx_id));
-
         Ok(mapped_result)
     }
 
@@ -450,24 +453,27 @@ impl ViaVotesDal<'_, '_> {
         let rows = sqlx::query!(
             r#"
             SELECT
-                l1_batch_number,
-                pubdata_blob_id,
-                proof_reveal_tx_id
+                v.l1_batch_number,
+                v.pubdata_blob_id,
+                v.proof_reveal_tx_id
             FROM
-                via_votable_transactions
+                via_votable_transactions v
+                LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
             WHERE
-                is_finalized = TRUE
-                AND l1_batch_status = TRUE
-                AND bridge_tx_id IS NULL
+                v.is_finalized = TRUE
+                AND v.l1_batch_status = TRUE
+                AND (
+                    b.hash IS NULL
+                    OR b.id IS NULL
+                )
             ORDER BY
-                l1_batch_number ASC
-            "#,
+                v.l1_batch_number ASC
+            "#
         )
         .instrument("list_finalized_blocks_and_non_processed_withdrawals")
         .fetch_all(self.storage)
         .await?;
 
-        // Map the rows into a Vec<(l1_batch_number, pubdata_blob_id, proof_reveal_tx_id)>
         let result: Vec<(i64, String, Vec<u8>)> = rows
             .into_iter()
             .map(|r| (r.l1_batch_number, r.pubdata_blob_id, r.proof_reveal_tx_id))
@@ -476,54 +482,38 @@ impl ViaVotesDal<'_, '_> {
         Ok(result)
     }
 
-    pub async fn mark_vote_transaction_as_processed(
-        &mut self,
-        bridge_tx_id: H256,
-        proof_reveal_tx_id: &[u8],
-        l1_batch_number: i64,
-    ) -> DalResult<()> {
-        sqlx::query!(
-            r#"
-            UPDATE via_votable_transactions
-            SET
-                bridge_tx_id = $1,
-                updated_at = NOW()
-            WHERE
-                bridge_tx_id IS NULL
-                AND l1_batch_number = $2
-                AND proof_reveal_tx_id = $3
-            "#,
-            bridge_tx_id.as_bytes(),
-            l1_batch_number,
-            proof_reveal_tx_id,
-        )
-        .instrument("mark_vote_transaction_as_processed")
-        .execute(self.storage)
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn get_vote_transaction_bridge_tx_id(
+    pub async fn get_vote_transaction_bridge_tx(
         &mut self,
         l1_batch_number: i64,
-    ) -> DalResult<Option<Vec<u8>>> {
-        let bridge_tx_id = sqlx::query_scalar!(
+        index: usize,
+    ) -> DalResult<Vec<u8>> {
+        let row = sqlx::query!(
             r#"
             SELECT
-                bridge_tx_id
-            FROM via_votable_transactions
+                b.hash
+            FROM
+                via_bridge_tx b
+                JOIN via_votable_transactions v ON b.votable_tx_id = v.id
             WHERE
-                l1_batch_number = $1
+                v.l1_batch_number = $1
+                AND b.index = $2
+                AND b.hash IS NOT NULL
+            ORDER BY
+                b.id ASC
+            LIMIT
+                1
             "#,
-            l1_batch_number
+            l1_batch_number,
+            index as i64
         )
-        .instrument("get_vote_transaction")
+        .instrument("get_vote_transaction_bridge_tx")
         .fetch_optional(self.storage)
-        .await?
-        .flatten();
+        .await?;
 
-        Ok(bridge_tx_id)
+        match row {
+            Some(r) => Ok(r.hash.expect("hash is not null by query")),
+            None => Ok(Vec::new()),
+        }
     }
 
     /// Delete all the votable_transactions that are invalid and behind the last finilized valid l1_batch
@@ -554,20 +544,29 @@ impl ViaVotesDal<'_, '_> {
             WHERE
                 v1.is_finalized = FALSE
                 AND v1.l1_batch_status = FALSE
-                AND v1.bridge_tx_id IS NULL
-                AND (
-                    EXISTS (
-                        SELECT
-                            1
-                        FROM
-                            via_votable_transactions v2
-                        WHERE
-                            v1.prev_l1_batch_hash = v2.l1_batch_hash
-                            AND v2.is_finalized = TRUE
-                            AND v2.l1_batch_status = TRUE
-                            AND v2.bridge_tx_id IS NOT NULL
-                    )
+                AND NOT EXISTS (
+                    SELECT
+                        1
+                    FROM
+                        via_bridge_tx b
+                    WHERE
+                        b.votable_tx_id = v1.id
+                        AND b.hash IS NOT NULL
                 )
+                AND EXISTS (
+                    SELECT
+                        1
+                    FROM
+                        via_votable_transactions v2
+                        JOIN via_bridge_tx b2 ON b2.votable_tx_id = v2.id
+                    WHERE
+                        v1.prev_l1_batch_hash = v2.l1_batch_hash
+                        AND v2.is_finalized = TRUE
+                        AND v2.l1_batch_status = TRUE
+                        AND b2.hash IS NOT NULL
+                )
+            ORDER BY
+                v1.l1_batch_number ASC
             LIMIT
                 1
             "#
@@ -584,48 +583,28 @@ impl ViaVotesDal<'_, '_> {
     pub async fn get_vote_transaction_info(
         &mut self,
         proof_reveal_tx_id: H256,
-    ) -> DalResult<Option<(i64, Option<Vec<u8>>)>> {
+        index: i64,
+    ) -> DalResult<Option<(i64, i64, Option<Vec<u8>>)>> {
         let res = sqlx::query!(
             r#"
             SELECT
-                l1_batch_number,
-                bridge_tx_id
+                v.id,
+                v.l1_batch_number,
+                b.hash
             FROM
-                via_votable_transactions
+                via_votable_transactions v
+                LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
+                AND b.index = $2
             WHERE
-                proof_reveal_tx_id = $1
+                v.proof_reveal_tx_id = $1
             "#,
-            proof_reveal_tx_id.as_bytes()
+            proof_reveal_tx_id.as_bytes(),
+            index
         )
         .instrument("get_vote_transaction_info")
         .fetch_optional(self.storage)
         .await?;
 
-        let result = res.map(|row| (row.l1_batch_number, row.bridge_tx_id));
-        Ok(result)
-    }
-
-    pub async fn update_bridge_tx_id(
-        &mut self,
-        bridge_tx_id: H256,
-        l1_batch_number: i64,
-    ) -> DalResult<()> {
-        sqlx::query!(
-            r#"
-            UPDATE via_votable_transactions
-            SET
-                bridge_tx_id = $1,
-                updated_at = NOW()
-            WHERE
-                l1_batch_number = $2
-            "#,
-            bridge_tx_id.as_bytes(),
-            l1_batch_number,
-        )
-        .instrument("update_bridge_tx_id")
-        .execute(self.storage)
-        .await?;
-
-        Ok(())
+        Ok(res.map(|row| (row.id, row.l1_batch_number, row.hash)))
     }
 }

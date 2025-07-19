@@ -9,11 +9,19 @@ use bitcoin::{
     transaction, Address, Amount, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn,
     TxOut, Witness,
 };
-use tracing::{debug, instrument};
+use tracing::instrument;
 use via_btc_client::traits::BitcoinOps;
 use via_verifier_types::transaction::UnsignedBridgeTx;
 
-use crate::{fee::FeeStrategy, utxo_manager::UtxoManager};
+use crate::{
+    constants::{
+        INPUT_BASE_SIZE, INPUT_WITNESS_SIZE, OP_RETURN_SIZE, OUTPUT_SIZE, TX_OVERHEAD,
+        WITNESS_OVERHEAD,
+    },
+    fee::FeeStrategy,
+    types::TransactionMetadata,
+    utxo_manager::UtxoManager,
+};
 
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
@@ -45,14 +53,21 @@ impl TransactionBuilder {
         &self,
         outputs: Vec<TxOut>,
         op_return_prefix: &[u8],
-        op_return_data: Vec<[u8; 32]>,
+        op_return_data: Vec<&[u8]>,
         fee_strategy: Arc<dyn FeeStrategy>,
         default_fee_rate: Option<u64>,
-    ) -> Result<UnsignedBridgeTx> {
+        default_available_utxos: Option<Vec<(OutPoint, TxOut)>>,
+        max_tx_weight: u64,
+    ) -> Result<Vec<UnsignedBridgeTx>> {
         self.utxo_manager.sync_context_with_blockchain().await?;
 
         // Get available UTXOs first to estimate number of inputs
-        let available_utxos = self.utxo_manager.get_available_utxos().await?;
+        let available_utxos = if let Some(available_utxos) = default_available_utxos {
+            available_utxos
+        } else {
+            let available_utxos = self.utxo_manager.get_available_utxos().await?;
+            available_utxos
+        };
 
         // Get fee rate
         let fee_rate = if let Some(fee_rate) = default_fee_rate {
@@ -61,92 +76,209 @@ impl TransactionBuilder {
             std::cmp::max(self.utxo_manager.get_btc_client().get_fee_rate(1).await?, 1)
         };
 
-        // Create OP_RETURN output with proof txid
-        let op_return_data =
-            TransactionBuilder::create_op_return_script(op_return_prefix, op_return_data)?;
-
-        let op_return_output = TxOut {
-            value: Amount::ZERO,
-            script_pubkey: op_return_data,
-        };
-
-        let (mut adjusted_outputs, adjusted_total_value_needed, actual_fee, selected_utxos) = self
-            .prepare_build_transaction(outputs, &available_utxos, fee_rate, fee_strategy)
+        let txs_metadata = self
+            .get_transaction_metadata(
+                &available_utxos,
+                &outputs,
+                fee_rate,
+                fee_strategy.clone(),
+                max_tx_weight,
+            )
             .await?;
+        let bridge_txs =
+            self.build_bridge_txs(&txs_metadata, fee_rate, op_return_prefix, op_return_data)?;
 
-        // Calculate total input amount
-        let total_input_amount: Amount = selected_utxos
-            .iter()
-            .try_fold(Amount::ZERO, |acc, (_, txout)| acc.checked_add(txout.value))
-            .ok_or_else(|| anyhow::anyhow!("Input amount overflow"))?;
+        Ok(bridge_txs)
+    }
 
-        // Verify we have enough funds with actual fee
-        let total_needed = adjusted_total_value_needed
-            .checked_add(actual_fee)
-            .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
+    pub async fn utxo_manager_insert_transaction(&self, tx: Transaction) {
+        self.utxo_manager.insert_transaction(tx).await;
+    }
 
-        if total_input_amount < total_needed {
-            return Err(anyhow::anyhow!(
-                "Insufficient funds: have {}, need {}",
-                total_input_amount,
-                total_needed
-            ));
-        }
+    pub(crate) fn estimate_transaction_weight(&self, inputs: u64, outputs: u64) -> u64 {
+        // Base size calculation (gets 4x weight)
+        let base_size = TX_OVERHEAD
+            + INPUT_BASE_SIZE * inputs
+            + OUTPUT_SIZE * (outputs + 1) // include change output
+            + OP_RETURN_SIZE;
 
-        // Create inputs
-        let inputs: Vec<TxIn> = selected_utxos
-            .iter()
-            .map(|(outpoint, _)| TxIn {
-                previous_output: *outpoint,
-                script_sig: ScriptBuf::default(),
-                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-                witness: Witness::default(),
-            })
-            .collect();
-
-        // Add OP_RETURN output
-        adjusted_outputs.push(op_return_output);
-
-        // Add change output if needed
-        let change_amount = total_input_amount
-            .checked_sub(total_needed)
-            .ok_or_else(|| anyhow::anyhow!("Change amount calculation overflow"))?;
-
-        if change_amount.to_sat() > 0 {
-            adjusted_outputs.push(TxOut {
-                value: change_amount,
-                script_pubkey: self.bridge_address.script_pubkey(),
-            });
-        }
-
-        // Create unsigned transaction
-        let unsigned_tx = Transaction {
-            version: transaction::Version::TWO,
-            lock_time: absolute::LockTime::ZERO,
-            input: inputs,
-            output: adjusted_outputs.clone(),
+        // Witness size calculation (gets 1x weight)
+        let witness_size = if inputs > 0 {
+            WITNESS_OVERHEAD + INPUT_WITNESS_SIZE * inputs
+        } else {
+            0
         };
 
-        let txid = unsigned_tx.compute_txid();
+        // Weight = (base_size × 4) + (witness_size × 1)
+        base_size * 4 + witness_size
+    }
 
-        let bridge_tx = UnsignedBridgeTx {
-            tx: unsigned_tx.clone(),
-            txid,
-            utxos: selected_utxos,
-            change_amount,
-            fee_rate,
-            fee: actual_fee,
-        };
+    pub(crate) fn chunk_outputs(outputs: &[TxOut], chunks: usize) -> Vec<Vec<TxOut>> {
+        let mut result = Vec::new();
+        let mut start = 0;
+        for i in 0..chunks {
+            let remaining = outputs.len() - start;
+            let chunk_size = (remaining + (chunks - i - 1)) / (chunks - i);
+            let end = start + chunk_size;
+            result.push(outputs[start..end].to_vec());
+            start = end;
+        }
+        result
+    }
 
-        // When there are no withdrawal to process due to low value requested by a user. The verifier network will not broadcast it to network,
-        // in this case no need to insert it inside the utxo manager.
-        if !bridge_tx.is_empty() {
-            self.utxo_manager.insert_transaction(unsigned_tx).await;
+    pub(crate) async fn get_transaction_metadata(
+        &self,
+        available_utxos: &[(OutPoint, TxOut)],
+        outputs: &[TxOut],
+        fee_rate: u64,
+        fee_strategy: Arc<dyn FeeStrategy>,
+        max_tx_weight: u64,
+    ) -> anyhow::Result<Vec<TransactionMetadata>> {
+        // Try chunk sizes from 1 to outputs.len()
+        for chunks in 1..=outputs.len() {
+            let output_chunks = TransactionBuilder::chunk_outputs(&outputs, chunks);
+            let mut utxos_pool = available_utxos.to_vec();
+            let mut result = Vec::new();
+            let mut all_chunks_fit = true;
+
+            for output_chunk in output_chunks {
+                let (adjusted_outputs, adjusted_total_value_needed, actual_fee, selected_utxos) =
+                    self.prepare_build_transaction(
+                        output_chunk.clone(),
+                        &utxos_pool,
+                        fee_rate,
+                        fee_strategy.clone(),
+                    )
+                    .await?;
+
+                let tx_weight = self.estimate_transaction_weight(
+                    selected_utxos.len() as u64,
+                    adjusted_outputs.len() as u64,
+                );
+
+                if tx_weight > max_tx_weight as u64 {
+                    all_chunks_fit = false;
+                    break;
+                }
+
+                // Remove used UTXOs from the pool
+                utxos_pool.retain(|(outpoint, _)| {
+                    !selected_utxos.iter().any(|(used, _)| used == outpoint)
+                });
+
+                result.push(TransactionMetadata {
+                    outputs: adjusted_outputs,
+                    total_amount: adjusted_total_value_needed,
+                    fee: actual_fee,
+                    inputs: selected_utxos,
+                });
+            }
+
+            if all_chunks_fit {
+                return Ok(result);
+            }
+        }
+        anyhow::bail!("Unable to build transactions within standard weight limits")
+    }
+
+    pub fn build_bridge_txs(
+        &self,
+        txs_metadata: &[TransactionMetadata],
+        fee_rate: u64,
+        op_return_prefix: &[u8],
+        op_return_data_input: Vec<&[u8]>,
+    ) -> anyhow::Result<Vec<UnsignedBridgeTx>> {
+        let mut bridge_txs = vec![];
+
+        for (i, tx_metadata) in txs_metadata.iter().enumerate() {
+            // Calculate total input amount
+            let total_input_amount: Amount = tx_metadata
+                .inputs
+                .iter()
+                .try_fold(Amount::ZERO, |acc, (_, txout)| acc.checked_add(txout.value))
+                .ok_or_else(|| anyhow::anyhow!("Input amount overflow in tx index {}", i))?;
+
+            // Calculate total needed (outputs + fee)
+            let total_needed = tx_metadata
+                .total_amount
+                .checked_add(tx_metadata.fee)
+                .ok_or_else(|| anyhow::anyhow!("Total amount overflow in tx index {}", i))?;
+
+            // Verify we have enough input
+            if total_input_amount < total_needed {
+                return Err(anyhow::anyhow!(
+                    "Insufficient funds in tx index {}: have {}, need {}",
+                    i,
+                    total_input_amount,
+                    total_needed
+                ));
+            }
+
+            // Create inputs
+            let inputs: Vec<TxIn> = tx_metadata
+                .inputs
+                .iter()
+                .map(|(outpoint, _)| TxIn {
+                    previous_output: *outpoint,
+                    script_sig: ScriptBuf::default(),
+                    sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                    witness: Witness::default(),
+                })
+                .collect();
+
+            let mut op_return_data = op_return_data_input.clone();
+            let i_bytes = (i as u64).to_le_bytes().to_vec();
+            op_return_data.push(&i_bytes);
+
+            // Create OP_RETURN output with proof txid
+            let op_return_data =
+                TransactionBuilder::create_op_return_script(op_return_prefix, op_return_data)?;
+
+            let op_return_output = TxOut {
+                value: Amount::ZERO,
+                script_pubkey: op_return_data,
+            };
+
+            // Construct outputs: existing + OP_RETURN + optional change
+            let mut outputs = tx_metadata.outputs.clone();
+            outputs.push(op_return_output.clone());
+
+            let change_amount = total_input_amount
+                .checked_sub(total_needed)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Change amount calculation overflow in tx index {}", i)
+                })?;
+
+            if change_amount.to_sat() > 0 {
+                outputs.push(TxOut {
+                    value: change_amount,
+                    script_pubkey: self.bridge_address.script_pubkey(),
+                });
+            }
+
+            // Build unsigned transaction
+            let unsigned_tx = Transaction {
+                version: transaction::Version::TWO,
+                lock_time: absolute::LockTime::ZERO,
+                input: inputs,
+                output: outputs.clone(),
+            };
+
+            let txid = unsigned_tx.compute_txid();
+
+            let bridge_tx = UnsignedBridgeTx {
+                tx: unsigned_tx.clone(),
+                txid,
+                utxos: tx_metadata.inputs.clone(),
+                change_amount,
+                fee_rate,
+                fee: tx_metadata.fee,
+            };
+
+            bridge_txs.push(bridge_tx);
         }
 
-        debug!("Unsigned created successfully");
-
-        Ok(bridge_tx)
+        Ok(bridge_txs)
     }
 
     pub async fn prepare_build_transaction(
@@ -214,11 +346,13 @@ impl TransactionBuilder {
     }
 
     // Helper function to create OP_RETURN script
-    pub fn create_op_return_script(prefix: &[u8], inputs: Vec<[u8; 32]>) -> Result<ScriptBuf> {
-        let mut data = Vec::with_capacity(prefix.len() + 32);
+    pub fn create_op_return_script(prefix: &[u8], inputs: Vec<&[u8]>) -> Result<ScriptBuf> {
+        let total_input_size: usize = inputs.iter().map(|input| input.len()).sum();
+        let mut data = Vec::with_capacity(prefix.len() + total_input_size);
+
         data.extend_from_slice(prefix);
         for input in inputs {
-            data.extend_from_slice(&input);
+            data.extend_from_slice(input);
         }
 
         let mut encoded_data = PushBytesBuf::with_capacity(data.len());

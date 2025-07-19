@@ -22,6 +22,7 @@ import { command as token } from './token';
 import { command as contract } from './contract';
 import { command as test } from './test/test';
 import { indexerCommand as indexer } from './indexer';
+import { command as debug } from './debug';
 import { command as enSetup } from './setup_en';
 
 const COMMANDS = [
@@ -44,6 +45,7 @@ const COMMANDS = [
     contract,
     test,
     indexer,
+    debug,
     enSetup,
     en,
     completion(program as Command)

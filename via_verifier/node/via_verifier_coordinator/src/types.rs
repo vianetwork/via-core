@@ -27,43 +27,59 @@ impl fmt::Display for SessionType {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SessionOperation {
-    Withdrawal(i64, UnsignedBridgeTx, Vec<Vec<u8>>, Vec<u8>),
+    Withdrawal(i64, Vec<UnsignedBridgeTx>, Vec<Vec<u8>>, Vec<u8>, usize),
 }
 
 impl SessionOperation {
     pub fn get_l1_batch_number(&self) -> i64 {
         match self {
-            Self::Withdrawal(l1_batch_number, _, _, _) => *l1_batch_number,
+            Self::Withdrawal(l1_batch_number, _, _, _, _) => *l1_batch_number,
         }
     }
 
     pub fn get_session_type(&self) -> SessionType {
         match self {
-            Self::Withdrawal(_, _, _, _) => SessionType::Withdrawal,
+            Self::Withdrawal(_, _, _, _, _) => SessionType::Withdrawal,
         }
     }
 
     pub fn get_message_to_sign(&self) -> Vec<Vec<u8>> {
         match self {
-            Self::Withdrawal(_, _, message, _) => message.clone(),
+            Self::Withdrawal(_, _, message, _, _) => message.clone(),
         }
     }
 
-    pub fn get_unsigned_bridge_tx(&self) -> &UnsignedBridgeTx {
+    pub fn get_unsigned_bridge_tx(&self) -> UnsignedBridgeTx {
         match self {
-            Self::Withdrawal(_, unsigned_tx, _, _) => unsigned_tx,
+            Self::Withdrawal(_, unsigned_txs, _, _, index) => {
+                return unsigned_txs[index.clone()].clone();
+            }
         }
     }
 
     pub fn get_proof_tx_id(&self) -> Vec<u8> {
         match self {
-            Self::Withdrawal(_, _, _, proof_tx_id) => proof_tx_id.clone(),
+            Self::Withdrawal(_, _, _, proof_tx_id, _) => proof_tx_id.clone(),
         }
     }
 
-    pub fn session(&self) -> Option<(&UnsignedBridgeTx, &Vec<Vec<u8>>)> {
+    pub fn session(&self) -> Option<(UnsignedBridgeTx, &Vec<Vec<u8>>)> {
         match self {
-            Self::Withdrawal(_, unsigned_tx, message, _) => Some((unsigned_tx, message)),
+            Self::Withdrawal(_, unsigned_txs, message, _, index) => {
+                Some((unsigned_txs[index.clone()].clone(), message))
+            }
+        }
+    }
+
+    pub fn unsigned_txs(&self) -> &Vec<UnsignedBridgeTx> {
+        match self {
+            Self::Withdrawal(_, unsigned_txs, _, _, _) => unsigned_txs,
+        }
+    }
+
+    pub fn index(&self) -> usize {
+        match self {
+            Self::Withdrawal(_, _, _, _, index) => *index,
         }
     }
 }

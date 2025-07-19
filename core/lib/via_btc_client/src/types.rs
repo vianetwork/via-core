@@ -123,6 +123,8 @@ pub struct BridgeWithdrawal {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BridgeWithdrawalInput {
+    /// The transaction index.
+    pub index_withdrawal: i64,
     /// The tx total size.
     pub total_size: i64,
     /// The transaction virtual size.

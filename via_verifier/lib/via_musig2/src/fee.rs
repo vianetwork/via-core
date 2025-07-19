@@ -2,6 +2,10 @@ use std::vec;
 
 use bitcoin::{Amount, TxOut};
 
+use crate::constants::{
+    INPUT_BASE_SIZE, INPUT_WITNESS_SIZE, OP_RETURN_SIZE, OUTPUT_SIZE, TX_OVERHEAD, WITNESS_OVERHEAD,
+};
+
 pub trait FeeStrategy: Send + Sync {
     fn estimate_fee(
         &self,
@@ -9,14 +13,12 @@ pub trait FeeStrategy: Send + Sync {
         output_count: u32,
         fee_rate: u64,
     ) -> anyhow::Result<Amount> {
-        // version + locktime
-        let base_size = 10_u64;
-        // approximate size per input
-        let input_size = 148_u64 * u64::from(input_count);
-        // approximate size per output +2 (+1 for OP_RETURN, +1 for potential change)
-        let output_size = 34_u64 * u64::from(output_count + 2);
+        let input_size =
+            (WITNESS_OVERHEAD + INPUT_BASE_SIZE + INPUT_WITNESS_SIZE) * u64::from(input_count);
+        // approximate size per output +2 (+1 for potential change)
+        let output_size = OUTPUT_SIZE * u64::from(output_count + 1);
 
-        let total_size = base_size + input_size + output_size;
+        let total_size = TX_OVERHEAD + input_size + output_size + OP_RETURN_SIZE;
         let fee = fee_rate * total_size;
 
         // Ensure fee is divisible by output_count to avoid decimals when splitting

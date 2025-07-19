@@ -1,12 +1,19 @@
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{any::Any, sync::Arc};
 
 use anyhow::{Context, Ok};
 use axum::async_trait;
-use bitcoin::{hashes::Hash, Address, Amount, TxOut, Txid};
+use bitcoin::{
+    hashes::Hash,
+    hex::{Case, DisplayHex},
+    Amount, OutPoint, TxOut, Txid,
+};
+use indexmap::IndexMap;
+use via_btc_client::traits::Serializable;
 use via_musig2::{fee::WithdrawalFeeStrategy, transaction_builder::TransactionBuilder};
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 use via_withdrawal_client::client::WithdrawalClient;
+use zksync_config::ViaVerifierConfig;
 use zksync_types::H256;
 
 use crate::{traits::ISession, types::SessionOperation, utils::h256_to_txid};
@@ -15,6 +22,7 @@ const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
 
 #[derive(Debug, Clone)]
 pub struct WithdrawalSession {
+    verifier_config: ViaVerifierConfig,
     master_connection_pool: ConnectionPool<Verifier>,
     transaction_builder: Arc<TransactionBuilder>,
     withdrawal_client: WithdrawalClient,
@@ -22,11 +30,13 @@ pub struct WithdrawalSession {
 
 impl WithdrawalSession {
     pub fn new(
+        verifier_config: ViaVerifierConfig,
         master_connection_pool: ConnectionPool<Verifier>,
         transaction_builder: Arc<TransactionBuilder>,
         withdrawal_client: WithdrawalClient,
     ) -> Self {
         Self {
+            verifier_config,
             master_connection_pool,
             withdrawal_client,
             transaction_builder,
@@ -51,43 +61,64 @@ impl ISession for WithdrawalSession {
         );
 
         let proof_txid = h256_to_txid(&raw_proof_tx_id).with_context(|| "Invalid proof tx id")?;
-        let unsigned_tx = self
-            .create_unsigned_tx(withdrawals_to_process, proof_txid)
-            .await
-            .map_err(|e| {
-                anyhow::format_err!("Invalid unsigned tx for batch {l1_batch_number}: {e}")
-            })?;
 
-        let sighashes = self.transaction_builder.get_tr_sighashes(&unsigned_tx)?;
+        let votable_tx_id_opt = self.get_votable_tx_id(&raw_proof_tx_id).await?;
+        let Some(votable_tx_id) = votable_tx_id_opt else {
+            return Ok(None);
+        };
+
+        let (index, unsigned_txs) =
+            if let Some((index, unsigned_txs)) = self.get_unsigned_txs(votable_tx_id).await? {
+                (index, unsigned_txs)
+            } else {
+                let (index, unsigned_txs) = self
+                    .create_unsigned_txs(withdrawals_to_process, proof_txid, None, None)
+                    .await
+                    .map_err(|e| {
+                        anyhow::format_err!("Invalid unsigned tx for batch {l1_batch_number}: {e}")
+                    })?;
+
+                self.insert_bridge_tx(votable_tx_id, unsigned_txs.clone())
+                    .await?;
+                (index, unsigned_txs)
+            };
+
+        let sighashes = self
+            .transaction_builder
+            .get_tr_sighashes(&unsigned_txs[index])?;
 
         tracing::info!("New withdrawal session found for l1 batch {l1_batch_number}");
 
         Ok(Some(SessionOperation::Withdrawal(
             l1_batch_number,
-            unsigned_tx,
+            unsigned_txs,
             sighashes,
             raw_proof_tx_id,
+            index,
         )))
     }
 
     async fn is_session_in_progress(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
         if session_op.get_l1_batch_number() != 0 {
-            let bridge_tx = self
+            let bridge_txs = self
                 .master_connection_pool
                 .connection_tagged("verifier withdrawal session")
                 .await?
                 .via_votes_dal()
-                .get_vote_transaction_bridge_tx_id(session_op.get_l1_batch_number())
+                .get_vote_transaction_bridge_tx(
+                    session_op.get_l1_batch_number(),
+                    session_op.index(),
+                )
                 .await?;
 
-            return Ok(bridge_tx.is_none());
+            return Ok(bridge_txs.is_empty());
         }
         Ok(false)
     }
 
     async fn verify_message(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
         if let Some((unsigned_tx, messages)) = session_op.session() {
-            // Get the l1 batches finilized but withdrawals not yet processed
+            // Get the l1 batches finalized but withdrawals not yet processed
             if let Some((blob_id, proof_tx_id)) = self
                 .master_connection_pool
                 .connection_tagged("verifier withdrawal session verify message")
@@ -97,19 +128,15 @@ impl ISession for WithdrawalSession {
                 .await?
             {
                 if !self
-                    ._verify_withdrawals(
-                        session_op.get_l1_batch_number(),
-                        unsigned_tx,
-                        &blob_id,
-                        proof_tx_id,
-                    )
+                    ._verify_withdrawals(&session_op, &blob_id, proof_tx_id)
                     .await?
                 {
+                    tracing::error!("Failed to verify withdrawals");
                     return Ok(false);
                 }
 
                 return self
-                    ._verify_sighashes(session_op.get_l1_batch_number(), unsigned_tx, messages)
+                    ._verify_sighashes(session_op.get_l1_batch_number(), &unsigned_tx, messages)
                     .await;
             }
         }
@@ -129,10 +156,10 @@ impl ISession for WithdrawalSession {
             .connection_tagged("verifier task")
             .await?
             .via_votes_dal()
-            .get_vote_transaction_bridge_tx_id(session_op.get_l1_batch_number())
+            .get_vote_transaction_bridge_tx(session_op.get_l1_batch_number(), session_op.index())
             .await?;
 
-        Ok(bridge_txid.is_none())
+        Ok(bridge_txid.is_empty())
     }
 
     async fn after_broadcast_final_transaction(
@@ -140,24 +167,46 @@ impl ISession for WithdrawalSession {
         txid: Txid,
         session_op: &SessionOperation,
     ) -> anyhow::Result<bool> {
+        let votable_tx_id = self
+            .get_votable_tx_id(&session_op.get_proof_tx_id())
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Votable transaction does not exist"))?;
+
+        let hash_bytes = txid.to_byte_array().to_vec();
+
         self.master_connection_pool
             .connection_tagged("verifier task")
             .await?
-            .via_votes_dal()
-            .mark_vote_transaction_as_processed(
-                H256::from_slice(&txid.as_raw_hash().to_byte_array()),
-                &session_op.get_proof_tx_id(),
-                session_op.get_l1_batch_number(),
-            )
+            .via_bridge_dal()
+            .update_bridge_tx(votable_tx_id, session_op.index() as i64, &hash_bytes)
             .await?;
 
+        self.transaction_builder
+            .utxo_manager_insert_transaction(session_op.get_unsigned_bridge_tx().tx.clone())
+            .await;
+
         tracing::info!(
-            "New withdrawal transaction processed, l1 batch {} musig2 tx_id {}",
+            "Final withdrawal transaction broadcasted: L1 batch {}, txid {}",
             session_op.get_l1_batch_number(),
             txid
         );
 
         Ok(true)
+    }
+
+    async fn is_bridge_session_already_processed(
+        &self,
+        session_op: &SessionOperation,
+    ) -> anyhow::Result<bool> {
+        let bridge_tx_id = self
+            .master_connection_pool
+            .connection_tagged("verifier")
+            .await?
+            .via_votes_dal()
+            .get_vote_transaction_bridge_tx(session_op.get_l1_batch_number(), session_op.index())
+            .await?;
+
+        Ok(!bridge_tx_id.is_empty())
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -210,39 +259,68 @@ impl WithdrawalSession {
                 break;
             } else {
                 // If there is no withdrawals to process in a batch, update the status and mark it as processed
-                self.master_connection_pool
-                    .connection_tagged("withdrawal session")
+                let votable_tx_id = self
+                    .get_votable_tx_id(&raw_proof_tx_id)
                     .await?
-                    .via_votes_dal()
-                    .mark_vote_transaction_as_processed(
-                        H256::zero(),
-                        &raw_proof_tx_id,
-                        *batch_number,
-                    )
+                    .ok_or_else(|| anyhow::anyhow!("Votable transaction does not exist"))?;
+
+                self.master_connection_pool
+                    .connection_tagged("verifier task")
+                    .await?
+                    .via_bridge_dal()
+                    .insert_bridge_tx(votable_tx_id, Some(H256::zero().as_bytes()), None)
                     .await?;
+
                 tracing::info!(
-                    "There is no withdrawal to process in l1 batch {}",
-                    batch_number.clone()
+                    "There is no withdrawal to process in l1 batch {} votable_tx_id {}",
+                    batch_number.clone(),
+                    votable_tx_id
                 );
             }
         }
         Ok((l1_batch_number, raw_proof_tx_id, withdrawals_to_process))
     }
 
-    pub async fn create_unsigned_tx(
+    pub async fn get_unsigned_txs(
+        &self,
+        votable_tx_id: i64,
+    ) -> anyhow::Result<Option<(usize, Vec<UnsignedBridgeTx>)>> {
+        let db_unsigned_bridge_txs = self
+            .master_connection_pool
+            .connection_tagged("verifier")
+            .await?
+            .via_bridge_dal()
+            .get_vote_transaction_bridge_txs(votable_tx_id)
+            .await?;
+
+        if let Some((index, _)) = db_unsigned_bridge_txs
+            .iter()
+            .enumerate()
+            .find(|(_, (_, hash))| hash.is_empty())
+        {
+            let unsigned_bridge_txs_bytes: Vec<Vec<u8>> = db_unsigned_bridge_txs
+                .iter()
+                .map(|(data, _)| data.clone())
+                .collect();
+
+            return Ok(Some((
+                index,
+                UnsignedBridgeTx::to_vec(unsigned_bridge_txs_bytes),
+            )));
+        }
+
+        Ok(None)
+    }
+
+    pub async fn create_unsigned_txs(
         &self,
         withdrawals: Vec<WithdrawalRequest>,
         proof_txid: Txid,
-    ) -> anyhow::Result<UnsignedBridgeTx> {
+        default_fee_rate: Option<u64>,
+        default_available_utxos: Option<Vec<(OutPoint, TxOut)>>,
+    ) -> anyhow::Result<(usize, Vec<UnsignedBridgeTx>)> {
         // Group withdrawals by address and sum amounts
-        let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
-        for w in withdrawals {
-            *grouped_withdrawals.entry(w.address).or_insert(Amount::ZERO) = grouped_withdrawals
-                .get(&w.address)
-                .unwrap_or(&Amount::ZERO)
-                .checked_add(w.amount)
-                .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
-        }
+        let grouped_withdrawals = WithdrawalRequest::group_withdrawals_by_address(withdrawals)?;
 
         // Create outputs for grouped withdrawals
         let outputs: Vec<TxOut> = grouped_withdrawals
@@ -253,23 +331,27 @@ impl WithdrawalSession {
             })
             .collect();
 
-        self.transaction_builder
+        let unsigned_bridge_txs = self
+            .transaction_builder
             .build_transaction_with_op_return(
                 outputs,
                 OP_RETURN_WITHDRAW_PREFIX,
-                vec![proof_txid.as_raw_hash().to_byte_array()],
+                vec![&proof_txid.as_raw_hash().to_byte_array().to_vec()],
                 Arc::new(WithdrawalFeeStrategy::new()),
-                None,
+                default_fee_rate,
+                default_available_utxos,
+                self.verifier_config.max_tx_weight(),
             )
-            .await
+            .await?;
+
+        Ok((0, unsigned_bridge_txs))
     }
 
     async fn _verify_withdrawals(
         &self,
-        l1_batch_number: i64,
-        unsigned_tx: &UnsignedBridgeTx,
+        session_operation: &SessionOperation,
         blob_id: &str,
-        proof_tx_id: Vec<u8>,
+        raw_proof_tx_id: Vec<u8>,
     ) -> anyhow::Result<bool> {
         let withdrawals = self.withdrawal_client.get_withdrawals(blob_id).await?;
 
@@ -281,78 +363,98 @@ impl WithdrawalSession {
             .get_fee_rate(1)
             .await?;
 
-        // If the difference between the rate used to build the withdrawal and the current fetched rate is ±1, then the rate is considered valid.
-        if (unsigned_tx.fee_rate as i32 - fee_rate as i32).abs() == 1 {
+        let used_fee_rate = session_operation.get_unsigned_bridge_tx().fee_rate;
+
+        // Acceptable if difference is within ±1 sat/vbyte
+        if (used_fee_rate as i32 - fee_rate as i32).abs() > 1 {
+            tracing::error!("Fee mismatch: used={}, network={}", used_fee_rate, fee_rate);
+            return Ok(false);
+        }
+
+        let proof_txid = h256_to_txid(&raw_proof_tx_id).with_context(|| "Invalid proof tx id")?;
+
+        let selected_utxos = session_operation
+            .unsigned_txs()
+            .iter()
+            .flat_map(|tx| tx.utxos.clone())
+            .collect::<Vec<_>>();
+
+        let (_, recovered_unsigned_txs) = self
+            .create_unsigned_txs(
+                withdrawals.clone(),
+                proof_txid,
+                Some(used_fee_rate),
+                Some(selected_utxos),
+            )
+            .await?;
+
+        if recovered_unsigned_txs != *session_operation.unsigned_txs() {
+            tracing::error!("Mismatch in unsigned withdrawal transactions");
+            return Ok(false);
+        }
+
+        let Some(votable_tx_id) = self.get_votable_tx_id(&raw_proof_tx_id).await? else {
             tracing::error!(
-                "Invalid session, the fee rate used to build the withdrawal session doesn't match network fee, used_fee_rate {}, network_fee_rate {}",
-                unsigned_tx.fee_rate, fee_rate
+                "Theres is no votable transaction with proof_tx_id {}",
+                raw_proof_tx_id.to_hex_string(Case::Lower)
             );
             return Ok(false);
+        };
+
+        if self.get_unsigned_txs(votable_tx_id).await?.is_none() {
+            self.insert_bridge_tx(votable_tx_id, recovered_unsigned_txs)
+                .await?;
         }
 
-        let fee_per_user = unsigned_tx.get_fee_per_user();
+        // Group withdrawals by address
+        let grouped_withdrawals: indexmap::IndexMap<bitcoin::Address, Amount> =
+            WithdrawalRequest::group_withdrawals_by_address(withdrawals)?;
 
-        // Group withdrawals by address and sum amounts
-        let mut grouped_withdrawals: HashMap<String, Amount> = HashMap::new();
-        for w in &withdrawals {
-            let key = w.address.script_pubkey().to_string();
-            *grouped_withdrawals.entry(key).or_insert(Amount::ZERO) = grouped_withdrawals
-                .get(&key)
-                .unwrap_or(&Amount::ZERO)
-                .checked_add(w.amount)
-                .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
-        }
+        for tx in session_operation.unsigned_txs() {
+            let fee_per_user = tx.get_fee_per_user();
 
-        // Remove small withdrawals, it's possible that there is empty withdrawals.
-        let adjusted_withdrawals: HashMap<String, Amount> = grouped_withdrawals
-            .into_iter()
-            .filter(|(_, amount)| *amount > fee_per_user)
-            .map(|(address, amount)| (address.to_string(), amount))
-            .collect();
+            let adjusted_withdrawals: IndexMap<String, Amount> = grouped_withdrawals
+                .iter()
+                .filter_map(|(addr, amount)| {
+                    if *amount > fee_per_user {
+                        Some((addr.script_pubkey().to_string(), *amount))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
-        if adjusted_withdrawals.len() + 2 != unsigned_tx.tx.output.len() {
-            tracing::error!("Invalid unsigned withdrawal tx output lenght");
-            return Ok(false);
-        }
+            for (i, txout) in tx
+                .tx
+                .output
+                .iter()
+                .take(tx.tx.output.len().saturating_sub(2))
+                .enumerate()
+            {
+                let addr_str = txout.script_pubkey.to_string();
+                let Some(total_amount) = adjusted_withdrawals.get(&addr_str) else {
+                    tracing::error!("Missing withdrawal output for address {}", addr_str);
+                    return Ok(false);
+                };
 
-        // Verify if all grouped_withdrawals are included with valid amount.
-        for (i, txout) in unsigned_tx
-            .tx
-            .output
-            .iter()
-            .enumerate()
-            .take(unsigned_tx.tx.output.len().saturating_sub(2))
-        {
-            let amount = &adjusted_withdrawals[&txout.script_pubkey.to_string()];
-            let user_should_receive = *amount - fee_per_user;
-            if user_should_receive != txout.value {
-                tracing::error!(
-                    "Invalid request withdrawal for batch {}, index: {}",
-                    l1_batch_number,
-                    i
-                );
-                return Ok(false);
+                let expected_value = *total_amount - fee_per_user;
+                if txout.value != expected_value {
+                    tracing::error!(
+                        "Incorrect withdrawal value in batch {}, index {}: expected {}, got {}",
+                        session_operation.get_l1_batch_number(),
+                        i,
+                        expected_value,
+                        txout.value
+                    );
+                    return Ok(false);
+                }
             }
         }
+
         tracing::info!(
-            "All request withdrawals for batch {} are valid",
-            l1_batch_number
+            "Withdrawals verified for L1 batch {}",
+            session_operation.get_l1_batch_number()
         );
-
-        // Verify the OP return
-        let tx_id = h256_to_txid(&proof_tx_id)?;
-        let op_return_data = TransactionBuilder::create_op_return_script(
-            OP_RETURN_WITHDRAW_PREFIX,
-            vec![*tx_id.as_raw_hash().as_byte_array()],
-        )?;
-        let op_return_tx_out = &unsigned_tx.tx.output[unsigned_tx.tx.output.len() - 2];
-
-        if op_return_tx_out.script_pubkey.to_string() != op_return_data.to_string()
-            || op_return_tx_out.value != Amount::ZERO
-        {
-            tracing::error!("Invalid op return data for l1 batch: {}", l1_batch_number);
-            return Ok(false);
-        }
 
         Ok(true)
     }
@@ -373,5 +475,36 @@ impl WithdrawalSession {
         }
         tracing::info!("Sighashes for batch {} is valid", l1_batch_number);
         Ok(true)
+    }
+
+    async fn insert_bridge_tx(
+        &self,
+        votable_tx_id: i64,
+        unsigned_bridge_txs: Vec<UnsignedBridgeTx>,
+    ) -> anyhow::Result<()> {
+        let mut data = vec![];
+        for unsigned_bridge_tx in unsigned_bridge_txs.iter() {
+            data.push(unsigned_bridge_tx.to_bytes());
+        }
+
+        self.master_connection_pool
+            .connection_tagged("verifier")
+            .await?
+            .via_bridge_dal()
+            .insert_bridge_txs(votable_tx_id, &data)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn get_votable_tx_id(&self, proof_txid: &[u8]) -> anyhow::Result<Option<i64>> {
+        let votable_tx_id = self
+            .master_connection_pool
+            .connection_tagged("verifier")
+            .await?
+            .via_votes_dal()
+            .get_votable_transaction_id(proof_txid)
+            .await?;
+        Ok(votable_tx_id)
     }
 }
