@@ -12,7 +12,7 @@ export async function verifier(network: string) {
 
     env.load_from_file();
 
-    await utils.spawn(`cargo run --bin via_verifier`);
+    await utils.spawn(`cargo run --bin via_verifier --release`);
 }
 
 export const verifierCommand = new Command('verifier')
