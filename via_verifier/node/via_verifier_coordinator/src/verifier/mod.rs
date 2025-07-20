@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     collections::{BTreeMap, HashMap},
     sync::Arc,
     time::Duration,
@@ -55,7 +54,7 @@ impl ViaWithdrawalVerifier {
             Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
 
         let withdrawal_session = WithdrawalSession::new(
-            verifier_config,
+            verifier_config.clone(),
             master_connection_pool.clone(),
             transaction_builder.clone(),
             withdrawal_client,
