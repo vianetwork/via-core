@@ -246,7 +246,7 @@ impl ViaWithdrawalVerifier {
                     .connection_tagged("verifier task")
                     .await?
                     .via_bridge_dal()
-                    .insert_bridge_tx(votable_tx_id, Some(&H256::zero().as_bytes()), None)
+                    .update_bridge_tx(votable_tx_id, 0, &H256::zero().as_bytes())
                     .await?;
 
                 return Ok(());
