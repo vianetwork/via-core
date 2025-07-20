@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import { compileConfig } from './config';
 import fs from 'fs';
 import path from 'path';
-import { set as setEnv } from './env';
+import { set as setEnv, load_from_file } from './env';
 import { setup as setupDb } from './database';
 import * as utils from 'utils';
 import { updateBootstrapTxidsEnv } from './bootstrap';
@@ -99,8 +99,7 @@ async function clearIfNeeded() {
     const question = {
         type: 'confirm',
         name: 'cleanup',
-        message:
-            'The external node files need to be cleared first, this will clear all its databases, do you want to continue?'
+        message: 'Do you want to clear the external node database?'
     };
 
     const answer: { cleanup: boolean } = await prompt(question);
@@ -110,8 +109,8 @@ async function clearIfNeeded() {
     const cmd = chalk.yellow;
     console.log(`cleaning up database (${cmd('via clean --config via_ext_node --database')})`);
     await utils.exec('via clean --config via_ext_node --database');
-    console.log(`cleaning up db (${cmd('via db drop')})`);
-    await utils.exec('via db drop');
+    console.log(`cleaning up db (${cmd('via db drop --core')})`);
+    await utils.exec('via db drop --core');
     return true;
 }
 
@@ -140,8 +139,6 @@ async function commentOutConfigKey(env: string, key: string) {
 
 async function configExternalNode() {
     const cmd = chalk.yellow;
-    const success = chalk.green;
-    const failure = chalk.red;
 
     console.log(`Changing active env to via_ext_node (${cmd('via env via_ext_node')})`);
     setEnv('via_ext_node');
@@ -197,10 +194,10 @@ async function configExternalNode() {
             break;
     }
     compileConfig('via_ext_node');
-    setEnv('via_ext_node');
+    await updateBootstrapTxidsEnv(network);
+    load_from_file();
     console.log(`Setting up postgres (${cmd('via db setup')})`);
     await setupDb({ prover: false, core: true, verifier: false, indexer: false });
-    await updateBootstrapTxidsEnv(network);
     await runEnIfAskedTo();
 }
 
