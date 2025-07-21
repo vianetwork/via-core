@@ -49,7 +49,8 @@ impl ViaVerifierConfig {
     }
 
     pub fn max_tx_weight(&self) -> u64 {
-        self.max_tx_weight.unwrap_or((MAX_STANDARD_TX_WEIGHT - 20000).into())
+        self.max_tx_weight
+            .unwrap_or((MAX_STANDARD_TX_WEIGHT - 20000).into())
     }
 
     pub fn for_tests() -> Self {

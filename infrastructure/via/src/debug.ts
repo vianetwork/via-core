@@ -58,7 +58,7 @@ export async function withdrawMany(
             await withdraw(String(amountPerWithdraw), wallet.address, userL2PrivateKey, rpcUrl, nonce + i);
             console.log();
             console.log();
-            console.log("Receiver: ", wallet.address);
+            console.log('Receiver: ', wallet.address);
             console.log(`Withdrawal ${i + 1}/${count}`);
         }
     }
