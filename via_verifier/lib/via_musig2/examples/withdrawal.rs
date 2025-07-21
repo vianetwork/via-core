@@ -133,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(WithdrawalFeeStrategy::new()),
             None,
             None,
-            MAX_STANDARD_TX_WEIGHT,
+            MAX_STANDARD_TX_WEIGHT as u64,
         )
         .await?[0]
         .clone();

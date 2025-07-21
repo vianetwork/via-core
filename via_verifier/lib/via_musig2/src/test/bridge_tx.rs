@@ -5,8 +5,8 @@ mod tests {
     use anyhow::Result;
     use async_trait::async_trait;
     use bitcoin::{
-        policy::MAX_STANDARD_TX_WEIGHT, Address, Amount, Network, OutPoint, ScriptBuf, Transaction,
-        TxOut, Txid,
+        hashes::Hash, policy::MAX_STANDARD_TX_WEIGHT, Address, Amount, Network, OutPoint,
+        ScriptBuf, Transaction, TxOut, Txid,
     };
     use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
@@ -152,7 +152,13 @@ mod tests {
         let fee_strategy = Arc::new(WithdrawalFeeStrategy::new());
 
         let txs_metadata = tx_builder
-            .get_transaction_metadata(&available_utxos, &outputs, fee_rate, fee_strategy)
+            .get_transaction_metadata(
+                &available_utxos,
+                &outputs,
+                fee_rate,
+                fee_strategy,
+                MAX_STANDARD_TX_WEIGHT as u64,
+            )
             .await?;
 
         assert_eq!(txs_metadata.len(), 1);
@@ -180,7 +186,13 @@ mod tests {
             (total_weight as f64 / MAX_STANDARD_TX_WEIGHT as f64).ceil() as usize;
 
         let txs_metadata = tx_builder
-            .get_transaction_metadata(&available_utxos, &outputs, fee_rate, fee_strategy)
+            .get_transaction_metadata(
+                &available_utxos,
+                &outputs,
+                fee_rate,
+                fee_strategy,
+                MAX_STANDARD_TX_WEIGHT as u64,
+            )
             .await?;
 
         assert_eq!(txs_metadata.len(), expected_bridge_tx);
@@ -242,7 +254,13 @@ mod tests {
             (total_weight as f64 / MAX_STANDARD_TX_WEIGHT as f64).ceil() as usize;
 
         let txs_metadata = tx_builder
-            .get_transaction_metadata(&available_utxos, &outputs, fee_rate, fee_strategy)
+            .get_transaction_metadata(
+                &available_utxos,
+                &outputs,
+                fee_rate,
+                fee_strategy,
+                MAX_STANDARD_TX_WEIGHT as u64,
+            )
             .await?;
 
         assert_eq!(txs_metadata.len(), expected_bridge_tx);
@@ -299,15 +317,28 @@ mod tests {
         let fee_strategy = Arc::new(WithdrawalFeeStrategy::new());
 
         let txs_metadata = tx_builder
-            .get_transaction_metadata(&available_utxos, &outputs, fee_rate, fee_strategy)
+            .get_transaction_metadata(
+                &available_utxos,
+                &outputs,
+                fee_rate,
+                fee_strategy,
+                MAX_STANDARD_TX_WEIGHT as u64,
+            )
             .await?;
 
         let op_return_output_base = TxOut {
             value: Amount::from_sat(0),
             script_pubkey: ScriptBuf::new(),
         };
-        let bridge_txs =
-            tx_builder.build_bridge_txs(&txs_metadata, fee_rate, op_return_output_base.clone())?;
+        let op_return_prefix: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
+        let op_return_data = Txid::all_zeros().to_byte_array();
+
+        let bridge_txs = tx_builder.build_bridge_txs(
+            &txs_metadata,
+            fee_rate,
+            op_return_prefix,
+            vec![&op_return_data.to_vec()],
+        )?;
         assert_eq!(txs_metadata.len(), bridge_txs.len());
 
         for (i, bridge_tx) in bridge_txs.iter().enumerate() {
