@@ -70,7 +70,7 @@ impl WiringLayer for VerifierBtcWatchLayer {
         let main_pool = input.master_pool.get().await?;
         let client = input.btc_client_resource.btc_sender.unwrap();
         let indexer = BitcoinInscriptionIndexer::new(
-            client,
+            client.clone(),
             self.via_btc_client.clone(),
             self.via_genesis_config.bootstrap_txids()?,
         )
@@ -92,6 +92,7 @@ impl WiringLayer for VerifierBtcWatchLayer {
         let btc_watch = VerifierBtcWatch::new(
             self.btc_watch_config,
             indexer,
+            client,
             main_pool,
             self.via_genesis_config.zk_agreement_threshold,
         )
