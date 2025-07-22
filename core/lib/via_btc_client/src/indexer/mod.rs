@@ -14,7 +14,7 @@ use crate::{
     traits::BitcoinOps,
     types::{
         self, BitcoinIndexerResult, BridgeWithdrawal, FullInscriptionMessage, L1ToL2Message,
-        TransactionWithMetadata, Vote,
+        SystemContractUpgrade, TransactionWithMetadata, Vote,
     },
 };
 
@@ -153,7 +153,27 @@ impl BitcoinInscriptionIndexer {
 
         let mut valid_messages = Vec::new();
 
-        let (system_tx, bridge_tx) = self.extract_important_transactions(&block.txdata);
+        let (gov_txs, system_tx, bridge_tx) = self.extract_important_transactions(&block.txdata);
+
+        // Parse protocol upgrade messages
+        if let Some(gov_txs) = gov_txs {
+            let parsed_messages: Vec<_> = gov_txs
+                .iter()
+                .flat_map(|tx| {
+                    self.parser
+                        .parse_protocol_upgrade_transaction(tx, block_height)
+                })
+                .collect();
+
+            let mut messages = vec![];
+            for message in parsed_messages {
+                if self.is_valid_gov_message(&message).await {
+                    messages.push(message);
+                }
+            }
+
+            valid_messages.extend(messages);
+        }
 
         if let Some(system_tx) = system_tx {
             let parsed_messages: Vec<_> = system_tx
@@ -199,6 +219,7 @@ impl BitcoinInscriptionIndexer {
     ) -> (
         Option<Vec<TransactionWithMetadata>>,
         Option<Vec<TransactionWithMetadata>>,
+        Option<Vec<TransactionWithMetadata>>,
     ) {
         // We only care about the transactions that sequencer, verifiers are sending and the bridge is receiving
         let system_txs: Vec<TransactionWithMetadata> = transactions
@@ -239,6 +260,29 @@ impl BitcoinInscriptionIndexer {
             })
             .collect();
 
+        let gov_txs: Vec<TransactionWithMetadata> = transactions
+            .iter()
+            .enumerate()
+            .filter_map(|(tx_index, tx)| {
+                let is_bridge_output = tx
+                    .output
+                    .iter()
+                    .any(|output| output.script_pubkey == self.governance_address.script_pubkey());
+
+                if is_bridge_output {
+                    Some(TransactionWithMetadata::new(tx.clone(), tx_index))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let gov_txs = if !gov_txs.is_empty() {
+            Some(gov_txs)
+        } else {
+            None
+        };
+
         let system_txs = if !system_txs.is_empty() {
             Some(system_txs)
         } else {
@@ -251,7 +295,7 @@ impl BitcoinInscriptionIndexer {
             None
         };
 
-        (system_txs, bridge_txs)
+        (gov_txs, system_txs, bridge_txs)
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
@@ -375,11 +419,6 @@ impl BitcoinInscriptionIndexer {
                 .p2wpkh_address
                 .as_ref()
                 .map_or(false, |addr| addr == &self.sequencer_address),
-            FullInscriptionMessage::SystemContractUpgrade(m) => m
-                .common
-                .p2wpkh_address
-                .as_ref()
-                .map_or(false, |addr| addr == &self.governance_address),
             FullInscriptionMessage::SystemBootstrapping(_) => {
                 debug!("SystemBootstrapping message is always valid");
                 true
@@ -393,6 +432,15 @@ impl BitcoinInscriptionIndexer {
             FullInscriptionMessage::L1ToL2Message(m) => self.is_valid_l1_to_l2_transfer(m),
             FullInscriptionMessage::BridgeWithdrawal(m) => {
                 self.is_valid_bridge_withdrawal(m).await.unwrap_or(false)
+            }
+            _ => false,
+        }
+    }
+
+    async fn is_valid_gov_message(&self, message: &FullInscriptionMessage) -> bool {
+        match message {
+            FullInscriptionMessage::SystemContractUpgrade(m) => {
+                self.is_valid_gov_upgrade(m).await.unwrap_or(false)
             }
             _ => false,
         }
@@ -516,6 +564,17 @@ impl BitcoinInscriptionIndexer {
             let tx = self.client.get_transaction(&outpoint.txid).await?;
             if let Some(txout) = tx.output.get(outpoint.vout as usize) {
                 return Ok(txout.script_pubkey == self.bridge_address.script_pubkey());
+            }
+        }
+        Ok(false)
+    }
+
+    #[instrument(skip(self, message), target = "bitcoin_indexer")]
+    async fn is_valid_gov_upgrade(&self, message: &SystemContractUpgrade) -> anyhow::Result<bool> {
+        if let Some(outpoint) = message.input.inputs.first() {
+            let tx = self.client.get_transaction(&outpoint.txid).await?;
+            if let Some(txout) = tx.output.get(outpoint.vout as usize) {
+                return Ok(txout.script_pubkey == self.governance_address.script_pubkey());
             }
         }
         Ok(false)
