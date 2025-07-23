@@ -27,7 +27,7 @@ async function updateEnvVariable(envFilePath: string, variableName: string, newV
 export async function updateBootstrapTxidsEnv(network: string) {
     let genesisTxIds = process.env.VIA_GENESIS_BOOTSTRAP_TXIDS;
 
-    if (!genesisTxIds) {
+    if (!genesisTxIds || genesisTxIds === '""') {
         const genesisDir = path.join(process.env.VIA_HOME!, `etc/env/via/genesis/${network}`);
         const files = await fs.readdir(genesisDir);
 
