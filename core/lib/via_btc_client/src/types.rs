@@ -188,7 +188,6 @@ pub enum InscriptionMessage {
     ProposeSequencer(ProposeSequencerInput),
     L1ToL2Message(L1ToL2MessageInput),
     SystemContractUpgradeProposal(SystemContractUpgradeProposalInput),
-    SystemContractUpgrade(SystemContractUpgradeInput),
 }
 
 impl Serializable for InscriptionMessage {

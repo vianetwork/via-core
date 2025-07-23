@@ -23,7 +23,10 @@
     "tiny-secp256k1": "2.2.4",
     "bip39": "3.1.0",
     "@types/bip32": "2.0.4",
-    "bip32": "5.0.0-rc.0"
+    "bip32": "5.0.0-rc.0",
+    "ecpair": "2.1.0",
+    "axios": "1.10.0",
+    "bitcoin-core": "5.0.0"
   },
   "bin": {
     "via": "./build/index.js"

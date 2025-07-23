@@ -4,6 +4,7 @@ import * as bitcoin from 'bitcoinjs-lib';
 import * as bip39 from 'bip39';
 import * as ecc from 'tiny-secp256k1';
 import { BIP32Factory } from 'bip32';
+import { readFileSync, writeFileSync } from 'fs';
 
 export async function updateEnvVariable(envFilePath: string, variableName: string, newValue: string) {
     const envFileContent = await fs.readFile(envFilePath, 'utf-8');
@@ -25,10 +26,11 @@ interface Wallet {
     mnemonic: string;
     privateKey: string;
     address: string;
+    publicKey: string,
     network: string;
 }
 
-function getNetwork(network: string) {
+export function getNetwork(network: string) {
     switch (network) {
         case 'testnet':
             return bitcoin.networks.testnet;
@@ -69,6 +71,9 @@ export async function generateBitcoinWallet(network: string = 'regtest'): Promis
             mnemonic,
             privateKey: child.toWIF(),
             address,
+            publicKey: Buffer.isBuffer(child.publicKey)
+                ? child.publicKey.toString('hex')
+                : Buffer.from(child.publicKey).toString('hex'),
             network: network
         };
     } catch (error) {
@@ -76,3 +81,23 @@ export async function generateBitcoinWallet(network: string = 'regtest'): Promis
         return null;
     }
 }
+
+export const readJsonFile = <T>(filePath: string): T => {
+    try {
+        const fileContent = readFileSync(filePath, 'utf-8');
+        return JSON.parse(fileContent) as T;
+    } catch (error) {
+        console.error(`Error reading or parsing file at ${filePath}:`, error);
+        throw error;
+    }
+};
+
+export const writeJsonFile = (filePath: string, data: object): void => {
+    try {
+        writeFileSync(filePath, JSON.stringify(data, null, 2));
+        console.log(`\nData successfully saved to ${filePath}`);
+    } catch (error) {
+        console.error(`Error writing file to ${filePath}:`, error);
+        throw error;
+    }
+};
