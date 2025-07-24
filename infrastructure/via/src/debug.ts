@@ -54,9 +54,7 @@ export async function withdrawMany(
         const wallet = await generateBitcoinWallet(network);
         if (wallet) {
             await withdraw(String(amountPerWithdraw), wallet.address, userL2PrivateKey, rpcUrl, nonce + i);
-            console.log();
-            console.log();
-            console.log('Receiver: ', wallet.address);
+            console.log('\n\nReceiver: ', wallet.address);
             console.log(`Withdrawal ${i + 1}/${count}`);
         }
     }
