@@ -486,13 +486,11 @@ impl BitcoinInscriptionIndexer {
                     .require_network(network)
                     .unwrap();
 
-                if &governance_address == p2wpkh_address {
-                    state.bridge_address = Some(bridge_address);
-                    state.starting_block_number = sb.input.start_block_height;
-                    state.bootloader_hash = Some(sb.input.bootloader_hash);
-                    state.abstract_account_hash = Some(sb.input.abstract_account_hash);
-                    state.proposed_governance = Some(governance_address);
-                }
+                state.bridge_address = Some(bridge_address);
+                state.starting_block_number = sb.input.start_block_height;
+                state.bootloader_hash = Some(sb.input.bootloader_hash);
+                state.abstract_account_hash = Some(sb.input.abstract_account_hash);
+                state.proposed_governance = Some(governance_address);
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
                 debug!("Processing ProposeSequencer message");
@@ -500,15 +498,13 @@ impl BitcoinInscriptionIndexer {
                     .common
                     .p2wpkh_address
                     .expect("ProposeSequencer message must have a p2wpkh address");
-                if state.proposed_governance == Some(p2wpkh_address) {
-                    let sequencer_address = ps
-                        .input
-                        .sequencer_new_p2wpkh_address
-                        .require_network(network)
-                        .unwrap();
-                    state.proposed_sequencer = Some(sequencer_address);
-                    state.proposed_sequencer_txid = Some(txid);
-                }
+                let sequencer_address = ps
+                    .input
+                    .sequencer_new_p2wpkh_address
+                    .require_network(network)
+                    .unwrap();
+                state.proposed_sequencer = Some(sequencer_address);
+                state.proposed_sequencer_txid = Some(txid);
             }
             FullInscriptionMessage::ValidatorAttestation(va) => {
                 let p2wpkh_address = va
