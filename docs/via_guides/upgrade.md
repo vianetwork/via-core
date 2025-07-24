@@ -116,6 +116,63 @@ via multisig finalize-upgrade-tx
 ```sh
 via multisig broadcast-tx \
 --rpcUrl http://0.0.0.0:18443 \
---rpcUser rpcuser\
+--rpcUser rpcuser \
 --rpcPass rpcpassword
 ```
+
+## Upgrade execution example
+
+1. Start the Sequencer.
+2. Deposit 1 BTC.
+3. cd via-playground exec the following cmd, you should see ETH. as token symbol.
+```sh
+cd via-playground && source .env.example && npx hardhat balance --address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 && cd ..
+```
+4. Switch the submodule to `branch = fix/via-update-withdrawal-event`, this allows us to use the protcol version 26.
+5. Build git submodule using
+```sh
+git submodule update --remote --recursive
+```
+6. Build the system contracts
+```sh
+cd contracts && yarn sc build && cd ..
+```
+7. Create a new upgrade config
+```sh
+cd infrastructure/via-protocol-upgrade && yarn start upgrades create via-network --protocol-version 0.26.0
+```
+8. Publish the new system contract for version 
+```sh
+yarn start system-contracts publish \
+    --private-key 0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110 \
+    --l2rpc http://0.0.0.0:3050 \
+    --environment devnet-2 \
+    --new-protocol-version 0.26.0 \
+    --recursion-scheduler-level-vk-hash 0x14f97b81e54b35fe673d8708cc1a19e1ea5b5e348e12d31e39824ed4f42bbca2 \
+    --bootloader \
+    --default-aa \
+    --system-contracts
+```
+The above cmd created a new upgrade file at this location etc/upgrades/1742370950-via-network with the new system contracts we are going to deploy. Wait the transactions to be processed on L2 and included in L1 batches before execute the next steps.
+10. When all the l1_batches are processed execute the next cmd to send an upgrade inscription to the L1.
+```sh
+yarn start l2-transaction upgrade-system-contracts --environment devnet-2 --private-key cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R
+```
+11. Copy the `tx_id` of the proposal created in the previous step and follow this doc to create a multisig [GOV transaction](#How-to-execute-an-upgrade-proposal).
+
+12. When the Gov tx is created and minted in a block, execute another deposit 1 BTC, this because a batch can not include only an upgrade transaction.
+11. Check the database, new protocol version should be 26, the last batch should be processed with the new bootloader
+hash and version 26.
+```sql
+-- You should see that the last miniblocks where processed using the version 26
+select protocol_version from miniblocks order by number DESC
+
+-- The last batches (check number), should have different bootloader_code_hash and default_aa_code_hash.
+select number, encode(bootloader_code_hash, 'hex'), encode(default_aa_code_hash, 'hex') from l1_batches order by number DESC
+```
+12. In another terminal starts the coordinator (by default version 26 ). You will notice that all the batches before the one includes the upgrade are processing with VK (verifying key version 25) and after upgrade VK-26
+
+13. Start a verifier with the (change the version to 25 here)
+14. The coordinator will reject this verifier as the protocol version used is 25 and it requires 26
+15. Start the verifier and restart it with version 26. The withdrawal is processed
+16. Done
