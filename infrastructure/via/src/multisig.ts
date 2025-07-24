@@ -5,7 +5,7 @@ import { ECPairFactory, ECPairInterface } from 'ecpair';
 import { generateBitcoinWallet, getNetwork, readJsonFile, writeJsonFile } from './helpers';
 import { Psbt } from 'bitcoinjs-lib';
 import axios from 'axios';
-import { DEFAULT_NETWORK } from "./constants"
+import { DEFAULT_NETWORK } from './constants';
 
 // Initialize the elliptic curve library
 bitcoin.initEccLib(ecc);
@@ -18,18 +18,23 @@ interface UtxoInput {
     amountSatoshis: number;
 }
 
-const createBitcoinWallet = async (networkStr: string = "regtest") => {
+const createBitcoinWallet = async (networkStr: string = 'regtest') => {
     const wallet = await generateBitcoinWallet(networkStr);
 
-    console.log("Wallet: ", wallet);
-}
+    console.log('Wallet: ', wallet);
+};
 
 // Initialise ECC (required since bitcoinjs‑lib v6)
-const compute_multisig_address = (pubkeys: Array<string>, minimumSigners: number, outDir: string, networkStr: string = "regtest") => {
+const compute_multisig_address = (
+    pubkeys: Array<string>,
+    minimumSigners: number,
+    outDir: string,
+    networkStr: string = 'regtest'
+) => {
     bitcoin.initEccLib(ecc);
 
     const network = getNetwork(networkStr);
-    const pubkeyBuffers = pubkeys.map(hex => Buffer.from(hex, 'hex'));
+    const pubkeyBuffers = pubkeys.map((hex) => Buffer.from(hex, 'hex'));
 
     const p2ms = bitcoin.payments.p2ms({ m: minimumSigners, pubkeys: pubkeyBuffers, network });
     const p2wsh = bitcoin.payments.p2wsh({ redeem: p2ms, network });
@@ -37,19 +42,19 @@ const compute_multisig_address = (pubkeys: Array<string>, minimumSigners: number
     const multisig = {
         address: p2wsh.address,
         witnessScript: p2wsh.redeem?.output?.toString('hex'),
-        outputScript: p2wsh.output?.toString('hex'),
-    }
-    console.log("Multisig wallet", multisig)
+        outputScript: p2wsh.output?.toString('hex')
+    };
+    console.log('Multisig wallet', multisig);
 
     writeJsonFile(outDir, { multisig });
-}
+};
 
 const createUnsignedUpgradeTransaction = (
     utxoInput: UtxoInput,
     upgradeTxId: string,
     fee: number,
     outDir: string,
-    networkStr: string = "regtest",
+    networkStr: string = 'regtest'
 ) => {
     const dataFile: any = readJsonFile(outDir);
     const network = getNetwork(networkStr);
@@ -62,47 +67,43 @@ const createUnsignedUpgradeTransaction = (
         index: utxoInput.vout,
         witnessUtxo: {
             script: Buffer.from(dataFile.multisig.outputScript, 'hex'),
-            value: utxoInput.amountSatoshis,
+            value: utxoInput.amountSatoshis
         },
-        witnessScript: Buffer.from(dataFile.multisig.witnessScript, 'hex'),
+        witnessScript: Buffer.from(dataFile.multisig.witnessScript, 'hex')
     });
 
     // 2. Create and add the OP_RETURN output
     const upgradeTxIdBuffer = Buffer.from(upgradeTxId, 'hex').reverse();
-    const prefixBuffer = Buffer.from("VIA_PROTOCOL:UPGRADE", 'utf8');
+    const prefixBuffer = Buffer.from('VIA_PROTOCOL:UPGRADE', 'utf8');
     const embed = bitcoin.payments.embed({ data: [prefixBuffer, upgradeTxIdBuffer] });
-    if (!embed.output) throw new Error("Could not create OP_RETURN script.");
+    if (!embed.output) throw new Error('Could not create OP_RETURN script.');
 
     psbt.addOutput({
         script: embed.output,
-        value: 0,
+        value: 0
     });
 
     // 3. Create and add the change output
     const changeValue = utxoInput.amountSatoshis - fee;
     if (changeValue < 0) {
-        throw new Error("Funding amount is less than the fee.");
+        throw new Error('Funding amount is less than the fee.');
     }
 
     psbt.addOutput({
         address: dataFile.multisig.address,
-        value: changeValue,
+        value: changeValue
     });
 
-    writeJsonFile(outDir, { ...dataFile, tx: psbt.toBase64() })
+    writeJsonFile(outDir, { ...dataFile, tx: psbt.toBase64() });
 
-    console.log("Successfully created an unsigned PSBT for the upgrade transaction.");
+    console.log('Successfully created an unsigned PSBT for the upgrade transaction.');
 };
 
 /**
  * Signs a PSBT with a given private key.
  * This function correctly creates a Signer object that is compatible with bitcoinjs-lib's types.
  */
-const signPsbt = (
-    wifPrivateKey: string,
-    outDir: string,
-    networkStr: string,
-) => {
+const signPsbt = (wifPrivateKey: string, outDir: string, networkStr: string) => {
     const dataFile: any = readJsonFile(outDir);
     const network = getNetwork(networkStr);
 
@@ -114,7 +115,7 @@ const signPsbt = (
         sign: (hash: Buffer): Buffer => {
             // Use the underlying keyPair to perform the actual signing
             return Buffer.from(keyPair.sign(hash));
-        },
+        }
     };
 
     psbt.signInput(0, signer);
@@ -123,17 +124,16 @@ const signPsbt = (
         ecc.verify(msghash, pubkey, signature);
 
     if (!psbt.validateSignaturesOfInput(0, validationFunction)) {
-        throw new Error("Signature validation failed for the new signature.");
+        throw new Error('Signature validation failed for the new signature.');
     }
 
-    writeJsonFile(outDir, { ...dataFile, tx: psbt.toBase64() })
+    writeJsonFile(outDir, { ...dataFile, tx: psbt.toBase64() });
 };
-
 
 /**
  * Finalizes a PSBT and extracts the full transaction hex.
  */
-const finalizeAndExtractTx = (outDir: string, networkStr: string = "regtest") => {
+const finalizeAndExtractTx = (outDir: string, networkStr: string = 'regtest') => {
     const dataFile: any = readJsonFile(outDir);
     const network = getNetwork(networkStr);
 
@@ -142,22 +142,17 @@ const finalizeAndExtractTx = (outDir: string, networkStr: string = "regtest") =>
 
     const finalTx = psbt.extractTransaction();
 
-    writeJsonFile(outDir, { ...dataFile, txHex: finalTx.toHex() })
+    writeJsonFile(outDir, { ...dataFile, txHex: finalTx.toHex() });
     console.log(finalTx.toHex());
 };
 
 /**
  * Broadcasts a raw transaction hex to the Bitcoin node via JSON-RPC with authentication.
  */
-const broadcastTransaction = async (
-    outDir: string,
-    rpc_url: string,
-    rpc_user: string,
-    rpc_password: string
-) => {
+const broadcastTransaction = async (outDir: string, rpc_url: string, rpc_user: string, rpc_password: string) => {
     try {
         const dataFile: any = readJsonFile(outDir);
-        console.log()
+        console.log();
 
         const auth = Buffer.from(`${rpc_user}:${rpc_password}`).toString('base64');
 
@@ -167,13 +162,13 @@ const broadcastTransaction = async (
                 jsonrpc: '1.0',
                 id: 'broadcast',
                 method: 'sendrawtransaction',
-                params: [dataFile.txHex],
+                params: [dataFile.txHex]
             },
             {
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Basic ${auth}`,
-                },
+                    Authorization: `Basic ${auth}`
+                }
             }
         );
 
@@ -181,13 +176,15 @@ const broadcastTransaction = async (
             throw new Error(`RPC Error: ${response.data.error.message}`);
         }
 
-        writeJsonFile(outDir, { ...dataFile, txid: response.data.result })
+        writeJsonFile(outDir, { ...dataFile, txid: response.data.result });
 
-        console.log("Txid:", response.data.result)
+        console.log('Txid:', response.data.result);
     } catch (error) {
         if (axios.isAxiosError(error) && error.response) {
             console.error('RPC Error:', error.response.data);
-            throw new Error(`Failed to broadcast transaction: ${error.response.data.error?.message || 'Unknown error'}`);
+            throw new Error(
+                `Failed to broadcast transaction: ${error.response.data.error?.message || 'Unknown error'}`
+            );
         }
         throw error;
     }
@@ -199,11 +196,7 @@ command
     .command('create-wallet')
     .description('Create a bitcoin wallet')
     .option('--network <network>', 'network', DEFAULT_NETWORK)
-    .action((cmd: Command) =>
-        createBitcoinWallet(
-            cmd.network
-        )
-    );
+    .action((cmd: Command) => createBitcoinWallet(cmd.network));
 
 command
     .command('compute-multisig')
@@ -213,12 +206,7 @@ command
     .option('--outDir <outDir>', 'The output dir', './upgrade_tx_exec.json')
     .option('--network <network>', 'network', DEFAULT_NETWORK)
     .action((cmd: Command) =>
-        compute_multisig_address(
-            cmd.pubkeys.split(","),
-            Number(cmd.minimumSigners),
-            cmd.outDir,
-            cmd.network
-        )
+        compute_multisig_address(cmd.pubkeys.split(','), Number(cmd.minimumSigners), cmd.outDir, cmd.network)
     );
 
 command
@@ -236,7 +224,7 @@ command
             {
                 txid: cmd.inputTxId,
                 amountSatoshis: Number(cmd.inputAmount),
-                vout: Number(cmd.inputVout),
+                vout: Number(cmd.inputVout)
             },
             cmd.upgradeProposalTxId,
             Number(cmd.fee),
@@ -251,25 +239,14 @@ command
     .requiredOption('--privateKey <privateKey>', 'The signer private key')
     .option('--outDir <outDir>', 'The output dir', './upgrade_tx_exec.json')
     .option('--network <network>', 'network', DEFAULT_NETWORK)
-    .action((cmd: Command) =>
-        signPsbt(
-            cmd.privateKey,
-            cmd.outDir,
-            cmd.network
-        )
-    );
+    .action((cmd: Command) => signPsbt(cmd.privateKey, cmd.outDir, cmd.network));
 
 command
     .command('finalize-upgrade-tx')
     .description('finalize the upgrade transaction')
     .option('--outDir <outDir>', 'The output dir', './upgrade_tx_exec.json')
     .option('--network <network>', 'network', DEFAULT_NETWORK)
-    .action((cmd: Command) =>
-        finalizeAndExtractTx(
-            cmd.outDir,
-            cmd.network
-        )
-    );
+    .action((cmd: Command) => finalizeAndExtractTx(cmd.outDir, cmd.network));
 
 command
     .command('broadcast-tx')
@@ -279,11 +256,4 @@ command
     .requiredOption('--rpcPass <rpcPass>', 'The rpc password')
     .option('--outDir <outDir>', 'The output dir', './upgrade_tx_exec.json')
     .option('--network <network>', 'network', DEFAULT_NETWORK)
-    .action((cmd: Command) =>
-        broadcastTransaction(
-            cmd.outDir,
-            cmd.rpcUrl,
-            cmd.rpcUser,
-            cmd.rpcPass,
-        )
-    );
+    .action((cmd: Command) => broadcastTransaction(cmd.outDir, cmd.rpcUrl, cmd.rpcUser, cmd.rpcPass));

@@ -26,7 +26,7 @@ interface Wallet {
     mnemonic: string;
     privateKey: string;
     address: string;
-    publicKey: string,
+    publicKey: string;
     network: string;
 }
 
