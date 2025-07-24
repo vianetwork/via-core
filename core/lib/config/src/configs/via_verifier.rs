@@ -49,6 +49,10 @@ impl ViaVerifierConfig {
     }
 
     pub fn max_tx_weight(&self) -> u64 {
+        // Reserve 20000 weight units below Bitcoin's standard limit as a safety buffer
+        // to account for witness data variations, signature size differences, and 
+        // potential rounding errors during transaction construction, ensuring we stay
+        // well within node acceptance limits
         self.max_tx_weight
             .unwrap_or((MAX_STANDARD_TX_WEIGHT - 20000).into())
     }
