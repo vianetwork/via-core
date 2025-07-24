@@ -35,9 +35,7 @@ export async function depositMany(
             rpcPassword
         );
 
-        console.log();
-        console.log();
-        console.log(`Deposit ${i + 1}/${count}`);
+        console.log(`\n\nDeposit ${i + 1}/${count}`);
     }
 }
 
