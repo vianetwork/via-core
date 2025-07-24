@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS bridge_tx;
+DROP TABLE IF EXISTS via_bridge_tx;

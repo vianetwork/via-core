@@ -6,8 +6,7 @@ CREATE TABLE via_bridge_tx (
     "index" BIGINT NOT NULL DEFAULT 0,
     "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
     "updated_at" TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_votable_index UNIQUE ("votable_tx_id", "index"),
-    CONSTRAINT unique_hash UNIQUE (hash)
+    CONSTRAINT unique_votable_index UNIQUE ("votable_tx_id", "index")
 );
 
 -- Migrate the bridge_tx_id to the new via_bridge_tx table
