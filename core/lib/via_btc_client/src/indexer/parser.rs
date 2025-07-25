@@ -793,12 +793,24 @@ impl MessageParser {
             }
 
             let start = OP_RETURN_WITHDRAW_PREFIX.len() + 1;
+            if op_return_data.len() < start + 32 {
+                return None;
+            }
+
             // Parse l1_batch_reveal_tx_id from OP_RETURN data
             let l1_batch_proof_reveal_tx_id =
                 match Txid::from_slice(&op_return_data[start..start + 32]) {
                     Ok(tx_id) => tx_id.as_raw_hash().as_byte_array().to_vec(),
                     Err(_) => return None,
                 };
+
+            // Optional index_withdrawal
+            let index_withdrawal = if op_return_data.len() >= start + 40 {
+                let bytes: [u8; 8] = op_return_data[start + 32..start + 40].try_into().ok()?;
+                i64::from_le_bytes(bytes)
+            } else {
+                0
+            };
 
             let mut withdrawals = Vec::new();
             for output in &tx.output {
@@ -819,6 +831,7 @@ impl MessageParser {
             }
 
             let input = BridgeWithdrawalInput {
+                index_withdrawal,
                 v_size: tx.vsize() as i64,
                 total_size: tx.total_size() as i64,
                 inputs: tx.input.iter().map(|input| input.previous_output).collect(),

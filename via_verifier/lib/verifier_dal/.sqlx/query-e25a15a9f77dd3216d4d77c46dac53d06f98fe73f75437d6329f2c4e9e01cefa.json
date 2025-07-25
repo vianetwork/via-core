@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                votable_tx_id\n            FROM\n                via_bridge_tx\n            WHERE\n                hash IS NULL\n            ORDER BY\n                id ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "votable_tx_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "e25a15a9f77dd3216d4d77c46dac53d06f98fe73f75437d6329f2c4e9e01cefa"
+}

@@ -29,5 +29,10 @@ pub trait ISession: Any + Send + Sync {
         session_op: &SessionOperation,
     ) -> anyhow::Result<bool>;
 
+    async fn is_bridge_session_already_processed(
+        &self,
+        session_op: &SessionOperation,
+    ) -> anyhow::Result<bool>;
+
     fn as_any(&self) -> &dyn Any;
 }

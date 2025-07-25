@@ -7,7 +7,9 @@ use axum::{
     Json, Router,
 };
 use base64::Engine;
-use bitcoin::{hashes::Hash, Address, Amount, Network, TxOut, Txid};
+use bitcoin::{
+    hashes::Hash, policy::MAX_STANDARD_TX_WEIGHT, Address, Amount, Network, TxOut, Txid,
+};
 use hyper::Server;
 use musig2::{BinaryEncoding, CompactSignature, PartialSignature, PubNonce};
 use rand::thread_rng;
@@ -445,11 +447,14 @@ async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessi
             .build_transaction_with_op_return(
                 outputs,
                 OP_RETURN_WITHDRAW_PREFIX,
-                vec![proof_txid.as_raw_hash().to_byte_array()],
+                vec![&proof_txid.as_raw_hash().to_byte_array().to_vec()],
                 Arc::new(WithdrawalFeeStrategy::new()),
                 None,
+                None,
+                MAX_STANDARD_TX_WEIGHT as u64,
             )
-            .await?
+            .await?[0]
+            .clone()
     };
 
     // Create unique session ID

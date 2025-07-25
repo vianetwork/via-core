@@ -8,6 +8,7 @@ use bitcoin::{
     hashes::Hash,
     hex::{Case, DisplayHex},
     key::Keypair,
+    policy::MAX_STANDARD_TX_WEIGHT,
     secp256k1::{Secp256k1, SecretKey},
     sighash::TapSighashType,
     Address, Amount, Network, PrivateKey, TapTweakHash, TxOut, Txid, Witness,
@@ -128,11 +129,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_transaction_with_op_return(
             outputs,
             op_return_prefix,
-            vec![op_return_data],
+            vec![&op_return_data.to_vec()],
             Arc::new(WithdrawalFeeStrategy::new()),
             None,
+            None,
+            MAX_STANDARD_TX_WEIGHT as u64,
         )
-        .await?;
+        .await?[0]
+        .clone();
 
     let messages = tx_builder.get_tr_sighashes(&unsigned_tx)?;
     let message1 = messages[0].clone();

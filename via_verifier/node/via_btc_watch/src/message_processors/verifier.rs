@@ -111,7 +111,7 @@ impl MessageProcessor for VerifierMessageProcessor {
 
                         if let Some(votable_transaction_id) = storage
                             .via_votes_dal()
-                            .get_votable_transaction_id(reveal_proof_txid)
+                            .get_votable_transaction_id(&reveal_proof_txid.as_bytes())
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                         {

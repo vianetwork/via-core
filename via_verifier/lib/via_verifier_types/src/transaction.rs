@@ -3,7 +3,7 @@ use bitcoin::{Amount, OutPoint, Transaction, TxOut, Txid};
 use serde::{Deserialize, Serialize};
 use via_btc_client::traits::Serializable;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UnsignedBridgeTx {
     pub tx: Transaction,
     pub txid: Txid,
@@ -24,6 +24,14 @@ impl UnsignedBridgeTx {
 
     pub fn is_empty(&self) -> bool {
         self.tx.output.len() as u64 - 2 == 0
+    }
+
+    pub fn to_vec(unsigned_bridge_txs_bytes: Vec<Vec<u8>>) -> Vec<UnsignedBridgeTx> {
+        let mut unsigned_bridge_txs = vec![];
+        for unsigned_bridge_tx in unsigned_bridge_txs_bytes {
+            unsigned_bridge_txs.push(UnsignedBridgeTx::from_bytes(&unsigned_bridge_tx))
+        }
+        unsigned_bridge_txs
     }
 }
 

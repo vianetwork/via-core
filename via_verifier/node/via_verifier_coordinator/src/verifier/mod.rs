@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     collections::{BTreeMap, HashMap},
     sync::Arc,
     time::Duration,
@@ -55,6 +54,7 @@ impl ViaWithdrawalVerifier {
             Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
 
         let withdrawal_session = WithdrawalSession::new(
+            verifier_config.clone(),
             master_connection_pool.clone(),
             transaction_builder.clone(),
             withdrawal_client,
@@ -174,7 +174,8 @@ impl ViaWithdrawalVerifier {
         }
 
         if self
-            .is_bridge_session_already_processed(session_op.get_l1_batch_number())
+            .session_manager
+            .is_bridge_session_already_processed(&session_op)
             .await?
         {
             tracing::info!(
@@ -232,16 +233,22 @@ impl ViaWithdrawalVerifier {
 
             // If the session is valid but there is no withdrawal to process, insert and empty hash.
             if session_op.get_unsigned_bridge_tx().is_empty() {
-                self.master_connection_pool
-                    .connection_tagged("withdrawal session")
+                let votable_tx_id = self
+                    .master_connection_pool
+                    .connection_tagged("verifier task")
                     .await?
                     .via_votes_dal()
-                    .mark_vote_transaction_as_processed(
-                        H256::zero(),
-                        &session_op.get_proof_tx_id(),
-                        session_op.get_l1_batch_number(),
-                    )
+                    .get_votable_transaction_id(&session_op.get_proof_tx_id())
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("Votable transaction does not exist"))?;
+
+                self.master_connection_pool
+                    .connection_tagged("verifier task")
+                    .await?
+                    .via_bridge_dal()
+                    .update_bridge_tx(votable_tx_id, 0, &H256::zero().as_bytes())
                     .await?;
+
                 return Ok(());
             }
 
@@ -758,20 +765,5 @@ impl ViaWithdrawalVerifier {
             return Ok(true);
         }
         Ok(false)
-    }
-
-    async fn is_bridge_session_already_processed(
-        &self,
-        l1_batch_number: i64,
-    ) -> anyhow::Result<bool> {
-        let bridge_tx_id = self
-            .master_connection_pool
-            .connection_tagged("verifier task")
-            .await?
-            .via_votes_dal()
-            .get_vote_transaction_bridge_tx_id(l1_batch_number)
-            .await?;
-
-        Ok(bridge_tx_id.is_some())
     }
 }

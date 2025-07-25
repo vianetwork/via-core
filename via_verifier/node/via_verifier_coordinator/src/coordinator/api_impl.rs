@@ -28,7 +28,11 @@ impl RestApi {
     pub async fn new_session(
         State(self_): State<Arc<Self>>,
     ) -> anyhow::Result<Response<String>, ApiError> {
-        let current_session_op_opt = self_.state.signing_session.read().await.session_op.clone();
+        let current_session_op_opt = {
+            let current_session_op_opt =
+                self_.state.signing_session.read().await.session_op.clone();
+            current_session_op_opt
+        };
 
         if let Some(current_session) = current_session_op_opt {
             if self_
