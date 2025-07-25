@@ -1,11 +1,11 @@
-genesis_root: '0x3c957ca37179902a8957817ddf1469e08aef3f3f3a45fd41803d2ef61808f640'
+genesis_root: '0x432c717602b519a5bf9891e384db4e825013009f796a7b84c29906afa5b682cf'
 genesis_rollup_leaf_index: 54
-genesis_batch_commitment: '0x21e74d3a5d7ee470c0818bbd9ba5cc5960d84e0153b20d054881bc6fb07177ba'
-genesis_protocol_semantic_version: '0.26.0'
+genesis_batch_commitment: '0xe2198afa3625bc6cb5baaec522ba3ab36229da591c36f05f770767350c5e7d33'
+genesis_protocol_semantic_version: '0.25.0'
 # deprecated
-genesis_protocol_version: 26
-default_aa_hash: '0x010005630848b5537f934eea6bd8c61c50648a162b90c82f316454f4109462b1'
-bootloader_hash: '0x010008e79c154523aa30981e598b73c4a33c304bef9c82bae7d2ca4d21daedc7'
+genesis_protocol_version: 25
+default_aa_hash: '0x01000563374c277a2c1e34659a2a1e87371bb6d852ce142022d497bfb50b9e32'
+bootloader_hash: '0x010008e742608b21bf7eb23c1a9d0602047e3618b464c9b59c0fba3b3d7ab66e'
 l1_chain_id: 9
 l2_chain_id: 270
 fee_account: '0x0000000000000000000000000000000000000001'
