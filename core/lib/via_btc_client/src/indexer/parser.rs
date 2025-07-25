@@ -16,11 +16,12 @@ use crate::types::{
     L1BatchDAReference, L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput,
     ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
     SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
-    SystemContractUpgradeInput, TransactionWithMetadata, ValidatorAttestation,
-    ValidatorAttestationInput, Vote,
+    SystemContractUpgradeInput, SystemContractUpgradeProposal, SystemContractUpgradeProposalInput,
+    TransactionWithMetadata, ValidatorAttestation, ValidatorAttestationInput, Vote,
 };
 
 const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL";
+const OP_RETURN_UPGRADE_PROTOCOL_PREFIX: &[u8] = b"VIA_PROTOCOL:UPGRADE";
 
 // Using constants to define the minimum number of instructions can help to make parsing more quick
 const MIN_WITNESS_LENGTH: usize = 3;
@@ -75,6 +76,22 @@ impl MessageParser {
                 vec![]
             }
         }
+    }
+
+    #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
+    pub fn parse_protocol_upgrade_transaction(
+        &mut self,
+        tx: &TransactionWithMetadata,
+        block_height: u32,
+    ) -> Vec<FullInscriptionMessage> {
+        let mut messages = Vec::new();
+
+        // Try to parse upgrade protocol.
+        if let Some(upgrade_protocol) = self.parse_op_return_protocol_upgrade(&tx.tx, block_height)
+        {
+            messages.push(upgrade_protocol);
+        }
+        messages
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
@@ -659,10 +676,10 @@ impl MessageParser {
         }
         debug!("Parsed system contracts");
 
-        Some(FullInscriptionMessage::SystemContractUpgrade(
-            SystemContractUpgrade {
+        Some(FullInscriptionMessage::SystemContractUpgradeProposal(
+            SystemContractUpgradeProposal {
                 common: common_fields.clone(),
-                input: SystemContractUpgradeInput {
+                input: SystemContractUpgradeProposalInput {
                     version,
                     bootloader_code_hash,
                     default_account_code_hash,
@@ -855,6 +872,60 @@ impl MessageParser {
                 common: common_fields,
                 input,
             }));
+        }
+        None
+    }
+
+    fn parse_op_return_protocol_upgrade(
+        &self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Option<FullInscriptionMessage> {
+        // Find OP_RETURN output
+        let op_return_output = tx
+            .output
+            .iter()
+            .find(|output| output.script_pubkey.is_op_return())?;
+
+        // Parse OP_RETURN data
+        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
+            if !op_return_data.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX) {
+                return None;
+            }
+
+            let start = OP_RETURN_UPGRADE_PROTOCOL_PREFIX.len() + 1;
+            if op_return_data.len() < start + 32 {
+                return None;
+            }
+
+            // Parse proposal_tx_id from OP_RETURN data
+            let proposal_tx_id = match Txid::from_slice(&op_return_data[start..start + 32]) {
+                Ok(tx_id) => tx_id,
+                Err(_) => return None,
+            };
+
+            let input = SystemContractUpgradeInput {
+                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
+                proposal_tx_id,
+            };
+
+            // Create common fields with empty signature for OP_RETURN
+            let common_fields = CommonFields {
+                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
+                encoded_public_key: PushBytesBuf::new(),
+                block_height,
+                tx_id: tx.compute_ntxid().into(),
+                p2wpkh_address: None,
+                tx_index: None,
+                output_vout: None,
+            };
+
+            return Some(FullInscriptionMessage::SystemContractUpgrade(
+                SystemContractUpgrade {
+                    common: common_fields,
+                    input,
+                },
+            ));
         }
         None
     }

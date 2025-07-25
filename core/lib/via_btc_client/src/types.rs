@@ -96,7 +96,7 @@ pub struct SystemBootstrapping {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SystemContractUpgradeInput {
+pub struct SystemContractUpgradeProposalInput {
     /// New protocol version ID.
     pub version: ProtocolSemanticVersion,
     /// New bootloader code hash.
@@ -107,6 +107,20 @@ pub struct SystemContractUpgradeInput {
     pub recursion_scheduler_level_vk_hash: H256,
     /// The L2 transaction calldata.
     pub system_contracts: Vec<(EVMAddress, H256)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SystemContractUpgradeProposal {
+    pub common: CommonFields,
+    pub input: SystemContractUpgradeProposalInput,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SystemContractUpgradeInput {
+    /// The input utxos.
+    pub inputs: Vec<OutPoint>,
+    /// The proposal tx_id.
+    pub proposal_tx_id: Txid,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -173,7 +187,7 @@ pub enum InscriptionMessage {
     SystemBootstrapping(SystemBootstrappingInput),
     ProposeSequencer(ProposeSequencerInput),
     L1ToL2Message(L1ToL2MessageInput),
-    SystemContractUpgrade(SystemContractUpgradeInput),
+    SystemContractUpgradeProposal(SystemContractUpgradeProposalInput),
 }
 
 impl Serializable for InscriptionMessage {
@@ -209,6 +223,7 @@ pub enum FullInscriptionMessage {
     SystemBootstrapping(SystemBootstrapping),
     ProposeSequencer(ProposeSequencer),
     L1ToL2Message(L1ToL2Message),
+    SystemContractUpgradeProposal(SystemContractUpgradeProposal),
     SystemContractUpgrade(SystemContractUpgrade),
     BridgeWithdrawal(BridgeWithdrawal),
 }
@@ -238,7 +253,7 @@ lazy_static! {
         PushBytesBuf::from(b"ProofDAReferenceMessage");
     pub static ref L1_TO_L2_MSG: PushBytesBuf = PushBytesBuf::from(b"L1ToL2Message");
     pub static ref SYSTEM_CONTRACT_UPGRADE_MSG: PushBytesBuf =
-        PushBytesBuf::from(b"SystemContractUpgrade");
+        PushBytesBuf::from(b"SystemContractUpgradeProposal");
 }
 pub(crate) const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 

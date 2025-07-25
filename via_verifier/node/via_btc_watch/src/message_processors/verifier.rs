@@ -168,18 +168,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                         }
                     }
                 }
-                // bootstrapping phase is already covered
-                FullInscriptionMessage::SystemContractUpgrade(_)
-                | FullInscriptionMessage::ProposeSequencer(_)
-                | FullInscriptionMessage::SystemBootstrapping(_) => {
-                    // do nothing
-                }
-                // Non-votable messages like L1BatchDAReference or L1ToL2Message are ignored by this processor
-                FullInscriptionMessage::L1ToL2Message(_)
-                | FullInscriptionMessage::BridgeWithdrawal(_)
-                | FullInscriptionMessage::L1BatchDAReference(_) => {
-                    // do nothing
-                }
+                _ => (),
             }
         }
         Ok(())

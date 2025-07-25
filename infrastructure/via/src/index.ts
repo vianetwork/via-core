@@ -23,6 +23,7 @@ import { command as contract } from './contract';
 import { command as test } from './test/test';
 import { indexerCommand as indexer } from './indexer';
 import { command as debug } from './debug';
+import { command as multisig } from './multisig';
 import { command as enSetup } from './setup_en';
 
 const COMMANDS = [
@@ -46,6 +47,7 @@ const COMMANDS = [
     test,
     indexer,
     debug,
+    multisig,
     enSetup,
     en,
     completion(program as Command)

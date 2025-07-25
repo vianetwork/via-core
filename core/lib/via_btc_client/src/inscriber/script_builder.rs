@@ -137,7 +137,7 @@ impl InscriptionData {
             types::InscriptionMessage::L1ToL2Message(input) => {
                 Self::build_l1_to_l2_message_script(basic_script, input)
             }
-            types::InscriptionMessage::SystemContractUpgrade(input) => {
+            types::InscriptionMessage::SystemContractUpgradeProposal(input) => {
                 Self::build_system_contract_upgrade_message_script(basic_script, input)
             }
         };
@@ -312,7 +312,7 @@ impl InscriptionData {
     )]
     fn build_system_contract_upgrade_message_script(
         basic_script: ScriptBuilder,
-        input: &types::SystemContractUpgradeInput,
+        input: &types::SystemContractUpgradeProposalInput,
     ) -> ScriptBuilder {
         debug!("Building SystemContract script");
 

@@ -6,7 +6,7 @@ use via_btc_client::{
     client::BitcoinClient,
     indexer::MessageParser,
     inscriber::Inscriber,
-    types::{BitcoinNetwork, InscriptionMessage, NodeAuth, SystemContractUpgradeInput},
+    types::{BitcoinNetwork, InscriptionMessage, NodeAuth, SystemContractUpgradeProposalInput},
 };
 use zksync_basic_types::H256;
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
     .await?;
 
     // System contracts Upgrade message
-    let input = SystemContractUpgradeInput {
+    let input = SystemContractUpgradeProposalInput {
         version,
         bootloader_code_hash,
         default_account_code_hash,
@@ -109,7 +109,7 @@ async fn main() -> Result<()> {
         system_contracts,
     };
     let system_contract_upgrade_info = inscriber
-        .inscribe(InscriptionMessage::SystemContractUpgrade(input))
+        .inscribe(InscriptionMessage::SystemContractUpgradeProposal(input))
         .await?;
     info!(
         "System contract upgrade info tx sent: {:?}",
