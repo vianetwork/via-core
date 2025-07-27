@@ -50,3 +50,4 @@ contracts/.git
 
 !via_verifier
 !via_indexer
+!docker/via-external-node/entrypoint.sh
