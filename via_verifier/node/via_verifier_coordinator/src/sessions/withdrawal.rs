@@ -218,7 +218,7 @@ impl WithdrawalSession {
     pub async fn prepare_withdrawal_session(
         &self,
     ) -> anyhow::Result<(i64, Vec<u8>, Vec<WithdrawalRequest>)> {
-        // Get the l1 batches finilized but withdrawals not yet processed
+        // Get the l1 batches finalized but withdrawals not yet processed
         let l1_batches = self
             .master_connection_pool
             .connection_tagged("withdrawal session")
