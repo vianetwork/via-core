@@ -5,7 +5,7 @@ use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{BitcoinTxid, FullInscriptionMessage, IndexerError},
 };
-use via_verifier_dal::{Connection, Verifier};
+use via_verifier_dal::{Connection, DalError, Verifier};
 pub(crate) use withdrawal::WithdrawalProcessor;
 use zksync_types::H256;
 
@@ -27,6 +27,12 @@ pub(super) enum MessageProcessorError {
 impl From<IndexerError> for MessageProcessorError {
     fn from(err: IndexerError) -> Self {
         MessageProcessorError::Internal(err.into())
+    }
+}
+
+impl From<DalError> for MessageProcessorError {
+    fn from(err: DalError) -> Self {
+        MessageProcessorError::DatabaseError(err.to_string())
     }
 }
 
