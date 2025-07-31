@@ -1,7 +1,7 @@
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
 use zksync_types::H256;
 
-use crate::Verifier;
+use crate::{models::storage_vote::CanonicalChainStatus, Verifier};
 
 pub struct ViaVotesDal<'c, 'a> {
     pub(crate) storage: &'c mut Connection<'a, Verifier>,
@@ -624,6 +624,7 @@ impl ViaVotesDal<'_, '_> {
                             via_votable_transactions
                         WHERE
                             is_finalized = TRUE
+                            OR is_finalized IS NULL
                         ORDER BY
                             l1_batch_number DESC
                         LIMIT
@@ -657,6 +658,156 @@ impl ViaVotesDal<'_, '_> {
         .await?;
 
         Ok(row.and_then(|r| Some((r.l1_batch_number? as u32, r.l1_batch_hash?))))
+    }
+
+    /// Verify that the canonical chain is valid and continuous
+    pub async fn verify_canonical_chain(&mut self) -> DalResult<CanonicalChainStatus> {
+        let result = sqlx::query!(
+            r#"
+            WITH RECURSIVE
+                canonical_chain AS (
+                    (
+                        SELECT
+                            *,
+                            1::BIGINT AS chain_position,
+                            TRUE AS is_valid_link
+                        FROM
+                            via_votable_transactions
+                        WHERE
+                            l1_batch_number = 1
+                        ORDER BY
+                            created_at ASC -- Take the first one if multiple exist
+                        LIMIT
+                            1
+                    )
+                    UNION ALL
+                    SELECT
+                        vt.*,
+                        cc.chain_position + 1 AS chain_position,
+                        (
+                            vt.prev_l1_batch_hash = cc.l1_batch_hash
+                            AND vt.l1_batch_number = cc.l1_batch_number + 1
+                        ) AS is_valid_link
+                    FROM
+                        via_votable_transactions vt
+                        JOIN canonical_chain cc ON vt.prev_l1_batch_hash = cc.l1_batch_hash
+                        AND vt.l1_batch_number = cc.l1_batch_number + 1
+                        AND (
+                            vt.l1_batch_status IS NULL
+                            OR vt.l1_batch_status = TRUE
+                        )
+                    WHERE
+                        cc.is_valid_link = TRUE -- Only continue if previous link was valid
+                ),
+                chain_stats AS (
+                    SELECT
+                        COUNT(*) AS total_batches,
+                        MAX(l1_batch_number) AS max_batch_number,
+                        MIN(l1_batch_number) AS min_batch_number,
+                        BOOL_AND(is_valid_link) AS all_links_valid,
+                        ARRAY_AGG(
+                            l1_batch_number
+                            ORDER BY
+                                l1_batch_number
+                        ) AS batch_numbers
+                    FROM
+                        canonical_chain
+                ),
+                expected_sequence AS (
+                    SELECT
+                        GENERATE_SERIES(
+                            (
+                                SELECT
+                                    min_batch_number
+                                FROM
+                                    chain_stats
+                            ),
+                            (
+                                SELECT
+                                    max_batch_number
+                                FROM
+                                    chain_stats
+                            )
+                        ) AS expected_batch
+                ),
+                missing_batches AS (
+                    SELECT
+                        ARRAY_AGG(expected_batch) AS missing
+                    FROM
+                        expected_sequence es
+                    WHERE
+                        NOT EXISTS (
+                            SELECT
+                                1
+                            FROM
+                                canonical_chain cc
+                            WHERE
+                                cc.l1_batch_number = es.expected_batch
+                        )
+                )
+            SELECT
+                cs.total_batches,
+                cs.max_batch_number,
+                cs.min_batch_number,
+                cs.all_links_valid,
+                cs.batch_numbers,
+                mb.missing,
+                (cs.total_batches = cs.max_batch_number - cs.min_batch_number + 1) AS is_continuous,
+                (
+                    SELECT
+                        COUNT(*)
+                    FROM
+                        via_votable_transactions
+                ) AS total_transactions_in_db
+            FROM
+                chain_stats cs,
+                missing_batches mb
+            "#
+        )
+        .instrument("verify_canonical_chain")
+        .fetch_optional(&mut self.storage)
+        .await?;
+
+        match result {
+            Some(row) => {
+                let status = CanonicalChainStatus {
+                    is_valid: row.all_links_valid.unwrap_or(false)
+                        && row.is_continuous.unwrap_or(false)
+                        && row.missing.is_none(),
+                    total_canonical_batches: row.total_batches.unwrap_or(0),
+                    max_batch_number: row.max_batch_number.map(|n| n as u32),
+                    min_batch_number: row.min_batch_number.map(|n| n as u32),
+                    missing_batches: row
+                        .missing
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|n| n as u32)
+                        .collect(),
+                    batch_sequence: row
+                        .batch_numbers
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|n| n as u32)
+                        .collect(),
+                    total_transactions_in_db: row.total_transactions_in_db.unwrap_or(0),
+                    has_genesis: row.min_batch_number == Some(1),
+                };
+                Ok(status)
+            }
+            None => {
+                // No canonical chain found (no batch 1)
+                Ok(CanonicalChainStatus {
+                    is_valid: false,
+                    total_canonical_batches: 0,
+                    max_batch_number: None,
+                    min_batch_number: None,
+                    missing_batches: vec![],
+                    batch_sequence: vec![],
+                    total_transactions_in_db: 0,
+                    has_genesis: false,
+                })
+            }
+        }
     }
 
     /// Check if a batch with the given number already exists
