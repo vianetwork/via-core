@@ -9930,6 +9930,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_test_utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "zksync_config",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_verification"
 version = "0.1.0"
 dependencies = [

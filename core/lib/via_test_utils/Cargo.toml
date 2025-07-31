@@ -1,0 +1,19 @@
+[package]
+name = "via_test_utils"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+via_btc_client.workspace = true
+zksync_types.workspace = true
+zksync_config.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
