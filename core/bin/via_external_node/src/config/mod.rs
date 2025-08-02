@@ -13,7 +13,6 @@ use zksync_config::{
         api::{MaxResponseSize, MaxResponseSizeOverrides},
         consensus::{ConsensusConfig, ConsensusSecrets},
         en_config::ENConfig,
-        via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
         via_secrets::ViaL1Secrets,
         GeneralConfig,
