@@ -7,7 +7,7 @@ WORKDIR /usr/src/via
 COPY . .
 
 RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
-RUN cargo build --release
+RUN cargo build --release --bin via_indexer_bin
 
 FROM debian:bookworm-slim
 
