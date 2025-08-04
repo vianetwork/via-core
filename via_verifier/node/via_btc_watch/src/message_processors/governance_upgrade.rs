@@ -32,7 +32,7 @@ impl GovernanceUpgradesEventProcessor {
         Self {
             btc_client,
             message_parser,
-            upgrade: ViaProtocolUpgrade::new(),
+            upgrade: ViaProtocolUpgrade::default(),
         }
     }
 }

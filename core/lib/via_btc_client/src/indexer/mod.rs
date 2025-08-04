@@ -456,11 +456,6 @@ impl BitcoinInscriptionIndexer {
         match message {
             FullInscriptionMessage::SystemBootstrapping(sb) => {
                 debug!("Processing SystemBootstrapping message");
-                let p2wpkh_address = sb
-                    .common
-                    .p2wpkh_address
-                    .as_ref()
-                    .expect("SystemBootstrapping message must have a p2wpkh address");
 
                 // convert the verifier addresses to the correct network
                 // since the bootstrap message should run on the bootstrapping phase of sequencer
@@ -494,10 +489,6 @@ impl BitcoinInscriptionIndexer {
             }
             FullInscriptionMessage::ProposeSequencer(ps) => {
                 debug!("Processing ProposeSequencer message");
-                let p2wpkh_address = ps
-                    .common
-                    .p2wpkh_address
-                    .expect("ProposeSequencer message must have a p2wpkh address");
                 let sequencer_address = ps
                     .input
                     .sequencer_new_p2wpkh_address

@@ -41,7 +41,7 @@ impl GovernanceUpgradesEventProcessor {
             last_seen_protocol_version,
             btc_client,
             message_parser,
-            upgrade: ViaProtocolUpgrade::new(),
+            upgrade: ViaProtocolUpgrade::default(),
         }
     }
 }
@@ -157,14 +157,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
 
                 let new_version =
                     latest_version.apply_upgrade(upgrade, Some(recursion_scheduler_level_vk_hash));
-                // if new_version.version.minor == latest_semantic_version.minor {
-                //     // Only verification parameters may change if only patch is bumped.
-                //     assert_eq!(
-                //         new_version.base_system_contracts_hashes,
-                //         latest_version.base_system_contracts_hashes
-                //     );
-                //     assert!(new_version.tx.is_none());
-                // }
+
                 storage
                     .protocol_versions_dal()
                     .save_protocol_version_with_tx(&new_version)
@@ -180,41 +173,3 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
         Ok(())
     }
 }
-
-// impl GovernanceUpgradesEventProcessor {
-//     fn create_l1_tx_from_message(
-//         &self,
-//         msg: &SystemContractUpgradeProposal,
-//     ) -> Result<ProtocolUpgradeTx, MessageProcessorError> {
-//         let l2_transaction = self
-//             .upgrade
-//             .get_canonical_tx_hash(msg.input.version, msg.input.system_contracts.clone())?;
-
-//         let tx = ProtocolUpgradeTx {
-//             execute: Execute {
-//                 contract_address: CONTRACT_DEPLOYER_ADDRESS,
-//                 calldata: calldata.clone(),
-//                 value: U256::zero(),
-//                 factory_deps: vec![],
-//             },
-//             common_data: ProtocolUpgradeTxCommonData {
-//                 sender: CONTRACT_FORCE_DEPLOYER_ADDRESS,
-//                 upgrade_id: msg.input.version.minor,
-//                 max_fee_per_gas: U256::zero(),
-//                 gas_limit,
-//                 gas_per_pubdata_limit: gas_per_pubdata_byte_limit,
-//                 eth_block: 0,
-//                 canonical_tx_hash: l2_transaction.hash(),
-//                 to_mint: U256::zero(),
-//                 refund_recipient: Address::zero(),
-//             },
-//             received_timestamp_ms: unix_timestamp_ms(),
-//         };
-
-//         Ok(tx)
-//     }
-// }
-
-// fn address_to_u256(address: &Address) -> U256 {
-//     U256::from_big_endian(&address.0)
-// }

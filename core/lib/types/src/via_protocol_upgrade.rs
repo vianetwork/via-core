@@ -13,21 +13,16 @@ use crate::{
 const GAS_LIMIT: u64 = 72_000_000;
 const GAS_PER_PUB_DATA_BYTE_LIMIT: u64 = 800;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ViaProtocolUpgrade {}
 
 impl ViaProtocolUpgrade {
-    pub fn new() -> Self {
-        Self {}
-    }
-
     pub fn create_protocol_upgrade_tx(
         &self,
         version: ProtocolSemanticVersion,
         system_contracts: Vec<(Address, H256)>,
     ) -> anyhow::Result<ProtocolUpgradeTx> {
-        let canonical_tx_hash =
-            self.get_canonical_tx_hash(version.clone(), system_contracts.clone())?;
+        let canonical_tx_hash = self.get_canonical_tx_hash(version, system_contracts.clone())?;
 
         let tx = ProtocolUpgradeTx {
             execute: Execute {
