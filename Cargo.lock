@@ -10027,6 +10027,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_test_utils",
  "via_verifier_dal",
  "via_verifier_types",
  "vise",
