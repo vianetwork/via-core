@@ -1,11 +1,13 @@
 mod message_processors;
 mod metrics;
 
+use std::sync::Arc;
+
 use message_processors::{GovernanceUpgradesEventProcessor, WithdrawalProcessor};
 use tokio::sync::watch;
 // re-export via_btc_client types
-use via_btc_client::indexer::BitcoinInscriptionIndexer;
 pub use via_btc_client::types::BitcoinNetwork;
+use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
@@ -31,6 +33,7 @@ impl VerifierBtcWatch {
     pub async fn new(
         config: ViaBtcWatchConfig,
         indexer: BitcoinInscriptionIndexer,
+        btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Verifier>,
         zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
@@ -48,7 +51,7 @@ impl VerifierBtcWatch {
         drop(storage);
 
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
-            Box::new(GovernanceUpgradesEventProcessor::new()),
+            Box::new(GovernanceUpgradesEventProcessor::new(btc_client)),
             Box::new(L1ToL2MessageProcessor::new(indexer.get_state().0)),
             Box::new(VerifierMessageProcessor::new(zk_agreement_threshold)),
             Box::new(WithdrawalProcessor::new()),
