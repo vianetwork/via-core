@@ -1,5 +1,6 @@
 [package]
-name = "via_verifier_storage_init"
+name = "via_node_storage_init"
+description = "VIA node storage initialization"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,14 +11,12 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-via_verifier_dal.workspace = true
 zksync_config.workspace = true
-zksync_node_genesis.workspace = true
-zksync_node_storage_init.workspace = true
-zksync_types.workspace = true
+zksync_dal.workspace = true
 via_btc_client.workspace = true
+zksync_types.workspace = true
 
+anyhow.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
