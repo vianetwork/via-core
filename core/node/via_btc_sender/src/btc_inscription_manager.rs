@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 use bincode::serialize;
 use bitcoin::hashes::Hash;
@@ -8,7 +10,7 @@ use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_shared_metrics::BlockL1Stage;
 use zksync_types::{
     btc_inscription_operations::ViaBtcInscriptionRequestType,
-    via_btc_sender::ViaBtcInscriptionRequest,
+    via_btc_sender::ViaBtcInscriptionRequest, via_wallet::SystemWallets,
 };
 
 use crate::metrics::METRICS;
@@ -80,6 +82,12 @@ impl ViaBtcInscriptionManager {
             .set(inflight_inscriptions_ids.len());
 
         let mut report_blocked_l1_batch_inscription: Option<u32> = None;
+
+        let Some(wallets_map) = storage.via_wallet_dal().get_system_wallets_raw().await? else {
+            anyhow::bail!("System wallets not found");
+        };
+
+        self.validate_inscriber_address(wallets_map)?;
 
         for inscription_id in inflight_inscriptions_ids {
             if let Some(last_inscription_history) = storage
@@ -267,6 +275,23 @@ impl ViaBtcInscriptionManager {
             )
             .await?;
         METRICS.pending_inscription_requests.dec_by(1);
+        Ok(())
+    }
+
+    fn validate_inscriber_address(
+        &self,
+        wallets_map: HashMap<String, String>,
+    ) -> anyhow::Result<()> {
+        let wallets = SystemWallets::try_from(wallets_map)?;
+
+        let inscriber_address = self.inscriber.inscriber_address()?;
+        if wallets.sequencer != inscriber_address {
+            anyhow::bail!(
+                "BTC sender inscriber wallets is not valid, expected {} found {}",
+                wallets.sequencer,
+                inscriber_address
+            )
+        }
         Ok(())
     }
 }
