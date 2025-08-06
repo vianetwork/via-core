@@ -18,8 +18,8 @@ use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::ViaVerifierConfig;
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_types::{
-    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, ProtocolVersionId,
-    H160, H256,
+    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion,
+    via_wallet::SystemWallets, ProtocolVersionId, H160, H256,
 };
 
 mod metrics;
@@ -96,6 +96,8 @@ impl ViaVerifier {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
+        self.validate_verifier_address().await?;
+
         if let Some((l1_batch_number, mut raw_tx_id)) = storage
             .via_votes_dal()
             .get_first_not_verified_l1_batch_in_canonical_inscription_chain()
@@ -449,5 +451,22 @@ impl ViaVerifier {
             return Ok(false);
         }
         Ok(true)
+    }
+
+    /// Check if the wallet is in the verifier set.
+    async fn validate_verifier_address(&self) -> anyhow::Result<()> {
+        let Some(wallets_map) = self
+            .pool
+            .connection()
+            .await?
+            .via_wallet_dal()
+            .get_system_wallets_raw()
+            .await?
+        else {
+            anyhow::bail!("System wallets not found")
+        };
+
+        let wallets = SystemWallets::try_from(wallets_map)?;
+        wallets.is_valid_verifier_address(self.config.wallet_address()?)
     }
 }
