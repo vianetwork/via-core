@@ -1,5 +1,6 @@
 pub(crate) use governance_upgrade::GovernanceUpgradesEventProcessor;
 pub(crate) use l1_to_l2::L1ToL2MessageProcessor;
+pub(crate) use system_wallet::SystemWalletProcessor;
 pub(crate) use verifier::VerifierMessageProcessor;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
@@ -11,6 +12,7 @@ use zksync_types::H256;
 
 mod governance_upgrade;
 mod l1_to_l2;
+mod system_wallet;
 mod verifier;
 mod withdrawal;
 
@@ -43,7 +45,7 @@ pub(super) trait MessageProcessor: 'static + std::fmt::Debug + Send + Sync {
         storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
-    ) -> Result<(), MessageProcessorError>;
+    ) -> Result<bool, MessageProcessorError>;
 }
 
 pub(crate) fn convert_txid_to_h256(txid: BitcoinTxid) -> H256 {

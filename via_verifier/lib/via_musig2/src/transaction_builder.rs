@@ -26,7 +26,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
     pub utxo_manager: UtxoManager,
-    bridge_address: Address,
+    pub bridge_address: Address,
 }
 
 impl TransactionBuilder {

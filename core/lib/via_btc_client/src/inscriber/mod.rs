@@ -814,6 +814,11 @@ impl Inscriber {
     pub async fn get_client(&self) -> &dyn BitcoinOps {
         &*self.client
     }
+
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
+    pub fn inscriber_address(&self) -> anyhow::Result<Address> {
+        Ok(self.signer.get_p2wpkh_address()?)
+    }
 }
 
 #[cfg(test)]

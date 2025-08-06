@@ -23,7 +23,8 @@ export async function deposit(
     l1RpcUrl: string,
     l2RpcUrl: string,
     rpcUsername: string,
-    rpcPassword: string
+    rpcPassword: string,
+    bridgeAddress: string
 ) {
     if (isNaN(amount)) {
         console.error('Error: Invalid deposit amount. Please provide a valid number.');
@@ -40,7 +41,7 @@ export async function deposit(
 
     process.chdir(`${process.env.VIA_HOME}`);
     await utils.spawn(
-        `cargo run --example deposit -- ${amountWithFees} ${receiverL2Address} ${senderPrivateKey} ${network} ${l1RpcUrl} ${rpcUsername} ${rpcPassword}`
+        `cargo run --example deposit -- ${amountWithFees} ${receiverL2Address} ${senderPrivateKey} ${network} ${l1RpcUrl} ${rpcUsername} ${rpcPassword} ${bridgeAddress}`
     );
 }
 
@@ -52,7 +53,8 @@ async function depositWithOpReturn(
     l1RpcUrl: string,
     l2RpcUrl: string,
     rpcUsername: string,
-    rpcPassword: string
+    rpcPassword: string,
+    bridgeAddress: string
 ) {
     if (isNaN(amount)) {
         console.error('Error: Invalid deposit amount. Please provide a valid number.');
@@ -69,7 +71,7 @@ async function depositWithOpReturn(
 
     process.chdir(`${process.env.VIA_HOME}`);
     await utils.spawn(
-        `cargo run --example deposit_opreturn -- ${amountWithFees} ${receiverL2Address} ${senderPrivateKey} ${network} ${l1RpcUrl} ${rpcUsername} ${rpcPassword}`
+        `cargo run --example deposit_opreturn -- ${amountWithFees} ${receiverL2Address} ${senderPrivateKey} ${network} ${l1RpcUrl} ${rpcUsername} ${rpcPassword} ${bridgeAddress}`
     );
 }
 
@@ -171,12 +173,14 @@ command
     .description('deposit BTC to l2')
     .requiredOption('--amount <amount>', 'amount of BTC to deposit', parseFloat)
     .requiredOption('--receiver-l2-address <receiverL2Address>', 'receiver l2 address')
+    .requiredOption('--bridge-address <bridgeAddress>', 'The bridge address')
     .option('--sender-private-key <senderPrivateKey>', 'sender private key', DEFAULT_DEPOSITOR_PRIVATE_KEY)
     .option('--network <network>', 'network', DEFAULT_NETWORK)
     .option('--l1-rpc-url <l1RcpUrl>', 'RPC URL', DEFAULT_L1_RPC_URL)
     .option('--l2-rpc-url <l2RcpUrl>', 'RPC URL', DEFAULT_L2_RPC_URL)
     .option('--rpc-username <rcpUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
+
     .action((cmd: Command) =>
         deposit(
             cmd.amount,
@@ -186,7 +190,8 @@ command
             cmd.l1RpcUrl,
             cmd.l2RpcUrl,
             cmd.rpcUsername,
-            cmd.rpcPassword
+            cmd.rpcPassword,
+            cmd.bridgeAddress
         )
     );
 
@@ -195,6 +200,7 @@ command
     .description('deposit BTC to l2 with op-return')
     .requiredOption('--amount <amount>', 'amount of BTC to deposit', parseFloat)
     .requiredOption('--receiver-l2-address <receiverL2Address>', 'receiver l2 address')
+    .requiredOption('--bridge-address <bridgeAddress>', 'The bridge address')
     .option('--sender-private-key <senderPrivateKey>', 'sender private key', DEFAULT_DEPOSITOR_PRIVATE_KEY)
     .option('--network <network>', 'network', DEFAULT_NETWORK)
     .option('--l1-rpc-url <l1RcpUrl>', 'RPC URL', DEFAULT_L1_RPC_URL)
@@ -210,7 +216,8 @@ command
             cmd.l1RpcUrl,
             cmd.l2RpcUrl,
             cmd.rpcUsername,
-            cmd.rpcPassword
+            cmd.rpcPassword,
+            cmd.bridgeAddress
         )
     );
 

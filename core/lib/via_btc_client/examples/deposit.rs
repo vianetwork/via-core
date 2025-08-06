@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use bitcoin::{address::NetworkUnchecked, Amount};
+use bitcoin::Amount;
 use tracing::info;
 use via_btc_client::{
     client::BitcoinClient,
@@ -51,10 +51,10 @@ async fn main() -> Result<()> {
     let rpc_url = args[5].clone();
     let rpc_username = args[6].clone();
     let rpc_password = args[7].clone();
+    let bridge_musig2_address_str = args[8].clone();
 
-    let bridge_musig2_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
-        .parse::<BitcoinAddress<NetworkUnchecked>>()?
-        .require_network(network)?;
+    let bridge_musig2_address =
+        BitcoinAddress::from_str(&bridge_musig2_address_str)?.require_network(network)?;
 
     // Load the previous context from the file if it exists
     let context = load_context_from_file(CONTEXT_FILE)?;

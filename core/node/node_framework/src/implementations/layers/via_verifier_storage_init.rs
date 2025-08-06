@@ -1,8 +1,14 @@
+use std::sync::Arc;
+
 use via_verifier_storage_init::ViaVerifierStorageInitializer;
-use zksync_config::GenesisConfig;
+use zksync_config::{configs::via_consensus::ViaGenesisConfig, GenesisConfig};
 
 use crate::{
-    implementations::resources::pools::{PoolResource, VerifierPool},
+    implementations::resources::{
+        pools::{PoolResource, VerifierPool},
+        via_btc_client::BtcClientResource,
+        via_indexer_wallet::ViaSystemWalletsResource,
+    },
     task::TaskKind,
     wiring_layer::{WiringError, WiringLayer},
     FromContext, IntoContext, StopReceiver, Task, TaskId,
@@ -11,6 +17,7 @@ use crate::{
 /// Wiring layer for via verifier initialization.
 #[derive(Debug)]
 pub struct ViaVerifierInitLayer {
+    pub via_genesis_config: ViaGenesisConfig,
     pub genesis: GenesisConfig,
 }
 
@@ -18,6 +25,7 @@ pub struct ViaVerifierInitLayer {
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<VerifierPool>,
+    pub btc_client_resource: BtcClientResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -27,6 +35,7 @@ pub struct Output {
     pub initializer: ViaVerifierStorageInitializer,
     #[context(task)]
     pub precondition: ViaVerifierStorageInitializerPrecondition,
+    pub system_wallets_resource: ViaSystemWalletsResource,
 }
 
 #[async_trait::async_trait]
@@ -40,12 +49,21 @@ impl WiringLayer for ViaVerifierInitLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let pool = input.master_pool.get().await?;
-        let initializer = ViaVerifierStorageInitializer::new(self.genesis, pool);
+        let client = input.btc_client_resource.verifier.unwrap();
+
+        let initializer =
+            ViaVerifierStorageInitializer::new(self.via_genesis_config, self.genesis, pool, client);
+
+        let system_wallets =
+            ViaSystemWalletsResource(Arc::new(initializer.indexer_wallets().await.unwrap()));
+
+        let system_wallets_resource = ViaSystemWalletsResource::from(system_wallets);
 
         let precondition = ViaVerifierStorageInitializerPrecondition(initializer.clone());
         Ok(Output {
             initializer,
             precondition,
+            system_wallets_resource,
         })
     }
 }

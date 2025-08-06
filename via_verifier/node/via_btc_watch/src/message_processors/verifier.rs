@@ -24,7 +24,7 @@ impl MessageProcessor for VerifierMessageProcessor {
         storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
-    ) -> Result<(), MessageProcessorError> {
+    ) -> Result<bool, MessageProcessorError> {
         for msg in msgs {
             match msg {
                 FullInscriptionMessage::ProofDAReference(ref proof_msg) => {
@@ -202,6 +202,6 @@ impl MessageProcessor for VerifierMessageProcessor {
                 _ => (),
             }
         }
-        Ok(())
+        Ok(false)
     }
 }

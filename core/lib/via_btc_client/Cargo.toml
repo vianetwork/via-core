@@ -87,3 +87,7 @@ path = "examples/upgrade_system_contracts.rs"
 [[example]]
 name = "upgrade_inscription_parsing"
 path = "examples/upgrade_inscription_parsing.rs"
+
+[[example]]
+name = "propose_new_bridge"
+path = "examples/propose_new_bridge.rs"

@@ -5,7 +5,7 @@ use crate::{
         healthcheck::AppHealthCheckResource,
         pools::{MasterPool, PoolResource},
         via_btc_client::BtcClientResource,
-        via_btc_indexer::BtcIndexerResource,
+        via_indexer_wallet::ViaSystemWalletsResource,
     },
     service::StopReceiver,
     task::{Task, TaskId},
@@ -22,7 +22,7 @@ pub struct ViaConsistencyCheckerLayer {
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
-    pub btc_indexer_resource: BtcIndexerResource,
+    pub system_wallets_resource: ViaSystemWalletsResource,
     pub btc_client_resource: BtcClientResource,
     pub master_pool: PoolResource<MasterPool>,
     #[context(default)]
@@ -60,7 +60,7 @@ impl WiringLayer for ViaConsistencyCheckerLayer {
         let singleton_pool = input.master_pool.get_singleton().await?;
 
         let consistency_checker = ConsistencyChecker::new(
-            input.btc_indexer_resource.0.get_state().1,
+            input.system_wallets_resource.0.sequencer.clone(),
             "celestia".into(),
             btc_client,
             self.max_batches_to_recheck,

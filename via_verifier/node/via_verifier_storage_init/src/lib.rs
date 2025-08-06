@@ -1,25 +1,43 @@
 mod genesis;
+mod wallets;
 
 use std::{future::Future, sync::Arc, time::Duration};
 
 use genesis::VerifierGenesis;
 use tokio::sync::watch;
+use via_btc_client::client::BitcoinClient;
 use via_verifier_dal::{ConnectionPool, Verifier};
-use zksync_config::GenesisConfig;
+use wallets::ViaWalletsInitializer;
+use zksync_config::{configs::via_consensus::ViaGenesisConfig, GenesisConfig};
 use zksync_node_storage_init::InitializeStorage;
+use zksync_types::via_wallet::SystemWallets;
 
 #[derive(Debug, Clone)]
 pub struct ViaVerifierStorageInitializer {
     genesis: Arc<dyn InitializeStorage>,
+    wallets: ViaWalletsInitializer,
 }
 
 impl ViaVerifierStorageInitializer {
-    pub fn new(genesis_config: GenesisConfig, pool: ConnectionPool<Verifier>) -> Self {
+    pub fn new(
+        via_genesis_config: ViaGenesisConfig,
+        genesis_config: GenesisConfig,
+        pool: ConnectionPool<Verifier>,
+        client: Arc<BitcoinClient>,
+    ) -> Self {
         let genesis = Arc::new(VerifierGenesis {
             genesis_config,
-            pool,
+            pool: pool.clone(),
         });
-        Self { genesis }
+        let wallets = ViaWalletsInitializer::new(pool, client, via_genesis_config);
+        Self { genesis, wallets }
+    }
+
+    pub async fn indexer_wallets(&self) -> anyhow::Result<SystemWallets> {
+        if let Some(system_wallets) = self.wallets.fetch_indexer_wallets_from_db().await? {
+            return Ok(system_wallets);
+        }
+        Ok(self.wallets.init_indexer_wallets().await?)
     }
 
     pub async fn run(self, stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {

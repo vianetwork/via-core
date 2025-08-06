@@ -15,7 +15,9 @@ zksync_config.workspace = true
 zksync_node_genesis.workspace = true
 zksync_node_storage_init.workspace = true
 zksync_types.workspace = true
+via_btc_client.workspace = true
 
 async-trait.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
+tracing.workspace = true

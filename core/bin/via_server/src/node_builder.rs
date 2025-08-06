@@ -36,6 +36,7 @@ use zksync_node_framework::{
         via_da_dispatcher::DataAvailabilityDispatcherLayer,
         via_gas_adjuster::ViaGasAdjusterLayer,
         via_l1_gas::ViaL1GasLayer,
+        via_node_storage_init::ViaNodeStorageInitializerLayer,
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
             output_handler::OutputHandlerLayer, RocksdbStorageOptions, StateKeeperLayer,
@@ -185,6 +186,14 @@ impl ViaNodeBuilder {
             self.wallets.clone(),
             None,
         ));
+        Ok(self)
+    }
+
+    fn add_init_node_storage_layer(mut self) -> anyhow::Result<Self> {
+        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+
+        self.node
+            .add_layer(ViaNodeStorageInitializerLayer::new(via_genesis_config));
         Ok(self)
     }
 
@@ -613,6 +622,7 @@ impl ViaNodeBuilder {
                 ViaComponent::Btc => {
                     self = self
                         .add_btc_client_layer()?
+                        .add_init_node_storage_layer()?
                         .add_gas_adjuster_layer()?
                         .add_btc_watcher_layer()?
                         .add_btc_sender_layer()?

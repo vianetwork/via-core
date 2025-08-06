@@ -9563,6 +9563,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_test_utils",
  "vise",
  "zksync_config",
  "zksync_contracts",
@@ -9846,6 +9847,7 @@ dependencies = [
  "bitcoin",
  "bitcoincore-rpc",
  "byteorder",
+ "clap 4.5.16",
  "dotenv",
  "hex",
  "hyper 0.14.30",
@@ -9866,6 +9868,20 @@ dependencies = [
  "via_withdrawal_client",
  "zksync_config",
  "zksync_dal",
+]
+
+[[package]]
+name = "via_node_storage_init"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "zksync_config",
+ "zksync_dal",
+ "zksync_types",
 ]
 
 [[package]]
@@ -9935,6 +9951,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
  "tokio",
  "tracing",
  "via_btc_client",
@@ -10094,6 +10111,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "tokio",
+ "tracing",
+ "via_btc_client",
  "via_verifier_dal",
  "zksync_config",
  "zksync_node_genesis",
@@ -12191,6 +12210,7 @@ dependencies = [
  "via_indexer",
  "via_indexer_dal",
  "via_musig2",
+ "via_node_storage_init",
  "via_state_keeper",
  "via_verifier_btc_sender",
  "via_verifier_btc_watch",

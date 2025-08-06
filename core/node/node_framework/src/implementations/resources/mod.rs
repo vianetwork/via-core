@@ -17,5 +17,6 @@ pub mod sync_state;
 pub mod via_btc_client;
 pub mod via_btc_indexer;
 pub mod via_gas_adjuster;
+pub mod via_indexer_wallet;
 pub mod via_state_keeper;
 pub mod web3_api;
