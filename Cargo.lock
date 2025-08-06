@@ -9563,6 +9563,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_test_utils",
  "vise",
  "zksync_config",
  "zksync_contracts",
@@ -9949,6 +9950,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
  "tokio",
  "tracing",
  "via_btc_client",

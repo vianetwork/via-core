@@ -13,9 +13,13 @@ use via_btc_client::{
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 
+#[cfg(test)]
+mod test;
+
 use self::message_processors::{
     L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError, VotableMessageProcessor,
 };
+use crate::message_processors::SystemWalletProcessor;
 
 #[derive(Debug)]
 struct BtcWatchState {
@@ -28,6 +32,7 @@ pub struct BtcWatch {
     indexer: BitcoinInscriptionIndexer,
     pool: ConnectionPool<Core>,
     state: BtcWatchState,
+    system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
 }
 
@@ -59,6 +64,8 @@ impl BtcWatch {
 
         drop(storage);
 
+        let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
+
         // Only build message processors that match the actor role:
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(GovernanceUpgradesEventProcessor::new(
@@ -75,6 +82,7 @@ impl BtcWatch {
             pool,
             state,
             message_processors,
+            system_wallet_processor,
         })
     }
 
@@ -154,11 +162,26 @@ impl BtcWatch {
             to_block = current_l1_block_number;
         }
 
-        let messages = self
+        let mut messages = self
             .indexer
             .process_blocks(self.state.last_processed_bitcoin_block + 1, to_block)
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+
+        // Re-process blocks if system wallets were updated, since the new wallet state
+        // may change how subsequent messages are interpreted.
+        if self
+            .system_wallet_processor
+            .process_messages(storage, messages.clone(), &mut self.indexer)
+            .await
+            .map_err(|e| MessageProcessorError::Internal(e.into()))?
+        {
+            messages = self
+                .indexer
+                .process_blocks(self.state.last_processed_bitcoin_block + 1, to_block)
+                .await
+                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+        }
 
         for processor in self.message_processors.iter_mut() {
             processor

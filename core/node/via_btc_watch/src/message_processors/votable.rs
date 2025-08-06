@@ -24,7 +24,7 @@ impl MessageProcessor for VotableMessageProcessor {
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
-    ) -> Result<(), MessageProcessorError> {
+    ) -> Result<bool, MessageProcessorError> {
         for msg in msgs {
             match msg {
                 ref f @ FullInscriptionMessage::ValidatorAttestation(ref attestation_msg) => {
@@ -104,6 +104,6 @@ impl MessageProcessor for VotableMessageProcessor {
                 _ => (),
             }
         }
-        Ok(())
+        Ok(true)
     }
 }

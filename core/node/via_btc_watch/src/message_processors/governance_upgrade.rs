@@ -52,7 +52,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
-    ) -> Result<(), MessageProcessorError> {
+    ) -> Result<bool, MessageProcessorError> {
         let mut upgrades = Vec::new();
         for msg in msgs {
             if let FullInscriptionMessage::SystemContractUpgrade(system_contract_upgrade_msg) = &msg
@@ -130,7 +130,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
         }
 
         let Some(last_upgrade) = upgrades.last() else {
-            return Ok(());
+            return Ok(false);
         };
 
         let last_version = last_upgrade.0.version;
@@ -170,6 +170,6 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
         }
         self.last_seen_protocol_version = last_version;
 
-        Ok(())
+        Ok(true)
     }
 }
