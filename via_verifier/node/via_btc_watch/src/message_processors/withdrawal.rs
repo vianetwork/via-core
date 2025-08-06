@@ -24,7 +24,7 @@ impl MessageProcessor for WithdrawalProcessor {
         storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
-    ) -> Result<(), MessageProcessorError> {
+    ) -> Result<bool, MessageProcessorError> {
         for msg in msgs {
             if let FullInscriptionMessage::BridgeWithdrawal(withdrawal_msg) = msg {
                 tracing::info!("Processing withdrawal bridge transaction...");
@@ -62,7 +62,7 @@ impl MessageProcessor for WithdrawalProcessor {
                             "Withdrawal already processed for batch {}. Skipping.",
                             l1_batch_number
                         );
-                        return Ok(());
+                        continue;
                     }
 
                     return Err(MessageProcessorError::SyncError(format!(
@@ -90,6 +90,6 @@ impl MessageProcessor for WithdrawalProcessor {
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 }

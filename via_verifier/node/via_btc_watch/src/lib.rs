@@ -13,7 +13,9 @@ use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 
 use self::message_processors::{MessageProcessor, MessageProcessorError};
-use crate::message_processors::{L1ToL2MessageProcessor, VerifierMessageProcessor};
+use crate::message_processors::{
+    L1ToL2MessageProcessor, SystemWalletProcessor, VerifierMessageProcessor,
+};
 
 #[cfg(test)]
 mod test;
@@ -29,6 +31,7 @@ pub struct VerifierBtcWatch {
     indexer: BitcoinInscriptionIndexer,
     last_processed_bitcoin_block: u32,
     pool: ConnectionPool<Verifier>,
+    system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
 }
 
@@ -53,9 +56,13 @@ impl VerifierBtcWatch {
 
         drop(storage);
 
+        let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
+
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(GovernanceUpgradesEventProcessor::new(btc_client)),
-            Box::new(L1ToL2MessageProcessor::new(indexer.get_state().0)),
+            Box::new(L1ToL2MessageProcessor::new(
+                indexer.get_state().bridge.clone(),
+            )),
             Box::new(VerifierMessageProcessor::new(zk_agreement_threshold)),
             Box::new(WithdrawalProcessor::new()),
         ];
@@ -65,6 +72,7 @@ impl VerifierBtcWatch {
             indexer,
             last_processed_bitcoin_block: state.last_processed_bitcoin_block,
             pool,
+            system_wallet_processor,
             message_processors,
         })
     }
@@ -157,11 +165,26 @@ impl VerifierBtcWatch {
             to_block = current_l1_block_number;
         }
 
-        let messages = self
+        let mut messages = self
             .indexer
             .process_blocks(self.last_processed_bitcoin_block + 1, to_block)
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+
+        // Re-process blocks if system wallets were updated, since the new wallet state
+        // may change how subsequent messages are interpreted.
+        if self
+            .system_wallet_processor
+            .process_messages(storage, messages.clone(), &mut self.indexer)
+            .await
+            .map_err(|e| MessageProcessorError::Internal(e.into()))?
+        {
+            messages = self
+                .indexer
+                .process_blocks(self.last_processed_bitcoin_block + 1, to_block)
+                .await
+                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+        }
 
         for processor in self.message_processors.iter_mut() {
             processor
