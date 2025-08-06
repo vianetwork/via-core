@@ -152,7 +152,7 @@ services:
 
   celestia-node:
     user: 1000:1000
-    image: "ghcr.io/celestiaorg/celestia-node:v0.23.0-mocha"
+    image: "ghcr.io/celestiaorg/celestia-node:v0.24.1-mocha"
     volumes:
       - type: bind
         source: ./volumes/celestia

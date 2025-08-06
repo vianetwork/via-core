@@ -1,7 +1,7 @@
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
 use zksync_types::H256;
 
-use crate::Verifier;
+use crate::{models::storage_vote::CanonicalChainStatus, Verifier};
 
 pub struct ViaVotesDal<'c, 'a> {
     pub(crate) storage: &'c mut Connection<'a, Verifier>,
@@ -302,29 +302,26 @@ impl ViaVotesDal<'_, '_> {
     ) -> DalResult<Option<i64>> {
         let id = sqlx::query_scalar!(
             r#"
-            SELECT
-                v1.id as id
-            FROM
-                via_votable_transactions v1
-            WHERE
-                v1.is_finalized IS NULL
-                AND (
-                    v1.l1_batch_number = 1
-                    OR EXISTS (
-                        SELECT
-                            1
-                        FROM
-                            via_votable_transactions v2
-                        WHERE
-                            v2.l1_batch_hash = v1.prev_l1_batch_hash
-                            AND v2.l1_batch_number = v1.l1_batch_number - 1
-                            AND v2.is_finalized = TRUE
-                    )
-                )
-            ORDER BY
-                v1.l1_batch_number ASC
-            LIMIT
-                1 
+            WITH last_finalized AS (
+                SELECT
+                    l1_batch_number,
+                    l1_batch_hash
+                FROM via_votable_transactions
+                WHERE is_finalized = TRUE
+                ORDER BY l1_batch_number DESC
+                LIMIT 1
+            )
+            SELECT v.id
+            FROM via_votable_transactions v
+            LEFT JOIN last_finalized lf ON v.prev_l1_batch_hash = lf.l1_batch_hash
+            WHERE v.is_finalized IS NULL
+            AND (
+                (v.l1_batch_number = 1 AND NOT EXISTS(SELECT 1 FROM last_finalized))
+                OR 
+                (lf.l1_batch_hash IS NOT NULL AND v.l1_batch_number = lf.l1_batch_number + 1)
+            )
+            ORDER BY v.l1_batch_number ASC
+            LIMIT 1;
             "#,
         )
         .instrument("get_first_non_finalized_l1_batch_in_canonical_inscription_chain")
@@ -366,41 +363,48 @@ impl ViaVotesDal<'_, '_> {
         Ok(result)
     }
 
-    /// Retrieve the first not executed in the canonical inscription list.
     pub async fn get_first_not_verified_l1_batch_in_canonical_inscription_chain(
         &mut self,
     ) -> DalResult<Option<(i64, Vec<u8>)>> {
         let row = sqlx::query!(
             r#"
+            WITH
+                last_verified AS (
+                    SELECT
+                        l1_batch_number,
+                        l1_batch_hash
+                    FROM
+                        via_votable_transactions
+                    WHERE
+                        l1_batch_status = TRUE
+                    ORDER BY
+                        l1_batch_number DESC
+                    LIMIT
+                        1
+                )
             SELECT
-                v1.l1_batch_number AS l1_batch_number,
-                v1.proof_reveal_tx_id AS proof_reveal_tx_id
+                v.l1_batch_number AS l1_batch_number,
+                v.proof_reveal_tx_id AS proof_reveal_tx_id
             FROM
-                via_votable_transactions v1
+                via_votable_transactions v
+                LEFT JOIN last_verified lv ON v.prev_l1_batch_hash = lv.l1_batch_hash
             WHERE
-                l1_batch_status IS NULL
-                AND v1.is_finalized IS NULL
+                v.l1_batch_status IS NULL
                 AND (
-                    v1.l1_batch_number = 1
-                    OR EXISTS (
-                        SELECT
-                            1
-                        FROM
-                            via_votable_transactions v2
-                        WHERE
-                            v2.l1_batch_hash = v1.prev_l1_batch_hash
-                            AND v2.l1_batch_number = v1.l1_batch_number - 1
-                            AND v2.l1_batch_status = TRUE
+                    v.l1_batch_number = 1
+                    OR (
+                        lv.l1_batch_hash IS NOT NULL
+                        AND v.l1_batch_number = lv.l1_batch_number + 1
                     )
                 )
             ORDER BY
-                v1.l1_batch_number ASC
+                v.l1_batch_number ASC
             LIMIT
                 1
             "#,
         )
-        .instrument("get_first_not_executed_block")
-        .fetch_optional(self.storage)
+        .instrument("get_first_not_verified_l1_batch_in_canonical_inscription_chain")
+        .fetch_optional(&mut self.storage)
         .await?;
 
         let result = row.map(|r| {
@@ -516,7 +520,7 @@ impl ViaVotesDal<'_, '_> {
         }
     }
 
-    /// Delete all the votable_transactions that are invalid and behind the last finilized valid l1_batch
+    /// Delete all the votable_transactions that are invalid and behind the last finalized valid l1_batch
     pub async fn delete_invalid_votable_transactions_if_exists(&mut self) -> DalResult<()> {
         sqlx::query!(
             r#"
@@ -606,5 +610,240 @@ impl ViaVotesDal<'_, '_> {
         .await?;
 
         Ok(res.map(|row| (row.id, row.l1_batch_number, row.hash)))
+    }
+
+    pub async fn get_last_batch_in_canonical_chain(&mut self) -> DalResult<Option<(u32, Vec<u8>)>> {
+        let row = sqlx::query!(
+            r#"
+            WITH RECURSIVE
+                canonical_chain AS (
+                    (
+                        SELECT
+                            *
+                        FROM
+                            via_votable_transactions
+                        WHERE
+                            is_finalized = TRUE
+                            OR is_finalized IS NULL
+                        ORDER BY
+                            l1_batch_number DESC
+                        LIMIT
+                            1
+                    )
+                    UNION ALL
+                    SELECT
+                        vt.*
+                    FROM
+                        via_votable_transactions vt
+                        JOIN canonical_chain cc ON vt.prev_l1_batch_hash = cc.l1_batch_hash
+                        AND vt.l1_batch_number = cc.l1_batch_number + 1
+                        AND (
+                            vt.l1_batch_status IS NULL
+                            OR vt.l1_batch_status = TRUE
+                        )
+                )
+            SELECT
+                l1_batch_number,
+                l1_batch_hash
+            FROM
+                canonical_chain
+            ORDER BY
+                l1_batch_number DESC
+            LIMIT
+                1
+            "#
+        )
+        .instrument("get_last_batch_in_canonical_chain")
+        .fetch_optional(&mut self.storage)
+        .await?;
+
+        Ok(row.and_then(|r| Some((r.l1_batch_number? as u32, r.l1_batch_hash?))))
+    }
+
+    /// Verify that the canonical chain is valid and continuous
+    pub async fn verify_canonical_chain(&mut self) -> DalResult<CanonicalChainStatus> {
+        let result = sqlx::query!(
+            r#"
+            WITH RECURSIVE
+                canonical_chain AS (
+                    (
+                        SELECT
+                            *,
+                            1::BIGINT AS chain_position,
+                            TRUE AS is_valid_link
+                        FROM
+                            via_votable_transactions
+                        WHERE
+                            l1_batch_number = 1
+                        ORDER BY
+                            created_at ASC -- Take the first one if multiple exist
+                        LIMIT
+                            1
+                    )
+                    UNION ALL
+                    SELECT
+                        vt.*,
+                        cc.chain_position + 1 AS chain_position,
+                        (
+                            vt.prev_l1_batch_hash = cc.l1_batch_hash
+                            AND vt.l1_batch_number = cc.l1_batch_number + 1
+                        ) AS is_valid_link
+                    FROM
+                        via_votable_transactions vt
+                        JOIN canonical_chain cc ON vt.prev_l1_batch_hash = cc.l1_batch_hash
+                        AND vt.l1_batch_number = cc.l1_batch_number + 1
+                        AND (
+                            vt.l1_batch_status IS NULL
+                            OR vt.l1_batch_status = TRUE
+                        )
+                    WHERE
+                        cc.is_valid_link = TRUE -- Only continue if previous link was valid
+                ),
+                chain_stats AS (
+                    SELECT
+                        COUNT(*) AS total_batches,
+                        MAX(l1_batch_number) AS max_batch_number,
+                        MIN(l1_batch_number) AS min_batch_number,
+                        BOOL_AND(is_valid_link) AS all_links_valid,
+                        ARRAY_AGG(
+                            l1_batch_number
+                            ORDER BY
+                                l1_batch_number
+                        ) AS batch_numbers
+                    FROM
+                        canonical_chain
+                ),
+                expected_sequence AS (
+                    SELECT
+                        GENERATE_SERIES(
+                            (
+                                SELECT
+                                    min_batch_number
+                                FROM
+                                    chain_stats
+                            ),
+                            (
+                                SELECT
+                                    max_batch_number
+                                FROM
+                                    chain_stats
+                            )
+                        ) AS expected_batch
+                ),
+                missing_batches AS (
+                    SELECT
+                        ARRAY_AGG(expected_batch) AS missing
+                    FROM
+                        expected_sequence es
+                    WHERE
+                        NOT EXISTS (
+                            SELECT
+                                1
+                            FROM
+                                canonical_chain cc
+                            WHERE
+                                cc.l1_batch_number = es.expected_batch
+                        )
+                )
+            SELECT
+                cs.total_batches,
+                cs.max_batch_number,
+                cs.min_batch_number,
+                cs.all_links_valid,
+                cs.batch_numbers,
+                mb.missing,
+                (cs.total_batches = cs.max_batch_number - cs.min_batch_number + 1) AS is_continuous,
+                (
+                    SELECT
+                        COUNT(*)
+                    FROM
+                        via_votable_transactions
+                ) AS total_transactions_in_db
+            FROM
+                chain_stats cs,
+                missing_batches mb
+            "#
+        )
+        .instrument("verify_canonical_chain")
+        .fetch_optional(&mut self.storage)
+        .await?;
+
+        match result {
+            Some(row) => {
+                let status = CanonicalChainStatus {
+                    is_valid: row.all_links_valid.unwrap_or(false)
+                        && row.is_continuous.unwrap_or(false)
+                        && row.missing.is_none(),
+                    total_canonical_batches: row.total_batches.unwrap_or(0),
+                    max_batch_number: row.max_batch_number.map(|n| n as u32),
+                    min_batch_number: row.min_batch_number.map(|n| n as u32),
+                    missing_batches: row
+                        .missing
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|n| n as u32)
+                        .collect(),
+                    batch_sequence: row
+                        .batch_numbers
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|n| n as u32)
+                        .collect(),
+                    total_transactions_in_db: row.total_transactions_in_db.unwrap_or(0),
+                    has_genesis: row.min_batch_number == Some(1),
+                };
+                Ok(status)
+            }
+            None => {
+                // No canonical chain found (no batch 1)
+                Ok(CanonicalChainStatus {
+                    is_valid: false,
+                    total_canonical_batches: 0,
+                    max_batch_number: None,
+                    min_batch_number: None,
+                    missing_batches: vec![],
+                    batch_sequence: vec![],
+                    total_transactions_in_db: 0,
+                    has_genesis: false,
+                })
+            }
+        }
+    }
+
+    /// Check if a batch with the given number already exists
+    pub async fn batch_exists(&mut self, l1_batch_number: u32) -> DalResult<bool> {
+        let exists = sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 
+                FROM via_votable_transactions 
+                WHERE l1_batch_number = $1
+            )
+            "#,
+            l1_batch_number as i64
+        )
+        .instrument("batch_exists")
+        .fetch_one(&mut self.storage)
+        .await?;
+
+        Ok(exists.unwrap_or(false))
+    }
+
+    pub async fn proof_reveal_tx_exists(&mut self, proof_reveal_tx_id: &[u8]) -> DalResult<bool> {
+        let exists = sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 
+                FROM via_votable_transactions 
+                WHERE proof_reveal_tx_id = $1
+            )
+            "#,
+            proof_reveal_tx_id
+        )
+        .instrument("proof_reveal_tx_exists")
+        .fetch_one(&mut self.storage)
+        .await?;
+
+        Ok(exists.unwrap_or(false))
     }
 }

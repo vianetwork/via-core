@@ -19,21 +19,21 @@ use crate::{
 };
 
 /// Represents the state during the bootstrap process
-#[derive(Debug)]
-struct BootstrapState {
-    verifier_addresses: Vec<Address>,
-    proposed_sequencer: Option<Address>,
-    proposed_sequencer_txid: Option<Txid>,
-    sequencer_votes: HashMap<Address, Vote>,
-    bridge_address: Option<Address>,
-    starting_block_number: u32,
-    bootloader_hash: Option<H256>,
-    abstract_account_hash: Option<H256>,
-    proposed_governance: Option<Address>,
+#[derive(Debug, Clone)]
+pub struct BootstrapState {
+    pub verifier_addresses: Vec<Address>,
+    pub proposed_sequencer: Option<Address>,
+    pub proposed_sequencer_txid: Option<Txid>,
+    pub sequencer_votes: HashMap<Address, Vote>,
+    pub bridge_address: Option<Address>,
+    pub starting_block_number: u32,
+    pub bootloader_hash: Option<H256>,
+    pub abstract_account_hash: Option<H256>,
+    pub proposed_governance: Option<Address>,
 }
 
 impl BootstrapState {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             verifier_addresses: Vec::new(),
             proposed_sequencer: None,
@@ -47,7 +47,7 @@ impl BootstrapState {
         }
     }
 
-    fn is_complete(&self) -> bool {
+    pub fn is_complete(&self) -> bool {
         !self.verifier_addresses.is_empty()
             && self.proposed_sequencer.is_some()
             && self.bridge_address.is_some()
@@ -358,7 +358,7 @@ impl BitcoinInscriptionIndexer {
 }
 
 impl BitcoinInscriptionIndexer {
-    fn create_indexer(
+    pub fn create_indexer(
         bootstrap_state: BootstrapState,
         client: Arc<dyn BitcoinOps>,
         parser: MessageParser,
@@ -456,7 +456,6 @@ impl BitcoinInscriptionIndexer {
         match message {
             FullInscriptionMessage::SystemBootstrapping(sb) => {
                 debug!("Processing SystemBootstrapping message");
-
                 // convert the verifier addresses to the correct network
                 // since the bootstrap message should run on the bootstrapping phase of sequencer
                 // i consume it's ok to using unwrap

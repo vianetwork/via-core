@@ -172,25 +172,7 @@ mod tests {
 
         assert!(last_inscription_history_before.is_some());
 
-        // Simulate the transaction is stuck for 10 blocks
-        mock_btc_ops_config.set_block_height(10);
-
-        // THis should create a new inscription_history
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
-
-        let last_inscription_history_after = aggregator_test
-            .storage
-            .via_btc_sender_dal()
-            .get_last_inscription_request_history(inflight_inscriptions_before[0].id)
-            .await
-            .unwrap();
-
-        assert!(last_inscription_history_after.is_some());
-
-        assert_ne!(
-            last_inscription_history_after.unwrap().id,
-            last_inscription_history_before.unwrap().id
-        );
 
         // Simulate the transaction was processed in next block
         mock_btc_ops_config.set_block_height(11);

@@ -213,7 +213,7 @@ const fetchCelestiaTrustedHash = async () => {
     let environment = process.env.VIA_ENV!;
     const l2InitFile = `etc/env/l2-inits/${environment}.init.env`;
 
-    const response = await (await fetch('https://full.consensus.mocha-4.celestia-mocha.com/header')).json();
+    const response = await (await fetch('http://public-celestia-mocha4-consensus.numia.xyz/header')).json();
     const { last_block_id, height } = response.result.header;
 
     const envFilePath1 = path.join(process.env.VIA_HOME!, `etc/env/target/${process.env.VIA_ENV}.env`);

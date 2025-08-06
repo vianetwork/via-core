@@ -98,6 +98,7 @@ members = [
     "core/bin/via_external_node",
     'core/node/via_consistency_checker',
     "core/lib/via_mempool",
+    "core/lib/via_test_utils",
 
     # VIA Verifier
     "via_verifier/bin/verifier_server",
@@ -349,6 +350,7 @@ via_state_keeper = { version = "0.1.0", path = "core/node/via_state_keeper" }
 via_block_reverter = { version = "0.1.0", path = "core/node/via_block_reverter" }
 via_consistency_checker = { version = "0.1.0", path = "core/node/via_consistency_checker" }
 via_mempool = { version = "0.1.0", path = "core/lib/via_mempool" }
+via_test_utils = { version = "0.1.0", path = "core/lib/via_test_utils" }
 
 # VIA Verifier
 via_withdrawal_client = { version = "0.1.0", path = "via_verifier/lib/via_withdrawal_client" }

@@ -15,6 +15,9 @@ use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use self::message_processors::{MessageProcessor, MessageProcessorError};
 use crate::message_processors::{L1ToL2MessageProcessor, VerifierMessageProcessor};
 
+#[cfg(test)]
+mod test;
+
 #[derive(Debug)]
 struct BtcWatchState {
     last_processed_bitcoin_block: u32,

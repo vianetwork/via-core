@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE\n                canonical_chain AS (\n                    (\n                        SELECT\n                            *,\n                            1::BIGINT AS chain_position,\n                            TRUE AS is_valid_link\n                        FROM\n                            via_votable_transactions\n                        WHERE\n                            l1_batch_number = 1\n                        ORDER BY\n                            created_at ASC -- Take the first one if multiple exist\n                        LIMIT\n                            1\n                    )\n                    UNION ALL\n                    SELECT\n                        vt.*,\n                        cc.chain_position + 1 AS chain_position,\n                        (\n                            vt.prev_l1_batch_hash = cc.l1_batch_hash\n                            AND vt.l1_batch_number = cc.l1_batch_number + 1\n                        ) AS is_valid_link\n                    FROM\n                        via_votable_transactions vt\n                        JOIN canonical_chain cc ON vt.prev_l1_batch_hash = cc.l1_batch_hash\n                        AND vt.l1_batch_number = cc.l1_batch_number + 1\n                        AND (\n                            vt.l1_batch_status IS NULL\n                            OR vt.l1_batch_status = TRUE\n                        )\n                    WHERE\n                        cc.is_valid_link = TRUE -- Only continue if previous link was valid\n                ),\n                chain_stats AS (\n                    SELECT\n                        COUNT(*) AS total_batches,\n                        MAX(l1_batch_number) AS max_batch_number,\n                        MIN(l1_batch_number) AS min_batch_number,\n                        BOOL_AND(is_valid_link) AS all_links_valid,\n                        ARRAY_AGG(\n                            l1_batch_number\n                            ORDER BY\n                                l1_batch_number\n                        ) AS batch_numbers\n                    FROM\n                        canonical_chain\n                ),\n                expected_sequence AS (\n                    SELECT\n                        GENERATE_SERIES(\n                            (\n                                SELECT\n                                    min_batch_number\n                                FROM\n                                    chain_stats\n                            ),\n                            (\n                                SELECT\n                                    max_batch_number\n                                FROM\n                                    chain_stats\n                            )\n                        ) AS expected_batch\n                ),\n                missing_batches AS (\n                    SELECT\n                        ARRAY_AGG(expected_batch) AS missing\n                    FROM\n                        expected_sequence es\n                    WHERE\n                        NOT EXISTS (\n                            SELECT\n                                1\n                            FROM\n                                canonical_chain cc\n                            WHERE\n                                cc.l1_batch_number = es.expected_batch\n                        )\n                )\n            SELECT\n                cs.total_batches,\n                cs.max_batch_number,\n                cs.min_batch_number,\n                cs.all_links_valid,\n                cs.batch_numbers,\n                mb.missing,\n                (cs.total_batches = cs.max_batch_number - cs.min_batch_number + 1) AS is_continuous,\n                (\n                    SELECT\n                        COUNT(*)\n                    FROM\n                        via_votable_transactions\n                ) AS total_transactions_in_db\n            FROM\n                chain_stats cs,\n                missing_batches mb\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_batches",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "max_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "min_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "all_links_valid",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "batch_numbers",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 5,
+        "name": "missing",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_continuous",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "total_transactions_in_db",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6b7c7dda4d1ab44a8da8f1ccb3072dc24a39637f72a6918194f7ec48e94e11bb"
+}
