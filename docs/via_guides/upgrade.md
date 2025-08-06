@@ -99,17 +99,17 @@ curl --user rpcuser:rpcpassword \
 
 ```sh
 via multisig create-upgrade-tx \
---inputTxId <tx_id> \
---inputVout <vout> \
---inputAmount <amount> \
---upgradeProposalTxId <upgradeProposalTxId> \
+--inputTxId 82faf9fcbc4ba557924d64b0086c17eec76091acd6e8e9dffe321c54ce5c21a8 \
+--inputVout 1 \
+--inputAmount 100000000 \
+--upgradeProposalTxId 0000000000000000000000000000000000000000000000000000000000000001 \
 --fee 500
 ```
 
 3. Sign the transaction using the signer-1 `Privatekey`.
 
 ```sh
-via multisig sign-upgrade-tx --privateKey cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+via multisig sign-tx --privateKey cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
 ```
 
 After signing the tx send the `upgrade_tx_exec.json` to signer-2
@@ -117,13 +117,13 @@ After signing the tx send the `upgrade_tx_exec.json` to signer-2
 4. Sign the transaction using the signer-2 `Privatekey`.
 
 ```sh
-via multisig sign-upgrade-tx --privateKey cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+via multisig sign-tx --privateKey cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
 ```
 
 5. The signer-2 finalize the transaction
 
 ```sh
-via multisig finalize-upgrade-tx
+via multisig finalize-tx
 ```
 
 6. The signer-2 broadcast the transaction
@@ -212,3 +212,93 @@ select number, encode(bootloader_code_hash, 'hex'), encode(default_aa_code_hash,
 18. Start the verifier and restart it with version 26. The withdrawal is processed
 19. Execute a withdrawal.
 20. Done :)
+
+## Upgrade the sequencer address
+
+1. Start the sequencer and the verifiers
+2. Deposit BTC and wait the sequencer process the batch.
+
+```sh
+via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq
+```
+
+3. withdraw 1 BTC.
+
+### update the sequencer on localhost
+
+1. Create an update sequencer proposal.Follow the docs on how to sign a multisig tx
+   [here](#How-to-execute-an-upgrade-proposal)
+
+```sh
+via multisig create-update-sequencer \
+--inputTxId <Txid> \
+--inputVout <Vout> \
+--inputAmount <amount> \
+--sequencerAddress bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv \
+--fee 500
+```
+
+2. Withdraw 1 BTC, the sequencer (btc_sender) should throw and error
+   `BTC sender inscriber wallets is not valid, expected...`, this error is because we did not yet update the sequencer
+   Private key. Stop the sequencer and update this ENV in `via.env`:
+
+```sh
+VIA_BTC_SENDER_PRIVATE_KEY=cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm
+VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
+```
+
+4. The sequencer and verifiers process the batches.
+5. Done.
+
+## Update the bridge address on localhost
+
+1. Create a new bridge address, follow this [doc](musig2.md). You should have a json file on your local `my_wallet.json`
+2. Create a proposal update bridge:
+
+```sh
+cargo run --example propose_new_bridge \
+    regtest \
+    http://0.0.0.0:18443 \
+    rpcuser \
+    rpcpassword \
+    cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
+    bcrt1ppkdx5hyjrcqquattm49pqceelmfekcuh4kpa5adu5jug32nuepjsnmeug2 \
+    bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80,bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
+```
+
+3. Copy the txid of the upgrade proposal and create an upgrade using the governance wallet. Follow the docs on how to
+   sign a multisig tx [here](#How-to-execute-an-upgrade-proposal)
+
+```sh
+via multisig create-update-bridge \
+--inputTxId <Txid> \
+--inputVout <Vout> \
+--inputAmount <amount> \
+--proposalTxid <txid> \
+--fee 500
+```
+
+4. Deposit BTC to the new bridge address
+
+```sh
+via token deposit --amount 1 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1ppkdx5hyjrcqquattm49pqceelmfekcuh4kpa5adu5jug32nuepjsnmeug2
+```
+
+5. The verifier should start throwing an Error because the current signer doesn't match the new bridge address. Update
+   the ENVs for verifier and coordinator
+
+```sh
+private_key = "cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa"
+wallet_address = "bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80"
+VIA_VERIFIER_BRIDGE_ADDRESS_MERKLE_ROOT=3e31259181670b7f340595121bc406cead1ee234fdfcf31d044f25bc1796af2b
+```
+
+and coordinator:
+
+```sh
+private_key = "cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo"
+wallet_address = "bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v"
+VIA_VERIFIER_BRIDGE_ADDRESS_MERKLE_ROOT=3e31259181670b7f340595121bc406cead1ee234fdfcf31d044f25bc1796af2b
+```
+
+6. The verifier and coordinator process the batch and sequencer finalize the batch.

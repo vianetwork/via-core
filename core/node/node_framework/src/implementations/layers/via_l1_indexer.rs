@@ -1,15 +1,13 @@
 use via_btc_client::indexer::BitcoinInscriptionIndexer;
 use via_indexer::L1Indexer;
-use zksync_config::{
-    configs::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig},
-    ViaBtcWatchConfig,
-};
+use zksync_config::{configs::via_consensus::ViaGenesisConfig, ViaBtcWatchConfig};
 
 use crate::{
     implementations::resources::{
         pools::{IndexerPool, PoolResource},
         via_btc_client::BtcClientResource,
         via_btc_indexer::BtcIndexerResource,
+        via_indexer_wallet::ViaSystemWalletsResource,
     },
     service::StopReceiver,
     task::{Task, TaskId},
@@ -20,7 +18,6 @@ use crate::{
 #[derive(Debug)]
 pub struct L1IndexerLayer {
     via_genesis_config: ViaGenesisConfig,
-    via_btc_client: ViaBtcClientConfig,
     btc_watch_config: ViaBtcWatchConfig,
 }
 
@@ -29,6 +26,7 @@ pub struct L1IndexerLayer {
 pub struct Input {
     pub master_pool: PoolResource<IndexerPool>,
     pub btc_client_resource: BtcClientResource,
+    pub system_wallets_resource: ViaSystemWalletsResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -40,14 +38,9 @@ pub struct Output {
 }
 
 impl L1IndexerLayer {
-    pub fn new(
-        via_genesis_config: ViaGenesisConfig,
-        via_btc_client: ViaBtcClientConfig,
-        btc_watch_config: ViaBtcWatchConfig,
-    ) -> Self {
+    pub fn new(via_genesis_config: ViaGenesisConfig, btc_watch_config: ViaBtcWatchConfig) -> Self {
         Self {
             via_genesis_config,
-            via_btc_client,
             btc_watch_config,
         }
     }
@@ -65,13 +58,8 @@ impl WiringLayer for L1IndexerLayer {
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
         let client = input.btc_client_resource.bridge.unwrap();
-        let indexer = BitcoinInscriptionIndexer::new(
-            client.clone(),
-            self.via_btc_client.clone(),
-            self.via_genesis_config.bootstrap_txids()?,
-        )
-        .await
-        .map_err(|e| WiringError::Internal(e.into()))?;
+        let system_wallets = input.system_wallets_resource.0;
+        let indexer = BitcoinInscriptionIndexer::new(client.clone(), system_wallets);
         let btc_indexer_resource = BtcIndexerResource::from(indexer.clone());
 
         let l1_indexer = L1Indexer::new(

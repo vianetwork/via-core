@@ -1,7 +1,7 @@
 use std::{fmt, str::FromStr};
 
 use anyhow::Context;
-use bitcoin::{PrivateKey, TapTweakHash};
+use bitcoin::{PrivateKey, TapNodeHash, TapTweakHash};
 use musig2::{
     verify_single, CompactSignature, FirstRound, KeyAggContext, PartialSignature, PubNonce,
     SecNonceSpices, SecondRound,
@@ -75,6 +75,7 @@ impl Signer {
         secret_key: SecretKey,
         signer_index: usize,
         all_pubkeys: Vec<PublicKey>,
+        merkle_root: Option<TapNodeHash>,
     ) -> Result<Self, MusigError> {
         let secp = Secp256k1::new();
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
@@ -105,7 +106,7 @@ impl Signer {
             })?;
 
         // Calculate taproot tweak
-        let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, None);
+        let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, merkle_root);
         let tweak = tap_tweak.to_scalar();
         let tweak_bytes = tweak.to_be_bytes();
         let musig2_compatible_tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
@@ -280,7 +281,35 @@ pub fn get_signer(
         }
     }
 
-    let signer = Signer::new(secret_key, signer_index, all_pubkeys.clone())?;
+    let signer = Signer::new(secret_key, signer_index, all_pubkeys.clone(), None)?;
+    Ok(signer)
+}
+
+pub fn get_signer_with_merkle_root(
+    private_key_wif: &str,
+    verifiers_pub_keys_str: Vec<String>,
+    merkle_root: Option<TapNodeHash>,
+) -> anyhow::Result<Signer> {
+    let private_key = PrivateKey::from_wif(private_key_wif)?;
+    let secret_key =
+        secp256k1_musig2::SecretKey::from_byte_array(&private_key.inner.secret_bytes())
+            .with_context(|| "Error to compute the coordinator sk")?;
+    let secp = secp256k1_musig2::Secp256k1::new();
+    let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+
+    let mut all_pubkeys = Vec::new();
+
+    let mut signer_index = 0;
+
+    for (i, key) in verifiers_pub_keys_str.iter().enumerate() {
+        let pk = PublicKey::from_str(key)?;
+        all_pubkeys.push(pk);
+        if pk == public_key {
+            signer_index = i;
+        }
+    }
+
+    let signer = Signer::new(secret_key, signer_index, all_pubkeys.clone(), merkle_root)?;
     Ok(signer)
 }
 
@@ -302,8 +331,8 @@ mod tests {
 
         let pubkeys = vec![public_key_1, public_key_2];
 
-        let mut signer1 = Signer::new(secret_key_1, 0, pubkeys.clone())?;
-        let mut signer2 = Signer::new(secret_key_2, 1, pubkeys)?;
+        let mut signer1 = Signer::new(secret_key_1, 0, pubkeys.clone(), None)?;
+        let mut signer2 = Signer::new(secret_key_2, 1, pubkeys, None)?;
 
         // Generate and exchange nonces
         let message = b"test message".to_vec();

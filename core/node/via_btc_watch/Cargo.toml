@@ -28,3 +28,4 @@ tracing.workspace = true
 sqlx.workspace = true
 
 [dev-dependencies]
+via_test_utils.workspace = true

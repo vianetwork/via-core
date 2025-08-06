@@ -14,7 +14,7 @@ use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::ViaVerifierConfig;
-use zksync_types::H256;
+use zksync_types::{via_wallet::SystemWallets, H256};
 
 use crate::{traits::ISession, types::SessionOperation, utils::h256_to_txid};
 

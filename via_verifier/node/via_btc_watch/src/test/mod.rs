@@ -1,2 +1,2 @@
-#[cfg(test)]
+mod system_wallets;
 mod verifier;
