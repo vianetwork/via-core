@@ -10,6 +10,7 @@ use crate::{
         pools::{IndexerPool, PoolResource},
         via_btc_client::BtcClientResource,
         via_btc_indexer::BtcIndexerResource,
+        via_system_wallet::ViaSystemWalletsResource,
     },
     service::StopReceiver,
     task::{Task, TaskId},
@@ -29,6 +30,7 @@ pub struct L1IndexerLayer {
 pub struct Input {
     pub master_pool: PoolResource<IndexerPool>,
     pub btc_client_resource: BtcClientResource,
+    pub system_wallets_resource: ViaSystemWalletsResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -65,13 +67,8 @@ impl WiringLayer for L1IndexerLayer {
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
         let client = input.btc_client_resource.bridge.unwrap();
-        let indexer = BitcoinInscriptionIndexer::new(
-            client.clone(),
-            self.via_btc_client.clone(),
-            self.via_genesis_config.bootstrap_txids()?,
-        )
-        .await
-        .map_err(|e| WiringError::Internal(e.into()))?;
+        let system_wallets = input.system_wallets_resource.0;
+        let indexer = BitcoinInscriptionIndexer::new(client.clone(), system_wallets);
         let btc_indexer_resource = BtcIndexerResource::from(indexer.clone());
 
         let l1_indexer = L1Indexer::new(

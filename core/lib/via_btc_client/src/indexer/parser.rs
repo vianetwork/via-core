@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
@@ -8,7 +10,8 @@ use bitcoin::{
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
 use zksync_types::{
-    protocol_version::ProtocolSemanticVersion, Address as EVMAddress, L1BatchNumber, U256,
+    protocol_version::ProtocolSemanticVersion, via_wallet::SystemWallets, Address as EVMAddress,
+    L1BatchNumber, U256,
 };
 
 use crate::types::{
@@ -17,11 +20,16 @@ use crate::types::{
     ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
     SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
     SystemContractUpgradeInput, SystemContractUpgradeProposal, SystemContractUpgradeProposalInput,
-    TransactionWithMetadata, ValidatorAttestation, ValidatorAttestationInput, Vote,
+    TransactionWithMetadata, UpdateBridge, UpdateBridgeInput, UpdateBridgeProposal,
+    UpdateBridgeProposalInput, UpdateGovernance, UpdateGovernanceInput, UpdateSequencer,
+    UpdateSequencerInput, ValidatorAttestation, ValidatorAttestationInput, Vote,
 };
 
 const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL";
 const OP_RETURN_UPGRADE_PROTOCOL_PREFIX: &[u8] = b"VIA_PROTOCOL:UPGRADE";
+const OP_RETURN_UPDATE_SEQUENCER_PREFIX: &[u8] = b"VIA_PROTOCOL:SEQ";
+const OP_RETURN_UPDATE_BRIDGE_PREFIX: &[u8] = b"VIA_PROTOCOL:BRI";
+const OP_RETURN_UPDATE_GOVERNANCE_PREFIX: &[u8] = b"VIA_PROTOCOL:GOV";
 
 // Using constants to define the minimum number of instructions can help to make parsing more quick
 const MIN_WITNESS_LENGTH: usize = 3;
@@ -32,19 +40,16 @@ const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 7;
 const MIN_PROOF_DA_REFERENCE_INSTRUCTIONS: usize = 5;
 const MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS: usize = 5;
 const MIN_SYSTEM_CONTRACT_UPGRADE_PROPOSAL: usize = 6;
+const MIN_UPDATE_BRIDGE_PROPOSAL: usize = 5;
 
 #[derive(Debug, Clone)]
 pub struct MessageParser {
     network: Network,
-    bridge_address: Option<Address>,
 }
 
 impl MessageParser {
     pub fn new(network: Network) -> Self {
-        Self {
-            network,
-            bridge_address: None,
-        }
+        Self { network }
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
@@ -52,6 +57,7 @@ impl MessageParser {
         &mut self,
         tx: &Transaction,
         block_height: u32,
+        wallets: Option<&SystemWallets>,
     ) -> Vec<FullInscriptionMessage> {
         // parsing btc address
         let mut sender_addresses: Option<Address> = None;
@@ -68,7 +74,7 @@ impl MessageParser {
                 tx.input
                     .iter()
                     .filter_map(|input| {
-                        self.parse_system_input(input, tx, block_height, address.clone())
+                        self.parse_system_input(input, tx, block_height, address.clone(), wallets)
                     })
                     .collect()
             }
@@ -79,18 +85,32 @@ impl MessageParser {
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
-    pub fn parse_protocol_upgrade_transaction(
+    pub fn parse_protocol_upgrade_transactions(
         &mut self,
         tx: &TransactionWithMetadata,
         block_height: u32,
     ) -> Vec<FullInscriptionMessage> {
         let mut messages = Vec::new();
 
-        // Try to parse upgrade protocol.
+        if let Some(update_sequencer) = self.parse_op_return_update_governance(&tx.tx, block_height)
+        {
+            messages.push(update_sequencer);
+        }
+
         if let Some(upgrade_protocol) = self.parse_op_return_protocol_upgrade(&tx.tx, block_height)
         {
             messages.push(upgrade_protocol);
         }
+
+        if let Some(update_bridge) = self.parse_op_return_update_bridge(&tx.tx, block_height) {
+            messages.push(update_bridge);
+        }
+
+        if let Some(update_sequencer) = self.parse_op_return_update_sequencer(&tx.tx, block_height)
+        {
+            messages.push(update_sequencer);
+        }
+
         messages
     }
 
@@ -99,16 +119,13 @@ impl MessageParser {
         &mut self,
         tx: &mut TransactionWithMetadata,
         block_height: u32,
+        wallets: &SystemWallets,
     ) -> Vec<FullInscriptionMessage> {
         let mut messages = Vec::new();
 
         let vout = match tx.tx.output.iter().enumerate().find_map(|(index, output)| {
-            if let Some(bridge_addr) = &self.bridge_address {
-                if output.script_pubkey == bridge_addr.script_pubkey() {
-                    Some(index)
-                } else {
-                    None
-                }
+            if output.script_pubkey == wallets.bridge.script_pubkey() {
+                Some(index)
             } else {
                 None
             }
@@ -123,7 +140,8 @@ impl MessageParser {
         let bridge_output = &tx.tx.output[vout];
 
         // Try to parse as inscription-based deposit first
-        if let Some(inscription_message) = self.parse_inscription_deposit(tx, block_height) {
+        if let Some(inscription_message) = self.parse_inscription_deposit(tx, block_height, wallets)
+        {
             messages.push(inscription_message);
         }
 
@@ -135,7 +153,9 @@ impl MessageParser {
         }
 
         // Try to parse withdrawals processed by the bridge address.
-        if let Some(bridge_withdrawals) = self.parse_op_return_withdrawal(&tx.tx, block_height) {
+        if let Some(bridge_withdrawals) =
+            self.parse_op_return_withdrawal(&tx.tx, block_height, wallets)
+        {
             messages.push(bridge_withdrawals);
         }
 
@@ -149,6 +169,7 @@ impl MessageParser {
         tx: &Transaction,
         block_height: u32,
         address: Address,
+        wallets: Option<&SystemWallets>,
     ) -> Option<FullInscriptionMessage> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
@@ -191,7 +212,7 @@ impl MessageParser {
             output_vout: None,
         };
 
-        self.parse_system_message(tx, &instructions[via_index..], &common_fields)
+        self.parse_system_message(tx, &instructions[via_index..], &common_fields, wallets)
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer::parser")]
@@ -215,6 +236,7 @@ impl MessageParser {
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
+        wallets: Option<&SystemWallets>,
     ) -> Option<FullInscriptionMessage> {
         let message_type = instructions.get(1)?;
 
@@ -251,13 +273,19 @@ impl MessageParser {
             }
             Instruction::PushBytes(bytes) if bytes.as_bytes() == types::L1_TO_L2_MSG.as_bytes() => {
                 debug!("Parsing L1 to L2 message");
-                self.parse_l1_to_l2_message(tx, instructions, common_fields)
+                self.parse_l1_to_l2_message(tx, instructions, common_fields, wallets)
             }
             Instruction::PushBytes(bytes)
                 if bytes.as_bytes() == types::SYSTEM_CONTRACT_UPGRADE_MSG.as_bytes() =>
             {
                 debug!("Parsing System contract upgrade proposal");
                 self.parse_system_contract_upgrade_message(instructions, common_fields)
+            }
+            Instruction::PushBytes(bytes)
+                if bytes.as_bytes() == types::UPGRADE_BRIDGE_MSG.as_bytes() =>
+            {
+                debug!("Parsing update bridge proposal");
+                self.parse_update_bridge_proposal_message(instructions, common_fields)
             }
             Instruction::PushBytes(bytes) => {
                 warn!("Unknown message type for system transaction parser");
@@ -329,14 +357,6 @@ impl MessageParser {
                     None
                 }
             })?;
-
-        // Save the bridge address for later use
-        self.bridge_address = Some(
-            network_unchecked_bridge_address
-                .clone()
-                .require_network(self.network)
-                .ok()?,
-        );
 
         debug!("Parsed bridge address");
 
@@ -591,7 +611,10 @@ impl MessageParser {
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
+        wallets_opt: Option<&SystemWallets>,
     ) -> Option<FullInscriptionMessage> {
+        let wallets = wallets_opt?;
+
         if instructions.len() < MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS {
             warn!("Insufficient instructions for L1 to L2 message");
             return None;
@@ -612,13 +635,8 @@ impl MessageParser {
             .output
             .iter()
             .find(|output| {
-                if let Some(address) = self.bridge_address.as_ref() {
-                    output.script_pubkey.is_p2tr()
-                        && output.script_pubkey == address.script_pubkey()
-                } else {
-                    tracing::error!("Bridge address not found");
-                    false
-                }
+                output.script_pubkey.is_p2tr()
+                    && output.script_pubkey == wallets.bridge.script_pubkey()
             })
             .map(|output| output.value)
             .unwrap_or(Amount::ZERO);
@@ -690,10 +708,66 @@ impl MessageParser {
         ))
     }
 
+    #[instrument(
+        skip(self, instructions, common_fields),
+        target = "bitcoin_indexer::parser"
+    )]
+    fn parse_update_bridge_proposal_message(
+        &self,
+        instructions: &[Instruction],
+        common_fields: &CommonFields,
+    ) -> Option<FullInscriptionMessage> {
+        if instructions.len() < MIN_UPDATE_BRIDGE_PROPOSAL {
+            return None;
+        }
+
+        // network unchecked is required to enable serde serialization and deserialization on the library structs
+        let verifier_p2wpkh_addresses = instructions[1..instructions.len() - 2]
+            .iter()
+            .filter_map(|instr| {
+                if let Instruction::PushBytes(bytes) = instr {
+                    std::str::from_utf8(bytes.as_bytes())
+                        .ok()
+                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        debug!(
+            "Parsed {} verifier addresses",
+            verifier_p2wpkh_addresses.len()
+        );
+
+        let bridge_musig2_address = instructions.get(instructions.len() - 2).and_then(|instr| {
+            if let Instruction::PushBytes(bytes) = instr {
+                std::str::from_utf8(bytes.as_bytes())
+                    .ok()
+                    .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
+            } else {
+                None
+            }
+        })?;
+
+        debug!("Parsed bridge address");
+
+        Some(FullInscriptionMessage::UpdateBridgeProposal(
+            UpdateBridgeProposal {
+                common: common_fields.clone(),
+                input: UpdateBridgeProposalInput {
+                    bridge_musig2_address,
+                    verifier_p2wpkh_addresses,
+                },
+            },
+        ))
+    }
+
     fn parse_inscription_deposit(
         &self,
         tx: &TransactionWithMetadata,
         block_height: u32,
+        wallets: &SystemWallets,
     ) -> Option<FullInscriptionMessage> {
         // Try to find any witness data that contains a valid inscription
         for input in tx.tx.input.iter() {
@@ -724,7 +798,12 @@ impl MessageParser {
             };
 
             // Parse L1ToL2Message from instructions
-            return self.parse_l1_to_l2_message(&tx.tx, &instructions[via_index..], &common_fields);
+            return self.parse_l1_to_l2_message(
+                &tx.tx,
+                &instructions[via_index..],
+                &common_fields,
+                Some(wallets),
+            );
         }
 
         None
@@ -751,7 +830,12 @@ impl MessageParser {
 
         // Parse OP_RETURN data
         if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
-            if op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX) {
+            if op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX)
+                || op_return_data.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX)
+                || op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX)
+                || op_return_data.starts_with(OP_RETURN_UPDATE_BRIDGE_PREFIX)
+                || op_return_data.starts_with(OP_RETURN_UPDATE_GOVERNANCE_PREFIX)
+            {
                 return None;
             }
             // Parse receiver address from OP_RETURN data
@@ -796,6 +880,7 @@ impl MessageParser {
         &self,
         tx: &Transaction,
         block_height: u32,
+        wallets: &SystemWallets,
     ) -> Option<FullInscriptionMessage> {
         // Find OP_RETURN output
         let op_return_output = tx
@@ -836,12 +921,8 @@ impl MessageParser {
                     Err(_) => continue,
                 };
 
-                if let Some(bridge_address) = self.bridge_address.clone() {
-                    if address == bridge_address {
-                        continue;
-                    }
-                } else {
-                    return None;
+                if address == wallets.bridge {
+                    continue;
                 }
 
                 withdrawals.push((address.to_string(), output.value.to_sat() as i64));
@@ -929,6 +1010,158 @@ impl MessageParser {
         }
         None
     }
+
+    fn parse_op_return_update_bridge(
+        &self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Option<FullInscriptionMessage> {
+        // Find OP_RETURN output
+        let op_return_output = tx
+            .output
+            .iter()
+            .find(|output| output.script_pubkey.is_op_return())?;
+
+        // Parse OP_RETURN data
+        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
+            if !op_return_data.starts_with(OP_RETURN_UPDATE_BRIDGE_PREFIX) {
+                return None;
+            }
+
+            let start = OP_RETURN_UPDATE_BRIDGE_PREFIX.len() + 1;
+            if op_return_data.len() < start + 32 {
+                return None;
+            }
+
+            // Parse proposal_tx_id from OP_RETURN data
+            let proposal_tx_id = match Txid::from_slice(&op_return_data[start..start + 32]) {
+                Ok(tx_id) => tx_id,
+                Err(_) => return None,
+            };
+
+            let input = UpdateBridgeInput {
+                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
+                proposal_tx_id,
+            };
+
+            // Create common fields with empty signature for OP_RETURN
+            let common = CommonFields {
+                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
+                encoded_public_key: PushBytesBuf::new(),
+                block_height,
+                tx_id: tx.compute_ntxid().into(),
+                p2wpkh_address: None,
+                tx_index: None,
+                output_vout: None,
+            };
+
+            return Some(FullInscriptionMessage::UpdateBridge(UpdateBridge {
+                common,
+                input,
+            }));
+        }
+        None
+    }
+
+    fn parse_op_return_update_sequencer(
+        &self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Option<FullInscriptionMessage> {
+        // Find OP_RETURN output
+        let op_return_output = tx
+            .output
+            .iter()
+            .find(|output| output.script_pubkey.is_op_return())?;
+
+        // Parse OP_RETURN data
+        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
+            if !op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX) {
+                return None;
+            }
+
+            let start = OP_RETURN_UPDATE_SEQUENCER_PREFIX.len() + 1;
+
+            // Parse sequencer address from OP_RETURN data
+            let address_str = std::str::from_utf8(&op_return_data[start..]).ok()?;
+            let address = match Address::from_str(address_str) {
+                Ok(address) => address,
+                Err(_) => return None,
+            };
+
+            let input = UpdateSequencerInput {
+                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
+                address,
+            };
+
+            // Create common fields with empty signature for OP_RETURN
+            let common = CommonFields {
+                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
+                encoded_public_key: PushBytesBuf::new(),
+                block_height,
+                tx_id: tx.compute_ntxid().into(),
+                p2wpkh_address: None,
+                tx_index: None,
+                output_vout: None,
+            };
+
+            return Some(FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
+                common,
+                input,
+            }));
+        }
+        None
+    }
+
+    fn parse_op_return_update_governance(
+        &self,
+        tx: &Transaction,
+        block_height: u32,
+    ) -> Option<FullInscriptionMessage> {
+        // Find OP_RETURN output
+        let op_return_output = tx
+            .output
+            .iter()
+            .find(|output| output.script_pubkey.is_op_return())?;
+
+        // Parse OP_RETURN data
+        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
+            if !op_return_data.starts_with(OP_RETURN_UPDATE_GOVERNANCE_PREFIX) {
+                return None;
+            }
+
+            let start = OP_RETURN_UPDATE_GOVERNANCE_PREFIX.len() + 1;
+
+            // Parse sequencer address from OP_RETURN data
+            let address_str = std::str::from_utf8(&op_return_data[start..]).ok()?;
+            let address = match Address::from_str(address_str) {
+                Ok(address) => address,
+                Err(_) => return None,
+            };
+
+            let input = UpdateGovernanceInput {
+                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
+                address,
+            };
+
+            // Create common fields with empty signature for OP_RETURN
+            let common = CommonFields {
+                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
+                encoded_public_key: PushBytesBuf::new(),
+                block_height,
+                tx_id: tx.compute_ntxid().into(),
+                p2wpkh_address: None,
+                tx_index: None,
+                output_vout: None,
+            };
+
+            return Some(FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
+                common,
+                input,
+            }));
+        }
+        None
+    }
 }
 
 #[instrument(skip(instructions), target = "bitcoin_indexer::parser")]
@@ -972,6 +1205,25 @@ mod tests {
         deserialize(&Vec::from_hex(tx_hex).unwrap()).unwrap()
     }
 
+    fn system_wallets() -> SystemWallets {
+        SystemWallets {
+            sequencer: Address::from_str("bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv")
+                .unwrap()
+                .assume_checked(),
+            bridge: Address::from_str(
+                "bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg",
+            )
+            .unwrap()
+            .assume_checked(),
+            governance: Address::from_str(
+                "bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm",
+            )
+            .unwrap()
+            .assume_checked(),
+            verifiers: vec![],
+        }
+    }
+
     #[ignore]
     #[test]
     fn test_parse_transaction() {
@@ -979,7 +1231,7 @@ mod tests {
         let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        let messages = parser.parse_system_transaction(&tx, 0);
+        let messages = parser.parse_system_transaction(&tx, 0, Some(&system_wallets()));
         assert_eq!(messages.len(), 1);
     }
 
@@ -990,8 +1242,9 @@ mod tests {
         let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        if let Some(FullInscriptionMessage::SystemBootstrapping(bootstrapping)) =
-            parser.parse_system_transaction(&tx, 0).pop()
+        if let Some(FullInscriptionMessage::SystemBootstrapping(bootstrapping)) = parser
+            .parse_system_transaction(&tx, 0, Some(&system_wallets()))
+            .pop()
         {
             assert_eq!(bootstrapping.input.start_block_height, 10);
             assert_eq!(bootstrapping.input.verifier_p2wpkh_addresses.len(), 1);

@@ -140,6 +140,9 @@ impl InscriptionData {
             types::InscriptionMessage::SystemContractUpgradeProposal(input) => {
                 Self::build_system_contract_upgrade_message_script(basic_script, input)
             }
+            types::InscriptionMessage::UpdateBridgeProposal(input) => {
+                Self::build_update_bridge_script(basic_script, input, network)?
+            }
         };
 
         let final_script = final_script_result.push_opcode(all::OP_ENDIF).into_script();
@@ -338,6 +341,36 @@ impl InscriptionData {
             basic_script = basic_script.push_slice(Self::encode_push_bytes(hash.as_bytes()));
         }
         basic_script
+    }
+
+    #[instrument(
+        skip(basic_script, input),
+        target = "bitcoin_inscriber::script_builder"
+    )]
+    fn build_update_bridge_script(
+        basic_script: ScriptBuilder,
+        input: &types::UpdateBridgeProposalInput,
+        network: Network,
+    ) -> anyhow::Result<ScriptBuilder> {
+        debug!("Building Bridge address script");
+
+        let mut script = basic_script.push_slice(&*types::UPGRADE_BRIDGE_MSG);
+
+        for verifier_p2wpkh_address in &input.verifier_p2wpkh_addresses {
+            let network_checked_address =
+                verifier_p2wpkh_address.clone().require_network(network)?;
+            let address_encoded =
+                Self::encode_push_bytes(network_checked_address.to_string().as_bytes());
+            script = script.push_slice(address_encoded);
+        }
+
+        let bridge_address = input
+            .bridge_musig2_address
+            .clone()
+            .require_network(network)?;
+        let bridge_address_encoded = Self::encode_push_bytes(bridge_address.to_string().as_bytes());
+
+        Ok(script.push_slice(bridge_address_encoded))
     }
 
     #[instrument(skip(data), target = "bitcoin_inscriber::script_builder")]

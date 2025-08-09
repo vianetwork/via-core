@@ -90,6 +90,57 @@ pub struct SystemBootstrappingInput {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct UpdateSequencer {
+    pub common: CommonFields,
+    pub input: UpdateSequencerInput,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UpdateSequencerInput {
+    /// The input utxos.
+    pub inputs: Vec<OutPoint>,
+    pub address: BitcoinAddress<NetworkUnchecked>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UpdateGovernance {
+    pub common: CommonFields,
+    pub input: UpdateGovernanceInput,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UpdateGovernanceInput {
+    /// The input utxos.
+    pub inputs: Vec<OutPoint>,
+    pub address: BitcoinAddress<NetworkUnchecked>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UpdateBridge {
+    pub common: CommonFields,
+    pub input: UpdateBridgeInput,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UpdateBridgeInput {
+    /// The input utxos.
+    pub inputs: Vec<OutPoint>,
+    pub proposal_tx_id: Txid,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UpdateBridgeProposal {
+    pub common: CommonFields,
+    pub input: UpdateBridgeProposalInput,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UpdateBridgeProposalInput {
+    pub bridge_musig2_address: BitcoinAddress<NetworkUnchecked>,
+    pub verifier_p2wpkh_addresses: Vec<BitcoinAddress<NetworkUnchecked>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct SystemBootstrapping {
     pub common: CommonFields,
     pub input: SystemBootstrappingInput,
@@ -188,6 +239,7 @@ pub enum InscriptionMessage {
     ProposeSequencer(ProposeSequencerInput),
     L1ToL2Message(L1ToL2MessageInput),
     SystemContractUpgradeProposal(SystemContractUpgradeProposalInput),
+    UpdateBridgeProposal(UpdateBridgeProposalInput),
 }
 
 impl Serializable for InscriptionMessage {
@@ -224,8 +276,40 @@ pub enum FullInscriptionMessage {
     ProposeSequencer(ProposeSequencer),
     L1ToL2Message(L1ToL2Message),
     SystemContractUpgradeProposal(SystemContractUpgradeProposal),
-    SystemContractUpgrade(SystemContractUpgrade),
     BridgeWithdrawal(BridgeWithdrawal),
+    UpdateBridgeProposal(UpdateBridgeProposal),
+    UpdateGovernance(UpdateGovernance),
+    UpdateSequencer(UpdateSequencer),
+    SystemContractUpgrade(SystemContractUpgrade),
+    UpdateBridge(UpdateBridge),
+}
+
+impl FullInscriptionMessage {
+    /// Return a numeric sort key that reflects the enum declaration order
+    fn order_key(&self) -> usize {
+        match self {
+            FullInscriptionMessage::L1BatchDAReference(_) => 0,
+            FullInscriptionMessage::ProofDAReference(_) => 1,
+            FullInscriptionMessage::ValidatorAttestation(_) => 2,
+            FullInscriptionMessage::SystemBootstrapping(_) => 3,
+            FullInscriptionMessage::ProposeSequencer(_) => 4,
+            FullInscriptionMessage::L1ToL2Message(_) => 5,
+            FullInscriptionMessage::SystemContractUpgradeProposal(_) => 6,
+            FullInscriptionMessage::BridgeWithdrawal(_) => 7,
+            FullInscriptionMessage::UpdateBridgeProposal(_) => 8,
+
+            // System inscriptions must be ordered to ensure the indexer always uses the latest wallet state.
+            FullInscriptionMessage::UpdateGovernance(_) => 9,
+            FullInscriptionMessage::UpdateSequencer(_) => 10,
+            FullInscriptionMessage::SystemContractUpgrade(_) => 11,
+            FullInscriptionMessage::UpdateBridge(_) => 12,
+        }
+    }
+
+    pub fn sort_messages(mut msgs: Vec<FullInscriptionMessage>) -> Vec<FullInscriptionMessage> {
+        msgs.sort_by_key(|msg| msg.order_key());
+        msgs
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -254,6 +338,7 @@ lazy_static! {
     pub static ref L1_TO_L2_MSG: PushBytesBuf = PushBytesBuf::from(b"L1ToL2Message");
     pub static ref SYSTEM_CONTRACT_UPGRADE_MSG: PushBytesBuf =
         PushBytesBuf::from(b"SystemContractUpgradeProposal");
+    pub static ref UPGRADE_BRIDGE_MSG: PushBytesBuf = PushBytesBuf::from(b"UpgradeBridgeProposal");
 }
 pub(crate) const VIA_INSCRIPTION_PROTOCOL: &str = "via_inscription_protocol";
 
@@ -416,3 +501,10 @@ pub type BitcoinSignerResult<T> = Result<T>;
 pub type BitcoinInscriberResult<T> = Result<T>;
 
 pub type BitcoinTransactionBuilderResult<T> = Result<T>;
+
+#[derive(Debug, Clone)]
+pub struct SystemTransactions {
+    pub system_txs: Vec<TransactionWithMetadata>,
+    pub bridge_txs: Vec<TransactionWithMetadata>,
+    pub governance_txs: Vec<TransactionWithMetadata>,
+}
