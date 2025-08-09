@@ -43,7 +43,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
         storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
-    ) -> Result<(), MessageProcessorError> {
+    ) -> Result<bool, MessageProcessorError> {
         let mut upgrades = Vec::new();
         for msg in msgs {
             if let FullInscriptionMessage::SystemContractUpgrade(system_contract_upgrade_msg) = &msg
@@ -135,6 +135,6 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                 .await
                 .map_err(DalError::generalize)?;
         }
-        Ok(())
+        Ok(true)
     }
 }

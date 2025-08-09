@@ -3,7 +3,7 @@ use via_verifier_coordinator::verifier::ViaWithdrawalVerifier;
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{
     configs::{
-        via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig, via_wallets::ViaWallet,
+        via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig, via_wallets::ViaWallet,
     },
     ViaVerifierConfig,
 };
@@ -23,7 +23,7 @@ use crate::{
 /// Wiring layer for verifier task
 #[derive(Debug)]
 pub struct ViaWithdrawalVerifierLayer {
-    via_genesis_config: ViaGenesisConfig,
+    via_bridge_config: ViaBridgeConfig,
     via_btc_client: ViaBtcClientConfig,
     verifier_config: ViaVerifierConfig,
     wallet: ViaWallet,
@@ -46,13 +46,13 @@ pub struct Output {
 
 impl ViaWithdrawalVerifierLayer {
     pub fn new(
-        via_genesis_config: ViaGenesisConfig,
+        via_bridge_config: ViaBridgeConfig,
         via_btc_client: ViaBtcClientConfig,
         verifier_config: ViaVerifierConfig,
         wallet: ViaWallet,
     ) -> Self {
         Self {
-            via_genesis_config,
+            via_bridge_config,
             via_btc_client,
             verifier_config,
             wallet,
@@ -83,8 +83,7 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
             master_pool,
             btc_client,
             withdrawal_client,
-            self.via_genesis_config.bridge_address()?,
-            self.via_genesis_config.verifiers_pub_keys,
+            self.via_bridge_config,
         )
         .context("Error to init the via withdrawal verifier")?;
 

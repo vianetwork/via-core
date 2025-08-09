@@ -227,7 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// We lock the spend output to the key associated with this address.
 ///
 /// (FWIW this is an arbitrary mainnet address from block 805222.)
-fn receivers_address() -> Address {
+pub(crate) fn receivers_address() -> Address {
     Address::from_str("bc1p0dq0tzg2r780hldthn5mrznmpxsxc0jux5f20fwj0z3wqxxk6fpqm7q0va")
         .expect("a valid address")
         .require_network(Network::Bitcoin)

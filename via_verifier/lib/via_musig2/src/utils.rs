@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use bitcoin::TapTweakHash;
+use bitcoin::{TapNodeHash, TapTweakHash};
 use musig2::{verify_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce};
 use secp256k1_musig2::PublicKey;
 
@@ -11,6 +11,7 @@ pub fn verify_partial_signature(
     pubkeys_str: Vec<String>,
     partial_sig: PartialSignature,
     message: &[u8],
+    merkle_root: Option<TapNodeHash>,
 ) -> anyhow::Result<()> {
     let pubkeys = pubkeys_str
         .iter()
@@ -27,7 +28,7 @@ pub fn verify_partial_signature(
     let internal_key = bitcoin::XOnlyPublicKey::from_slice(&xonly_agg_key.serialize())?;
 
     // Calculate taproot tweak
-    let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, None);
+    let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, merkle_root);
     let tweak = tap_tweak.to_scalar();
     let tweak_bytes = tweak.to_be_bytes();
     let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
@@ -283,6 +284,7 @@ mod tests {
             pubkeys_str.clone(),
             PartialSignature::from_slice(&partial_sig_2.to_vec())?,
             sighash.as_byte_array(),
+            None,
         )?;
 
         verify_partial_signature(
@@ -295,6 +297,7 @@ mod tests {
             pubkeys_str.clone(),
             PartialSignature::from_slice(&partial_sig_1.to_vec())?,
             sighash.as_byte_array(),
+            None,
         )?;
 
         verify_partial_signature(
@@ -307,6 +310,7 @@ mod tests {
             pubkeys_str.clone(),
             PartialSignature::from_slice(&partial_sig_3.to_vec())?,
             sighash.as_byte_array(),
+            None,
         )?;
 
         second_round_1.receive_signature(1, Scalar::from_slice(&partial_sig_2).unwrap())?;
