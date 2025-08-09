@@ -62,3 +62,11 @@ path = "examples/withdrawal.rs"
 [[example]]
 name = "coordinator"
 path = "examples/coordinator.rs"
+
+[[example]]
+name = "musig2_with_script_path"
+path = "examples/musig2_with_script_path.rs"
+
+[[example]]
+name = "compute_musig2"
+path = "examples/compute_musig2.rs"
