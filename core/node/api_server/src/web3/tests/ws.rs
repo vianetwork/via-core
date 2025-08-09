@@ -172,8 +172,8 @@ async fn test_ws_server(test: impl WsTest) {
         &web3_config,
         &contracts_config,
         &genesis_config,
-        "".into(),
-        bitcoin::Network::Regtest,
+        Some("".into()),
+        Some(bitcoin::Network::Regtest),
     );
     let mut storage = pool.connection().await.unwrap();
     test.storage_initialization()

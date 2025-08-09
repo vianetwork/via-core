@@ -10,7 +10,8 @@ use bitcoin::{
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
 use zksync_types::{
-    protocol_version::ProtocolSemanticVersion, Address as EVMAddress, L1BatchNumber, U256,
+    protocol_version::ProtocolSemanticVersion, via_wallet::SystemWallets, Address as EVMAddress,
+    L1BatchNumber, U256,
 };
 
 use crate::types::{
@@ -44,15 +45,11 @@ const MIN_UPDATE_BRIDGE_PROPOSAL: usize = 5;
 #[derive(Debug, Clone)]
 pub struct MessageParser {
     network: Network,
-    bridge_address: Option<Address>,
 }
 
 impl MessageParser {
     pub fn new(network: Network) -> Self {
-        Self {
-            network,
-            bridge_address: None,
-        }
+        Self { network }
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
@@ -60,6 +57,7 @@ impl MessageParser {
         &mut self,
         tx: &Transaction,
         block_height: u32,
+        wallets: Option<&SystemWallets>,
     ) -> Vec<FullInscriptionMessage> {
         // parsing btc address
         let mut sender_addresses: Option<Address> = None;
@@ -76,7 +74,7 @@ impl MessageParser {
                 tx.input
                     .iter()
                     .filter_map(|input| {
-                        self.parse_system_input(input, tx, block_height, address.clone())
+                        self.parse_system_input(input, tx, block_height, address.clone(), wallets)
                     })
                     .collect()
             }
@@ -121,16 +119,13 @@ impl MessageParser {
         &mut self,
         tx: &mut TransactionWithMetadata,
         block_height: u32,
+        wallets: &SystemWallets,
     ) -> Vec<FullInscriptionMessage> {
         let mut messages = Vec::new();
 
         let vout = match tx.tx.output.iter().enumerate().find_map(|(index, output)| {
-            if let Some(bridge_addr) = &self.bridge_address {
-                if output.script_pubkey == bridge_addr.script_pubkey() {
-                    Some(index)
-                } else {
-                    None
-                }
+            if output.script_pubkey == wallets.bridge.script_pubkey() {
+                Some(index)
             } else {
                 None
             }
@@ -145,7 +140,8 @@ impl MessageParser {
         let bridge_output = &tx.tx.output[vout];
 
         // Try to parse as inscription-based deposit first
-        if let Some(inscription_message) = self.parse_inscription_deposit(tx, block_height) {
+        if let Some(inscription_message) = self.parse_inscription_deposit(tx, block_height, wallets)
+        {
             messages.push(inscription_message);
         }
 
@@ -157,7 +153,9 @@ impl MessageParser {
         }
 
         // Try to parse withdrawals processed by the bridge address.
-        if let Some(bridge_withdrawals) = self.parse_op_return_withdrawal(&tx.tx, block_height) {
+        if let Some(bridge_withdrawals) =
+            self.parse_op_return_withdrawal(&tx.tx, block_height, wallets)
+        {
             messages.push(bridge_withdrawals);
         }
 
@@ -171,6 +169,7 @@ impl MessageParser {
         tx: &Transaction,
         block_height: u32,
         address: Address,
+        wallets: Option<&SystemWallets>,
     ) -> Option<FullInscriptionMessage> {
         let witness = &input.witness;
         if witness.len() < MIN_WITNESS_LENGTH {
@@ -213,7 +212,7 @@ impl MessageParser {
             output_vout: None,
         };
 
-        self.parse_system_message(tx, &instructions[via_index..], &common_fields)
+        self.parse_system_message(tx, &instructions[via_index..], &common_fields, wallets)
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer::parser")]
@@ -237,6 +236,7 @@ impl MessageParser {
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
+        wallets: Option<&SystemWallets>,
     ) -> Option<FullInscriptionMessage> {
         let message_type = instructions.get(1)?;
 
@@ -273,7 +273,7 @@ impl MessageParser {
             }
             Instruction::PushBytes(bytes) if bytes.as_bytes() == types::L1_TO_L2_MSG.as_bytes() => {
                 debug!("Parsing L1 to L2 message");
-                self.parse_l1_to_l2_message(tx, instructions, common_fields)
+                self.parse_l1_to_l2_message(tx, instructions, common_fields, wallets)
             }
             Instruction::PushBytes(bytes)
                 if bytes.as_bytes() == types::SYSTEM_CONTRACT_UPGRADE_MSG.as_bytes() =>
@@ -357,14 +357,6 @@ impl MessageParser {
                     None
                 }
             })?;
-
-        // Save the bridge address for later use
-        self.bridge_address = Some(
-            network_unchecked_bridge_address
-                .clone()
-                .require_network(self.network)
-                .ok()?,
-        );
 
         debug!("Parsed bridge address");
 
@@ -619,7 +611,10 @@ impl MessageParser {
         tx: &Transaction,
         instructions: &[Instruction],
         common_fields: &CommonFields,
+        wallets_opt: Option<&SystemWallets>,
     ) -> Option<FullInscriptionMessage> {
+        let wallets = wallets_opt?;
+
         if instructions.len() < MIN_L1_TO_L2_MESSAGE_INSTRUCTIONS {
             warn!("Insufficient instructions for L1 to L2 message");
             return None;
@@ -640,13 +635,8 @@ impl MessageParser {
             .output
             .iter()
             .find(|output| {
-                if let Some(address) = self.bridge_address.as_ref() {
-                    output.script_pubkey.is_p2tr()
-                        && output.script_pubkey == address.script_pubkey()
-                } else {
-                    tracing::error!("Bridge address not found");
-                    false
-                }
+                output.script_pubkey.is_p2tr()
+                    && output.script_pubkey == wallets.bridge.script_pubkey()
             })
             .map(|output| output.value)
             .unwrap_or(Amount::ZERO);
@@ -777,6 +767,7 @@ impl MessageParser {
         &self,
         tx: &TransactionWithMetadata,
         block_height: u32,
+        wallets: &SystemWallets,
     ) -> Option<FullInscriptionMessage> {
         // Try to find any witness data that contains a valid inscription
         for input in tx.tx.input.iter() {
@@ -807,7 +798,12 @@ impl MessageParser {
             };
 
             // Parse L1ToL2Message from instructions
-            return self.parse_l1_to_l2_message(&tx.tx, &instructions[via_index..], &common_fields);
+            return self.parse_l1_to_l2_message(
+                &tx.tx,
+                &instructions[via_index..],
+                &common_fields,
+                Some(wallets),
+            );
         }
 
         None
@@ -834,7 +830,12 @@ impl MessageParser {
 
         // Parse OP_RETURN data
         if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
-            if op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX) {
+            if op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX)
+                || op_return_data.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX)
+                || op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX)
+                || op_return_data.starts_with(OP_RETURN_UPDATE_BRIDGE_PREFIX)
+                || op_return_data.starts_with(OP_RETURN_UPDATE_GOVERNANCE_PREFIX)
+            {
                 return None;
             }
             // Parse receiver address from OP_RETURN data
@@ -879,6 +880,7 @@ impl MessageParser {
         &self,
         tx: &Transaction,
         block_height: u32,
+        wallets: &SystemWallets,
     ) -> Option<FullInscriptionMessage> {
         // Find OP_RETURN output
         let op_return_output = tx
@@ -919,12 +921,8 @@ impl MessageParser {
                     Err(_) => continue,
                 };
 
-                if let Some(bridge_address) = self.bridge_address.clone() {
-                    if address == bridge_address {
-                        continue;
-                    }
-                } else {
-                    return None;
+                if address == wallets.bridge {
+                    continue;
                 }
 
                 withdrawals.push((address.to_string(), output.value.to_sat() as i64));
@@ -1076,23 +1074,15 @@ impl MessageParser {
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
 
-        println!("AAAAAAAAAAAAAAAAAAAAAAAAAAAA");
         // Parse OP_RETURN data
         if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
-            println!("AAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-
             if !op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX) {
                 return None;
             }
-            println!("AAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
             let start = OP_RETURN_UPDATE_SEQUENCER_PREFIX.len() + 1;
 
             // Parse sequencer address from OP_RETURN data
-            println!(
-                "AAAAAAAAAAAAAAAAAAAAAAAAAAAA {:?}",
-                std::str::from_utf8(&op_return_data[start..]).ok()?
-            );
             let address_str = std::str::from_utf8(&op_return_data[start..]).ok()?;
             let address = match Address::from_str(address_str) {
                 Ok(address) => address,
@@ -1215,6 +1205,25 @@ mod tests {
         deserialize(&Vec::from_hex(tx_hex).unwrap()).unwrap()
     }
 
+    fn system_wallets() -> SystemWallets {
+        SystemWallets {
+            sequencer: Address::from_str("bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv")
+                .unwrap()
+                .assume_checked(),
+            bridge: Address::from_str(
+                "bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg",
+            )
+            .unwrap()
+            .assume_checked(),
+            governance: Address::from_str(
+                "bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm",
+            )
+            .unwrap()
+            .assume_checked(),
+            verifiers: vec![],
+        }
+    }
+
     #[ignore]
     #[test]
     fn test_parse_transaction() {
@@ -1222,7 +1231,7 @@ mod tests {
         let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        let messages = parser.parse_system_transaction(&tx, 0);
+        let messages = parser.parse_system_transaction(&tx, 0, Some(&system_wallets()));
         assert_eq!(messages.len(), 1);
     }
 
@@ -1233,8 +1242,9 @@ mod tests {
         let mut parser = MessageParser::new(network);
         let tx = setup_test_transaction();
 
-        if let Some(FullInscriptionMessage::SystemBootstrapping(bootstrapping)) =
-            parser.parse_system_transaction(&tx, 0).pop()
+        if let Some(FullInscriptionMessage::SystemBootstrapping(bootstrapping)) = parser
+            .parse_system_transaction(&tx, 0, Some(&system_wallets()))
+            .pop()
         {
             assert_eq!(bootstrapping.input.start_block_height, 10);
             assert_eq!(bootstrapping.input.verifier_p2wpkh_addresses.len(), 1);

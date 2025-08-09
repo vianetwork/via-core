@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
         .get_transaction(&update_bridge_address_proposal.final_reveal_tx.txid)
         .await?;
 
-    let update_bridge_address_proposal = parser.parse_system_transaction(&tx, 0);
+    let update_bridge_address_proposal = parser.parse_system_transaction(&tx, 0, None);
     info!(
         "Update bridge address proposal: {:?}",
         update_bridge_address_proposal

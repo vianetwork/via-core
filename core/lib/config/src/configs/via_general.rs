@@ -10,6 +10,7 @@ use crate::{
         prover_job_monitor::ProverJobMonitorConfig,
         pruning::PruningConfig,
         snapshot_recovery::SnapshotRecoveryConfig,
+        via_bridge::ViaBridgeConfig,
         vm_runner::{BasicWitnessInputProducerConfig, ProtectiveReadsWriterConfig},
         CommitmentGeneratorConfig, ExperimentalVmConfig, ExternalPriceApiClientConfig,
         FriProofCompressorConfig, FriProverConfig, FriProverGatewayConfig,
@@ -63,6 +64,7 @@ pub struct ViaGeneralConfig {
     pub via_celestia_config: Option<ViaCelestiaConfig>,
     pub via_verifier_config: Option<ViaVerifierConfig>,
     pub via_genesis_config: Option<ViaGenesisConfig>,
+    pub via_bridge_config: Option<ViaBridgeConfig>,
 }
 
 impl From<GeneralConfig> for ViaGeneralConfig {
@@ -108,6 +110,7 @@ impl From<GeneralConfig> for ViaGeneralConfig {
             via_verifier_config: None,
             via_btc_client_config: None,
             via_genesis_config: None,
+            via_bridge_config: None,
         }
     }
 }

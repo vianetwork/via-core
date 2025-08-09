@@ -6,7 +6,7 @@ use via_btc_client::{
     client::BitcoinClient,
     indexer::MessageParser,
     traits::BitcoinOps,
-    types::{BitcoinNetwork, NodeAuth, TransactionWithMetadata},
+    types::{BitcoinNetwork, NodeAuth},
 };
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
@@ -31,17 +31,10 @@ async fn main() -> Result<()> {
 
     let client = Arc::new(BitcoinClient::new(RPC_URL, auth, config)?);
 
-    let txid = Txid::from_str("ca3d433c31b5e427b062d60acd3a0b5f8db6793c1aa0c3fab97eec015c72c0f6")?;
+    let txid = Txid::from_str("87bf03c6377bc6724e4022fa0a884dbe9cc811cd3db8d5840a042a27f78dce91")?;
     let mut parser = MessageParser::new(NETWORK);
     let tx = client.get_transaction(&txid).await?;
-    let data = parser.parse_protocol_upgrade_transactions(
-        &TransactionWithMetadata {
-            tx,
-            output_vout: None,
-            tx_index: 0,
-        },
-        0,
-    );
+    let data = parser.parse_system_transaction(&tx, 0, None);
     println!("{:?}", data);
 
     Ok(())

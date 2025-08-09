@@ -43,7 +43,7 @@ impl BtcWatch {
         indexer: BitcoinInscriptionIndexer,
         btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Core>,
-        bridge_address: BitcoinAddress,
+        _bridge_address: BitcoinAddress,
         zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
         let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
@@ -72,7 +72,7 @@ impl BtcWatch {
                 btc_client,
                 protocol_semantic_version,
             )),
-            Box::new(L1ToL2MessageProcessor::new(bridge_address)),
+            Box::new(L1ToL2MessageProcessor::default()),
             Box::new(VotableMessageProcessor::new(zk_agreement_threshold)),
         ];
 

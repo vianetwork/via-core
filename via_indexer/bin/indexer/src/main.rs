@@ -1,6 +1,7 @@
 use zksync_config::{
     configs::{
         api::HealthCheckConfig,
+        via_bridge::ViaBridgeConfig,
         via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
         via_l1_indexer::ViaIndexerConfig,
@@ -35,6 +36,7 @@ fn main() -> anyhow::Result<()> {
             via_l1: ViaL1Secrets::from_env().ok(),
             via_da: None,
         },
+        via_bridge_config: ViaBridgeConfig::from_env()?,
     };
 
     let node_builder = node_builder::ViaNodeBuilder::new(via_indexer_config.clone())?;

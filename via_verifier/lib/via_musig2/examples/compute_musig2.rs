@@ -2,7 +2,9 @@ use std::{fs::File, io::Write, str::FromStr};
 
 use bitcoin::{
     blockdata::{opcodes::all::*, script::Builder},
+    hex::DisplayHex,
     secp256k1::Secp256k1,
+    taproot::LeafVersion,
     Address, Network, PublicKey, ScriptBuf, XOnlyPublicKey,
 };
 use clap::Parser;
@@ -44,6 +46,7 @@ struct ExportData {
     taproot_output_key: String,
     merkle_root: Option<String>,
     taproot_address: String,
+    control_block: String,
     threshold: usize,
     total_governance_keys: usize,
 }
@@ -127,6 +130,12 @@ async fn main() -> anyhow::Result<()> {
     };
     let taproot_address = Address::p2tr_tweaked(taproot_output_key, net);
 
+    let control_block = spend_info
+        .control_block(&(multisig_script.clone(), LeafVersion::TapScript))
+        .unwrap()
+        .serialize()
+        .to_hex_string(bitcoin::hex::Case::Lower);
+
     // --- Export JSON file ---
     let data = ExportData {
         aggregated_internal_key: internal_key.to_string(),
@@ -134,6 +143,7 @@ async fn main() -> anyhow::Result<()> {
         taproot_output_key: taproot_output_key.to_string(),
         merkle_root: spend_info.merkle_root().map(|h| h.to_string()),
         taproot_address: taproot_address.to_string(),
+        control_block,
         threshold: m,
         total_governance_keys: n,
     };

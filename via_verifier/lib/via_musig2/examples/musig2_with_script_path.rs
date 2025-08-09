@@ -11,7 +11,8 @@ use bitcoin::{
     taproot::{LeafVersion, TaprootBuilder, TaprootSpendInfo},
     transaction::Version,
     Address, Amount, Network, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, TapLeafHash,
-    TapSighashType, TapTweakHash, Transaction, TxIn, TxOut, Txid, Witness, XOnlyPublicKey,
+    TapNodeHash, TapSighashType, TapTweakHash, Transaction, TxIn, TxOut, Txid, Witness,
+    XOnlyPublicKey,
 };
 use musig2::KeyAggContext;
 use tokio::time::sleep;
@@ -31,8 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secp = Secp256k1::new();
 
     // --- MuSig2 setup with 2 keys (unchanged for internal key aggregation) ---
-    let pk_str_1 = "cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R";
-    let pk_str_2 = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm";
+    let pk_str_1 = "cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa";
+    let pk_str_2 = "cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo";
 
     let private_key_1 = PrivateKey::from_wif(pk_str_1)?;
     let private_key_2 = PrivateKey::from_wif(pk_str_2)?;
@@ -84,6 +85,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (gov_x2, _) = gov_kp_2.x_only_public_key();
     let (gov_x3, _) = gov_kp_3.x_only_public_key();
 
+    println!(
+        "gov_kp_1: {:?}",
+        &gov_kp_1.public_key().serialize().to_hex_string(Case::Lower)
+    );
+    println!(
+        "gov_kp_2: {:?}",
+        &gov_kp_2.public_key().serialize().to_hex_string(Case::Lower)
+    );
+    println!(
+        "gov_kp_3: {:?}",
+        &gov_kp_3.public_key().serialize().to_hex_string(Case::Lower)
+    );
+
     // --- Build Taproot-native 2-of-3 Schnorr multisig script ---
     let multisig_script = Builder::new()
         .push_x_only_key(&gov_x1)
@@ -104,6 +118,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let taproot_output_key = spend_info.output_key();
     let taproot_address = Address::p2tr_tweaked(taproot_output_key, Network::Regtest);
+
+    println!("spend_info.merkle_root(): {:?}", &spend_info.merkle_root());
 
     println!("Final Taproot 2-of-3 Schnorr address: {}", taproot_address);
 
@@ -158,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sleep(Duration::from_secs(1)).await;
 
     let tx_hex =
-        process_withdraw_using_script_hash(btc_client.clone(), signer1, signer2, taproot_address)
+        process_withdraw_using_key_hash(btc_client.clone(), signer1, signer2, taproot_address)
             .await?;
 
     let txid = btc_client.broadcast_signed_transaction(&tx_hex).await?;
@@ -170,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn process_withdraw_using_script_hash(
+async fn process_withdraw_using_key_hash(
     btc_client: BitcoinClient,
     mut signer1: Signer,
     mut signer2: Signer,
@@ -247,6 +263,7 @@ async fn process_withdraw_using_script_hash(
 
     let sighash_type = TapSighashType::All;
     final_sig_with_hashtype1.push(sighash_type as u8);
+    println!("final_sig_with_hashtype1 {:?}", &final_sig_with_hashtype1);
 
     unsigned_tx.tx.input[0].witness = Witness::from(vec![final_sig_with_hashtype1.clone()]);
 

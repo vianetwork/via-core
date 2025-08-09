@@ -3,7 +3,6 @@ use std::{env, str::FromStr, sync::Arc};
 use anyhow::Result;
 use bitcoin::{
     absolute,
-    address::NetworkUnchecked,
     consensus::encode::serialize_hex,
     secp256k1::{Message, Secp256k1},
     sighash::{EcdsaSighashType, SighashCache},
