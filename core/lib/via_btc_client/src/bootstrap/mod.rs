@@ -35,7 +35,7 @@ impl ViaBootstrap {
         for txid_str in self.config.bootstrap_txids.clone() {
             let txid = Txid::from_str(&txid_str)?;
             let tx = self.client.get_transaction(&txid).await?;
-            let messages = parser.parse_system_transaction(&tx, 0);
+            let messages = parser.parse_system_transaction(&tx, 0, None);
 
             for message in messages {
                 match message {
@@ -86,13 +86,12 @@ impl ViaBootstrap {
                             .as_ref()
                             .expect("ValidatorAttestation must have a p2wpkh address");
 
-                        if verifiers.contains(p2wpkh_address) {
-                            if va.input.reference_txid == state.sequencer_proposal_tx_id.unwrap() {
-                                state.sequencer_votes.insert(
-                                    p2wpkh_address.clone(),
-                                    va.input.attestation == Vote::Ok,
-                                );
-                            }
+                        if verifiers.contains(p2wpkh_address)
+                            && va.input.reference_txid == state.sequencer_proposal_tx_id.unwrap()
+                        {
+                            state
+                                .sequencer_votes
+                                .insert(p2wpkh_address.clone(), va.input.attestation == Vote::Ok);
                         }
                     }
                     _ => {

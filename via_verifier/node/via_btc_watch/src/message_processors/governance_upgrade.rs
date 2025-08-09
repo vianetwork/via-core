@@ -63,6 +63,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                 let messages = self.message_parser.parse_system_transaction(
                     &proposal_tx,
                     system_contract_upgrade_msg.common.block_height,
+                    None,
                 );
 
                 for message in messages {

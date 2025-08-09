@@ -5,7 +5,13 @@ import { ECPairFactory, ECPairInterface } from 'ecpair';
 import { generateBitcoinWallet, getNetwork, readJsonFile, writeJsonFile } from './helpers';
 import { Psbt } from 'bitcoinjs-lib';
 import axios from 'axios';
-import { DEFAULT_NETWORK } from './constants';
+import {
+    DEFAULT_NETWORK,
+    OP_RETURN_UPDATE_BRIDGE_PREFIX,
+    OP_RETURN_UPDATE_GOVERNANCE_PREFIX,
+    OP_RETURN_UPDATE_SEQUENCER_PREFIX,
+    OP_RETURN_UPGRADE_PROTOCOL_PREFIX
+} from './constants';
 
 // Initialize the elliptic curve library
 bitcoin.initEccLib(ecc);
@@ -49,11 +55,56 @@ const compute_multisig_address = (
     writeJsonFile(outDir, { multisig });
 };
 
+const createUnsignedUpdateSequencerTransaction = (
+    utxoInput: UtxoInput,
+    fee: number,
+    newSequencerAddress: string,
+    outDir: string,
+    networkStr: string = 'regtest'
+) => {
+    const opReturnData = Buffer.from(newSequencerAddress, 'utf8');
+    _createUnsignedTransaction(utxoInput, fee, outDir, opReturnData, OP_RETURN_UPDATE_SEQUENCER_PREFIX, networkStr);
+};
+
+const createUnsignedUpdateGovernanceTransaction = (
+    utxoInput: UtxoInput,
+    fee: number,
+    newGovernanceAddress: string,
+    outDir: string,
+    networkStr: string = 'regtest'
+) => {
+    const opReturnData = Buffer.from(newGovernanceAddress, 'utf8');
+    _createUnsignedTransaction(utxoInput, fee, outDir, opReturnData, OP_RETURN_UPDATE_GOVERNANCE_PREFIX, networkStr);
+};
+
+const createUnsignedUpdateBridgeTransaction = (
+    utxoInput: UtxoInput,
+    fee: number,
+    updateBridgeProposalTxid: string,
+    outDir: string,
+    networkStr: string = 'regtest'
+) => {
+    const opReturnData = Buffer.from(updateBridgeProposalTxid, 'hex').reverse();
+    _createUnsignedTransaction(utxoInput, fee, outDir, opReturnData, OP_RETURN_UPDATE_BRIDGE_PREFIX, networkStr);
+};
+
 const createUnsignedUpgradeTransaction = (
     utxoInput: UtxoInput,
-    upgradeTxId: string,
     fee: number,
     outDir: string,
+    upgradeTxId: string,
+    networkStr: string = 'regtest'
+) => {
+    const opReturnData = Buffer.from(upgradeTxId, 'hex').reverse();
+    _createUnsignedTransaction(utxoInput, fee, outDir, opReturnData, OP_RETURN_UPGRADE_PROTOCOL_PREFIX, networkStr);
+};
+
+const _createUnsignedTransaction = (
+    utxoInput: UtxoInput,
+    fee: number,
+    outDir: string,
+    opReturnData: Buffer,
+    opReturnPrefix: string,
     networkStr: string = 'regtest'
 ) => {
     const dataFile: any = readJsonFile(outDir);
@@ -73,9 +124,9 @@ const createUnsignedUpgradeTransaction = (
     });
 
     // 2. Create and add the OP_RETURN output
-    const upgradeTxIdBuffer = Buffer.from(upgradeTxId, 'hex').reverse();
-    const prefixBuffer = Buffer.from('VIA_PROTOCOL:UPGRADE', 'utf8');
-    const embed = bitcoin.payments.embed({ data: [prefixBuffer, upgradeTxIdBuffer] });
+    // const suffixBuffer = Buffer.from(opReturnData, 'hex').reverse();
+    const prefixBuffer = Buffer.from(opReturnPrefix, 'utf8');
+    const embed = bitcoin.payments.embed({ data: [prefixBuffer, opReturnData] });
     if (!embed.output) throw new Error('Could not create OP_RETURN script.');
 
     psbt.addOutput({
@@ -96,7 +147,7 @@ const createUnsignedUpgradeTransaction = (
 
     writeJsonFile(outDir, { ...dataFile, tx: psbt.toBase64() });
 
-    console.log('Successfully created an unsigned PSBT for the upgrade transaction.');
+    console.log('Successfully created an unsigned PSBT transaction.');
 };
 
 /**
@@ -226,15 +277,87 @@ command
                 amountSatoshis: Number(cmd.inputAmount),
                 vout: Number(cmd.inputVout)
             },
-            cmd.upgradeProposalTxId,
             Number(cmd.fee),
+            cmd.outDir,
+            cmd.upgradeProposalTxId,
+            cmd.network
+        )
+    );
+
+command
+    .command('create-update-sequencer')
+    .description('Generate an unsigned multisig transaction for updating the sequencer')
+    .requiredOption('--inputTxId <inputTxId>', 'The input txid used to pay fee')
+    .requiredOption('--inputVout <inputVout>', 'The input vout used to pay fee')
+    .requiredOption('--inputAmount <inputAmount>', 'The input amount used to pay fee')
+    .requiredOption('--fee <fee>', 'The transaction fee')
+    .requiredOption('--sequencerAddress <sequencerAddress>', 'The new sequencer address')
+    .option('--outDir <outDir>', 'The output dir', './upgrade_tx_exec.json')
+    .option('--network <network>', 'network', DEFAULT_NETWORK)
+    .action((cmd: Command) =>
+        createUnsignedUpdateSequencerTransaction(
+            {
+                txid: cmd.inputTxId,
+                amountSatoshis: Number(cmd.inputAmount),
+                vout: Number(cmd.inputVout)
+            },
+            Number(cmd.fee),
+            cmd.sequencerAddress,
             cmd.outDir,
             cmd.network
         )
     );
 
 command
-    .command('sign-upgrade-tx')
+    .command('create-update-bridge')
+    .description('Generate an unsigned multisig transaction for updating the bridge')
+    .requiredOption('--inputTxId <inputTxId>', 'The input txid used to pay fee')
+    .requiredOption('--inputVout <inputVout>', 'The input vout used to pay fee')
+    .requiredOption('--inputAmount <inputAmount>', 'The input amount used to pay fee')
+    .requiredOption('--fee <fee>', 'The transaction fee')
+    .requiredOption('--proposalTxid <proposalTxid>', 'The bridge proposal id')
+    .option('--outDir <outDir>', 'The output dir', './upgrade_tx_exec.json')
+    .option('--network <network>', 'network', DEFAULT_NETWORK)
+    .action((cmd: Command) =>
+        createUnsignedUpdateBridgeTransaction(
+            {
+                txid: cmd.inputTxId,
+                amountSatoshis: Number(cmd.inputAmount),
+                vout: Number(cmd.inputVout)
+            },
+            Number(cmd.fee),
+            cmd.proposalTxid,
+            cmd.outDir,
+            cmd.network
+        )
+    );
+
+command
+    .command('create-update-gov')
+    .description('Generate an unsigned multisig transaction for updating the governance')
+    .requiredOption('--inputTxId <inputTxId>', 'The input txid used to pay fee')
+    .requiredOption('--inputVout <inputVout>', 'The input vout used to pay fee')
+    .requiredOption('--inputAmount <inputAmount>', 'The input amount used to pay fee')
+    .requiredOption('--fee <fee>', 'The transaction fee')
+    .requiredOption('--governanceAddress <governanceAddress>', 'The new governance address')
+    .option('--outDir <outDir>', 'The output dir', './upgrade_tx_exec.json')
+    .option('--network <network>', 'network', DEFAULT_NETWORK)
+    .action((cmd: Command) =>
+        createUnsignedUpdateGovernanceTransaction(
+            {
+                txid: cmd.inputTxId,
+                amountSatoshis: Number(cmd.inputAmount),
+                vout: Number(cmd.inputVout)
+            },
+            Number(cmd.fee),
+            cmd.governanceAddress,
+            cmd.outDir,
+            cmd.network
+        )
+    );
+
+command
+    .command('sign-tx')
     .description('Sign and upgrade transaction')
     .requiredOption('--privateKey <privateKey>', 'The signer private key')
     .option('--outDir <outDir>', 'The output dir', './upgrade_tx_exec.json')
@@ -242,7 +365,7 @@ command
     .action((cmd: Command) => signPsbt(cmd.privateKey, cmd.outDir, cmd.network));
 
 command
-    .command('finalize-upgrade-tx')
+    .command('finalize-tx')
     .description('finalize the upgrade transaction')
     .option('--outDir <outDir>', 'The output dir', './upgrade_tx_exec.json')
     .option('--network <network>', 'network', DEFAULT_NETWORK)

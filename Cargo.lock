@@ -9847,6 +9847,7 @@ dependencies = [
  "bitcoin",
  "bitcoincore-rpc",
  "byteorder",
+ "clap 4.5.16",
  "dotenv",
  "hex",
  "hyper 0.14.30",

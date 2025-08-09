@@ -3,7 +3,6 @@ use std::{env, str::FromStr, sync::Arc};
 use anyhow::Result;
 use bitcoin::{
     absolute,
-    address::NetworkUnchecked,
     consensus::encode::serialize_hex,
     secp256k1::{Message, Secp256k1},
     sighash::{EcdsaSighashType, SighashCache},
@@ -47,6 +46,7 @@ async fn main() -> Result<()> {
     let rpc_url = args[5].clone();
     let rpc_username = args[6].clone();
     let rpc_password = args[7].clone();
+    let bridge_musig2_address_str = args[8].clone();
 
     let private_key =
         PrivateKey::from_wif(&depositor_private_key).map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -55,9 +55,8 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     let address = Address::p2wpkh(&compressed_pk, network);
 
-    let bridge_musig2_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
-        .parse::<BitcoinAddress<NetworkUnchecked>>()?
-        .require_network(network)?;
+    let bridge_musig2_address =
+        BitcoinAddress::from_str(&bridge_musig2_address_str)?.require_network(network)?;
 
     let auth = NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string());
     let config = ViaBtcClientConfig {

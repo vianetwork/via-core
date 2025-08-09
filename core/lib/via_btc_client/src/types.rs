@@ -501,3 +501,10 @@ pub type BitcoinSignerResult<T> = Result<T>;
 pub type BitcoinInscriberResult<T> = Result<T>;
 
 pub type BitcoinTransactionBuilderResult<T> = Result<T>;
+
+#[derive(Debug, Clone)]
+pub struct SystemTransactions {
+    pub system_txs: Vec<TransactionWithMetadata>,
+    pub bridge_txs: Vec<TransactionWithMetadata>,
+    pub governance_txs: Vec<TransactionWithMetadata>,
+}

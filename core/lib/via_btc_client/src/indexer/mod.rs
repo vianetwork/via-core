@@ -13,7 +13,7 @@ use crate::{
     traits::BitcoinOps,
     types::{
         BitcoinIndexerResult, BridgeWithdrawal, FullInscriptionMessage, L1ToL2Message,
-        TransactionWithMetadata,
+        SystemTransactions, TransactionWithMetadata,
     },
 };
 
@@ -100,11 +100,12 @@ impl BitcoinInscriptionIndexer {
 
         let mut valid_messages = Vec::new();
 
-        let (gov_txs, system_tx, bridge_tx) = self.extract_important_transactions(&block.txdata);
+        let mut system_txs = self.extract_important_transactions(&block.txdata);
 
         // Parse protocol upgrade messages (Upgrade system contracts, bridge addresses, sequencer address)
-        if let Some(gov_txs) = gov_txs {
-            let parsed_messages: Vec<_> = gov_txs
+        if !system_txs.governance_txs.is_empty() {
+            let parsed_messages: Vec<_> = system_txs
+                .governance_txs
                 .iter()
                 .flat_map(|tx| {
                     self.parser
@@ -122,10 +123,14 @@ impl BitcoinInscriptionIndexer {
             valid_messages.extend(messages);
         }
 
-        if let Some(system_tx) = system_tx {
-            let parsed_messages: Vec<_> = system_tx
+        if !system_txs.system_txs.is_empty() {
+            let parsed_messages: Vec<_> = system_txs
+                .system_txs
                 .iter()
-                .flat_map(|tx| self.parser.parse_system_transaction(&tx.tx, block_height))
+                .flat_map(|tx| {
+                    self.parser
+                        .parse_system_transaction(&tx.tx, block_height, Some(&self.wallets))
+                })
                 .collect();
 
             let messages: Vec<_> = parsed_messages
@@ -136,10 +141,14 @@ impl BitcoinInscriptionIndexer {
             valid_messages.extend(messages);
         }
 
-        if let Some(mut bridge_tx) = bridge_tx {
-            let parsed_messages: Vec<_> = bridge_tx
+        if !system_txs.bridge_txs.is_empty() {
+            let parsed_messages: Vec<_> = system_txs
+                .bridge_txs
                 .iter_mut()
-                .flat_map(|tx| self.parser.parse_bridge_transaction(tx, block_height))
+                .flat_map(|tx| {
+                    self.parser
+                        .parse_bridge_transaction(tx, block_height, &self.wallets)
+                })
                 .collect();
 
             let mut messages = vec![];
@@ -163,11 +172,7 @@ impl BitcoinInscriptionIndexer {
     fn extract_important_transactions(
         &self,
         transactions: &[BitcoinTransaction],
-    ) -> (
-        Option<Vec<TransactionWithMetadata>>,
-        Option<Vec<TransactionWithMetadata>>,
-        Option<Vec<TransactionWithMetadata>>,
-    ) {
+    ) -> SystemTransactions {
         // We only care about the transactions that sequencer, verifiers are sending and the bridge is receiving
         let system_txs: Vec<TransactionWithMetadata> = transactions
             .iter()
@@ -207,7 +212,7 @@ impl BitcoinInscriptionIndexer {
             })
             .collect();
 
-        let gov_txs: Vec<TransactionWithMetadata> = transactions
+        let governance_txs: Vec<TransactionWithMetadata> = transactions
             .iter()
             .enumerate()
             .filter_map(|(tx_index, tx)| {
@@ -224,25 +229,11 @@ impl BitcoinInscriptionIndexer {
             })
             .collect();
 
-        let gov_txs = if !gov_txs.is_empty() {
-            Some(gov_txs)
-        } else {
-            None
-        };
-
-        let system_txs = if !system_txs.is_empty() {
-            Some(system_txs)
-        } else {
-            None
-        };
-
-        let bridge_txs = if !bridge_txs.is_empty() {
-            Some(bridge_txs)
-        } else {
-            None
-        };
-
-        (gov_txs, system_txs, bridge_txs)
+        SystemTransactions {
+            system_txs,
+            bridge_txs,
+            governance_txs,
+        }
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
@@ -295,7 +286,9 @@ impl BitcoinInscriptionIndexer {
         tx: &Txid,
     ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
         let tx = self.client.get_transaction(tx).await?;
-        Ok(self.parser.parse_system_transaction(&tx, 0))
+        Ok(self
+            .parser
+            .parse_system_transaction(&tx, 0, Some(&self.wallets)))
     }
 }
 
@@ -406,7 +399,9 @@ impl BitcoinInscriptionIndexer {
         txid: &Txid,
     ) -> anyhow::Result<L1BatchNumber> {
         let a = self.client.get_transaction(txid).await?;
-        let b = self.parser.parse_system_transaction(&a, 0);
+        let b = self
+            .parser
+            .parse_system_transaction(&a, 0, Some(&self.wallets));
         let msg = b
             .first()
             .ok_or_else(|| anyhow::anyhow!("No message found"))?;
@@ -422,7 +417,9 @@ impl BitcoinInscriptionIndexer {
         txid: &Txid,
     ) -> anyhow::Result<L1BatchNumber> {
         let a = self.client.get_transaction(txid).await?;
-        let b = self.parser.parse_system_transaction(&a, 0);
+        let b = self
+            .parser
+            .parse_system_transaction(&a, 0, Some(&self.wallets));
         let msg = b
             .first()
             .ok_or_else(|| anyhow::anyhow!("No message found"))?;

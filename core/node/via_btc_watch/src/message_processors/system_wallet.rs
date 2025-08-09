@@ -77,22 +77,25 @@ impl SystemWalletProcessor {
     ) -> Result<bool, MessageProcessorError> {
         let proposal_tx_id = update_bridge_msg.input.proposal_tx_id;
 
-        let proposal_tx = self
-            .btc_client
-            .get_transaction(&proposal_tx_id)
-            .await
-            .map_err(|err| {
-                MessageProcessorError::Internal(anyhow::anyhow!(
+        let proposal_tx = match self.btc_client.get_transaction(&proposal_tx_id).await {
+            Ok(proposal_tx) => proposal_tx,
+            Err(err) => {
+                tracing::warn!(
                     "Failed to fetch update bridge proposal transaction: {}, error {}",
                     proposal_tx_id,
                     err
-                ))
-            })?;
+                );
+                return Ok(false);
+            }
+        };
 
         let mut message_parser = MessageParser::new(self.btc_client.get_network());
 
-        let messages = message_parser
-            .parse_system_transaction(&proposal_tx, update_bridge_msg.common.block_height);
+        let messages = message_parser.parse_system_transaction(
+            &proposal_tx,
+            update_bridge_msg.common.block_height,
+            None,
+        );
 
         for message in messages {
             match message {

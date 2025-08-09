@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use bitcoin::{Address, TapSighashType, Witness};
+use bitcoin::{TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
 use tokio::sync::watch;
@@ -16,7 +16,9 @@ use via_musig2::{
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{protocol_version::get_sequencer_version, transaction::UnsignedBridgeTx};
 use via_withdrawal_client::client::WithdrawalClient;
-use zksync_config::configs::{via_verifier::ViaVerifierConfig, via_wallets::ViaWallet};
+use zksync_config::configs::{
+    via_bridge::ViaBridgeConfig, via_verifier::ViaVerifierConfig, via_wallets::ViaWallet,
+};
 use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets, H256};
 use zksync_utils::time::seconds_since_epoch;
 
@@ -39,7 +41,7 @@ pub struct ViaWithdrawalVerifier {
     client: Client,
     signer_per_utxo_input: BTreeMap<usize, Signer>,
     final_sig_per_utxo_input: BTreeMap<usize, CompactSignature>,
-    verifiers_pub_keys: Vec<String>,
+    via_bridge_config: ViaBridgeConfig,
 }
 
 impl ViaWithdrawalVerifier {
@@ -49,11 +51,12 @@ impl ViaWithdrawalVerifier {
         master_connection_pool: ConnectionPool<Verifier>,
         btc_client: Arc<dyn BitcoinOps>,
         withdrawal_client: WithdrawalClient,
-        bridge_address: Address,
-        verifiers_pub_keys: Vec<String>,
+        via_bridge_config: ViaBridgeConfig,
     ) -> anyhow::Result<Self> {
-        let transaction_builder =
-            Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
+        let transaction_builder = Arc::new(TransactionBuilder::new(
+            btc_client.clone(),
+            via_bridge_config.bridge_address()?,
+        )?);
 
         let withdrawal_session = WithdrawalSession::new(
             verifier_config.clone(),
@@ -79,7 +82,7 @@ impl ViaWithdrawalVerifier {
             client: Client::new(),
             signer_per_utxo_input: BTreeMap::new(),
             final_sig_per_utxo_input: BTreeMap::new(),
-            verifiers_pub_keys,
+            via_bridge_config,
         })
     }
 
@@ -104,7 +107,7 @@ impl ViaWithdrawalVerifier {
         Ok(())
     }
     async fn loop_iteration(&mut self) -> Result<(), anyhow::Error> {
-        self.validate_verifier_address().await?;
+        self.validate_verifier_addresses().await?;
 
         if self.sync_in_progress().await? {
             return Ok(());
@@ -279,7 +282,7 @@ impl ViaWithdrawalVerifier {
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let signer = get_signer_with_merkle_root(
             &self.wallet.private_key,
-            self.verifiers_pub_keys.clone(),
+            self.via_bridge_config.verifiers_pub_keys.clone(),
             self.verifier_config.bridge_address_merkle_root(),
         )?;
         let verifier_index = signer.signer_index().to_string();
@@ -561,7 +564,7 @@ impl ViaWithdrawalVerifier {
                 i,
                 get_signer_with_merkle_root(
                     &self.wallet.private_key,
-                    self.verifiers_pub_keys.clone(),
+                    self.via_bridge_config.verifiers_pub_keys.clone(),
                     self.verifier_config.bridge_address_merkle_root(),
                 )?,
             );
@@ -779,8 +782,8 @@ impl ViaWithdrawalVerifier {
         Ok(false)
     }
 
-    /// Check if the verifier is in the verifier set.
-    async fn validate_verifier_address(&self) -> anyhow::Result<()> {
+    /// Check if the verifier is in the verifier set and the bridge address is correct.
+    async fn validate_verifier_addresses(&self) -> anyhow::Result<()> {
         let Some(wallets_map) = self
             .master_connection_pool
             .connection()
@@ -793,6 +796,8 @@ impl ViaWithdrawalVerifier {
         };
 
         let wallets = SystemWallets::try_from(wallets_map)?;
-        wallets.is_valid_verifier_address(self.verifier_config.wallet_address()?)
+
+        wallets.is_valid_verifier_address(self.verifier_config.wallet_address()?)?;
+        wallets.is_valid_bridge_address(self.via_bridge_config.bridge_address()?)
     }
 }

@@ -9,7 +9,10 @@ use crate::web3::namespaces::ViaNamespace;
 #[async_trait]
 impl ViaNamespaceServer for ViaNamespace {
     async fn get_bridge_address(&self) -> RpcResult<String> {
-        Ok(self.get_bridge_address_impl())
+        Ok(self
+            .get_bridge_address_impl()
+            .await
+            .map_err(|err| self.current_method().map_err(err.into()))?)
     }
 
     async fn get_bitcoin_network(&self) -> RpcResult<Network> {
