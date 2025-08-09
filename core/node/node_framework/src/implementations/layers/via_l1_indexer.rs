@@ -1,9 +1,6 @@
 use via_btc_client::indexer::BitcoinInscriptionIndexer;
 use via_indexer::L1Indexer;
-use zksync_config::{
-    configs::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig},
-    ViaBtcWatchConfig,
-};
+use zksync_config::{configs::via_bridge::ViaBridgeConfig, ViaBtcWatchConfig};
 
 use crate::{
     implementations::resources::{
@@ -20,8 +17,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct L1IndexerLayer {
-    via_genesis_config: ViaGenesisConfig,
-    via_btc_client: ViaBtcClientConfig,
+    via_bridge_config: ViaBridgeConfig,
     btc_watch_config: ViaBtcWatchConfig,
 }
 
@@ -42,14 +38,9 @@ pub struct Output {
 }
 
 impl L1IndexerLayer {
-    pub fn new(
-        via_genesis_config: ViaGenesisConfig,
-        via_btc_client: ViaBtcClientConfig,
-        btc_watch_config: ViaBtcWatchConfig,
-    ) -> Self {
+    pub fn new(via_bridge_config: ViaBridgeConfig, btc_watch_config: ViaBtcWatchConfig) -> Self {
         Self {
-            via_genesis_config,
-            via_btc_client,
+            via_bridge_config,
             btc_watch_config,
         }
     }
@@ -73,7 +64,7 @@ impl WiringLayer for L1IndexerLayer {
 
         let l1_indexer = L1Indexer::new(
             self.btc_watch_config,
-            self.via_genesis_config,
+            self.via_bridge_config,
             indexer,
             client,
             main_pool,

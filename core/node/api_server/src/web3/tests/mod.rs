@@ -248,8 +248,8 @@ async fn test_http_server(test: impl HttpTest) {
         &web3_config,
         &contracts_config,
         &genesis,
-        "".into(),
-        bitcoin::Network::Regtest,
+        Some("".into()),
+        Some(bitcoin::Network::Regtest),
     );
     api_config.filters_disabled = test.filters_disabled();
     let mut server_handles = spawn_http_server(

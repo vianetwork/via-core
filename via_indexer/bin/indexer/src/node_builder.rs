@@ -64,25 +64,21 @@ impl ViaNodeBuilder {
     fn add_btc_client_layer(mut self) -> anyhow::Result<Self> {
         let secrets = self.via_indexer_config.secrets.clone();
         let via_btc_client_config = self.via_indexer_config.via_btc_client_config.clone();
-        let via_genesis_config = self.via_indexer_config.via_genesis_config.clone();
+        let via_bridge_config = self.via_indexer_config.via_bridge_config.clone();
         self.node.add_layer(BtcClientLayer::new(
             via_btc_client_config,
             secrets.via_l1.unwrap(),
             ViaWallets::default(),
-            Some(via_genesis_config.bridge_address.clone()),
+            Some(via_bridge_config.bridge_address.clone()),
         ));
         Ok(self)
     }
 
     fn add_l1_indexer_layer(mut self) -> anyhow::Result<Self> {
-        let via_genesis_config = self.via_indexer_config.via_genesis_config.clone();
-        let via_btc_client_config = self.via_indexer_config.via_btc_client_config.clone();
+        let via_bridge_config = self.via_indexer_config.via_bridge_config.clone();
         let via_btc_watch_config = self.via_indexer_config.via_btc_watch_config.clone();
-        let indexer_layer = L1IndexerLayer::new(
-            via_genesis_config,
-            via_btc_client_config,
-            via_btc_watch_config,
-        );
+
+        let indexer_layer = L1IndexerLayer::new(via_bridge_config, via_btc_watch_config);
         self.node.add_layer(indexer_layer);
         Ok(self)
     }

@@ -69,6 +69,7 @@ pub mod secrets;
 pub mod snapshot_recovery;
 pub mod snapshots_creator;
 pub mod utils;
+pub mod via_bridge;
 pub mod via_btc_client;
 pub mod via_btc_sender;
 pub mod via_btc_watch;

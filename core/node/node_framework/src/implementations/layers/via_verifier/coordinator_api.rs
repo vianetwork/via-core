@@ -4,7 +4,7 @@ use via_btc_client::traits::BitcoinOps;
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{
-    configs::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig},
+    configs::{via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig},
     ViaVerifierConfig,
 };
 
@@ -23,7 +23,7 @@ use crate::{
 /// Wiring layer for coordinator api
 #[derive(Debug)]
 pub struct ViaCoordinatorApiLayer {
-    via_genesis_config: ViaGenesisConfig,
+    via_bridge_config: ViaBridgeConfig,
     via_btc_client: ViaBtcClientConfig,
     verifier_config: ViaVerifierConfig,
 }
@@ -45,12 +45,12 @@ pub struct Output {
 
 impl ViaCoordinatorApiLayer {
     pub fn new(
-        via_genesis_config: ViaGenesisConfig,
+        via_bridge_config: ViaBridgeConfig,
         via_btc_client: ViaBtcClientConfig,
         verifier_config: ViaVerifierConfig,
     ) -> Self {
         Self {
-            via_genesis_config,
+            via_bridge_config,
             via_btc_client,
             verifier_config,
         }
@@ -78,7 +78,7 @@ impl WiringLayer for ViaCoordinatorApiLayer {
             master_pool,
             btc_client,
             withdrawal_client,
-            via_genesis_config: self.via_genesis_config,
+            via_bridge_config: self.via_bridge_config,
         };
         Ok(Output {
             via_coordinator_api_task,
@@ -92,7 +92,7 @@ pub struct ViaCoordinatorApiTask {
     master_pool: ConnectionPool<Verifier>,
     btc_client: Arc<dyn BitcoinOps>,
     withdrawal_client: WithdrawalClient,
-    via_genesis_config: ViaGenesisConfig,
+    via_bridge_config: ViaBridgeConfig,
 }
 
 #[async_trait::async_trait]
@@ -107,9 +107,9 @@ impl Task for ViaCoordinatorApiTask {
             self.master_pool,
             self.btc_client,
             self.withdrawal_client,
-            self.via_genesis_config.bridge_address()?,
-            self.via_genesis_config.verifiers_pub_keys.clone(),
-            self.via_genesis_config.required_signers,
+            self.via_bridge_config.bridge_address()?,
+            self.via_bridge_config.verifiers_pub_keys.clone(),
+            self.via_bridge_config.required_signers,
             stop_receiver.0,
         )
         .await

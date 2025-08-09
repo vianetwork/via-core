@@ -75,13 +75,13 @@ impl ViaNodeBuilder {
     fn add_btc_client_layer(mut self) -> anyhow::Result<Self> {
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let secrets = self.secrets.via_l1.clone().unwrap();
-        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
 
         self.node.add_layer(BtcClientLayer::new(
             via_btc_client_config,
             secrets,
             self.wallets.clone(),
-            Some(via_genesis_config.bridge_address),
+            Some(via_bridge_config.bridge_address),
         ));
         Ok(self)
     }
@@ -131,12 +131,12 @@ impl ViaNodeBuilder {
 
     // VIA related layers
     fn add_verifier_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
-        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let via_btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
 
         self.node.add_layer(VerifierBtcWatchLayer::new(
-            via_genesis_config,
+            via_bridge_config,
             via_btc_client_config,
             via_btc_watch_config,
         ));
@@ -154,12 +154,12 @@ impl ViaNodeBuilder {
     }
 
     fn add_verifier_coordinator_api_layer(mut self) -> anyhow::Result<Self> {
-        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let via_verifier_config = try_load_config!(self.configs.via_verifier_config);
 
         self.node.add_layer(ViaCoordinatorApiLayer::new(
-            via_genesis_config,
+            via_bridge_config,
             via_btc_client_config,
             via_verifier_config,
         ));
@@ -167,7 +167,7 @@ impl ViaNodeBuilder {
     }
 
     fn add_withdrawal_verifier_task_layer(mut self) -> anyhow::Result<Self> {
-        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let via_verifier_config = try_load_config!(self.configs.via_verifier_config);
         let wallet = self
@@ -177,7 +177,7 @@ impl ViaNodeBuilder {
             .expect("Empty verifier wallet");
 
         self.node.add_layer(ViaWithdrawalVerifierLayer::new(
-            via_genesis_config,
+            via_bridge_config,
             via_btc_client_config,
             via_verifier_config,
             wallet,
@@ -187,17 +187,20 @@ impl ViaNodeBuilder {
 
     fn add_zkp_verification_layer(mut self) -> anyhow::Result<Self> {
         let via_verifier_config = try_load_config!(self.configs.via_verifier_config);
-        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
         self.node.add_layer(ViaBtcProofVerificationLayer::new(
             via_verifier_config,
-            via_genesis_config,
+            via_bridge_config,
         ));
         Ok(self)
     }
 
     fn add_storage_initialization_layer(mut self) -> anyhow::Result<Self> {
+        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+
         let layer = ViaVerifierInitLayer {
             genesis: self.genesis_config.clone(),
+            via_genesis_config,
         };
         self.node.add_layer(layer);
         Ok(self)

@@ -1,7 +1,7 @@
 use via_btc_client::indexer::BitcoinInscriptionIndexer;
 use via_btc_watch::{BitcoinNetwork, BtcWatch};
 use zksync_config::{
-    configs::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig},
+    configs::{via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig},
     ViaBtcWatchConfig,
 };
 
@@ -23,7 +23,7 @@ use crate::{
 /// Responsible for initializing and running of [`BtcWatch`] component, that polls the Bitcoin node for the relevant events.
 #[derive(Debug)]
 pub struct BtcWatchLayer {
-    via_genesis_config: ViaGenesisConfig,
+    via_bridge_config: ViaBridgeConfig,
     via_btc_client: ViaBtcClientConfig,
     btc_watch_config: ViaBtcWatchConfig,
 }
@@ -46,12 +46,12 @@ pub struct Output {
 
 impl BtcWatchLayer {
     pub fn new(
-        via_genesis_config: ViaGenesisConfig,
+        via_bridge_config: ViaBridgeConfig,
         via_btc_client: ViaBtcClientConfig,
         btc_watch_config: ViaBtcWatchConfig,
     ) -> Self {
         Self {
-            via_genesis_config,
+            via_bridge_config,
             via_btc_client,
             btc_watch_config,
         }
@@ -89,8 +89,8 @@ impl WiringLayer for BtcWatchLayer {
             indexer,
             client,
             main_pool,
-            self.via_genesis_config.bridge_address()?,
-            self.via_genesis_config.zk_agreement_threshold,
+            self.via_bridge_config.bridge_address()?,
+            self.via_bridge_config.zk_agreement_threshold,
         )
         .await?;
 

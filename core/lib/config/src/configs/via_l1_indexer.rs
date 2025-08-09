@@ -3,9 +3,11 @@ use super::{
     via_secrets::ViaSecrets, ObservabilityConfig, PostgresConfig, PrometheusConfig,
     ViaBtcWatchConfig,
 };
+use crate::configs::via_bridge::ViaBridgeConfig;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViaIndexerConfig {
+    pub via_bridge_config: ViaBridgeConfig,
     pub via_genesis_config: ViaGenesisConfig,
     pub via_btc_client_config: ViaBtcClientConfig,
     pub via_btc_watch_config: ViaBtcWatchConfig,

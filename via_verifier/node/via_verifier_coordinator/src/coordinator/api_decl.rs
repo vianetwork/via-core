@@ -20,6 +20,7 @@ use crate::{
 };
 
 pub struct RestApi {
+    pub config: ViaVerifierConfig,
     pub state: ViaWithdrawalState,
     pub session_manager: SessionManager,
     pub master_connection_pool: ConnectionPool<Verifier>,
@@ -52,7 +53,7 @@ impl RestApi {
             Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
 
         let withdrawal_session = WithdrawalSession::new(
-            config,
+            config.clone(),
             master_connection_pool.clone(),
             transaction_builder.clone(),
             withdrawal_client.clone(),
@@ -67,6 +68,7 @@ impl RestApi {
         .collect();
 
         Ok(Self {
+            config,
             session_manager: SessionManager::new(sessions),
             state,
             master_connection_pool,
