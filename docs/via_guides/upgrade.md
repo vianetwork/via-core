@@ -250,6 +250,11 @@ VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
 ```
 
 4. Execute an other deposit and withdrawal, the sequencer and verifiers process the batches.
+
+```sh
+via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq
+```
+
 5. Done.
 
 ---
@@ -278,7 +283,7 @@ via multisig create-update-bridge \
 --inputTxId <txid> \
 --inputVout <vout> \
 --inputAmount <amount> \
---proposalTxid bf8731b79d50b8b4862ae91ee6e3e2beae805ba534dd03daa78de0734a3dc8b8 \
+--proposalTxid <proposalTxid> \
 --fee 500
 ```
 
@@ -323,8 +328,8 @@ VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
 VIA_VERIFIER_PRIVATE_KEY=cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
 VIA_VERIFIER_WALLET_ADDRESS=bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
 VIA_VERIFIER_BRIDGE_ADDRESS_MERKLE_ROOT=2aa187093ce1f9e55ad02aa804480cc01beb9c570781133b768d8cfb12177e25
-VIA_GENESIS_VERIFIERS_PUB_KEYS=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf
-VIA_GENESIS_COORDINATOR_PUB_KEY=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241
+VIA_BRIDGE_VERIFIERS_PUB_KEYS=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf
+VIA_BRIDGE_COORDINATOR_PUB_KEY=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241
 VIA_BRIDGE_BRIDGE_ADDRESS=bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
 ```
 

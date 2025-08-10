@@ -40,7 +40,8 @@ struct Args {
 }
 
 #[derive(Serialize)]
-struct ExportData {
+pub(crate) struct ExportData {
+    public_keys: Vec<String>,
     aggregated_internal_key: String,
     governance_script_hex: String,
     taproot_output_key: String,
@@ -71,13 +72,16 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Aggregate MuSig2 key
-    let mut musig_key_agg_cache = KeyAggContext::new(musig_pubkeys)?;
+    let musig_key_agg_cache = KeyAggContext::new(musig_pubkeys)?;
     let agg_pubkey = musig_key_agg_cache.aggregated_pubkey::<secp256k1_musig2::PublicKey>();
     let (xonly_agg_key, _) = agg_pubkey.x_only_public_key();
     let internal_key = XOnlyPublicKey::from_slice(&xonly_agg_key.serialize())?;
 
     // --- Governance pubkeys (x-only) ---
     let gov_hex: Vec<&str> = args.governance_keys.split(',').collect();
+
+    let public_keys = gov_hex.iter().map(|pk| pk.to_string()).collect::<Vec<_>>();
+
     let mut gov_xonly = Vec::new();
     for hex in gov_hex {
         let xonly = PublicKey::from_str(&hex.trim())?
@@ -138,6 +142,7 @@ async fn main() -> anyhow::Result<()> {
 
     // --- Export JSON file ---
     let data = ExportData {
+        public_keys,
         aggregated_internal_key: internal_key.to_string(),
         governance_script_hex: multisig_script.to_hex_string(),
         taproot_output_key: taproot_output_key.to_string(),

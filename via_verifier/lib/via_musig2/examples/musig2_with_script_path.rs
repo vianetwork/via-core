@@ -4,21 +4,20 @@ use bitcoin::{
     absolute::LockTime,
     blockdata::{opcodes::all::*, script::Builder},
     hashes::Hash,
-    hex::{Case, DisplayHex, FromHex},
+    hex::{Case, DisplayHex},
     policy::MAX_STANDARD_TX_WEIGHT,
     secp256k1::{self, Keypair, Secp256k1, SecretKey},
     sighash::{Prevouts, SighashCache},
     taproot::{LeafVersion, TaprootBuilder, TaprootSpendInfo},
     transaction::Version,
-    Address, Amount, Network, OutPoint, PrivateKey, PublicKey, ScriptBuf, Sequence, TapLeafHash,
-    TapNodeHash, TapSighashType, TapTweakHash, Transaction, TxIn, TxOut, Txid, Witness,
-    XOnlyPublicKey,
+    Address, Amount, Network, OutPoint, PrivateKey, ScriptBuf, Sequence, TapLeafHash,
+    TapSighashType, Transaction, TxIn, TxOut, Txid, Witness, XOnlyPublicKey,
 };
 use musig2::KeyAggContext;
 use tokio::time::sleep;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
 use via_musig2::{
-    fee::WithdrawalFeeStrategy, get_signer, get_signer_with_merkle_root,
+    fee::WithdrawalFeeStrategy, get_signer_with_merkle_root,
     transaction_builder::TransactionBuilder, verify_signature, Signer,
 };
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
@@ -52,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         musig2::secp256k1::PublicKey::from_slice(&internal_key_2.public_key(parity_2).serialize())?,
     ];
 
-    let mut musig_key_agg_cache = KeyAggContext::new(pubkeys)?;
+    let musig_key_agg_cache = KeyAggContext::new(pubkeys)?;
     let agg_pubkey = musig_key_agg_cache.aggregated_pubkey::<secp256k1_musig2::PublicKey>();
 
     let (xonly_agg_key, _) = agg_pubkey.x_only_public_key();
@@ -154,7 +153,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let utxo = utxos[0].clone();
 
     let tx_hex = transfer_utxo_from_bridge_address_using_governance_wallet_using_script_path(
-        btc_client.clone(),
         &spend_info,
         multisig_script,
         gov_kp_1,
@@ -276,7 +274,6 @@ async fn process_withdraw_using_key_hash(
 }
 
 async fn transfer_utxo_from_bridge_address_using_governance_wallet_using_script_path(
-    btc_client: BitcoinClient,
     spend_info: &TaprootSpendInfo,
     multisig_script: ScriptBuf,
     gov_kp_1: Keypair,
