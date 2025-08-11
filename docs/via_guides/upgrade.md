@@ -344,19 +344,17 @@ via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA
 
 ## Transfer the UTXOs from the old bridge address to the governance wallet
 
-1. Get the UTXOs you want to transfer, then create a file `utxos.json`. Each utxo should has a `txid`, `vout` and
-   `value`
+1. Sent UTXO to the bridge wallet
 
-```json
-[
-  {
-    "txid": "1a32c75a5b859ebe799cc00a0d4389633204f5ac607965dba2878a2de627dc8f",
-    "vout": 1,
-    "value": 100000000
-  }
-  ...
-]
+```sh
+curl --user rpcuser:rpcpassword \
+     --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8", 1]}' \
+     -H 'content-type: text/plain;' \
+     http://127.0.0.1:18443/wallet/Alice
 ```
+
+2. List the UTXOs you want to transfer, then create a file `utxos.json`. Each utxo should has a `txid`, `vout` and
+   `value`
 
 ```sh
 curl --user rpcuser:rpcpassword \
@@ -373,6 +371,17 @@ curl --user rpcuser:rpcpassword \
   }' \
   -H 'content-type: text/plain;' \
   http://127.0.0.1:18443/
+```
+
+```json
+[
+  {
+    "txid": "<txid>",
+    "vout": 1,
+    "value": 100000000
+  }
+  ...
+]
 ```
 
 2. Create a new tx

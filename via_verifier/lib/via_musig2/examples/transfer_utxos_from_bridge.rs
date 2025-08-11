@@ -6,7 +6,7 @@ use bitcoin::{
     consensus::{self, encode::serialize_hex},
     hashes::Hash,
     hex::DisplayHex,
-    secp256k1::{self, Keypair, Secp256k1, SecretKey},
+    secp256k1::{self, schnorr::Signature, Keypair, Secp256k1, SecretKey},
     sighash::{Prevouts, SighashCache},
     taproot::LeafVersion,
     transaction::Version,
@@ -24,9 +24,6 @@ use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 struct Args {
     #[arg(long)]
     private_key: Option<String>,
-
-    #[arg(long)]
-    signers_public_keys: Vec<String>,
 
     #[arg(long, default_value = "my_wallet.json")]
     wallet_path: String,
@@ -235,7 +232,7 @@ fn do_finalize(args: &Args) -> Result<()> {
         .ok_or_else(|| anyhow!("Missing signatures"))?;
 
     let witnesses = build_witnesses(
-        args.signers_public_keys.clone(),
+        wallet.public_keys.clone(),
         utxos.len(),
         hex::decode(&wallet.governance_script_hex)?,
         hex::decode(&wallet.control_block)?,
@@ -332,7 +329,10 @@ fn sign_tx(kp: Keypair, messages: Vec<secp256k1::Message>) -> Result<Vec<Vec<u8>
     messages
         .into_iter()
         .map(|msg| {
-            let mut sig = secp.sign_schnorr(&msg, &kp).as_ref().to_vec();
+            let signature: Signature = secp.sign_schnorr(&msg, &kp);
+            secp.verify_schnorr(&signature, &msg, &kp.public_key().x_only_public_key().0)?;
+
+            let mut sig = signature.as_ref().to_vec();
             sig.push(TapSighashType::All as u8);
             Ok(sig)
         })
@@ -340,7 +340,7 @@ fn sign_tx(kp: Keypair, messages: Vec<secp256k1::Message>) -> Result<Vec<Vec<u8>
 }
 
 fn build_witnesses(
-    signers_public_keys: Vec<String>,
+    public_keys: Vec<String>,
     total_utxos: usize,
     multisig_script: Vec<u8>,
     control_block: Vec<u8>,
@@ -350,14 +350,17 @@ fn build_witnesses(
         .map(|utxo_idx| {
             let mut witness = Witness::new();
 
-            for public_key in signers_public_keys.iter().rev() {
-                let sig = signatures_per_utxo
+            for public_key in public_keys.iter().rev() {
+                if let Some(sig) = signatures_per_utxo
                     .get(public_key)
                     .and_then(|sigs| sigs.get(utxo_idx))
                     .map(|s| hex::decode(s))
-                    .transpose()?;
-
-                witness.push(sig.unwrap_or_default());
+                    .transpose()?
+                {
+                    witness.push(sig);
+                } else {
+                    witness.push(&[]);
+                }
             }
 
             witness.push(&multisig_script);
