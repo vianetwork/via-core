@@ -36,6 +36,7 @@ use zksync_node_framework::{
         via_da_dispatcher::DataAvailabilityDispatcherLayer,
         via_gas_adjuster::ViaGasAdjusterLayer,
         via_l1_gas::ViaL1GasLayer,
+        via_node_storage_init::ViaNodeStorageInitializerLayer,
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
             output_handler::OutputHandlerLayer, RocksdbStorageOptions, StateKeeperLayer,
@@ -175,6 +176,14 @@ impl ViaNodeBuilder {
     }
 
     // VIA related layers
+    fn add_init_node_storage_layer(mut self) -> anyhow::Result<Self> {
+        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+
+        self.node
+            .add_layer(ViaNodeStorageInitializerLayer::new(via_genesis_config));
+        Ok(self)
+    }
+
     fn add_btc_client_layer(mut self) -> anyhow::Result<Self> {
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let secrets = self.secrets.via_l1.clone().unwrap();
@@ -189,12 +198,12 @@ impl ViaNodeBuilder {
     }
 
     fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
-        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let via_btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
 
         self.node.add_layer(BtcWatchLayer::new(
-            via_genesis_config,
+            via_bridge_config,
             via_btc_client_config,
             via_btc_watch_config,
         ));
@@ -303,7 +312,7 @@ impl ViaNodeBuilder {
             response_body_size_limit: Some(rpc_config.max_response_body_size()),
             ..Default::default()
         };
-        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
 
         self.node.add_layer(Web3ServerLayer::http(
@@ -312,7 +321,7 @@ impl ViaNodeBuilder {
                 &rpc_config,
                 &self.contracts_config,
                 &self.genesis_config,
-                Some(via_genesis_config.bridge_address),
+                Some(via_bridge_config.bridge_address),
                 Some(via_btc_client_config.network()),
             ),
             optional_config,
@@ -511,7 +520,7 @@ impl ViaNodeBuilder {
             with_extended_tracing: rpc_config.extended_api_tracing,
             ..Default::default()
         };
-        let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
 
         self.node.add_layer(Web3ServerLayer::ws(
@@ -520,7 +529,7 @@ impl ViaNodeBuilder {
                 &rpc_config,
                 &self.contracts_config,
                 &self.genesis_config,
-                Some(via_genesis_config.bridge_address),
+                Some(via_bridge_config.bridge_address),
                 Some(via_btc_client_config.network()),
             ),
             optional_config,
@@ -613,6 +622,7 @@ impl ViaNodeBuilder {
                 ViaComponent::Btc => {
                     self = self
                         .add_btc_client_layer()?
+                        .add_init_node_storage_layer()?
                         .add_gas_adjuster_layer()?
                         .add_btc_watcher_layer()?
                         .add_btc_sender_layer()?

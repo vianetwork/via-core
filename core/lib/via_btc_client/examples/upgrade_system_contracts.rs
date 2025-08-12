@@ -127,7 +127,7 @@ async fn main() -> Result<()> {
         .get_transaction(&system_contract_upgrade_info.final_reveal_tx.txid)
         .await?;
 
-    let upgrade_inscription = parser.parse_system_transaction(&tx, 0);
+    let upgrade_inscription = parser.parse_system_transaction(&tx, 0, None);
     info!("upgrade_inscription: {:?}", upgrade_inscription);
 
     Ok(())

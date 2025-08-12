@@ -1,15 +1,17 @@
 pub(crate) use governance_upgrade::GovernanceUpgradesEventProcessor;
 pub(crate) use l1_to_l2::L1ToL2MessageProcessor;
+pub(crate) use system_wallet::SystemWalletProcessor;
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{BitcoinTxid, FullInscriptionMessage},
 };
 pub(crate) use votable::VotableMessageProcessor;
-use zksync_dal::{Connection, Core};
+use zksync_dal::{Connection, Core, DalError};
 use zksync_types::H256;
 
 mod governance_upgrade;
 mod l1_to_l2;
+mod system_wallet;
 mod votable;
 
 #[derive(Debug, thiserror::Error)]
@@ -20,6 +22,12 @@ pub(super) enum MessageProcessorError {
     DatabaseError(String),
 }
 
+impl From<DalError> for MessageProcessorError {
+    fn from(err: DalError) -> Self {
+        MessageProcessorError::DatabaseError(err.to_string())
+    }
+}
+
 #[async_trait::async_trait]
 pub(super) trait MessageProcessor: 'static + std::fmt::Debug + Send + Sync {
     async fn process_messages(
@@ -27,7 +35,7 @@ pub(super) trait MessageProcessor: 'static + std::fmt::Debug + Send + Sync {
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
-    ) -> Result<(), MessageProcessorError>;
+    ) -> Result<bool, MessageProcessorError>;
 }
 
 pub(crate) fn convert_txid_to_h256(txid: BitcoinTxid) -> H256 {

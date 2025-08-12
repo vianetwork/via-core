@@ -281,18 +281,7 @@ impl ExternalNodeBuilder {
     }
 
     fn add_btc_indexer_layer(mut self) -> anyhow::Result<Self> {
-        let via_btc_client_config = ViaBtcClientConfig {
-            network: self.config.remote.via_network.to_string(),
-            external_apis: vec![],
-            fee_strategies: vec![],
-            use_rpc_for_fee_rate: None,
-        };
-        println!("{:?}", &self.config);
-        let via_genesis_config = self.config.via_genesis_config.clone().unwrap();
-        self.node.add_layer(ViaIndexerLayer::new(
-            via_genesis_config,
-            via_btc_client_config,
-        ));
+        self.node.add_layer(ViaIndexerLayer::new());
         Ok(self)
     }
 

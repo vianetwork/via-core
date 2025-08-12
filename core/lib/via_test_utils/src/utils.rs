@@ -1,9 +1,16 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
+use bitcoin::{
+    address::NetworkUnchecked,
+    key::rand,
+    script::PushBytesBuf,
+    secp256k1::{self, SecretKey},
+    CompressedPublicKey, PrivateKey,
+};
 use tokio::time::sleep;
 use via_btc_client::{
     client::BitcoinClient,
-    indexer::{BitcoinInscriptionIndexer, BootstrapState, MessageParser},
+    indexer::{BitcoinInscriptionIndexer, MessageParser},
     inscriber::Inscriber,
     traits::BitcoinOps,
     types::{
@@ -12,12 +19,16 @@ use via_btc_client::{
             hex::{Case, DisplayHex},
             Hash,
         },
-        BitcoinTxid, FullInscriptionMessage, InscriptionMessage, L1BatchDAReferenceInput, NodeAuth,
-        ProofDAReferenceInput, Vote,
+        BitcoinTxid, CommonFields, FullInscriptionMessage, InscriptionMessage,
+        L1BatchDAReferenceInput, NodeAuth, ProofDAReferenceInput, UpdateBridge, UpdateBridgeInput,
+        UpdateBridgeProposalInput, UpdateGovernance, UpdateGovernanceInput, UpdateSequencer,
+        UpdateSequencerInput,
     },
 };
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
-use zksync_types::{BitcoinNetwork, L1BatchNumber, H256};
+use zksync_types::{
+    via_bootstrap::BootstrapState, via_wallet::SystemWallets, BitcoinNetwork, L1BatchNumber, H256,
+};
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
 const RPC_USERNAME: &str = "rpcuser";
@@ -69,35 +80,129 @@ pub fn test_verifier_add_2() -> BitcoinAddress {
         .assume_checked()
 }
 
+/// Verifier 3 address
+pub fn test_verifier_add_3() -> BitcoinAddress {
+    BitcoinAddress::from_str(&"bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm")
+        .unwrap()
+        .assume_checked()
+}
+
+pub fn test_wallets() -> SystemWallets {
+    let (proposed_sequencer, _) = test_sequencer_wallet();
+    SystemWallets {
+        sequencer: proposed_sequencer,
+        bridge: BitcoinAddress::from_str(
+            &"bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq",
+        )
+        .unwrap()
+        .assume_checked(),
+        governance: BitcoinAddress::from_str(
+            &"bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm",
+        )
+        .unwrap()
+        .assume_checked(),
+        verifiers: vec![
+            test_verifier_add_1(),
+            test_verifier_add_2(),
+            test_verifier_add_3(),
+        ],
+    }
+}
+
 pub fn bootstrap_state_mock() -> BootstrapState {
     let mut sequencer_votes = HashMap::new();
-    sequencer_votes.insert(test_verifier_add_1(), Vote::Ok);
-    sequencer_votes.insert(test_verifier_add_2(), Vote::Ok);
+    sequencer_votes.insert(test_verifier_add_1(), true);
+    sequencer_votes.insert(test_verifier_add_2(), true);
 
-    let (proposed_sequencer, _) = test_sequencer_wallet();
     BootstrapState {
-        verifier_addresses: vec![test_verifier_add_1(), test_verifier_add_2()],
-        proposed_sequencer: Some(proposed_sequencer),
-        proposed_sequencer_txid: Some(BitcoinTxid::all_zeros()),
+        wallets: Some(test_wallets()),
+        sequencer_proposal_tx_id: Some(BitcoinTxid::all_zeros()),
+        bootstrap_tx_id: Some(BitcoinTxid::all_zeros()),
         sequencer_votes,
-        bridge_address: Some(
-            BitcoinAddress::from_str(
-                &"bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq",
-            )
-            .unwrap()
-            .assume_checked(),
-        ),
         starting_block_number: 1,
         bootloader_hash: Some(H256::zero()),
         abstract_account_hash: Some(H256::zero()),
-        proposed_governance: Some(
-            BitcoinAddress::from_str(
-                &"bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm",
-            )
-            .unwrap()
-            .assume_checked(),
-        ),
     }
+}
+
+/// Create a update sequencer address inscription
+pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
+    FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
+        common: CommonFields {
+            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
+                .ok()
+                .unwrap(),
+            encoded_public_key: PushBytesBuf::new(),
+            block_height: 0,
+            tx_id: BitcoinTxid::all_zeros(),
+            p2wpkh_address: None,
+            tx_index: None,
+            output_vout: None,
+        },
+        input: UpdateSequencerInput {
+            inputs: vec![],
+            address: address.as_unchecked().clone(),
+        },
+    })
+}
+
+/// Create a update governance address inscription
+pub fn create_update_governance_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
+    FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
+        common: CommonFields {
+            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
+                .ok()
+                .unwrap(),
+            encoded_public_key: PushBytesBuf::new(),
+            block_height: 0,
+            tx_id: BitcoinTxid::all_zeros(),
+            p2wpkh_address: None,
+            tx_index: None,
+            output_vout: None,
+        },
+        input: UpdateGovernanceInput {
+            inputs: vec![],
+            address: address.as_unchecked().clone(),
+        },
+    })
+}
+
+/// Create a update bridge address inscription
+pub async fn create_update_bridge_inscription(
+    new_bridge: BitcoinAddress,
+    new_verifiers: Vec<BitcoinAddress>,
+) -> anyhow::Result<FullInscriptionMessage> {
+    let mut inscriber = test_sequencer_inscriber().await?;
+
+    sleep(Duration::from_millis(500)).await;
+
+    let input = UpdateBridgeProposalInput {
+        bridge_musig2_address: new_bridge.as_unchecked().clone(),
+        verifier_p2wpkh_addresses: new_verifiers
+            .iter()
+            .map(|address| address.as_unchecked().clone())
+            .collect::<Vec<BitcoinAddress<NetworkUnchecked>>>(),
+    };
+
+    let result = inscriber
+        .inscribe(InscriptionMessage::UpdateBridgeProposal(input))
+        .await?;
+
+    Ok(FullInscriptionMessage::UpdateBridge(UpdateBridge {
+        common: CommonFields {
+            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
+            encoded_public_key: PushBytesBuf::new(),
+            block_height: 0,
+            tx_id: BitcoinTxid::all_zeros(),
+            p2wpkh_address: None,
+            tx_index: None,
+            output_vout: None,
+        },
+        input: UpdateBridgeInput {
+            inputs: vec![],
+            proposal_tx_id: result.final_reveal_tx.txid,
+        },
+    }))
 }
 
 /// Returns the inscriptions and the last block hash
@@ -150,21 +255,32 @@ pub async fn create_chained_inscriptions(
         sleep(Duration::from_millis(500)).await;
 
         let tx = client.get_transaction(&result.final_reveal_tx.txid).await?;
-        msgs.extend(parser.parse_system_transaction(&tx, 0));
+        msgs.extend(parser.parse_system_transaction(&tx, 0, None));
     }
 
     Ok((msgs, prev_l1_batch_hash))
 }
 
-pub async fn test_create_indexer() -> anyhow::Result<BitcoinInscriptionIndexer> {
-    let bootstrap_state = bootstrap_state_mock();
+pub fn test_create_indexer() -> BitcoinInscriptionIndexer {
+    BitcoinInscriptionIndexer::new(Arc::new(test_bitcoin_client()), Arc::new(test_wallets()))
+}
 
-    let client = test_bitcoin_client();
-    let parser = MessageParser::new(BitcoinNetwork::Regtest);
+pub fn random_bitcoin_wallet() -> (PrivateKey, BitcoinAddress) {
+    // Initialize secp256k1 context
+    let secp = secp256k1::Secp256k1::new();
 
-    Ok(BitcoinInscriptionIndexer::create_indexer(
-        bootstrap_state,
-        Arc::new(client.clone()),
-        parser.clone(),
-    )?)
+    // Generate a random secret key
+    let secret_key = SecretKey::new(&mut rand::thread_rng());
+
+    // Wrap it into a Bitcoin private key
+    let private_key = PrivateKey {
+        compressed: true,
+        network: NETWORK.into(),
+        inner: secret_key.clone(),
+    };
+
+    let cpk = CompressedPublicKey::from_private_key(&secp, &private_key).unwrap();
+    let address = BitcoinAddress::p2wpkh(&cpk, NETWORK);
+
+    (private_key, address)
 }

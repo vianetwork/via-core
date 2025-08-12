@@ -1,6 +1,6 @@
 use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinAddress, FullInscriptionMessage, L1ToL2Message},
+    types::{FullInscriptionMessage, L1ToL2Message},
 };
 use zksync_dal::{Connection, Core, CoreDal};
 use zksync_types::{
@@ -13,16 +13,8 @@ use crate::{
     metrics::{InscriptionStage, METRICS},
 };
 
-#[derive(Debug)]
-pub struct L1ToL2MessageProcessor {
-    bridge_address: BitcoinAddress,
-}
-
-impl L1ToL2MessageProcessor {
-    pub fn new(bridge_address: BitcoinAddress) -> Self {
-        Self { bridge_address }
-    }
-}
+#[derive(Debug, Default)]
+pub struct L1ToL2MessageProcessor {}
 
 #[async_trait::async_trait]
 impl MessageProcessor for L1ToL2MessageProcessor {
@@ -31,43 +23,37 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
-    ) -> Result<(), MessageProcessorError> {
+    ) -> Result<bool, MessageProcessorError> {
         let mut priority_ops = Vec::new();
         for msg in msgs {
             if let FullInscriptionMessage::L1ToL2Message(l1_to_l2_msg) = msg {
-                if l1_to_l2_msg
-                    .tx_outputs
-                    .iter()
-                    .any(|output| output.script_pubkey == self.bridge_address.script_pubkey())
+                let mut tx_id_bytes = l1_to_l2_msg.common.tx_id.as_raw_hash()[..].to_vec();
+                tx_id_bytes.reverse();
+                let tx_id = H256::from_slice(&tx_id_bytes);
+
+                if storage
+                    .via_transactions_dal()
+                    .transaction_exists_with_txid(&tx_id)
+                    .await
+                    .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                 {
-                    let mut tx_id_bytes = l1_to_l2_msg.common.tx_id.as_raw_hash()[..].to_vec();
-                    tx_id_bytes.reverse();
-                    let tx_id = H256::from_slice(&tx_id_bytes);
-
-                    if storage
-                        .via_transactions_dal()
-                        .transaction_exists_with_txid(&tx_id)
-                        .await
-                        .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
-                    {
-                        tracing::info!(
-                            "Transaction with tx_id {} already processed, skipping",
-                            tx_id
-                        );
-                        continue;
-                    }
-                    let Some(l1_tx) = self.create_l1_tx_from_message(&l1_to_l2_msg)? else {
-                        tracing::warn!("Invalid deposit, l1 tx_id {}", &l1_to_l2_msg.common.tx_id);
-                        continue;
-                    };
-
-                    priority_ops.push((l1_tx, tx_id));
+                    tracing::info!(
+                        "Transaction with tx_id {} already processed, skipping",
+                        tx_id
+                    );
+                    continue;
                 }
+                let Some(l1_tx) = self.create_l1_tx_from_message(&l1_to_l2_msg)? else {
+                    tracing::warn!("Invalid deposit, l1 tx_id {}", &l1_to_l2_msg.common.tx_id);
+                    continue;
+                };
+
+                priority_ops.push((l1_tx, tx_id));
             }
         }
 
         if priority_ops.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         for (new_op, txid) in priority_ops {
@@ -80,7 +66,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                 .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
         }
 
-        Ok(())
+        Ok(true)
     }
 }
 

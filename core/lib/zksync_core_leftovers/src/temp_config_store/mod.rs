@@ -10,6 +10,7 @@ use zksync_config::{
         },
         fri_prover_group::FriProverGroupConfig,
         house_keeper::HouseKeeperConfig,
+        via_bridge::ViaBridgeConfig,
         via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
         vm_runner::BasicWitnessInputProducerConfig,
@@ -225,6 +226,8 @@ impl ViaTempConfigStore {
             Some(ViaCelestiaConfig::from_env().context("Failed to load celestia config")?);
         via_general_config.via_genesis_config =
             Some(ViaGenesisConfig::from_env().context("Failed to load genesis config")?);
+        via_general_config.via_bridge_config =
+            Some(ViaBridgeConfig::from_env().context("Failed to load bridge config")?);
         Ok(via_general_config)
     }
 }

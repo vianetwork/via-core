@@ -231,6 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pubkeys_str,
         PartialSignature::from_slice(&partial_sig_2.to_vec())?,
         sighash.as_byte_array(),
+        None,
     )?;
 
     let partial_sig_3: [u8; 32] = second_round_3.our_signature();

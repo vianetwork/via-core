@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use via_zk_verifier::ViaVerifier;
-use zksync_config::{configs::via_consensus::ViaGenesisConfig, ViaVerifierConfig};
+use zksync_config::{configs::via_bridge::ViaBridgeConfig, ViaVerifierConfig};
 
 use crate::{
     implementations::resources::{
@@ -16,7 +16,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ViaBtcProofVerificationLayer {
-    via_genesis_config: ViaGenesisConfig,
+    via_bridge_config: ViaBridgeConfig,
     verifier_config: ViaVerifierConfig,
 }
 
@@ -36,10 +36,10 @@ pub struct ProofVerificationOutput {
 }
 
 impl ViaBtcProofVerificationLayer {
-    pub fn new(verifier_config: ViaVerifierConfig, via_genesis_config: ViaGenesisConfig) -> Self {
+    pub fn new(verifier_config: ViaVerifierConfig, via_bridge_config: ViaBridgeConfig) -> Self {
         Self {
             verifier_config,
-            via_genesis_config,
+            via_bridge_config,
         }
     }
 }
@@ -61,7 +61,7 @@ impl WiringLayer for ViaBtcProofVerificationLayer {
             input.btc_indexer_resource.0.as_ref().clone(),
             main_pool,
             input.da_client.0,
-            self.via_genesis_config.zk_agreement_threshold,
+            self.via_bridge_config.zk_agreement_threshold,
         )
         .await
         .map_err(WiringError::internal)?;

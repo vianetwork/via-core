@@ -2,7 +2,7 @@ use via_btc_client::indexer::BitcoinInscriptionIndexer;
 use via_btc_watch::BitcoinNetwork;
 use via_verifier_btc_watch::VerifierBtcWatch;
 use zksync_config::{
-    configs::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig},
+    configs::{via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig},
     ViaBtcWatchConfig,
 };
 
@@ -11,6 +11,7 @@ use crate::{
         pools::{PoolResource, VerifierPool},
         via_btc_client::BtcClientResource,
         via_btc_indexer::BtcIndexerResource,
+        via_system_wallet::ViaSystemWalletsResource,
     },
     service::StopReceiver,
     task::{Task, TaskId},
@@ -23,7 +24,7 @@ use crate::{
 /// Responsible for initializing and running of [`VerifierBtcWatch`] component, that polls the Bitcoin node for the relevant events.
 #[derive(Debug)]
 pub struct VerifierBtcWatchLayer {
-    via_genesis_config: ViaGenesisConfig,
+    via_bridge_config: ViaBridgeConfig,
     via_btc_client: ViaBtcClientConfig,
     btc_watch_config: ViaBtcWatchConfig,
 }
@@ -33,6 +34,7 @@ pub struct VerifierBtcWatchLayer {
 pub struct Input {
     pub master_pool: PoolResource<VerifierPool>,
     pub btc_client_resource: BtcClientResource,
+    pub system_wallets_resource: ViaSystemWalletsResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -45,12 +47,12 @@ pub struct Output {
 
 impl VerifierBtcWatchLayer {
     pub fn new(
-        via_genesis_config: ViaGenesisConfig,
+        via_bridge_config: ViaBridgeConfig,
         via_btc_client: ViaBtcClientConfig,
         btc_watch_config: ViaBtcWatchConfig,
     ) -> Self {
         Self {
-            via_genesis_config,
+            via_bridge_config,
             via_btc_client,
             btc_watch_config,
         }
@@ -69,13 +71,8 @@ impl WiringLayer for VerifierBtcWatchLayer {
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
         let client = input.btc_client_resource.btc_sender.unwrap();
-        let indexer = BitcoinInscriptionIndexer::new(
-            client.clone(),
-            self.via_btc_client.clone(),
-            self.via_genesis_config.bootstrap_txids()?,
-        )
-        .await
-        .map_err(|e| WiringError::Internal(e.into()))?;
+        let system_wallets = input.system_wallets_resource.0;
+        let indexer = BitcoinInscriptionIndexer::new(client.clone(), system_wallets);
 
         let btc_indexer_resource = BtcIndexerResource::from(indexer.clone());
 
@@ -94,7 +91,7 @@ impl WiringLayer for VerifierBtcWatchLayer {
             indexer,
             client,
             main_pool,
-            self.via_genesis_config.zk_agreement_threshold,
+            self.via_bridge_config.zk_agreement_threshold,
         )
         .await?;
 

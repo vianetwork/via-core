@@ -261,7 +261,7 @@ pub async fn attest_sequencer(
         .await?;
     let mut parser = MessageParser::new(network);
 
-    let res = parser.parse_system_transaction(&tx, 0);
+    let res = parser.parse_system_transaction(&tx, 0, None);
     if res.is_empty() {
         anyhow::bail!(
             "Inscription not found {:?}",
