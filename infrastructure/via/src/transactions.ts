@@ -3,14 +3,26 @@ import * as utils from 'utils';
 import { VIA_DOCKER_COMPOSE } from './docker';
 
 const CONTAINER_NAME = 'bitcoin-cli';
+const RPC_CONNECT = 'bitcoind';
 const RPC_USER = 'rpcuser';
 const RPC_PASSWORD = 'rpcpassword';
-const WALLET = 'Alice';
-const RPC_ARGS = `-regtest -rpcconnect=bitcoind -rpcuser=${RPC_USER} -rpcpassword=${RPC_PASSWORD} -rpcwait -rpcwallet=${WALLET}`;
-
+const RPC_WALLET = 'Alice';
 const DESTINATION_ADDRESS = 'mqdofsXHpePPGBFXuwwypAqCcXi48Xhb2f';
 
-export const generateRandomTransactions = async () => {
+export interface Options {
+    rpcConnect: string;
+    rpcUsername: string;
+    rpcPassword: string;
+    rpcWallet: string;
+    address: string;
+    skipContainer: boolean;
+}
+
+export const generateRandomTransactions = async (cmdOptions: Options) => {
+    const { rpcConnect, rpcUsername, rpcPassword, rpcWallet, address: destinationAddress, skipContainer } = cmdOptions;
+    const cmdPrefix = skipContainer ? '' : `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME}`;
+    const rpcArgs = `-regtest -rpcconnect=${rpcConnect} -rpcuser=${rpcUsername} -rpcpassword=${rpcPassword} -rpcwait -rpcwallet=${rpcWallet}`;
+
     console.log('Generating random transactions...');
 
     const randomBetween = (min: number, max: number): number => {
@@ -58,7 +70,7 @@ export const generateRandomTransactions = async () => {
                     let unfundedTx = '';
                     await runRpcCall(async () => {
                         const unfundedTxResult = await utils.exec(
-                            `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} createrawtransaction "[]" "{\\"${DESTINATION_ADDRESS}\\":0.005}"`
+                            `${cmdPrefix} bitcoin-cli ${rpcArgs} createrawtransaction "[]" "{\\"${destinationAddress}\\":0.005}"`
                         );
                         unfundedTx = unfundedTxResult.stdout.trim();
                     });
@@ -70,20 +82,18 @@ export const generateRandomTransactions = async () => {
                     fundTxLock = fundTxLock.then(async () => {
                         await runRpcCall(async () => {
                             const fundTxResult = await utils.exec(
-                                `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} -named fundrawtransaction hexstring="${unfundedTx}" options='${options}'`
+                                `${cmdPrefix} bitcoin-cli ${rpcArgs} -named fundrawtransaction hexstring="${unfundedTx}" options='${options}'`
                             );
                             const fundTxJson = JSON.parse(fundTxResult.stdout.trim());
                             const fundedTxHex = fundTxJson.hex;
 
                             const signTxResult = await utils.exec(
-                                `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} signrawtransactionwithwallet "${fundedTxHex}"`
+                                `${cmdPrefix} bitcoin-cli ${rpcArgs} signrawtransactionwithwallet "${fundedTxHex}"`
                             );
                             const signTxJson = JSON.parse(signTxResult.stdout.trim());
                             const signedTxHex = signTxJson.hex;
 
-                            await utils.exec(
-                                `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME} bitcoin-cli ${RPC_ARGS} sendrawtransaction "${signedTxHex}"`
-                            );
+                            await utils.exec(`${cmdPrefix} bitcoin-cli ${rpcArgs} sendrawtransaction "${signedTxHex}"`);
                         });
                     });
 
@@ -106,6 +116,12 @@ export const generateRandomTransactions = async () => {
 
 export const command = new Command('transactions')
     .description('Generate random transactions on the Bitcoin regtest network.')
-    .action(async () => {
-        await generateRandomTransactions();
+    .option('--rpc-connect <rpcConnect>', 'RPC connect', RPC_CONNECT)
+    .option('--rpc-username <rpcUsername>', 'RPC username', RPC_USER)
+    .option('--rpc-password <rpcPassword>', 'RPC password', RPC_PASSWORD)
+    .option('--rpc-wallet <rpcPassword>', 'RPC wallet', RPC_WALLET)
+    .option('--address <address>', 'Destination address', DESTINATION_ADDRESS)
+    .option('--skip-container', 'Skip execution inside a Docker container and run directly on the host')
+    .action(async (options) => {
+        await generateRandomTransactions(options);
     });
