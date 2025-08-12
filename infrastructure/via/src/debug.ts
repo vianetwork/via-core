@@ -20,7 +20,8 @@ export async function depositMany(
     l1RpcUrl: string,
     l2RpcUrl: string,
     rpcUsername: string,
-    rpcPassword: string
+    rpcPassword: string,
+    bridgeAddress: string
 ) {
     const amountPerDeposit = Number(amount) / count;
     for (let i = 0; i < count; i++) {
@@ -32,7 +33,8 @@ export async function depositMany(
             l1RpcUrl,
             l2RpcUrl,
             rpcUsername,
-            rpcPassword
+            rpcPassword,
+            bridgeAddress
         );
 
         console.log(`\n\nDeposit ${i + 1}/${count}`);
@@ -67,6 +69,7 @@ command
     .description('deposit BTC to l2')
     .requiredOption('--amount <amount>', 'amount of BTC to deposit', parseFloat)
     .requiredOption('--receiver-l2-address <receiverL2Address>', 'receiver l2 address')
+    .requiredOption('--bridge-address <bridgeAddress>', 'The bridge address')
     .option('--sender-private-key <senderPrivateKey>', 'sender private key', DEFAULT_DEPOSITOR_PRIVATE_KEY)
     .option('--network <network>', 'network', DEFAULT_NETWORK)
     .option('--l1-rpc-url <l1RcpUrl>', 'RPC URL', DEFAULT_L1_RPC_URL)
@@ -84,7 +87,8 @@ command
             cmd.l1RpcUrl,
             cmd.l2RpcUrl,
             cmd.rpcUsername,
-            cmd.rpcPassword
+            cmd.rpcPassword,
+            cmd.bridgeAddress
         )
     );
 

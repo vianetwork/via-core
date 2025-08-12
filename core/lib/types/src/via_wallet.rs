@@ -76,7 +76,7 @@ pub struct SystemWallets {
 
 impl SystemWallets {
     pub fn is_valid_bridge_address(&self, bridge_address: Address) -> anyhow::Result<()> {
-        if !self.verifiers.contains(&bridge_address) {
+        if self.bridge != bridge_address {
             anyhow::bail!(
                 "bridge address mismatch, expected one of {:?}, found {}",
                 &self.bridge,
