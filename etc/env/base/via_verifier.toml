@@ -15,3 +15,5 @@ test_zk_proof_invalid_l1_batch_numbers = []
 session_timeout = 30
 # The transaction weight limit
 max_tx_weight = 380000
+# The bridge address merkle root.
+bridge_address_merkle_root = ""

@@ -10,7 +10,7 @@ use tokio::sync::watch;
 pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
 use via_indexer_dal::{Connection, ConnectionPool, Indexer, IndexerDal};
-use zksync_config::{configs::via_consensus::ViaGenesisConfig, ViaBtcWatchConfig};
+use zksync_config::{configs::via_bridge::ViaBridgeConfig, ViaBtcWatchConfig};
 
 use self::message_processors::MessageProcessor;
 use crate::message_processors::L1ToL2MessageProcessor;
@@ -29,7 +29,7 @@ pub struct L1Indexer {
 impl L1Indexer {
     pub async fn new(
         config: ViaBtcWatchConfig,
-        via_genesis_config: ViaGenesisConfig,
+        via_bridge_config: ViaBridgeConfig,
         indexer: BitcoinInscriptionIndexer,
         client: Arc<BitcoinClient>,
         pool: ConnectionPool<Indexer>,
@@ -47,7 +47,7 @@ impl L1Indexer {
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(L1ToL2MessageProcessor::new(client.clone())),
             Box::new(WithdrawalProcessor::new(
-                via_genesis_config.bridge_address()?,
+                via_bridge_config.bridge_address()?,
                 client,
             )),
         ];

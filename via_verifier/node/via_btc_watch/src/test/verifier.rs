@@ -1,18 +1,17 @@
 #[cfg(test)]
 mod tests {
+    use via_test_utils::utils::{
+        create_chained_inscriptions, test_create_indexer, test_verifier_add_1, test_verifier_add_2,
+    };
     use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
     use zksync_types::H256;
 
     use crate::{message_processors::VerifierMessageProcessor, MessageProcessor};
 
-    use via_test_utils::utils::{
-        create_chained_inscriptions, test_create_indexer, test_verifier_add_1, test_verifier_add_2,
-    };
-
     #[tokio::test]
     async fn test_insert_first_batch() -> anyhow::Result<()> {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
-        let mut indexer = test_create_indexer().await?;
+        let mut indexer = test_create_indexer();
         let start = 1;
         let end = 1;
 
@@ -46,7 +45,7 @@ mod tests {
     #[tokio::test]
     async fn test_insert_two_times_first_batch() -> anyhow::Result<()> {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
-        let mut indexer = test_create_indexer().await?;
+        let mut indexer = test_create_indexer();
         let start = 1;
         let end = 1;
 
@@ -84,7 +83,7 @@ mod tests {
     #[tokio::test]
     async fn test_insert_multiple_batches() -> anyhow::Result<()> {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
-        let mut indexer = test_create_indexer().await?;
+        let mut indexer = test_create_indexer();
 
         let mut processor = VerifierMessageProcessor::new(1.0);
         let start = 1;
@@ -121,7 +120,7 @@ mod tests {
     #[tokio::test]
     async fn test_should_fail_to_insert_batch_with_invalid_prev_batch_hash() -> anyhow::Result<()> {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
-        let mut indexer = test_create_indexer().await?;
+        let mut indexer = test_create_indexer();
         let mut processor = VerifierMessageProcessor::new(1.0);
         let start = 1;
         let end = 2;
@@ -303,7 +302,7 @@ mod tests {
     #[tokio::test]
     async fn test_should_not_insert_batch_zero() -> anyhow::Result<()> {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
-        let mut indexer = test_create_indexer().await?;
+        let mut indexer = test_create_indexer();
         let start = 0;
         let end = 0;
 
@@ -332,7 +331,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
 
-        let mut indexer = test_create_indexer().await?;
+        let mut indexer = test_create_indexer();
         let mut processor = VerifierMessageProcessor::new(1.0);
         let start = 1;
         let end = 2;

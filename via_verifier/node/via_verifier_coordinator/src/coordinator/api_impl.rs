@@ -194,7 +194,10 @@ impl RestApi {
                 pubkeys_str.clone(),
                 partial_sig,
                 message,
+                self_.config.bridge_address_merkle_root(),
             ) {
+                drop(session);
+
                 self_.reset_session().await;
 
                 METRICS.verifier_errors[&VerifierErrorLabel {

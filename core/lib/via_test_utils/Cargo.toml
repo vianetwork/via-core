@@ -10,6 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+bitcoin = { version = "0.32.2", features = ["serde"] }
 via_btc_client.workspace = true
 zksync_types.workspace = true
 zksync_config.workspace = true

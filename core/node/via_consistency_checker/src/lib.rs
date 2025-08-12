@@ -214,7 +214,7 @@ impl ConsistencyChecker {
             .map_err(CheckError::Internal)?;
 
         let mut parser = MessageParser::new(self.btc_client.config.network());
-        let inscriptions = parser.parse_system_transaction(&tx, 0);
+        let inscriptions = parser.parse_system_transaction(&tx, 0, None);
 
         for inscription in inscriptions {
             if let FullInscriptionMessage::L1BatchDAReference(msg) = inscription {

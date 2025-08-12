@@ -109,7 +109,7 @@ via multisig create-upgrade-tx \
 3. Sign the transaction using the signer-1 `Privatekey`.
 
 ```sh
-via multisig sign-upgrade-tx --privateKey cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+via multisig sign-tx --privateKey cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
 ```
 
 After signing the tx send the `upgrade_tx_exec.json` to signer-2
@@ -117,13 +117,13 @@ After signing the tx send the `upgrade_tx_exec.json` to signer-2
 4. Sign the transaction using the signer-2 `Privatekey`.
 
 ```sh
-via multisig sign-upgrade-tx --privateKey cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+via multisig sign-tx --privateKey cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
 ```
 
 5. The signer-2 finalize the transaction
 
 ```sh
-via multisig finalize-upgrade-tx
+via multisig finalize-tx
 ```
 
 6. The signer-2 broadcast the transaction
@@ -212,3 +212,208 @@ select number, encode(bootloader_code_hash, 'hex'), encode(default_aa_code_hash,
 18. Start the verifier and restart it with version 26. The withdrawal is processed
 19. Execute a withdrawal.
 20. Done :)
+
+---
+
+## Upgrade the sequencer address
+
+1. Start the sequencer and the verifiers
+2. Deposit BTC and wait the sequencer process the batch.
+
+```sh
+via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq
+```
+
+3. withdraw 1 BTC.
+
+### update the sequencer on localhost
+
+1. Create an update sequencer proposal. Follow the doc on how to sign a multisig tx (update just the 2 with the
+   following cmd) [here](#How-to-execute-an-upgrade-proposal)
+
+```sh
+via multisig create-update-sequencer \
+--inputTxId <txid> \
+--inputVout <vout> \
+--inputAmount <amount> \
+--sequencerAddress bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv \
+--fee 500
+```
+
+2. Withdraw 1 BTC, the sequencer (btc_sender) should throw and error
+   `BTC sender inscriber wallets is not valid, expected...`, this error is because we did not yet update the sequencer
+   Private key. Stop the sequencer and update this ENV in `via.env`:
+
+```sh
+VIA_BTC_SENDER_PRIVATE_KEY=cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm
+VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
+```
+
+4. Execute an other deposit and withdrawal, the sequencer and verifiers process the batches.
+
+```sh
+via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq
+```
+
+5. Done.
+
+---
+
+### Update the bridge address on localhost
+
+1. Create a new bridge address, follow this [doc](musig2.md). You should have a json file on your local `my_wallet.json`
+2. Create a proposal update bridge.
+
+```sh
+cargo run --example propose_new_bridge \
+    regtest \
+    http://0.0.0.0:18443 \
+    rpcuser \
+    rpcpassword \
+    cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
+    bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8 \
+    bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80,bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
+```
+
+3. Copy the txid of the upgrade proposal and create an upgrade using the governance wallet. Follow the doc on how to
+   sign a multisig tx (update just the 2 with the following cmd) [here](#How-to-execute-an-upgrade-proposal)
+
+```sh
+via multisig create-update-bridge \
+--inputTxId <txid> \
+--inputVout <vout> \
+--inputAmount <amount> \
+--proposalTxid <proposalTxid> \
+--fee 500
+```
+
+4. The verifier should start throwing an Error because the current signer doesn't match the new bridge address.
+
+```error
+Failed to process verifier withdrawal task: Verifier address not found in the verifiers set, expected one of [bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80, bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v], found bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
+```
+
+5. Transfer some BTC to the new verifier addresses
+
+```sh
+curl --user rpcuser:rpcpassword \
+     --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v", 0.1]}' \
+     -H 'content-type: text/plain;' \
+     http://127.0.0.1:18443/wallet/Alice
+
+curl --user rpcuser:rpcpassword \
+     --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80", 0.1]}' \
+     -H 'content-type: text/plain;' \
+     http://127.0.0.1:18443/wallet/Alice
+```
+
+6. Update the ENVs for verifier and coordinator
+
+```sh
+VIA_BTC_SENDER_PRIVATE_KEY=cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80
+VIA_VERIFIER_PRIVATE_KEY=cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+VIA_VERIFIER_WALLET_ADDRESS=bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80
+VIA_VERIFIER_BRIDGE_ADDRESS_MERKLE_ROOT=2aa187093ce1f9e55ad02aa804480cc01beb9c570781133b768d8cfb12177e25
+VIA_BRIDGE_VERIFIERS_PUB_KEYS=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf
+VIA_BRIDGE_COORDINATOR_PUB_KEY=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241
+VIA_BRIDGE_BRIDGE_ADDRESS=bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
+```
+
+and coordinator:
+
+```sh
+VIA_BTC_SENDER_PRIVATE_KEY=cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
+VIA_VERIFIER_PRIVATE_KEY=cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+VIA_VERIFIER_WALLET_ADDRESS=bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
+VIA_VERIFIER_BRIDGE_ADDRESS_MERKLE_ROOT=2aa187093ce1f9e55ad02aa804480cc01beb9c570781133b768d8cfb12177e25
+VIA_BRIDGE_VERIFIERS_PUB_KEYS=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf
+VIA_BRIDGE_COORDINATOR_PUB_KEY=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241
+VIA_BRIDGE_BRIDGE_ADDRESS=bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
+```
+
+7. Deposit BTC to the **new bridge address**
+
+```sh
+via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
+```
+
+8. Withdraw 1 BTC.
+9. The verifier and coordinator process the batch and sequencer finalize the batch.
+
+## Transfer the UTXOs from the old bridge address to the governance wallet
+
+1. Sent UTXO to the bridge wallet
+
+```sh
+curl --user rpcuser:rpcpassword \
+     --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8", 1]}' \
+     -H 'content-type: text/plain;' \
+     http://127.0.0.1:18443/wallet/Alice
+```
+
+2. List the UTXOs you want to transfer, then create a file `utxos.json`. Each utxo should has a `txid`, `vout` and
+   `value`
+
+```sh
+curl --user rpcuser:rpcpassword \
+  --data-binary '{
+    "jsonrpc": "1.0",
+    "id": "scan_utxo",
+    "method": "scantxoutset",
+    "params": [
+      "start",
+      [
+        { "desc": "addr(bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8)", "range": 1000 }
+      ]
+    ]
+  }' \
+  -H 'content-type: text/plain;' \
+  http://127.0.0.1:18443/
+```
+
+```json
+[
+  {
+    "txid": "<txid>",
+    "vout": 1,
+    "value": 100000000
+  }
+  ...
+]
+```
+
+2. Create a new tx
+
+```sh
+cargo run \
+    --example transfer_utxos_from_bridge -- \
+    --from-address bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8 \
+    --to-address bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm \
+    --action prepare
+```
+
+2. The signer 1 sign
+
+```sh
+cargo run --example transfer_utxos_from_bridge -- --action sign --private-key cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+```
+
+3. The signer 2 sign
+
+```sh
+cargo run --example transfer_utxos_from_bridge -- --action sign --private-key cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+```
+
+2. Finalise the tx
+
+```sh
+cargo run --example transfer_utxos_from_bridge -- --action finalize
+```
+
+2. Broadcast the transaction
+
+```sh
+cargo run --example transfer_utxos_from_bridge -- --action broadcast
+```

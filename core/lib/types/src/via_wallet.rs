@@ -75,6 +75,17 @@ pub struct SystemWallets {
 }
 
 impl SystemWallets {
+    pub fn is_valid_bridge_address(&self, bridge_address: Address) -> anyhow::Result<()> {
+        if self.bridge != bridge_address {
+            anyhow::bail!(
+                "bridge address mismatch, expected one of {:?}, found {}",
+                &self.bridge,
+                bridge_address
+            );
+        }
+        Ok(())
+    }
+
     pub fn is_valid_verifier_address(&self, verifier: Address) -> anyhow::Result<()> {
         if !self.verifiers.contains(&verifier) {
             anyhow::bail!(
@@ -129,22 +140,22 @@ impl TryFrom<&BootstrapState> for SystemWalletsDetails {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("Wallets missing"))?;
 
-        if let Some(seq_txid) = &state.sequencer_proposal_tx_id {
+        if let Some(txid) = &state.sequencer_proposal_tx_id {
             map.insert(
                 WalletRole::Sequencer,
                 WalletInfo {
                     addresses: vec![wallets.sequencer.clone()],
-                    txid: seq_txid.clone(),
+                    txid: *txid,
                 },
             );
         }
 
-        if let Some(boot_txid) = &state.bootstrap_tx_id {
+        if let Some(txid) = &state.bootstrap_tx_id {
             map.insert(
                 WalletRole::Bridge,
                 WalletInfo {
                     addresses: vec![wallets.bridge.clone()],
-                    txid: boot_txid.clone(),
+                    txid: *txid,
                 },
             );
 
@@ -152,7 +163,7 @@ impl TryFrom<&BootstrapState> for SystemWalletsDetails {
                 WalletRole::Gov,
                 WalletInfo {
                     addresses: vec![wallets.governance.clone()],
-                    txid: boot_txid.clone(),
+                    txid: *txid,
                 },
             );
 
@@ -160,7 +171,7 @@ impl TryFrom<&BootstrapState> for SystemWalletsDetails {
                 WalletRole::Verifier,
                 WalletInfo {
                     addresses: wallets.verifiers.clone(),
-                    txid: boot_txid.clone(),
+                    txid: *txid,
                 },
             );
         }
