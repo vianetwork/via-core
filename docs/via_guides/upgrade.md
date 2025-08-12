@@ -341,3 +341,79 @@ via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA
 
 8. Withdraw 1 BTC.
 9. The verifier and coordinator process the batch and sequencer finalize the batch.
+
+## Transfer the UTXOs from the old bridge address to the governance wallet
+
+1. Sent UTXO to the bridge wallet
+
+```sh
+curl --user rpcuser:rpcpassword \
+     --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8", 1]}' \
+     -H 'content-type: text/plain;' \
+     http://127.0.0.1:18443/wallet/Alice
+```
+
+2. List the UTXOs you want to transfer, then create a file `utxos.json`. Each utxo should has a `txid`, `vout` and
+   `value`
+
+```sh
+curl --user rpcuser:rpcpassword \
+  --data-binary '{
+    "jsonrpc": "1.0",
+    "id": "scan_utxo",
+    "method": "scantxoutset",
+    "params": [
+      "start",
+      [
+        { "desc": "addr(bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8)", "range": 1000 }
+      ]
+    ]
+  }' \
+  -H 'content-type: text/plain;' \
+  http://127.0.0.1:18443/
+```
+
+```json
+[
+  {
+    "txid": "<txid>",
+    "vout": 1,
+    "value": 100000000
+  }
+  ...
+]
+```
+
+2. Create a new tx
+
+```sh
+cargo run \
+    --example transfer_utxos_from_bridge -- \
+    --from-address bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8 \
+    --to-address bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm \
+    --action prepare
+```
+
+2. The signer 1 sign
+
+```sh
+cargo run --example transfer_utxos_from_bridge -- --action sign --private-key cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+```
+
+3. The signer 2 sign
+
+```sh
+cargo run --example transfer_utxos_from_bridge -- --action sign --private-key cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+```
+
+2. Finalise the tx
+
+```sh
+cargo run --example transfer_utxos_from_bridge -- --action finalize
+```
+
+2. Broadcast the transaction
+
+```sh
+cargo run --example transfer_utxos_from_bridge -- --action broadcast
+```
