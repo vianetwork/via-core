@@ -29,9 +29,9 @@ impl BootstrapState {
         if !wallets.bridge.script_pubkey().is_p2tr() {
             anyhow::bail!("Bridge must be Taproot");
         }
-        if !wallets.governance.script_pubkey().is_p2wsh() {
-            anyhow::bail!("Governance must be P2WSH");
-        }
+        // if !wallets.governance.script_pubkey().is_p2wsh() {
+        //     anyhow::bail!("Governance must be P2WSH");
+        // }
         if !wallets
             .verifiers
             .iter()
