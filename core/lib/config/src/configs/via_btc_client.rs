@@ -3,7 +3,7 @@ use std::str::FromStr;
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Default, Serialize, Clone, PartialEq)]
 pub struct ViaBtcClientConfig {
     /// Name of the used Bitcoin network
     pub network: String,

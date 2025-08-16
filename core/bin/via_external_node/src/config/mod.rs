@@ -13,11 +13,13 @@ use zksync_config::{
         api::{MaxResponseSize, MaxResponseSizeOverrides},
         consensus::{ConsensusConfig, ConsensusSecrets},
         en_config::ENConfig,
+        via_bridge::ViaBridgeConfig,
+        via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
         via_secrets::ViaL1Secrets,
         GeneralConfig,
     },
-    ObjectStoreConfig,
+    ObjectStoreConfig, ViaBtcWatchConfig,
 };
 use zksync_consensus_crypto::TextFmt;
 use zksync_consensus_roles as roles;
@@ -1174,6 +1176,9 @@ pub(crate) struct ExternalNodeConfig<R = RemoteENConfig> {
     pub tree_component: TreeComponentConfig,
     pub via_secrets: Option<ViaL1Secrets>,
     pub via_genesis_config: Option<ViaGenesisConfig>,
+    pub via_bridge_config: Option<ViaBridgeConfig>,
+    pub via_btc_client_config: Option<ViaBtcClientConfig>,
+    pub via_btc_watch_config: Option<ViaBtcWatchConfig>,
     pub remote: R,
 }
 
@@ -1200,6 +1205,15 @@ impl ExternalNodeConfig<()> {
             ),
             via_genesis_config: Some(
                 ViaGenesisConfig::from_env().context("Failed to load VIA genesis config")?,
+            ),
+            via_bridge_config: Some(
+                ViaBridgeConfig::from_env().context("Failed to load VIA bridge config")?,
+            ),
+            via_btc_client_config: Some(
+                ViaBtcClientConfig::from_env().context("Failed to load VIA BTC client config")?,
+            ),
+            via_btc_watch_config: Some(
+                ViaBtcWatchConfig::from_env().context("Failed to load VIA BTC watch config")?,
             ),
             remote: (),
         })
@@ -1257,6 +1271,9 @@ impl ExternalNodeConfig<()> {
             tree_component,
             via_secrets: None,
             via_genesis_config: None,
+            via_bridge_config: None,
+            via_btc_client_config: None,
+            via_btc_watch_config: None,
             remote: (),
         })
     }
@@ -1281,6 +1298,9 @@ impl ExternalNodeConfig<()> {
             api_component: self.api_component,
             via_secrets: self.via_secrets,
             via_genesis_config: self.via_genesis_config,
+            via_bridge_config: self.via_bridge_config,
+            via_btc_client_config: self.via_btc_client_config,
+            via_btc_watch_config: self.via_btc_watch_config,
             remote,
         })
     }
@@ -1302,6 +1322,9 @@ impl ExternalNodeConfig {
             },
             via_secrets: None,
             via_genesis_config: None,
+            via_bridge_config: None,
+            via_btc_client_config: None,
+            via_btc_watch_config: None,
             tree_component: TreeComponentConfig { api_port: None },
         }
     }

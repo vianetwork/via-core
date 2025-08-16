@@ -3,7 +3,7 @@ use std::str::FromStr;
 use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
 pub struct ViaGenesisConfig {
     /// List of transaction IDs to bootstrap the indexer.
     pub bootstrap_txids: Vec<String>,

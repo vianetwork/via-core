@@ -9,7 +9,7 @@ zksync_action = "dont_ask"
 
 [en]
 main_node_url = "https://sepolia.era.zksync.dev"
-pruning_data_retention_hours = 24
+pruning_data_retention_hours = 1
 snapshots_recovery_enabled = false
 http_port = 3060
 ws_port = 3061
@@ -58,7 +58,7 @@ url = "http://127.0.0.1:3050"
 url = "http://127.0.0.1:3052"
 
 
-[via_genesis]
+[via_bridge]
 # The bridge address
 bridge_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
 # The coordinator address
@@ -72,6 +72,8 @@ verifiers_pub_keys = [
 required_signers = 2
 # Minimum vote threshold to finalise an L1 batch
 zk_agreement_threshold = 0.5
+
+[via_genesis]
 # The bootstraping inscriptions
 bootstrap_txids = []
 
@@ -90,6 +92,18 @@ external_apis = ["https://mempool.space/testnet/api/v1/fees/recommended"]
 fee_strategies = ["fastestFee"]
 # Use RPC to get the fee rate
 use_rpc_for_fee_rate = true
+
+[via_btc_watch]
+# The interval in milliseconds between btc sender cycles.
+poll_interval = 5000
+# The number of L1 block to mark the inscription as finalized. 
+block_confirmations = 0
+# Number of blocks that we should check when restarting the service.
+btc_blocks_lag = 1000
+# The starting L1 block number from which indexing begins.
+start_l1_block_number = 1
+# When set to true, the btc_watch starts indexing L1 blocks from the "start_l1_block_number".
+restart_indexing = false
 
 [rust]
 # `RUST_LOG` environment variable for `env_logger`

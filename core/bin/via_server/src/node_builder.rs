@@ -206,6 +206,7 @@ impl ViaNodeBuilder {
             via_bridge_config,
             via_btc_client_config,
             via_btc_watch_config,
+            true,
         ));
         Ok(self)
     }

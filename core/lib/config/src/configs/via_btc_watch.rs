@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub const L1_BLOCKS_CHUNK: u32 = 10;
 
 /// Configuration for the Bitcoin watch crate.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Default, Serialize, Clone, PartialEq)]
 pub struct ViaBtcWatchConfig {
     /// Service interval in milliseconds.
     pub poll_interval: u64,
