@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     let txid = Txid::from_str("ca3d433c31b5e427b062d60acd3a0b5f8db6793c1aa0c3fab97eec015c72c0f6")?;
     let mut parser = MessageParser::new(NETWORK);
     let tx = client.get_transaction(&txid).await?;
-    let data = parser.parse_protocol_upgrade_transaction(
+    let data = parser.parse_protocol_upgrade_transactions(
         &TransactionWithMetadata {
             tx,
             output_vout: None,

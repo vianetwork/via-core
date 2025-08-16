@@ -26,6 +26,7 @@ pub struct BtcWatchLayer {
     via_bridge_config: ViaBridgeConfig,
     via_btc_client: ViaBtcClientConfig,
     btc_watch_config: ViaBtcWatchConfig,
+    is_main_node: bool,
 }
 
 #[derive(Debug, FromContext)]
@@ -49,11 +50,13 @@ impl BtcWatchLayer {
         via_bridge_config: ViaBridgeConfig,
         via_btc_client: ViaBtcClientConfig,
         btc_watch_config: ViaBtcWatchConfig,
+        is_main_node: bool,
     ) -> Self {
         Self {
             via_bridge_config,
             via_btc_client,
             btc_watch_config,
+            is_main_node,
         }
     }
 }
@@ -69,7 +72,7 @@ impl WiringLayer for BtcWatchLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
-        let client = input.btc_client_resource.btc_sender.unwrap();
+        let client = input.btc_client_resource.default;
         let system_wallets = input.system_wallets_resource.0;
         let indexer = BitcoinInscriptionIndexer::new(client.clone(), system_wallets);
 
@@ -91,6 +94,7 @@ impl WiringLayer for BtcWatchLayer {
             main_pool,
             self.via_bridge_config.bridge_address()?,
             self.via_bridge_config.zk_agreement_threshold,
+            self.is_main_node,
         )
         .await?;
 

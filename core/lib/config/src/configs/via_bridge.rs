@@ -3,7 +3,7 @@ use std::str::FromStr;
 use bitcoin::Address;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq)]
 pub struct ViaBridgeConfig {
     /// The coordinator public key.
     pub coordinator_pub_key: String,
