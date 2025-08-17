@@ -115,7 +115,6 @@ pub struct InternalApiConfig {
     pub dummy_verifier: bool,
     pub l1_batch_commit_data_generator_mode: L1BatchCommitmentMode,
 
-    pub via_bridge_address: String,
     pub via_network: Network,
 }
 
@@ -124,11 +123,9 @@ impl InternalApiConfig {
         web3_config: &Web3JsonRpcConfig,
         contracts_config: &ContractsConfig,
         genesis_config: &GenesisConfig,
-        via_bridge_address: Option<String>,
         via_network: Option<Network>,
     ) -> Self {
         Self {
-            via_bridge_address: via_bridge_address.unwrap_or_default(),
             via_network: via_network.unwrap_or(Network::Regtest),
             l1_chain_id: genesis_config.l1_chain_id,
             l2_chain_id: genesis_config.l2_chain_id,
