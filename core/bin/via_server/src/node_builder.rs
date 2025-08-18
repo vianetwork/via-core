@@ -313,7 +313,6 @@ impl ViaNodeBuilder {
             response_body_size_limit: Some(rpc_config.max_response_body_size()),
             ..Default::default()
         };
-        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
 
         self.node.add_layer(Web3ServerLayer::http(
@@ -322,7 +321,6 @@ impl ViaNodeBuilder {
                 &rpc_config,
                 &self.contracts_config,
                 &self.genesis_config,
-                Some(via_bridge_config.bridge_address),
                 Some(via_btc_client_config.network()),
             ),
             optional_config,
@@ -521,7 +519,6 @@ impl ViaNodeBuilder {
             with_extended_tracing: rpc_config.extended_api_tracing,
             ..Default::default()
         };
-        let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
 
         self.node.add_layer(Web3ServerLayer::ws(
@@ -530,7 +527,6 @@ impl ViaNodeBuilder {
                 &rpc_config,
                 &self.contracts_config,
                 &self.genesis_config,
-                Some(via_bridge_config.bridge_address),
                 Some(via_btc_client_config.network()),
             ),
             optional_config,

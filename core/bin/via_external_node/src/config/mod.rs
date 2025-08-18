@@ -123,7 +123,6 @@ pub(crate) struct RemoteENConfig {
     pub base_token_addr: Address,
     pub l1_batch_commit_data_generator_mode: L1BatchCommitmentMode,
     pub dummy_verifier: bool,
-    pub via_bridge_address: String,
     pub via_network: BitcoinNetwork,
 }
 
@@ -134,10 +133,6 @@ impl RemoteENConfig {
             .rpc_context("get_testnet_paymaster")
             .await?;
         let genesis = client.genesis_config().rpc_context("genesis").await.ok();
-        let via_bridge_address = client
-            .get_bridge_address()
-            .rpc_context("get_bridge_address")
-            .await?;
         let via_network = client
             .get_bitcoin_network()
             .rpc_context("get_bitcoin_network")
@@ -164,7 +159,6 @@ impl RemoteENConfig {
                 .as_ref()
                 .map(|a| a.dummy_verifier)
                 .unwrap_or_default(),
-            via_bridge_address,
             via_network,
         })
     }
@@ -186,7 +180,6 @@ impl RemoteENConfig {
             l2_shared_bridge_addr: Some(Address::repeat_byte(6)),
             l1_batch_commit_data_generator_mode: L1BatchCommitmentMode::Rollup,
             dummy_verifier: true,
-            via_bridge_address: String::new(),
             via_network: BitcoinNetwork::Regtest,
         }
     }
@@ -1369,7 +1362,6 @@ impl From<&ExternalNodeConfig> for InternalApiConfig {
             filters_disabled: config.optional.filters_disabled,
             dummy_verifier: config.remote.dummy_verifier,
             l1_batch_commit_data_generator_mode: config.remote.l1_batch_commit_data_generator_mode,
-            via_bridge_address: config.remote.via_bridge_address.clone(),
             via_network: config.remote.via_network,
         }
     }
