@@ -1,5 +1,6 @@
-use zksync_basic_types::{protocol_version::ProtocolSemanticVersion, H256};
-use zksync_contracts::deployer_contract;
+use zksync_basic_types::{
+    ethabi::encode, protocol_version::ProtocolSemanticVersion, web3::keccak256, H256,
+};
 use zksync_system_constants::{CONTRACT_DEPLOYER_ADDRESS, CONTRACT_FORCE_DEPLOYER_ADDRESS};
 
 use crate::{
@@ -89,8 +90,16 @@ impl ViaProtocolUpgrade {
             })
             .collect();
 
-        Ok(deployer_contract()
-            .function("forceDeployOnAddresses")?
-            .encode_input(&[Token::Array(encoded_deployments)])?)
+        let args = encode(&[Token::Array(encoded_deployments)]);
+
+        // Function selector
+        let selector =
+            &keccak256(b"forceDeployOnAddresses((bytes32,address,bool,uint256,bytes)[])")[0..4];
+
+        // Concatenate selector + encoded args
+        let mut calldata = selector.to_vec();
+        calldata.extend_from_slice(&args);
+
+        Ok(calldata)
     }
 }
