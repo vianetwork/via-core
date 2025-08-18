@@ -1,5 +1,6 @@
-use zksync_basic_types::{protocol_version::ProtocolSemanticVersion, H256};
-use zksync_contracts::deployer_contract;
+use zksync_basic_types::{
+    ethabi::encode, protocol_version::ProtocolSemanticVersion, web3::keccak256, H256,
+};
 use zksync_system_constants::{CONTRACT_DEPLOYER_ADDRESS, CONTRACT_FORCE_DEPLOYER_ADDRESS};
 
 use crate::{
@@ -89,8 +90,90 @@ impl ViaProtocolUpgrade {
             })
             .collect();
 
-        Ok(deployer_contract()
-            .function("forceDeployOnAddresses")?
-            .encode_input(&[Token::Array(encoded_deployments)])?)
+        let args = encode(&[Token::Array(encoded_deployments)]);
+
+        // Function selector
+        let selector =
+            &keccak256(b"forceDeployOnAddresses((bytes32,address,bool,uint256,bytes)[])")[0..4];
+
+        // Concatenate selector + encoded args
+        let mut calldata = selector.to_vec();
+        calldata.extend_from_slice(&args);
+
+        Ok(calldata)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hex::FromHex;
+    use zksync_basic_types::{Address, H256};
+    use zksync_contracts::deployer_contract;
+
+    #[test]
+    fn test_get_calldata_encoding() {
+        let upgrader = ViaProtocolUpgrade {};
+
+        // Example inputs
+        let addr = Address::from_slice(
+            &<[u8; 20]>::from_hex("1111111111111111111111111111111111111111").unwrap(),
+        );
+        let bytecode_hash = H256::from_slice(
+            &<[u8; 32]>::from_hex(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )
+            .unwrap(),
+        );
+
+        let calldata = upgrader
+            .get_calldata(vec![(addr, bytecode_hash)])
+            .expect("calldata should encode");
+
+        // First 4 bytes = selector
+        let selector =
+            &keccak256(b"forceDeployOnAddresses((bytes32,address,bool,uint256,bytes)[])")[0..4];
+        assert_eq!(&calldata[0..4], selector);
+
+        // Optionally print out to compare with Solidity's abi.encodeWithSelector
+        println!("Calldata hex: 0x{}", hex::encode(&calldata));
+
+        // Minimal check: length should be > selector (ABI data present)
+        assert!(calldata.len() > 4);
+    }
+
+    #[test]
+    fn test_calldata_matches_contract_encoding() {
+        let upgrader = ViaProtocolUpgrade {};
+
+        let addr = Address::repeat_byte(0x11);
+        let bytecode_hash = H256::repeat_byte(0xaa);
+
+        // New way: manual encoding
+        let new_calldata = upgrader
+            .get_calldata(vec![(addr, bytecode_hash)])
+            .expect("manual calldata");
+
+        // Old way: via ABI contract binding
+        let encoded_deployments = vec![Token::Tuple(vec![
+            Token::FixedBytes(bytecode_hash.as_bytes().to_vec()),
+            Token::Address(addr),
+            Token::Bool(false),
+            Token::Uint(U256::zero()),
+            Token::Bytes(vec![]),
+        ])];
+
+        let old_calldata = deployer_contract()
+            .function("forceDeployOnAddresses")
+            .unwrap()
+            .encode_input(&[Token::Array(encoded_deployments)])
+            .unwrap();
+
+        // Compare full byte equality
+        assert_eq!(
+            hex::encode(&new_calldata),
+            hex::encode(&old_calldata),
+            "manual encoding does not match deployer_contract encoding"
+        );
     }
 }
