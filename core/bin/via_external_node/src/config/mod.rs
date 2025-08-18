@@ -13,11 +13,13 @@ use zksync_config::{
         api::{MaxResponseSize, MaxResponseSizeOverrides},
         consensus::{ConsensusConfig, ConsensusSecrets},
         en_config::ENConfig,
+        via_bridge::ViaBridgeConfig,
+        via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
         via_secrets::ViaL1Secrets,
         GeneralConfig,
     },
-    ObjectStoreConfig,
+    ObjectStoreConfig, ViaBtcWatchConfig,
 };
 use zksync_consensus_crypto::TextFmt;
 use zksync_consensus_roles as roles;
@@ -121,7 +123,6 @@ pub(crate) struct RemoteENConfig {
     pub base_token_addr: Address,
     pub l1_batch_commit_data_generator_mode: L1BatchCommitmentMode,
     pub dummy_verifier: bool,
-    pub via_bridge_address: String,
     pub via_network: BitcoinNetwork,
 }
 
@@ -132,10 +133,6 @@ impl RemoteENConfig {
             .rpc_context("get_testnet_paymaster")
             .await?;
         let genesis = client.genesis_config().rpc_context("genesis").await.ok();
-        let via_bridge_address = client
-            .get_bridge_address()
-            .rpc_context("get_bridge_address")
-            .await?;
         let via_network = client
             .get_bitcoin_network()
             .rpc_context("get_bitcoin_network")
@@ -162,7 +159,6 @@ impl RemoteENConfig {
                 .as_ref()
                 .map(|a| a.dummy_verifier)
                 .unwrap_or_default(),
-            via_bridge_address,
             via_network,
         })
     }
@@ -184,7 +180,6 @@ impl RemoteENConfig {
             l2_shared_bridge_addr: Some(Address::repeat_byte(6)),
             l1_batch_commit_data_generator_mode: L1BatchCommitmentMode::Rollup,
             dummy_verifier: true,
-            via_bridge_address: String::new(),
             via_network: BitcoinNetwork::Regtest,
         }
     }
@@ -1174,6 +1169,9 @@ pub(crate) struct ExternalNodeConfig<R = RemoteENConfig> {
     pub tree_component: TreeComponentConfig,
     pub via_secrets: Option<ViaL1Secrets>,
     pub via_genesis_config: Option<ViaGenesisConfig>,
+    pub via_bridge_config: Option<ViaBridgeConfig>,
+    pub via_btc_client_config: Option<ViaBtcClientConfig>,
+    pub via_btc_watch_config: Option<ViaBtcWatchConfig>,
     pub remote: R,
 }
 
@@ -1200,6 +1198,15 @@ impl ExternalNodeConfig<()> {
             ),
             via_genesis_config: Some(
                 ViaGenesisConfig::from_env().context("Failed to load VIA genesis config")?,
+            ),
+            via_bridge_config: Some(
+                ViaBridgeConfig::from_env().context("Failed to load VIA bridge config")?,
+            ),
+            via_btc_client_config: Some(
+                ViaBtcClientConfig::from_env().context("Failed to load VIA BTC client config")?,
+            ),
+            via_btc_watch_config: Some(
+                ViaBtcWatchConfig::from_env().context("Failed to load VIA BTC watch config")?,
             ),
             remote: (),
         })
@@ -1257,6 +1264,9 @@ impl ExternalNodeConfig<()> {
             tree_component,
             via_secrets: None,
             via_genesis_config: None,
+            via_bridge_config: None,
+            via_btc_client_config: None,
+            via_btc_watch_config: None,
             remote: (),
         })
     }
@@ -1281,6 +1291,9 @@ impl ExternalNodeConfig<()> {
             api_component: self.api_component,
             via_secrets: self.via_secrets,
             via_genesis_config: self.via_genesis_config,
+            via_bridge_config: self.via_bridge_config,
+            via_btc_client_config: self.via_btc_client_config,
+            via_btc_watch_config: self.via_btc_watch_config,
             remote,
         })
     }
@@ -1302,6 +1315,9 @@ impl ExternalNodeConfig {
             },
             via_secrets: None,
             via_genesis_config: None,
+            via_bridge_config: None,
+            via_btc_client_config: None,
+            via_btc_watch_config: None,
             tree_component: TreeComponentConfig { api_port: None },
         }
     }
@@ -1346,7 +1362,6 @@ impl From<&ExternalNodeConfig> for InternalApiConfig {
             filters_disabled: config.optional.filters_disabled,
             dummy_verifier: config.remote.dummy_verifier,
             l1_batch_commit_data_generator_mode: config.remote.l1_batch_commit_data_generator_mode,
-            via_bridge_address: config.remote.via_bridge_address.clone(),
             via_network: config.remote.via_network,
         }
     }

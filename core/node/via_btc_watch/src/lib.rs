@@ -45,6 +45,7 @@ impl BtcWatch {
         pool: ConnectionPool<Core>,
         _bridge_address: BitcoinAddress,
         zk_agreement_threshold: f64,
+        is_main_node: bool,
     ) -> anyhow::Result<Self> {
         let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
         let state = Self::initialize_state(
@@ -55,26 +56,28 @@ impl BtcWatch {
         .await?;
         tracing::info!("initialized state: {state:?}");
 
-        let protocol_semantic_version = storage
-            .protocol_versions_dal()
-            .latest_semantic_version()
-            .await
-            .expect("Failed to load the latest protocol semantic version")
-            .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
-
-        drop(storage);
-
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
 
         // Only build message processors that match the actor role:
-        let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
-            Box::new(GovernanceUpgradesEventProcessor::new(
-                btc_client,
-                protocol_semantic_version,
-            )),
+        let mut message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(L1ToL2MessageProcessor::default()),
             Box::new(VotableMessageProcessor::new(zk_agreement_threshold)),
         ];
+
+        if is_main_node {
+            let protocol_semantic_version = storage
+                .protocol_versions_dal()
+                .latest_semantic_version()
+                .await
+                .expect("Failed to load the latest protocol semantic version")
+                .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
+
+            message_processors.push(Box::new(GovernanceUpgradesEventProcessor::new(
+                btc_client,
+                protocol_semantic_version,
+            )));
+        }
+        drop(storage);
 
         Ok(Self {
             btc_watch_config,

@@ -1,13 +1,12 @@
 //! This module provides a "builder" for the external node,
 //! as well as an interface to run the node with the specified components.
 
-use anyhow::Context as _;
+use anyhow::{anyhow, Context as _};
 use zksync_block_reverter::NodeRole;
 use zksync_config::{
     configs::{
         api::{HealthCheckConfig, MerkleTreeApiConfig},
         database::MerkleTreeMode,
-        via_btc_client::ViaBtcClientConfig,
         via_wallets::ViaWallets,
         DatabaseSecrets,
     },
@@ -41,9 +40,10 @@ use zksync_node_framework::{
         sync_state_updater::SyncStateUpdaterLayer,
         tree_data_fetcher::TreeDataFetcherLayer,
         via_btc_client::BtcClientLayer,
+        via_btc_watch::BtcWatchLayer,
         via_consistency_checker::ViaConsistencyCheckerLayer,
-        via_indexer::ViaIndexerLayer,
         via_main_node_fee_params_fetcher::ViaMainNodeFeeParamsFetcherLayer,
+        via_node_storage_init::ViaNodeStorageInitializerLayer,
         via_validate_chain_ids::ViaValidateChainIdsLayer,
         web3_api::{
             caches::MempoolCacheLayer,
@@ -259,29 +259,6 @@ impl ExternalNodeBuilder {
             self.config.required.l2_chain_id,
         );
         self.node.add_layer(layer);
-        Ok(self)
-    }
-
-    fn add_btc_client_layer(mut self) -> anyhow::Result<Self> {
-        let via_btc_client_config = ViaBtcClientConfig {
-            network: self.config.remote.via_network.to_string(),
-            external_apis: vec![],
-            fee_strategies: vec![],
-            use_rpc_for_fee_rate: None,
-        };
-        let secrets = self.config.via_secrets.clone().unwrap();
-
-        self.node.add_layer(BtcClientLayer::new(
-            via_btc_client_config,
-            secrets,
-            ViaWallets::default(),
-            None,
-        ));
-        Ok(self)
-    }
-
-    fn add_btc_indexer_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(ViaIndexerLayer::new());
         Ok(self)
     }
 
@@ -516,6 +493,69 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
+    fn add_btc_client_layer(mut self) -> anyhow::Result<Self> {
+        let via_btc_client_config = self
+            .config
+            .via_btc_client_config
+            .clone()
+            .ok_or_else(|| anyhow!("via_btc_client_config is required"))?;
+        let secrets = self
+            .config
+            .via_secrets
+            .clone()
+            .ok_or_else(|| anyhow!("VIA secrets is required"))?;
+
+        self.node.add_layer(BtcClientLayer::new(
+            via_btc_client_config,
+            secrets,
+            ViaWallets::default(),
+            None,
+        ));
+        Ok(self)
+    }
+
+    fn add_init_node_storage_layer(mut self) -> anyhow::Result<Self> {
+        let via_genesis_config = self
+            .config
+            .via_genesis_config
+            .clone()
+            .ok_or_else(|| anyhow!("via_genesis_config is required"))?;
+
+        self.node
+            .add_layer(ViaNodeStorageInitializerLayer::new(via_genesis_config));
+
+        Ok(self)
+    }
+
+    fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
+        let via_bridge_config = self
+            .config
+            .via_bridge_config
+            .clone()
+            .ok_or_else(|| anyhow!("via_bridge_config is required"))?;
+
+        let via_btc_client_config = self
+            .config
+            .via_btc_client_config
+            .clone()
+            .ok_or_else(|| anyhow!("via_btc_client_config is required"))?;
+
+        let via_btc_watch_config = self
+            .config
+            .via_btc_watch_config
+            .clone()
+            .ok_or_else(|| anyhow!("via_btc_watch_config is required"))?;
+
+        self.node.add_layer(BtcWatchLayer::new(
+            via_bridge_config,
+            via_btc_client_config,
+            via_btc_watch_config,
+            false,
+        ));
+
+        Ok(self)
+    }
+
     pub fn build(mut self, mut components: Vec<Component>) -> anyhow::Result<ZkStackService> {
         // Add "base" layers
         self = self
@@ -601,7 +641,8 @@ impl ExternalNodeBuilder {
                         .add_state_keeper_layer()?
                         .add_consensus_layer()?
                         .add_pruning_layer()?
-                        .add_btc_indexer_layer()?
+                        .add_init_node_storage_layer()?
+                        .add_btc_watcher_layer()?
                         .add_consistency_checker_layer()?
                         .add_commitment_generator_layer()?
                         .add_batch_status_updater_layer()?
