@@ -26,20 +26,28 @@ on:
           - proof-fri-gpu-compressor
 
 jobs:
+  setup-components:
+    runs-on: [self-hosted, cpu]
+    outputs:
+      components: ${{ steps.set-components.outputs.components }}
+    steps:
+      - id: set-components
+        run: |
+          ALL='["witness-generator","prover-gpu-fri","witness-vector-generator","prover-fri-gateway","prover-job-monitor","proof-fri-gpu-compressor"]'
+          
+          if [ "${{ github.event.inputs.component }}" = "all" ]; then
+            echo "components=$ALL" >> $GITHUB_OUTPUT
+          else
+            echo "components=[\"${{ github.event.inputs.component }}\"]" >> $GITHUB_OUTPUT
+          fi
+
   build-and-push:
+    needs: setup-components
     name: Build and Push Docker Images
     runs-on: [self-hosted, cpu]
     strategy:
       matrix:
-        component:
-          - witness-generator
-          - prover-gpu-fri
-          - witness-vector-generator
-          - prover-fri-gateway
-          - prover-job-monitor
-          - proof-fri-gpu-compressor
-      # Only build selected component(s)
-      max-parallel: 3
+        component: ${{ fromJSON(needs.setup-components.outputs.components) }}
 
     steps:
       - name: Set reference and fetch repo
@@ -65,15 +73,6 @@ jobs:
           fi
           echo "DOCKER_TAG=$TAG" >> $GITHUB_ENV
 
-      - name: Skip matrix components if not selected
-        if: ${{ github.event.inputs.component != 'all' && matrix.component != github.event.inputs.component }}
-        run: echo "Skipping ${{ matrix.component }}" && exit 0
-
-      - name: download CRS for GPU compressor
-        if: matrix.component == 'proof-fri-gpu-compressor'
-        run: |
-            run_retried curl -LO https://storage.googleapis.com/matterlabs-setup-keys-us/setup-keys/setup_2\^24.key
-
       - name: Setup env
         run: |
           echo VIA_HOME=$(pwd) >> $GITHUB_ENV
@@ -81,6 +80,11 @@ jobs:
           echo $(pwd)/bin >> $GITHUB_PATH
           echo CI=1 >> .env
           echo IN_DOCKER=1 >> .env
+
+      - name: download CRS for GPU compressor
+        if: matrix.component == 'proof-fri-gpu-compressor'
+        run: |
+          run_retried curl -LO https://storage.googleapis.com/matterlabs-setup-keys-us/setup-keys/setup_2\^24.key
 
       - name: Build image
         run: |
