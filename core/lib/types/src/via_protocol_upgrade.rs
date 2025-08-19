@@ -106,10 +106,11 @@ impl ViaProtocolUpgrade {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use hex::FromHex;
     use zksync_basic_types::{Address, H256};
     use zksync_contracts::deployer_contract;
+
+    use super::*;
 
     #[test]
     fn test_get_calldata_encoding() {

@@ -1,0 +1,91 @@
+name: Build prover components
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git reference (branch, commit, or tag) to build from"
+        type: string
+        required: false
+      image_tag_suffix:
+        description: "Optional suffix to override tag name generation"
+        type: string
+        required: false
+      component:
+        description: "Which component to build (choose one or 'all')"
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - witness-generator
+          - prover-gpu-fri
+          - witness-vector-generator
+          - prover-fri-gateway
+          - prover-job-monitor
+          - proof-fri-gpu-compressor
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: [self-hosted, cpu]
+    strategy:
+      matrix:
+        component:
+          - witness-generator
+          - prover-gpu-fri
+          - witness-vector-generator
+          - prover-fri-gateway
+          - prover-job-monitor
+          - proof-fri-gpu-compressor
+      # Only build selected component(s)
+      max-parallel: 3
+
+    steps:
+      - name: Set reference and fetch repo
+        run: |
+          if [[ -n "${{ github.event.inputs.ref }}" ]]; then
+            echo "REF=${{ github.event.inputs.ref }}" >> $GITHUB_ENV
+          else
+            REF="$(git rev-parse --abbrev-ref HEAD)"
+            echo "REF=$REF" >> $GITHUB_ENV
+          fi  
+
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ env.REF }}
+          submodules: 'recursive'
+
+      - name: Determine Docker tag
+        run: |
+          if [[ -n "${{ github.event.inputs.image_tag_suffix }}" ]]; then
+            TAG="${{ github.event.inputs.image_tag_suffix }}"
+          else
+            TAG=$(git rev-parse --short HEAD)
+          fi
+          echo "DOCKER_TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Skip matrix components if not selected
+        if: ${{ github.event.inputs.component != 'all' && matrix.component != github.event.inputs.component }}
+        run: echo "Skipping ${{ matrix.component }}" && exit 0
+
+      - name: Setup env
+        run: |
+          echo VIA_HOME=$(pwd) >> $GITHUB_ENV
+          echo CI=1 >> $GITHUB_ENV
+          echo $(pwd)/bin >> $GITHUB_PATH
+          echo CI=1 >> .env
+          echo IN_DOCKER=1 >> .env
+
+      - name: Build image
+        run: |
+          docker buildx build \
+            -t ${{ matrix.component }}:${{ env.DOCKER_TAG }} \
+            -f docker/${{ matrix.component }}/Dockerfile .
+
+      - name: Publish image to registry
+        run: |
+          docker tag ${{ matrix.component }}:${{ env.DOCKER_TAG }} \
+            europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.component }}:${{ env.DOCKER_TAG }}
+          docker push europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.component }}:${{ env.DOCKER_TAG }}
+          echo "Image: europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.component }}:${{ env.DOCKER_TAG }}"
