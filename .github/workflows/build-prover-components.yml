@@ -69,6 +69,11 @@ jobs:
         if: ${{ github.event.inputs.component != 'all' && matrix.component != github.event.inputs.component }}
         run: echo "Skipping ${{ matrix.component }}" && exit 0
 
+      - name: download CRS for GPU compressor
+        if: matrix.component == 'proof-fri-gpu-compressor'
+        run: |
+            run_retried curl -LO https://storage.googleapis.com/matterlabs-setup-keys-us/setup-keys/setup_2\^24.key
+
       - name: Setup env
         run: |
           echo VIA_HOME=$(pwd) >> $GITHUB_ENV
