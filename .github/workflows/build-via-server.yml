@@ -54,7 +54,7 @@ jobs:
 
       - name: Build image
         run: |
-          docker buildx build -t via-server:${{ env.DOCKER_TAG }} -f docker/server/Dockerfile .       
+          docker buildx build -t via-server:${{ env.DOCKER_TAG }} -f docker/via-server/Dockerfile .       
 
       - name: Publish image to registry
         run: | 
