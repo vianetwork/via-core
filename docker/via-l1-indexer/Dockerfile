@@ -17,7 +17,6 @@ ENV PATH=$PATH:/usr/local/bin
 
 EXPOSE 6060
 
-ARG PROTOCOL_VERSION=26
 COPY --from=builder /usr/src/via/target/release/via_indexer_bin /usr/bin/via_indexer
 
 ENTRYPOINT ["via_indexer"]
