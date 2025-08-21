@@ -10,10 +10,6 @@ on:
         description: "Optional suffix to override tag name generation"
         type: string
         required: false
-      protocol_version:
-        description: "Protocol version of verifier keys. If not set, the default value is taken from Dockerfile"
-        type: string
-        required: false
 
 jobs:
   build-and-push:
@@ -51,20 +47,9 @@ jobs:
           echo CI=1 >> .env
           echo IN_DOCKER=1 >> .env
 
-      - name: Build contracts
-        run: |
-          via
-          yarn l2-contracts build
-          yarn workspace system-contracts build
-
       - name: Build image
         run: |
-          BUILD_ARGS=""
-          if [[ -n "${{ inputs.protocol_version }}" ]]; then
-            BUILD_ARGS="--build-arg PROTOCOL_VERSION=${{ inputs.protocol_version }}"
-          fi
-          
-          docker buildx build -t via-verifier:${{ env.DOCKER_TAG }} -f docker/via-verifier/Dockerfile $BUILD_ARGS .       
+          docker buildx build -t via-verifier:${{ env.DOCKER_TAG }} -f docker/via-verifier/Dockerfile .       
 
       - name: Publish image to registry
         run: | 
