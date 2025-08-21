@@ -218,6 +218,13 @@ impl ViaVerifier {
                     .delete_invalid_votable_transactions_if_exists()
                     .await?;
 
+                if let Some(upgrade_tx_hash) = upgrade_tx_hash_opt {
+                    transaction
+                        .via_protocol_versions_dal()
+                        .mark_upgrade_as_executed(upgrade_tx_hash.as_bytes())
+                        .await?;
+                }
+
                 METRICS.last_valid_l1_batch.set(l1_batch_number as usize);
             } else {
                 METRICS.last_invalid_l1_batch.set(l1_batch_number as usize);
@@ -246,10 +253,7 @@ impl ViaVerifier {
                 if log.sender == H160::from_str(L2_BOOTLOADER_CONTRACT_ADDR)?
                     && log.key == upgrade_tx_hash
                 {
-                    storage
-                        .via_protocol_versions_dal()
-                        .mark_upgrade_as_executed(upgrade_tx_hash.as_bytes())
-                        .await?;
+                    tracing::info!("Found upgrade transaction in pubdata: {}", upgrade_tx_hash);
                     return Ok(Some(upgrade_tx_hash));
                 }
             }

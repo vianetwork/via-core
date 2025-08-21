@@ -266,7 +266,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
             "#,
             upgrade_tx_hash
         )
-        .instrument("get_in_progress_upgrade_tx_hash")
+        .instrument("mark_upgrade_as_executed")
         .fetch_optional(self.storage)
         .await?;
         Ok(())
