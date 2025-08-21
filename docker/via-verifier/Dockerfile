@@ -17,9 +17,7 @@ ENV PATH=$PATH:/usr/local/bin
 
 EXPOSE 6060
 
-ARG PROTOCOL_VERSION=27
-COPY --from=builder /usr/src/via/via_verifier/lib/via_verification/keys/protocol_version/${PROTOCOL_VERSION}/scheduler_key.json \
-                    /keys/protocol_version/${PROTOCOL_VERSION}/scheduler_key.json
+COPY --from=builder /usr/src/via/via_verifier/lib/via_verification/keys/protocol_version /keys/protocol_version
 ENV VIA_VK_KEY_PATH=/keys
 
 COPY --from=builder /usr/src/via/target/release/via_verifier /usr/bin
