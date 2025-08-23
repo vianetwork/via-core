@@ -8,6 +8,15 @@ use bitcoin::{policy::MAX_STANDARD_TX_WEIGHT, Address, TapNodeHash};
 use serde::{Deserialize, Serialize};
 use zksync_basic_types::via_roles::ViaNodeRole;
 
+use crate::{
+    configs::{
+        api::HealthCheckConfig, chain::CircuitBreakerConfig, via_bridge::ViaBridgeConfig,
+        via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig,
+        via_secrets::ViaSecrets, via_wallets::ViaWallets, ObservabilityConfig, PrometheusConfig,
+    },
+    GenesisConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
+};
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ViaVerifierConfig {
     /// The verifier role.
@@ -89,4 +98,23 @@ impl ViaVerifierConfig {
         }
         None
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ViaGeneralVerifierConfig {
+    pub genesis_config: GenesisConfig,
+    pub via_bridge_config: ViaBridgeConfig,
+    pub via_genesis_config: ViaGenesisConfig,
+    pub via_btc_client_config: ViaBtcClientConfig,
+    pub via_btc_watch_config: ViaBtcWatchConfig,
+    pub via_btc_sender_config: ViaBtcSenderConfig,
+    pub via_celestia_config: ViaCelestiaConfig,
+    pub via_verifier_config: ViaVerifierConfig,
+    pub observability_config: ObservabilityConfig,
+    pub health_check: HealthCheckConfig,
+    pub prometheus_config: PrometheusConfig,
+    pub postgres_config: PostgresConfig,
+    pub circuit_breaker_config: CircuitBreakerConfig,
+    pub secrets: ViaSecrets,
+    pub wallets: ViaWallets,
 }

@@ -5,7 +5,7 @@ use axum::async_trait;
 use bitcoin::{
     hashes::Hash,
     hex::{Case, DisplayHex},
-    Amount, OutPoint, TxOut, Txid,
+    Address, Amount, OutPoint, TxOut, Txid,
 };
 use indexmap::IndexMap;
 use via_btc_client::traits::Serializable;
@@ -14,7 +14,7 @@ use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::ViaVerifierConfig;
-use zksync_types::H256;
+use zksync_types::{via_wallet::SystemWallets, H256};
 
 use crate::{traits::ISession, types::SessionOperation, utils::h256_to_txid};
 
@@ -72,7 +72,13 @@ impl ISession for WithdrawalSession {
                 (index, unsigned_txs)
             } else {
                 let (index, unsigned_txs) = self
-                    .create_unsigned_txs(withdrawals_to_process, proof_txid, None, None)
+                    .create_unsigned_txs(
+                        withdrawals_to_process,
+                        proof_txid,
+                        None,
+                        None,
+                        self.get_bridget_address().await?,
+                    )
                     .await
                     .map_err(|e| {
                         anyhow::format_err!("Invalid unsigned tx for batch {l1_batch_number}: {e}")
@@ -318,6 +324,7 @@ impl WithdrawalSession {
         proof_txid: Txid,
         default_fee_rate: Option<u64>,
         default_available_utxos: Option<Vec<(OutPoint, TxOut)>>,
+        bridge_address: Address,
     ) -> anyhow::Result<(usize, Vec<UnsignedBridgeTx>)> {
         // Group withdrawals by address and sum amounts
         let grouped_withdrawals = WithdrawalRequest::group_withdrawals_by_address(withdrawals)?;
@@ -341,6 +348,7 @@ impl WithdrawalSession {
                 default_fee_rate,
                 default_available_utxos,
                 self.verifier_config.max_tx_weight(),
+                bridge_address,
             )
             .await?;
 
@@ -385,6 +393,7 @@ impl WithdrawalSession {
                 proof_txid,
                 Some(used_fee_rate),
                 Some(selected_utxos),
+                self.get_bridget_address().await?,
             )
             .await?;
 
@@ -506,5 +515,21 @@ impl WithdrawalSession {
             .get_votable_transaction_id(proof_txid)
             .await?;
         Ok(votable_tx_id)
+    }
+
+    async fn get_bridget_address(&self) -> anyhow::Result<Address> {
+        let Some(system_wallets_map) = self
+            .master_connection_pool
+            .connection()
+            .await?
+            .via_wallet_dal()
+            .get_system_wallets_raw()
+            .await?
+        else {
+            anyhow::bail!("Error load system wallets");
+        };
+
+        let system_wallets = SystemWallets::try_from(system_wallets_map)?;
+        Ok(system_wallets.bridge)
     }
 }

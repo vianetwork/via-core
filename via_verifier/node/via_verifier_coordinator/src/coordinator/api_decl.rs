@@ -1,7 +1,6 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use axum::middleware;
-use bitcoin::Address;
 use tokio::sync::RwLock;
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, timeout::TimeoutLayer};
@@ -34,13 +33,10 @@ impl RestApi {
         master_connection_pool: ConnectionPool<Verifier>,
         btc_client: Arc<dyn BitcoinOps>,
         withdrawal_client: WithdrawalClient,
-        bridge_address: Address,
         verifiers_pub_keys: Vec<String>,
-        required_signers: usize,
     ) -> anyhow::Result<Self> {
         let state = ViaWithdrawalState {
             signing_session: Arc::new(RwLock::new(SigningSession::default())),
-            required_signers,
             verifiers_pub_keys: verifiers_pub_keys
                 .iter()
                 .map(|s| bitcoin::secp256k1::PublicKey::from_str(s).unwrap())
@@ -49,8 +45,7 @@ impl RestApi {
             session_timeout: config.session_timeout,
         };
 
-        let transaction_builder =
-            Arc::new(TransactionBuilder::new(btc_client.clone(), bridge_address)?);
+        let transaction_builder = Arc::new(TransactionBuilder::new(btc_client.clone())?);
 
         let withdrawal_session = WithdrawalSession::new(
             config.clone(),

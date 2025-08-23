@@ -11,8 +11,6 @@ const DEFAULT_CAPACITY: usize = 100;
 pub struct UtxoManager {
     /// Btc client
     btc_client: Arc<dyn BitcoinOps>,
-    /// The wallet address
-    address: Address,
     /// The transactions executed by the wallet
     context: Arc<RwLock<VecDeque<Transaction>>>,
     /// The minimum amount to merge utxos
@@ -24,22 +22,23 @@ pub struct UtxoManager {
 impl UtxoManager {
     pub fn new(
         btc_client: Arc<dyn BitcoinOps>,
-        address: Address,
         minimum_amount: Amount,
         merge_limit: usize,
     ) -> Self {
         UtxoManager {
             btc_client,
-            address,
             context: Arc::new(RwLock::new(VecDeque::with_capacity(DEFAULT_CAPACITY))),
             minimum_amount,
             merge_limit,
         }
     }
 
-    pub async fn get_available_utxos(&self) -> anyhow::Result<Vec<(OutPoint, TxOut)>> {
+    pub async fn get_available_utxos(
+        &self,
+        address: Address,
+    ) -> anyhow::Result<Vec<(OutPoint, TxOut)>> {
         // fetch utxos from client
-        let mut utxos = self.btc_client.fetch_utxos(&self.address).await?;
+        let mut utxos = self.btc_client.fetch_utxos(&address).await?;
         let context = self.context.read().await;
 
         {
@@ -53,7 +52,7 @@ impl UtxoManager {
         for tx in context.iter() {
             // Add the output utxos to the list
             for (i, out) in tx.output.iter().enumerate() {
-                if out.script_pubkey == self.address.script_pubkey() {
+                if out.script_pubkey == address.script_pubkey() {
                     let outpoint = OutPoint {
                         txid: tx.compute_txid(),
                         vout: i as u32,
@@ -110,9 +109,12 @@ impl UtxoManager {
         Ok(selected)
     }
 
-    pub async fn get_utxos_to_merge(&self) -> anyhow::Result<Vec<(OutPoint, TxOut)>> {
+    pub async fn get_utxos_to_merge(
+        &self,
+        bridge_address: Address,
+    ) -> anyhow::Result<Vec<(OutPoint, TxOut)>> {
         let mut utxos_to_merge = Vec::new();
-        let available_utxos = self.get_available_utxos().await?;
+        let available_utxos = self.get_available_utxos(bridge_address).await?;
 
         // If the amount is greater than the minimum amount to merge
         for (outpoint, txout) in available_utxos.iter() {
@@ -218,8 +220,8 @@ mod tests {
         config.set_utxos(utxos.clone());
 
         let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, bridge_address, Amount::ZERO, 100);
-        let utxos_out = manager.get_available_utxos().await.unwrap();
+        let manager = UtxoManager::new(client, Amount::ZERO, 100);
+        let utxos_out = manager.get_available_utxos(bridge_address).await.unwrap();
 
         assert_eq!(utxos, utxos_out);
     }
@@ -253,7 +255,7 @@ mod tests {
         config.set_utxos(utxos.clone());
 
         let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, bridge_address, Amount::from_sat(500), 100);
+        let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
         let utxos_out = manager.get_utxos_to_merge().await.unwrap();
 
         assert_eq!(utxos, utxos_out);
@@ -289,7 +291,7 @@ mod tests {
 
         let client = Arc::new(MockBitcoinOps::new(config));
         let merge_limit = 2;
-        let manager = UtxoManager::new(client, bridge_address, Amount::from_sat(0), merge_limit);
+        let manager = UtxoManager::new(client, Amount::from_sat(0), merge_limit);
         let utxos_out = manager.get_utxos_to_merge().await.unwrap();
 
         assert_eq!(utxos_out.len(), merge_limit);
@@ -334,7 +336,7 @@ mod tests {
         config.set_utxos(utxos.clone());
 
         let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, bridge_address, Amount::from_sat(500), 100);
+        let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
         let utxos_out = manager.get_utxos_to_merge().await.unwrap();
         let expected_utxos = vec![utxos[1].clone(), utxos[2].clone()];
         assert_eq!(expected_utxos, utxos_out);
@@ -357,7 +359,7 @@ mod tests {
         config.set_utxos(utxos.clone());
 
         let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, bridge_address, Amount::from_sat(500), 100);
+        let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
         let utxos_out = manager.get_utxos_to_merge().await.unwrap();
         let expected_utxos: Vec<(OutPoint, TxOut)> = vec![];
         assert_eq!(expected_utxos, utxos_out);
@@ -384,7 +386,7 @@ mod tests {
         config.set_tx_confirmation(true);
 
         let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, bridge_address.clone(), Amount::from_sat(500), 100);
+        let manager = UtxoManager::new(client.clone(), Amount::from_sat(500), 100);
 
         //--------------------------------------------------------------------
         // Use the first utxo
@@ -413,7 +415,7 @@ mod tests {
 
         manager.insert_transaction(unsigned_tx.clone()).await;
 
-        let utxos_out = manager.get_available_utxos().await.unwrap();
+        let utxos_out = manager.get_available_utxos(bridge_address).await.unwrap();
         let expected_utxos: Vec<(OutPoint, TxOut)> = vec![(outpoint, outputs[0].clone())];
         assert_eq!(expected_utxos, utxos_out);
 
@@ -456,7 +458,7 @@ mod tests {
 
         manager.insert_transaction(unsigned_tx.clone()).await;
 
-        let utxos_out = manager.get_available_utxos().await.unwrap();
+        let utxos_out = manager.get_available_utxos(bridge_address).await.unwrap();
         let expected_utxos: Vec<(OutPoint, TxOut)> = vec![(outpoint, outputs[2].clone())];
         assert_eq!(expected_utxos, utxos_out);
 
@@ -516,10 +518,10 @@ mod tests {
         config.set_utxos(utxos.clone());
 
         let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, bridge_address, Amount::ZERO, 100);
+        let manager = UtxoManager::new(client, Amount::ZERO, 100);
 
         // Get available UTXOs which should be sorted
-        let sorted_utxos = manager.get_available_utxos().await.unwrap();
+        let sorted_utxos = manager.get_available_utxos(bridge_address).await.unwrap();
 
         // Verify UTXOs are sorted by value from big to small
         assert_eq!(sorted_utxos.len(), 3);

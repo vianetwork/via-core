@@ -107,9 +107,7 @@ impl Task for ViaCoordinatorApiTask {
             self.master_pool,
             self.btc_client,
             self.withdrawal_client,
-            self.via_bridge_config.bridge_address()?,
             self.via_bridge_config.verifiers_pub_keys.clone(),
-            self.via_bridge_config.required_signers,
             stop_receiver.0,
         )
         .await
