@@ -10,7 +10,10 @@ use zksync_config::{
     },
     ContractsConfig, GenesisConfig,
 };
-use zksync_core_leftovers::{temp_config_store::ViaTempConfigStore, ViaComponent, ViaComponents};
+use zksync_core_leftovers::{
+    temp_config_store::{decode_yaml_repr, ViaTempConfigStore},
+    ViaComponent, ViaComponents,
+};
 use zksync_env_config::FromEnv;
 
 mod node_builder;
@@ -73,21 +76,22 @@ impl FromStr for ComponentsToRun {
 fn main() -> anyhow::Result<()> {
     let opt = Cli::parse();
 
-    // Load configurations
-    let configs = match opt.config_path {
-        Some(_path) => {
-            return Err(anyhow::anyhow!(
-                "The Via Server does not support configuration files at this point. Please use env variables."
-            ));
+    let wallets = match opt.wallets_path {
+        None => ViaWallets::from_env()?,
+        Some(path) => {
+            let yaml =
+                std::fs::read_to_string(&path).with_context(|| path.display().to_string())?;
+            decode_yaml_repr::<zksync_protobuf_config::proto::via_wallets::ViaWallets>(&yaml)
+                .context("failed decoding wallets YAML config")?
         }
-        None => ViaTempConfigStore::general()?,
     };
 
-    let secrets = match opt.secrets_path {
-        Some(_path) => {
-            return Err(anyhow::anyhow!(
-                "The Via Server does not support configuration files at this point. Please use env variables."
-            ));
+    let secrets: ViaSecrets = match opt.secrets_path {
+        Some(path) => {
+            let yaml =
+                std::fs::read_to_string(&path).with_context(|| path.display().to_string())?;
+            decode_yaml_repr::<zksync_protobuf_config::proto::via_secrets::ViaSecrets>(&yaml)
+                .context("failed decoding secrets YAML config")?
         }
         None => ViaSecrets {
             base_secrets: Secrets {
@@ -100,6 +104,19 @@ fn main() -> anyhow::Result<()> {
         },
     };
 
+    // Load configurations
+    let configs = match opt.config_path {
+        Some(_path) => {
+            return Err(anyhow::anyhow!(
+                "The Via Server does not support configuration files at this point. Please use env variables."
+            ));
+        }
+        None => {
+            tracing::info!("Loading configs from env");
+            ViaTempConfigStore::general()?
+        }
+    };
+
     let genesis = match opt.genesis_path {
         Some(_path) => {
             return Err(anyhow::anyhow!(
@@ -107,15 +124,6 @@ fn main() -> anyhow::Result<()> {
             ));
         }
         None => GenesisConfig::from_env().context("Failed to load genesis from env")?,
-    };
-
-    let wallets = match opt.wallets_path {
-        Some(_path) => {
-            return Err(anyhow::anyhow!(
-                "The Via Server does not support configuration files at this point. Please use env variables."
-            ));
-        }
-        None => ViaWallets::from_env()?,
     };
 
     let mut contracts_config = match opt.contracts_config_path {
