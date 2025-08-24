@@ -53,10 +53,7 @@ impl ViaWithdrawalVerifier {
         withdrawal_client: WithdrawalClient,
         via_bridge_config: ViaBridgeConfig,
     ) -> anyhow::Result<Self> {
-        let transaction_builder = Arc::new(TransactionBuilder::new(
-            btc_client.clone(),
-            via_bridge_config.bridge_address()?,
-        )?);
+        let transaction_builder = Arc::new(TransactionBuilder::new(btc_client.clone())?);
 
         let withdrawal_session = WithdrawalSession::new(
             verifier_config.clone(),

@@ -26,23 +26,14 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
     pub utxo_manager: UtxoManager,
-    pub bridge_address: Address,
 }
 
 impl TransactionBuilder {
     #[instrument(skip(btc_client), target = "bitcoin_transaction_builder")]
-    pub fn new(btc_client: Arc<dyn BitcoinOps>, bridge_address: Address) -> Result<Self> {
-        let utxo_manager = UtxoManager::new(
-            btc_client.clone(),
-            bridge_address.clone(),
-            Amount::from_sat(1000),
-            128,
-        );
+    pub fn new(btc_client: Arc<dyn BitcoinOps>) -> Result<Self> {
+        let utxo_manager = UtxoManager::new(btc_client.clone(), Amount::from_sat(1000), 128);
 
-        Ok(Self {
-            utxo_manager,
-            bridge_address,
-        })
+        Ok(Self { utxo_manager })
     }
 
     #[instrument(
@@ -58,6 +49,7 @@ impl TransactionBuilder {
         default_fee_rate: Option<u64>,
         default_available_utxos: Option<Vec<(OutPoint, TxOut)>>,
         max_tx_weight: u64,
+        bridge_address: Address,
     ) -> Result<Vec<UnsignedBridgeTx>> {
         self.utxo_manager.sync_context_with_blockchain().await?;
 
@@ -65,7 +57,10 @@ impl TransactionBuilder {
         let available_utxos = if let Some(available_utxos) = default_available_utxos {
             available_utxos
         } else {
-            let available_utxos = self.utxo_manager.get_available_utxos().await?;
+            let available_utxos = self
+                .utxo_manager
+                .get_available_utxos(bridge_address.clone())
+                .await?;
             available_utxos
         };
 
@@ -85,8 +80,13 @@ impl TransactionBuilder {
                 max_tx_weight,
             )
             .await?;
-        let bridge_txs =
-            self.build_bridge_txs(&txs_metadata, fee_rate, op_return_prefix, op_return_data)?;
+        let bridge_txs = self.build_bridge_txs(
+            &txs_metadata,
+            fee_rate,
+            op_return_prefix,
+            op_return_data,
+            bridge_address,
+        )?;
 
         Ok(bridge_txs)
     }
@@ -187,6 +187,7 @@ impl TransactionBuilder {
         fee_rate: u64,
         op_return_prefix: &[u8],
         op_return_data_input: Vec<&[u8]>,
+        bridge_address: Address,
     ) -> anyhow::Result<Vec<UnsignedBridgeTx>> {
         let mut bridge_txs = vec![];
 
@@ -252,7 +253,7 @@ impl TransactionBuilder {
             if change_amount.to_sat() > 0 {
                 outputs.push(TxOut {
                     value: change_amount,
-                    script_pubkey: self.bridge_address.script_pubkey(),
+                    script_pubkey: bridge_address.script_pubkey(),
                 });
             }
 

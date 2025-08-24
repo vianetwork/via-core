@@ -92,7 +92,6 @@ impl WiringLayer for BtcWatchLayer {
             indexer,
             client,
             main_pool,
-            self.via_bridge_config.bridge_address()?,
             self.via_bridge_config.zk_agreement_threshold,
             self.is_main_node,
         )

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use bitcoin::Address;
 use tokio::sync::watch;
 use via_btc_client::traits::BitcoinOps;
 use via_verifier_dal::{ConnectionPool, Verifier};
@@ -16,9 +15,7 @@ pub async fn start_coordinator_server(
     master_connection_pool: ConnectionPool<Verifier>,
     btc_client: Arc<dyn BitcoinOps>,
     withdrawal_client: WithdrawalClient,
-    bridge_address: Address,
     verifiers_pub_keys: Vec<String>,
-    required_signers: usize,
     mut stop_receiver: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let bind_address = config.bind_addr();
@@ -27,9 +24,7 @@ pub async fn start_coordinator_server(
         master_connection_pool,
         btc_client,
         withdrawal_client,
-        bridge_address,
         verifiers_pub_keys,
-        required_signers,
     )?
     .into_router();
 

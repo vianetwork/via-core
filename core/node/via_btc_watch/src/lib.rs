@@ -7,9 +7,7 @@ use message_processors::GovernanceUpgradesEventProcessor;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
-use via_btc_client::{
-    client::BitcoinClient, indexer::BitcoinInscriptionIndexer, types::BitcoinAddress,
-};
+use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 
@@ -43,7 +41,6 @@ impl BtcWatch {
         indexer: BitcoinInscriptionIndexer,
         btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Core>,
-        _bridge_address: BitcoinAddress,
         zk_agreement_threshold: f64,
         is_main_node: bool,
     ) -> anyhow::Result<Self> {

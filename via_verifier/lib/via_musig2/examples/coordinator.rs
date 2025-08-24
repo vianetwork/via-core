@@ -72,6 +72,12 @@ struct SigningSessionResponse {
     final_signature: Option<String>, // hex-encoded final signature if present
 }
 
+fn bridge_address() -> anyhow::Result<Address> {
+    Ok(
+        Address::from_str("bcrt1pxqkh0g270lucjafgngmwv7vtgc8mk9j5y4j8fnrxm77yunuh398qfv8tqp")?
+            .require_network(Network::Regtest)?,
+    )
+}
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -88,16 +94,11 @@ async fn main() -> anyhow::Result<()> {
     let all_pubkeys = vec![public_key, other_pubkey_1, other_pubkey_2];
     let coordinator_signer = Signer::new(secret_key, 0, all_pubkeys.clone(), None)?;
 
-    // Create test bridge address
-    let bridge_address =
-        Address::from_str("bcrt1pxqkh0g270lucjafgngmwv7vtgc8mk9j5y4j8fnrxm77yunuh398qfv8tqp")?
-            .require_network(Network::Regtest)?;
-
     let state = AppState {
         signer: Arc::new(RwLock::new(coordinator_signer)),
         signing_sessions: Arc::new(RwLock::new(HashMap::new())),
         unsigned_txs: Arc::new(RwLock::new(HashMap::new())),
-        bridge_address,
+        bridge_address: bridge_address()?,
         all_pubkeys: all_pubkeys.clone(),
         num_signers: 3,
     };
@@ -452,6 +453,7 @@ async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessi
                 None,
                 None,
                 MAX_STANDARD_TX_WEIGHT as u64,
+                bridge_address()?,
             )
             .await?[0]
             .clone()
@@ -524,7 +526,7 @@ async fn create_test_withdrawal_builder(
 
     let btc_client = Arc::new(BitcoinClient::new(rpc_url, auth, config).unwrap());
 
-    let builder = TransactionBuilder::new(btc_client, bridge_address.clone())?;
+    let builder = TransactionBuilder::new(btc_client)?;
     Ok(builder)
 }
 

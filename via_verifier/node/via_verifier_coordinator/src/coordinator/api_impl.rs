@@ -100,7 +100,7 @@ impl RestApi {
 
         return ok_json(SigningSessionResponse {
             session_op: session_op_bytes,
-            required_signers: self_.state.required_signers,
+            required_signers: self_.state.verifiers_pub_keys.len(),
             received_nonces,
             received_partial_signatures,
             created_at: session.created_at,

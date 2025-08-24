@@ -1360,7 +1360,6 @@ impl ExternalNodeConfig {
 impl From<&ExternalNodeConfig> for InternalApiConfig {
     fn from(config: &ExternalNodeConfig) -> Self {
         Self {
-            via_bridge_address: "".into(),
             via_network: via_btc_client::types::BitcoinNetwork::Regtest,
             l1_chain_id: config.required.l1_chain_id,
             l2_chain_id: config.required.l2_chain_id,

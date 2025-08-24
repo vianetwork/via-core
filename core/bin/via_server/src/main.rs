@@ -13,7 +13,6 @@ use zksync_config::{
 use zksync_core_leftovers::{temp_config_store::ViaTempConfigStore, ViaComponent, ViaComponents};
 use zksync_env_config::FromEnv;
 
-mod config;
 mod node_builder;
 
 #[cfg(not(target_env = "msvc"))]
@@ -92,7 +91,7 @@ fn main() -> anyhow::Result<()> {
         }
         None => ViaSecrets {
             base_secrets: Secrets {
-                consensus: config::read_consensus_secrets().context("read_consensus_secrets()")?,
+                consensus: None,
                 database: DatabaseSecrets::from_env().ok(),
                 l1: L1Secrets::from_env().ok(),
             },
