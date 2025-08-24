@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package zksync.config.via_wallets;
+
+import "zksync/config/wallets.proto";
+
+message ViaWallet {
+  optional string address = 1; // optional
+  optional string private_key = 2; // required
+}
+
+message ViaWallets {  
+  optional config.wallets.AddressWallet fee_account = 1; // Only address required for server
+  optional ViaWallet btc_sender = 2; // Private key is required
+  optional ViaWallet vote_operator = 3; // Private key is required
+}
