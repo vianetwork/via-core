@@ -11837,7 +11837,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum",
+ "axum 0.7.9",
  "bincode",
  "thiserror",
  "tokio",
