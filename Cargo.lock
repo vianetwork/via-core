@@ -11258,6 +11258,7 @@ dependencies = [
  "rand 0.8.5",
  "secrecy",
  "serde",
+ "serde_json",
  "tracing",
  "url",
  "zksync_basic_types",

@@ -6,9 +6,12 @@ use std::fmt::Formatter;
 
 use anyhow::Context as _;
 use zksync_config::GenesisConfig;
-use zksync_contracts::{BaseSystemContracts, BaseSystemContractsHashes, SET_CHAIN_ID_EVENT};
+use zksync_contracts::{
+    hyperchain_contract, verifier_contract, BaseSystemContracts, BaseSystemContractsHashes,
+    SET_CHAIN_ID_EVENT,
+};
 use zksync_dal::{Connection, Core, CoreDal, DalError};
-use zksync_eth_client::EthInterface;
+use zksync_eth_client::{CallFunctionArgs, EthInterface};
 use zksync_merkle_tree::{domain::ZkSyncTree, TreeInstruction};
 use zksync_multivm::utils::get_max_gas_per_pubdata_byte;
 use zksync_system_constants::PRIORITY_EXPIRATION;
@@ -175,8 +178,7 @@ pub fn mock_genesis_config() -> GenesisConfig {
         l1_chain_id: L1ChainId(9),
         sl_chain_id: None,
         l2_chain_id: L2ChainId::default(),
-        recursion_scheduler_level_vk_hash: first_l1_verifier_config
-            .recursion_scheduler_level_vk_hash,
+        snark_wrapper_vk_hash: first_l1_verifier_config.snark_wrapper_vk_hash,
         fee_account: Default::default(),
         dummy_verifier: false,
         l1_batch_commit_data_generator_mode: Default::default(),
@@ -190,7 +192,7 @@ pub async fn insert_genesis_batch(
 ) -> Result<GenesisBatchParams, GenesisError> {
     let mut transaction = storage.start_transaction().await?;
     let verifier_config = L1VerifierConfig {
-        recursion_scheduler_level_vk_hash: genesis_params.config.recursion_scheduler_level_vk_hash,
+        snark_wrapper_vk_hash: genesis_params.config.snark_wrapper_vk_hash,
     };
 
     create_genesis_l1_batch(
@@ -265,6 +267,49 @@ pub async fn insert_genesis_batch(
 
 pub async fn is_genesis_needed(storage: &mut Connection<'_, Core>) -> Result<bool, GenesisError> {
     Ok(storage.blocks_dal().is_genesis_needed().await?)
+}
+
+pub async fn validate_genesis_params(
+    genesis_params: &GenesisParams,
+    query_client: &dyn EthInterface,
+    diamond_proxy_address: Address,
+) -> anyhow::Result<()> {
+    let hyperchain_abi = hyperchain_contract();
+    let verifier_abi = verifier_contract();
+
+    let packed_protocol_version = CallFunctionArgs::new("getProtocolVersion", ())
+        .for_contract(diamond_proxy_address, &hyperchain_abi)
+        .call(query_client)
+        .await?;
+
+    let protocol_version = ProtocolSemanticVersion::try_from_packed(packed_protocol_version)
+        .map_err(|err| anyhow::format_err!("Failed to unpack semver: {err}"))?;
+
+    if protocol_version != genesis_params.protocol_version() {
+        return Err(anyhow::anyhow!(
+            "Protocol version mismatch: {protocol_version} on contract, {} in config",
+            genesis_params.protocol_version()
+        ));
+    }
+
+    let verifier_address: Address = CallFunctionArgs::new("getVerifier", ())
+        .for_contract(diamond_proxy_address, &hyperchain_abi)
+        .call(query_client)
+        .await?;
+
+    let verification_key_hash: H256 = CallFunctionArgs::new("verificationKeyHash", ())
+        .for_contract(verifier_address, &verifier_abi)
+        .call(query_client)
+        .await?;
+
+    if verification_key_hash != genesis_params.config().snark_wrapper_vk_hash {
+        return Err(anyhow::anyhow!(
+            "Verification key hash mismatch: {verification_key_hash:?} on contract, {:?} in config",
+            genesis_params.config().snark_wrapper_vk_hash
+        ));
+    }
+
+    Ok(())
 }
 
 pub async fn ensure_genesis_state(
