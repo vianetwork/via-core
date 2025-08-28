@@ -8130,6 +8130,7 @@ dependencies = [
  "shivini",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "vise",
  "zkevm_test_harness",
  "zksync_config",

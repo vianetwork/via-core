@@ -8323,7 +8323,7 @@ dependencies = [
 name = "selector_generator"
 version = "0.1.0"
 dependencies = [
- "clap 4.4.6",
+ "clap 4.5.16",
  "glob",
  "serde",
  "serde_json",
