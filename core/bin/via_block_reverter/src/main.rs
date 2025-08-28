@@ -289,5 +289,6 @@ pub(crate) fn load_env_config() -> anyhow::Result<GeneralConfig> {
         external_proof_integration_api_config: ExternalProofIntegrationApiConfig::from_env().ok(),
         experimental_vm_config: ExperimentalVmConfig::from_env().ok(),
         prover_job_monitor_config: ProverJobMonitorConfig::from_env().ok(),
+        da_client_config: None,
     })
 }

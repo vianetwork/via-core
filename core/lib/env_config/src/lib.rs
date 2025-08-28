@@ -41,6 +41,8 @@ mod via_btc_watch;
 mod vm_runner;
 mod wallets;
 
+mod da_client;
+
 pub trait FromEnv: Sized {
     fn from_env() -> anyhow::Result<Self>;
 }
