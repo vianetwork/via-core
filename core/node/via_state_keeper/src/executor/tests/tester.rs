@@ -46,7 +46,7 @@ use crate::{
 /// Has sensible defaults for most tests, each of which can be overridden.
 #[derive(Debug)]
 pub(super) struct TestConfig {
-    pub(super) save_call_traces: bool,
+    pub(super) trace_calls: bool,
     pub(super) vm_gas_limit: Option<u32>,
     pub(super) validation_computational_gas_limit: u32,
     pub(super) fast_vm_mode: FastVmMode,
@@ -58,7 +58,7 @@ impl TestConfig {
 
         Self {
             vm_gas_limit: None,
-            save_call_traces: false,
+            trace_calls: false,
             validation_computational_gas_limit: config.validation_computational_gas_limit,
             fast_vm_mode,
         }
@@ -146,7 +146,7 @@ impl Tester {
         l1_batch_env: L1BatchEnv,
         system_env: SystemEnv,
     ) -> Box<dyn BatchExecutor<OwnedStorage>> {
-        let mut batch_executor = MainBatchExecutorFactory::new(self.config.save_call_traces, false);
+        let mut batch_executor = MainBatchExecutorFactory::new(false);
         batch_executor.set_fast_vm_mode(self.config.fast_vm_mode);
 
         let (_stop_sender, stop_receiver) = watch::channel(false);
