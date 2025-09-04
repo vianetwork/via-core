@@ -28,7 +28,7 @@ tower = { workspace = true }
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-bitcoin = { version = "0.32.2", features = ["serde"] }
+bitcoin.workspace = true
 secp256k1_musig2 = { package = "secp256k1", version = "0.30.0", features = [
     "rand",
 ] }
