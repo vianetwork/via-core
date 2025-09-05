@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Parser;
 use zksync_config::{
     configs::{
@@ -14,6 +15,7 @@ use zksync_config::{
     GenesisConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
     ViaVerifierConfig,
 };
+use zksync_core_leftovers::temp_config_store::decode_yaml_repr;
 use zksync_env_config::FromEnv;
 
 mod node_builder;
@@ -36,14 +38,38 @@ struct Cli {
     /// Path to the wallets config. If set, it will be used instead of env vars.
     #[arg(long)]
     wallets_path: Option<std::path::PathBuf>,
-
-    /// Path to the YAML with genesis configuration. If set, it will be used instead of env vars.
-    #[arg(long)]
-    genesis_path: Option<std::path::PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
-    // let opt = Cli::parse();
+    let opt = Cli::parse();
+
+    let wallets = match opt.wallets_path {
+        None => ViaWallets::from_env()?,
+        Some(path) => {
+            let yaml =
+                std::fs::read_to_string(&path).with_context(|| path.display().to_string())?;
+            decode_yaml_repr::<zksync_protobuf_config::proto::via_wallets::ViaWallets>(&yaml)
+                .context("failed decoding wallets YAML config")?
+        }
+    };
+
+    let secrets: ViaSecrets = match opt.secrets_path {
+        Some(path) => {
+            let yaml =
+                std::fs::read_to_string(&path).with_context(|| path.display().to_string())?;
+            decode_yaml_repr::<zksync_protobuf_config::proto::via_secrets::ViaSecrets>(&yaml)
+                .context("failed decoding secrets YAML config")?
+        }
+        None => ViaSecrets {
+            base_secrets: Secrets {
+                consensus: None,
+                database: DatabaseSecrets::from_env().ok(),
+                l1: L1Secrets::from_env().ok(),
+            },
+            via_l1: ViaL1Secrets::from_env().ok(),
+            via_da: ViaDASecrets::from_env().ok(),
+        },
+    };
 
     let via_general_verifier_config = ViaGeneralVerifierConfig {
         genesis_config: GenesisConfig::from_env()?,
@@ -59,16 +85,8 @@ fn main() -> anyhow::Result<()> {
         via_verifier_config: ViaVerifierConfig::from_env()?,
         observability_config: ObservabilityConfig::from_env()?,
         circuit_breaker_config: CircuitBreakerConfig::from_env()?,
-        secrets: ViaSecrets {
-            base_secrets: Secrets {
-                consensus: None,
-                database: DatabaseSecrets::from_env().ok(),
-                l1: L1Secrets::from_env().ok(),
-            },
-            via_l1: ViaL1Secrets::from_env().ok(),
-            via_da: ViaDASecrets::from_env().ok(),
-        },
-        wallets: ViaWallets::from_env()?,
+        secrets,
+        wallets,
     };
 
     let node_builder = node_builder::ViaNodeBuilder::new(via_general_verifier_config.clone())?;

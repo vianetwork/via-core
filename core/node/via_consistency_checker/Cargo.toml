@@ -21,8 +21,8 @@ zksync_l1_contract_interface.workspace = true
 zksync_shared_metrics.workspace = true
 zksync_types.workspace = true
 via_btc_client.workspace = true
-bitcoin = { version = "0.32.2", features = ["serde"] }
-bitcoincore-rpc = "0.19.0"
+bitcoin.workspace = true
+bitcoincore-rpc.workspace = true
 
 anyhow.workspace = true
 serde.workspace = true
