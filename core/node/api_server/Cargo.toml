@@ -53,7 +53,7 @@ tower.workspace = true
 strum = { workspace = true, features = ["derive"] }
 tower-http = { workspace = true, features = ["cors", "metrics"] }
 lru.workspace = true
-bitcoin = { version = "0.32.2", features = ["serde"] }
+bitcoin.workspace = true
 
 [dev-dependencies]
 zksync_node_genesis.workspace = true

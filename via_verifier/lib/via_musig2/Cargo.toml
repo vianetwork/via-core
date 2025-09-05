@@ -21,8 +21,8 @@ tracing-subscriber.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 reqwest.workspace = true
-bitcoincore-rpc = "0.19.0"
-bitcoin = { version = "0.32.2", features = ["serde"] }
+bitcoincore-rpc.workspace = true
+bitcoin.workspace = true
 musig2 = "0.2.0"
 secp256k1_musig2 = { package = "secp256k1", version = "0.30.0", features = [
     "rand",
@@ -45,7 +45,7 @@ via_da_clients.workspace = true
 async-trait.workspace = true
 zksync_config.workspace = true
 mockall = "0.13.0"
-bitcoincore-rpc = "0.19.0"
+bitcoincore-rpc.workspace = true
 rand = "0.8"
 clap = { workspace = true, features = ["derive"] }
 
