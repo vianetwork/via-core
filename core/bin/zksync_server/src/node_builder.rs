@@ -374,7 +374,6 @@ impl MainNodeBuilder {
                 &self.contracts_config,
                 &self.genesis_config,
                 None,
-                None,
             ),
             optional_config,
         ));
@@ -420,7 +419,6 @@ impl MainNodeBuilder {
                 &rpc_config,
                 &self.contracts_config,
                 &self.genesis_config,
-                None,
                 None,
             ),
             optional_config,

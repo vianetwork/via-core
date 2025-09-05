@@ -23,7 +23,7 @@ tracing-subscriber.workspace = true
 via_btc_client.workspace = true
 via_da_client.workspace = true
 
-bitcoin = { version = "0.32.2", features = ["serde"] }
+bitcoin.workspace = true
 serde.workspace = true
 via_verifier_types.workspace = true
 

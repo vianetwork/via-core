@@ -28,6 +28,8 @@ mod prover;
 mod pruning;
 mod secrets;
 mod snapshots_creator;
+mod via_secrets;
+mod via_wallets;
 
 mod external_price_api_client;
 mod external_proof_integration_api;
