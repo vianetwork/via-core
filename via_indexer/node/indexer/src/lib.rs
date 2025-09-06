@@ -13,7 +13,7 @@ use via_indexer_dal::{Connection, ConnectionPool, Indexer, IndexerDal};
 use zksync_config::{configs::via_bridge::ViaBridgeConfig, ViaBtcWatchConfig};
 
 use self::message_processors::MessageProcessor;
-use crate::message_processors::L1ToL2MessageProcessor;
+use crate::message_processors::{L1ToL2MessageProcessor, SystemWalletProcessor};
 
 /// Total L1 blocks to process at a time.
 pub const L1_BLOCKS_CHUNK: u32 = 10;
@@ -23,6 +23,7 @@ pub struct L1Indexer {
     config: ViaBtcWatchConfig,
     indexer: BitcoinInscriptionIndexer,
     pool: ConnectionPool<Indexer>,
+    system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
 }
 
@@ -44,6 +45,8 @@ impl L1Indexer {
 
         drop(storage);
 
+        let system_wallet_processor = Box::new(SystemWalletProcessor::new(client.clone()));
+
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(L1ToL2MessageProcessor::new(client.clone())),
             Box::new(WithdrawalProcessor::new(
@@ -56,6 +59,7 @@ impl L1Indexer {
             config,
             indexer,
             pool,
+            system_wallet_processor,
             message_processors,
         })
     }
@@ -131,10 +135,23 @@ impl L1Indexer {
             to_block = current_l1_block_number;
         }
 
-        let messages = self
+        let mut messages = self
             .indexer
             .process_blocks(last_processed_bitcoin_block + 1, to_block)
             .await?;
+
+        // Re-process blocks if system wallets were updated, since the new wallet state
+        // may change how subsequent messages are interpreted.
+        if self
+            .system_wallet_processor
+            .process_messages(storage, messages.clone(), &mut self.indexer)
+            .await?
+        {
+            messages = self
+                .indexer
+                .process_blocks(last_processed_bitcoin_block + 1, to_block)
+                .await?;
+        }
 
         for processor in self.message_processors.iter_mut() {
             processor
