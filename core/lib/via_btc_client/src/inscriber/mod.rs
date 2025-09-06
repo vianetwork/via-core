@@ -36,7 +36,7 @@ mod script_builder;
 pub mod test_utils;
 
 const CTX_REQUIRED_CONFIRMATIONS: u32 = 1;
-const FEE_RATE_CONF_TARGET: u16 = 1;
+const FEE_RATE_CONF_TARGET: u16 = 10;
 
 const COMMIT_TX_CHANGE_OUTPUT_INDEX: u32 = 0;
 const COMMIT_TX_TAPSCRIPT_OUTPUT_INDEX: u32 = 1;
