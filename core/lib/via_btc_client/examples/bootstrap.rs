@@ -65,9 +65,9 @@ async fn create_inscriber(
     let auth = NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string());
     let config = ViaBtcClientConfig {
         network: network.to_string(),
-        external_apis: vec![],
-        fee_strategies: vec![],
-        use_rpc_for_fee_rate: None,
+        external_apis: vec![format!("https://mempool.space/testnet/api/v1/fees/recommended")],
+        fee_strategies: vec![format!("fastestFee")],
+        use_rpc_for_fee_rate: Some(true),
     };
     let client = Arc::new(BitcoinClient::new(rpc_url, auth, config)?);
     Inscriber::new(client, signer_private_key, None)
