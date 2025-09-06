@@ -12,11 +12,12 @@ pub use zksync_db_connection::{
     error::{DalError, DalResult},
 };
 
-use crate::via_indexer_dal::ViaIndexerDal;
+use crate::{via_indexer_dal::ViaIndexerDal, via_wallet_dal::ViaWalletDal};
 
 pub mod models;
 pub mod via_indexer_dal;
 pub mod via_transactions_dal;
+pub mod via_wallet_dal;
 
 // This module is private and serves as a way to seal the trait.
 mod private {
@@ -31,6 +32,7 @@ where
 {
     fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a>;
     fn via_indexer_dal(&mut self) -> ViaIndexerDal<'_, 'a>;
+    fn via_wallet_dal(&mut self) -> ViaWalletDal<'_, 'a>;
 }
 
 #[derive(Clone, Debug)]
@@ -48,5 +50,9 @@ impl<'a> IndexerDal<'a> for Connection<'a, Indexer> {
 
     fn via_indexer_dal(&mut self) -> ViaIndexerDal<'_, 'a> {
         ViaIndexerDal { storage: self }
+    }
+
+    fn via_wallet_dal(&mut self) -> ViaWalletDal<'_, 'a> {
+        ViaWalletDal { storage: self }
     }
 }

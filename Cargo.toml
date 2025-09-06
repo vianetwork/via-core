@@ -118,6 +118,7 @@ members = [
     # VIA Indexer
     "via_indexer/lib/via_indexer_dal",
     "via_indexer/node/indexer",
+    "via_indexer/node/via_indexer_storage_init",
     "via_indexer/bin/indexer",
 ]
 
@@ -371,4 +372,5 @@ via_verifier_storage_init = { version = "0.1.0", path = "via_verifier/node/via_v
 
 # VIA indexer
 via_indexer = { version = "0.1.0", path = "via_indexer/node/indexer" }
+via_indexer_storage_init = { version = "0.1.0", path = "via_indexer/node/via_indexer_storage_init" }
 via_indexer_dal = { version = "0.1.0", path = "via_indexer/lib/via_indexer_dal" }
