@@ -66,6 +66,7 @@ impl Default for ViaSecrets {
                 consensus: None,
                 database: None,
                 l1: None,
+                data_availability: None,
             },
             via_l1: None,
             via_da: None,
