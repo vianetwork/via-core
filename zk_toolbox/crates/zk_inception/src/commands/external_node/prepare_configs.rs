@@ -121,6 +121,8 @@ fn prepare_configs(
             server_url: Some(args.db.full_url().into()),
             prover_url: None,
             server_replica_url: None,
+            indexer_url: None,
+            verifier_url: None,
         }),
         l1: Some(L1Secrets {
             l1_rpc_url: SensitiveUrl::from_str(&args.l1_rpc_url).context("l1_rpc_url")?,
