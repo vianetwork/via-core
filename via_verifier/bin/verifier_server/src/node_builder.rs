@@ -105,12 +105,11 @@ impl ViaNodeBuilder {
     }
 
     // VIA related layers
-    fn add_verifier_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(VerifierBtcWatchLayer::new(
-            self.configs.via_bridge_config.clone(),
-            self.configs.via_btc_client_config.clone(),
-            self.configs.via_btc_watch_config.clone(),
-        ));
+    fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(VerifierBtcWatchLayer {
+            via_bridge_config: self.configs.via_bridge_config.clone(),
+            via_btc_watch_config: self.configs.via_btc_watch_config.clone(),
+        });
         Ok(self)
     }
 
@@ -163,6 +162,7 @@ impl ViaNodeBuilder {
         let layer = ViaVerifierInitLayer {
             genesis: self.configs.genesis_config.clone(),
             via_genesis_config: self.configs.via_genesis_config.clone(),
+            via_btc_watch_config: self.configs.via_btc_watch_config.clone(),
         };
         self.node.add_layer(layer);
         Ok(self)
@@ -178,7 +178,7 @@ impl ViaNodeBuilder {
             .add_btc_client_layer()?
             .add_storage_initialization_layer()?
             .add_btc_sender_layer()?
-            .add_verifier_btc_watcher_layer()?
+            .add_btc_watcher_layer()?
             .add_via_celestia_da_client_layer()?
             .add_zkp_verification_layer()?;
 
