@@ -1,23 +1,20 @@
-use std::sync::Arc;
-
 use via_verifier_storage_init::ViaVerifierStorageInitializer;
-use zksync_config::{configs::via_consensus::ViaGenesisConfig, GenesisConfig};
+use zksync_config::{configs::via_consensus::ViaGenesisConfig, GenesisConfig, ViaBtcWatchConfig};
 
 use crate::{
     implementations::resources::{
         pools::{PoolResource, VerifierPool},
         via_btc_client::BtcClientResource,
-        via_system_wallet::ViaSystemWalletsResource,
     },
-    task::TaskKind,
     wiring_layer::{WiringError, WiringLayer},
-    FromContext, IntoContext, StopReceiver, Task, TaskId,
+    FromContext, IntoContext,
 };
 
 /// Wiring layer for via verifier initialization.
 #[derive(Debug)]
 pub struct ViaVerifierInitLayer {
     pub via_genesis_config: ViaGenesisConfig,
+    pub via_btc_watch_config: ViaBtcWatchConfig,
     pub genesis: GenesisConfig,
 }
 
@@ -30,13 +27,7 @@ pub struct Input {
 
 #[derive(Debug, IntoContext)]
 #[context(crate = crate)]
-pub struct Output {
-    #[context(task)]
-    pub initializer: ViaVerifierStorageInitializer,
-    #[context(task)]
-    pub precondition: ViaVerifierStorageInitializerPrecondition,
-    pub system_wallets_resource: ViaSystemWalletsResource,
-}
+pub struct Output {}
 
 #[async_trait::async_trait]
 impl WiringLayer for ViaVerifierInitLayer {
@@ -51,60 +42,15 @@ impl WiringLayer for ViaVerifierInitLayer {
         let pool = input.master_pool.get().await?;
         let client = input.btc_client_resource.verifier.unwrap();
 
-        let initializer =
-            ViaVerifierStorageInitializer::new(self.via_genesis_config, self.genesis, pool, client);
+        ViaVerifierStorageInitializer::new(
+            pool,
+            client,
+            self.via_genesis_config,
+            self.genesis,
+            self.via_btc_watch_config,
+        )
+        .await?;
 
-        let system_wallets =
-            ViaSystemWalletsResource(Arc::new(initializer.indexer_wallets().await.unwrap()));
-
-        let system_wallets_resource = ViaSystemWalletsResource::from(system_wallets);
-
-        let precondition = ViaVerifierStorageInitializerPrecondition(initializer.clone());
-        Ok(Output {
-            initializer,
-            precondition,
-            system_wallets_resource,
-        })
-    }
-}
-
-#[async_trait::async_trait]
-impl Task for ViaVerifierStorageInitializer {
-    fn kind(&self) -> TaskKind {
-        TaskKind::UnconstrainedOneshotTask
-    }
-
-    fn id(&self) -> TaskId {
-        "via_verifier_storage_initializer".into()
-    }
-
-    async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
-        tracing::info!("Starting the verifier storage initialization task");
-        (*self).run(stop_receiver.0).await?;
-        tracing::info!("Verifier storage initialization task completed");
-        Ok(())
-    }
-}
-
-/// Runs [`ViaVerifierStorageInitializer`] as a precondition, blocking
-/// tasks from starting until the storage is initialized.
-#[derive(Debug)]
-pub struct ViaVerifierStorageInitializerPrecondition(ViaVerifierStorageInitializer);
-
-#[async_trait::async_trait]
-impl Task for ViaVerifierStorageInitializerPrecondition {
-    fn kind(&self) -> TaskKind {
-        TaskKind::Precondition
-    }
-
-    fn id(&self) -> TaskId {
-        "via_verifier_storage_initializer_precondition".into()
-    }
-
-    async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
-        tracing::info!("Waiting for verifier storage to be initialized");
-        let result = self.0.wait_for_initialized_storage(stop_receiver.0).await;
-        tracing::info!("Verifier storage initialization precondition completed");
-        result
+        Ok(Output {})
     }
 }
