@@ -52,6 +52,7 @@ pub mod via_node_storage_init;
 pub mod via_state_keeper;
 pub mod via_validate_chain_ids;
 pub mod via_verifier_btc_watch;
+pub mod via_verifier_reorg_detector;
 pub mod via_verifier_storage_init;
 // TODO: TMP in sequencer
 pub mod via_verifier;
