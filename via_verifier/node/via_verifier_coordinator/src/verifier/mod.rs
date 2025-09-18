@@ -104,6 +104,18 @@ impl ViaWithdrawalVerifier {
         Ok(())
     }
     async fn loop_iteration(&mut self) -> Result<(), anyhow::Error> {
+        if self
+            .master_connection_pool
+            .connection()
+            .await?
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+
         self.validate_verifier_addresses().await?;
 
         if self.sync_in_progress().await? {
