@@ -11088,6 +11088,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier_reorg_detector"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitcoin",
+ "futures 0.3.30",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "via_verifier_dal",
+ "zksync_config",
+ "zksync_dal",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_verifier_storage_init"
 version = "0.1.0"
 dependencies = [
@@ -13287,6 +13305,7 @@ dependencies = [
  "via_verifier_btc_watch",
  "via_verifier_coordinator",
  "via_verifier_dal",
+ "via_verifier_reorg_detector",
  "via_verifier_storage_init",
  "via_withdrawal_client",
  "via_zk_verifier",

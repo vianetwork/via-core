@@ -1,0 +1,26 @@
+[package]
+name = "via_verifier_reorg_detector"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+zksync_dal.workspace = true
+zksync_types.workspace = true
+zksync_config.workspace = true
+
+via_btc_client.workspace = true
+via_verifier_dal.workspace = true
+
+tokio.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+futures.workspace = true
+bitcoin.workspace = true

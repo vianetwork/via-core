@@ -134,4 +134,60 @@ impl ViaTransactionsDal<'_, '_> {
 
         Ok(exists.is_some())
     }
+
+    pub async fn get_last_processed_l1_batch_number(&mut self) -> DalResult<Option<i64>> {
+        let record = sqlx::query!(
+            r#"
+            SELECT
+                MAX(l1_batch_number) AS "min_l1_batch_number"
+            FROM
+                via_transactions
+            WHERE
+                l1_batch_number IS NOT NULL
+            "#,
+        )
+        .instrument("get_last_processed_l1_batch_number")
+        .report_latency()
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(record.min_l1_batch_number)
+    }
+
+    pub async fn get_not_finalized_transactions(&mut self, l1_block_number: i64) -> DalResult<i64> {
+        let record = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(l1_block_number) AS "count!"
+            FROM
+                via_transactions
+            WHERE
+                l1_batch_number IS NULL
+                AND l1_block_number > $1
+            "#,
+            l1_block_number,
+        )
+        .instrument("get_not_finalized_transactions")
+        .report_latency()
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(record.count)
+    }
+
+    pub async fn delete_transactions(&mut self, l1_block_number: i64) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            DELETE FROM via_transactions
+            WHERE
+                l1_block_number > $1
+            "#,
+            l1_block_number,
+        )
+        .instrument("delete_transactions")
+        .execute(self.storage)
+        .await?;
+
+        Ok(())
+    }
 }

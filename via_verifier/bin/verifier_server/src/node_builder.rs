@@ -16,6 +16,7 @@ use zksync_node_framework::{
             coordinator_api::ViaCoordinatorApiLayer, verifier::ViaWithdrawalVerifierLayer,
         },
         via_verifier_btc_watch::VerifierBtcWatchLayer,
+        via_verifier_reorg_detector::ViaVerifierReorgDetectorLayer,
         via_verifier_storage_init::ViaVerifierInitLayer,
         via_zk_verification::ViaBtcProofVerificationLayer,
     },
@@ -168,6 +169,13 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_reorg_detector_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ViaVerifierReorgDetectorLayer::new(
+            self.configs.via_reorg_detector_config.clone(),
+        ));
+        Ok(self)
+    }
+
     pub fn build(mut self) -> anyhow::Result<ZkStackService> {
         self = self
             .add_sigint_handler_layer()?
@@ -176,6 +184,7 @@ impl ViaNodeBuilder {
             .add_prometheus_exporter_layer()?
             .add_pools_layer()?
             .add_btc_client_layer()?
+            .add_reorg_detector_layer()?
             .add_storage_initialization_layer()?
             .add_btc_sender_layer()?
             .add_btc_watcher_layer()?
