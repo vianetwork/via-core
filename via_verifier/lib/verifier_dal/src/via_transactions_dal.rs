@@ -17,15 +17,22 @@ impl ViaTransactionsDal<'_, '_> {
         value: i64,
         calldata: Vec<u8>,
         canonical_tx_hash: H256,
+        l1_block_number: i64,
     ) -> DalResult<()> {
         sqlx::query!(
             r#"
             INSERT INTO
-            via_transactions (
-                priority_id, tx_id, receiver, value, calldata, canonical_tx_hash
-            )
+                via_transactions (
+                    priority_id,
+                    tx_id,
+                    receiver,
+                    value,
+                    calldata,
+                    canonical_tx_hash,
+                    l1_block_number
+                )
             VALUES
-            ($1, $2, $3, $4, $5, $6)
+                ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (tx_id) DO NOTHING
             "#,
             priority_id,
@@ -34,6 +41,7 @@ impl ViaTransactionsDal<'_, '_> {
             value,
             calldata,
             canonical_tx_hash.as_bytes(),
+            l1_block_number,
         )
         .instrument("insert_transaction")
         .fetch_optional(self.storage)
@@ -84,17 +92,20 @@ impl ViaTransactionsDal<'_, '_> {
         &mut self,
         canonical_tx_hash: &H256,
         status: bool,
+        l1_batch_number: i64,
     ) -> DalResult<()> {
         sqlx::query!(
             r#"
             UPDATE via_transactions
             SET
-                status = $2
+                status = $2,
+                l1_batch_number = $3
             WHERE
                 canonical_tx_hash = $1
             "#,
             canonical_tx_hash.as_bytes(),
-            status
+            status,
+            l1_batch_number,
         )
         .instrument("update_transaction")
         .fetch_optional(self.storage)

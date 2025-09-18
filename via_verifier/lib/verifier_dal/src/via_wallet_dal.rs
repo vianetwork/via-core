@@ -14,6 +14,7 @@ impl ViaWalletDal<'_, '_> {
     pub async fn insert_wallets(
         &mut self,
         wallets_details: &SystemWalletsDetails,
+        l1_block_number: i64,
     ) -> DalResult<()> {
         let mut transaction = self.storage.start_transaction().await?;
 
@@ -29,14 +30,15 @@ impl ViaWalletDal<'_, '_> {
             sqlx::query!(
                 r#"
                 INSERT INTO
-                via_wallets (role, address, tx_hash)
+                    via_wallets (ROLE, address, tx_hash, l1_block_number)
                 VALUES
-                ($1, $2, $3)
-                ON CONFLICT (tx_hash, address, role) DO NOTHING
+                    ($1, $2, $3, $4)
+                ON CONFLICT (tx_hash, address, ROLE) DO NOTHING
                 "#,
                 role.to_string(),
                 addresses_str,
                 role_info.txid.to_string(),
+                l1_block_number,
             )
             .instrument("insert_wallet")
             .report_latency()
