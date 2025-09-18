@@ -15,6 +15,7 @@ use zksync_node_framework::{
         via_verifier::{
             coordinator_api::ViaCoordinatorApiLayer, verifier::ViaWithdrawalVerifierLayer,
         },
+        via_verifier_block_reverter::VerifierBlockReverterLayer,
         via_verifier_btc_watch::VerifierBtcWatchLayer,
         via_verifier_reorg_detector::ViaVerifierReorgDetectorLayer,
         via_verifier_storage_init::ViaVerifierInitLayer,
@@ -159,6 +160,13 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_block_reverter_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(VerifierBlockReverterLayer::new(
+            self.configs.via_reorg_detector_config.clone(),
+        ));
+        Ok(self)
+    }
+
     fn add_storage_initialization_layer(mut self) -> anyhow::Result<Self> {
         let layer = ViaVerifierInitLayer {
             genesis: self.configs.genesis_config.clone(),
@@ -183,6 +191,7 @@ impl ViaNodeBuilder {
             .add_circuit_breaker_checker_layer()?
             .add_prometheus_exporter_layer()?
             .add_pools_layer()?
+            .add_block_reverter_layer()?
             .add_btc_client_layer()?
             .add_reorg_detector_layer()?
             .add_storage_initialization_layer()?
