@@ -651,6 +651,15 @@ impl ViaDataAvailabilityDispatcher {
     }
 
     async fn is_rollback_required(&self, conn: &mut Connection<'_, Core>) -> anyhow::Result<bool> {
+        if conn
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
+            .is_some()
+        {
+            return Ok(true);
+        }
+
         if let Some(l1_batch_number) = conn
             .via_blocks_dal()
             .get_reverted_batch_by_verifier_network()
