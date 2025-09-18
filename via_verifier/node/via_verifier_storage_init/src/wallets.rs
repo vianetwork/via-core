@@ -63,7 +63,7 @@ impl ViaWalletsInitializer {
                 .connection()
                 .await?
                 .via_wallet_dal()
-                .insert_wallets(&indexer_wallets_details)
+                .insert_wallets(&indexer_wallets_details, state.starting_block_number as i64)
                 .await?;
 
             tracing::info!("System wallets initialized");

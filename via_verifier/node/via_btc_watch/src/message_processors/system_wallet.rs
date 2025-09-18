@@ -153,7 +153,10 @@ impl SystemWalletProcessor {
 
                     storage
                         .via_wallet_dal()
-                        .insert_wallets(&wallets_details)
+                        .insert_wallets(
+                            &wallets_details,
+                            update_bridge_msg.common.block_height as i64,
+                        )
                         .await?;
 
                     indexer.update_system_wallets(
@@ -213,7 +216,10 @@ impl SystemWalletProcessor {
 
         storage
             .via_wallet_dal()
-            .insert_wallets(&wallets_details)
+            .insert_wallets(
+                &wallets_details,
+                update_sequencer_msg.common.block_height as i64,
+            )
             .await?;
 
         indexer.update_system_wallets(Some(new_sequencer_address), None, None, None);
@@ -263,7 +269,10 @@ impl SystemWalletProcessor {
 
         storage
             .via_wallet_dal()
-            .insert_wallets(&wallets_details)
+            .insert_wallets(
+                &wallets_details,
+                update_governance_msg.common.block_height as i64,
+            )
             .await?;
 
         indexer.update_system_wallets(None, None, None, Some(new_governance_address));

@@ -23,7 +23,7 @@ mod tests {
         pool.connection()
             .await?
             .via_wallet_dal()
-            .insert_wallets(&system_wallet_map)
+            .insert_wallets(&system_wallet_map, 0)
             .await?;
 
         let mut processor = SystemWalletProcessor::new(Arc::new(test_bitcoin_client()));
@@ -66,7 +66,7 @@ mod tests {
         pool.connection()
             .await?
             .via_wallet_dal()
-            .insert_wallets(&system_wallet_map)
+            .insert_wallets(&system_wallet_map, 0)
             .await?;
 
         let mut processor = SystemWalletProcessor::new(Arc::new(test_bitcoin_client()));
@@ -108,7 +108,7 @@ mod tests {
         pool.connection()
             .await?
             .via_wallet_dal()
-            .insert_wallets(&system_wallet_map)
+            .insert_wallets(&system_wallet_map, 0)
             .await?;
 
         let mut processor = SystemWalletProcessor::new(Arc::new(test_bitcoin_client()));
@@ -168,7 +168,7 @@ mod tests {
         pool.connection()
             .await?
             .via_wallet_dal()
-            .insert_wallets(&system_wallet_map)
+            .insert_wallets(&system_wallet_map, 0)
             .await?;
 
         let mut processor = SystemWalletProcessor::new(Arc::new(test_bitcoin_client()));
@@ -221,7 +221,7 @@ mod tests {
         pool.connection()
             .await?
             .via_wallet_dal()
-            .insert_wallets(&system_wallet_map)
+            .insert_wallets(&system_wallet_map, 0)
             .await?;
 
         let mut processor = SystemWalletProcessor::new(Arc::new(test_bitcoin_client()));

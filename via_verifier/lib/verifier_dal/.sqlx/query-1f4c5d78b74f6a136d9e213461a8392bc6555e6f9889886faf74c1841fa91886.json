@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM via_votable_transactions \n            WHERE l1_batch_number > $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f4c5d78b74f6a136d9e213461a8392bc6555e6f9889886faf74c1841fa91886"
+}

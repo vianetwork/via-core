@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM via_l1_blocks\n            WHERE\n                number > $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "75b06b2b9492bc56b62253fb837c7791865e4fc15a6bb53fb95703964d91e721"
+}
