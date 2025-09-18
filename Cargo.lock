@@ -10794,6 +10794,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_main_node_reorg_detector"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitcoin",
+ "futures 0.3.30",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "zksync_config",
+ "zksync_dal",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_mempool"
 version = "0.1.0"
 dependencies = [
@@ -13262,6 +13279,7 @@ dependencies = [
  "via_indexer",
  "via_indexer_dal",
  "via_indexer_storage_init",
+ "via_main_node_reorg_detector",
  "via_musig2",
  "via_node_storage_init",
  "via_state_keeper",

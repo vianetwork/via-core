@@ -101,6 +101,7 @@ members = [
     "core/lib/via_mempool",
     "core/lib/via_test_utils",
     "core/node/via_node_storage_init",
+    "core/node/via_main_node_reorg_detector",
 
     # VIA Verifier
     "via_verifier/bin/verifier_server",
@@ -370,6 +371,7 @@ via_consistency_checker = { version = "0.1.0", path = "core/node/via_consistency
 via_mempool = { version = "0.1.0", path = "core/lib/via_mempool" }
 via_test_utils = { version = "0.1.0", path = "core/lib/via_test_utils" }
 via_node_storage_init = { version = "0.1.0", path = "core/node/via_node_storage_init" }
+via_main_node_reorg_detector = { version = "0.1.0", path = "core/node/via_main_node_reorg_detector" }
 
 # VIA Verifier
 via_withdrawal_client = { version = "0.1.0", path = "via_verifier/lib/via_withdrawal_client" }
