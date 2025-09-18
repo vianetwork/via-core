@@ -41,11 +41,13 @@ type InitSetupOptions = {
     skipEnvSetup: boolean;
     skipSubmodulesCheckout: boolean;
     runObservability: boolean;
+    profile: string;
 };
 const initSetup = async ({
     skipSubmodulesCheckout,
     skipEnvSetup,
-    runObservability
+    runObservability,
+    profile
 }: InitSetupOptions): Promise<void> => {
     await announced(`Initializing in 'Roll-up mode'}`);
     if (!skipSubmodulesCheckout) {
@@ -55,10 +57,10 @@ const initSetup = async ({
         await announced('Pulling images', docker.pull());
         await announced('Checking environment', checkEnv());
         await announced('Checking git hooks', env.gitHooks());
-        await announced('Create volumes', createVolumes());
+        await announced('Create volumes', createVolumes(profile));
         const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/l2-inits/${process.env.VIA_ENV}.init.env`);
 
-        await announced('Setting up containers', up(docker.VIA_DOCKER_COMPOSE, envFilePath));
+        await announced('Setting up containers', up(profile, docker.VIA_DOCKER_COMPOSE, envFilePath));
     }
 
     await announced('Compiling JS packages', run.yarn());
@@ -132,6 +134,7 @@ type InitDevCmdActionOptions = InitSetupOptions & {
     skipVerifier?: boolean;
     baseTokenName?: string;
     localLegacyBridgeTesting?: boolean;
+    profile?: string;
     shouldCheckPostgres: boolean; // Whether to perform `cargo sqlx prepare --check`
     mode: Mode;
 };
@@ -143,6 +146,7 @@ export const initDevCmdAction = async ({
     baseTokenName,
     runObservability,
     localLegacyBridgeTesting,
+    profile,
     shouldCheckPostgres
 }: InitDevCmdActionOptions): Promise<void> => {
     if (localLegacyBridgeTesting) {
@@ -151,7 +155,8 @@ export const initDevCmdAction = async ({
     await initSetup({
         skipEnvSetup,
         skipSubmodulesCheckout,
-        runObservability
+        runObservability,
+        profile
     });
 
     // ?
@@ -195,6 +200,8 @@ export const initCommand = new Command('init')
     .option('--base-token-name <base-token-name>', 'base token name') // ?
     // .option('--validium-mode', 'deploy contracts in Validium mode')
     .option('--run-observability', 'run observability suite')
+    .option('--skip-submodules-checkout')
+    .option('--profile <profile>', '') // docker compose profile [reorg]
     .option('--mode [type]', 'init mode', Mode.SEQUENCER)
     .option(
         '--local-legacy-bridge-testing',
