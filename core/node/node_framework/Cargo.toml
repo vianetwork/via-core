@@ -64,6 +64,7 @@ via_consistency_checker.workspace = true
 via_fee_model.workspace = true
 via_da_dispatcher.workspace = true
 via_state_keeper.workspace = true
+via_main_node_reorg_detector.workspace = true
 via_verifier_coordinator.workspace = true
 via_withdrawal_client.workspace = true
 via_verifier_dal.workspace = true

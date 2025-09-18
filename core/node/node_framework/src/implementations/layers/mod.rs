@@ -47,6 +47,7 @@ pub mod via_indexer_storage_init;
 pub mod via_l1_gas;
 pub mod via_l1_indexer;
 pub mod via_main_node_fee_params_fetcher;
+pub mod via_main_node_reorg_detector;
 pub mod via_node_storage_init;
 pub mod via_state_keeper;
 pub mod via_validate_chain_ids;
