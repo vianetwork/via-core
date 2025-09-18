@@ -52,7 +52,8 @@ impl ViaBlocksWeb3Dal<'_, '_> {
                 mb.l2_fair_gas_price,
                 mb.fair_pubdata_price,
                 l1_batches.bootloader_code_hash,
-                l1_batches.default_aa_code_hash
+                l1_batches.default_aa_code_hash,
+                l1_batches.evm_emulator_code_hash
             FROM
                 l1_batches
                 INNER JOIN mb ON TRUE
@@ -108,6 +109,7 @@ impl ViaBlocksWeb3Dal<'_, '_> {
                 miniblocks.fair_pubdata_price,
                 miniblocks.bootloader_code_hash,
                 miniblocks.default_aa_code_hash,
+                miniblocks.evm_emulator_code_hash,
                 miniblocks.protocol_version,
                 miniblocks.fee_account_address
             FROM

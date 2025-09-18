@@ -701,6 +701,7 @@ impl MessageParser {
                     version,
                     bootloader_code_hash,
                     default_account_code_hash,
+                    evm_emulator_code_hash: None,
                     recursion_scheduler_level_vk_hash,
                     system_contracts,
                 },
