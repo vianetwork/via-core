@@ -64,11 +64,6 @@ impl ViaIndexerInitializer {
             );
         }
 
-        println!(
-            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA {}",
-            is_initialized && self.btc_watch_config.restart_indexing
-        );
-
         Ok(())
     }
 }

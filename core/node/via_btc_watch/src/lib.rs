@@ -168,46 +168,4 @@ impl BtcWatch {
     fn module_name() -> &'static str {
         "via_btc_watch"
     }
-
-    async fn is_database_initialized(&self) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-
-    /// Checks if the node can safely start operating.
-    pub async fn wait_for_initialized_storage(
-        &self,
-        stop_receiver: watch::Receiver<bool>,
-    ) -> anyhow::Result<()> {
-        const POLLING_INTERVAL: Duration = Duration::from_secs(1);
-
-        // Wait until data is added to the database.
-        poll(stop_receiver.clone(), POLLING_INTERVAL, || {
-            self.is_database_initialized()
-        })
-        .await?;
-        if *stop_receiver.borrow() {
-            return Ok(());
-        }
-
-        Ok(())
-    }
-}
-
-async fn poll<F, Fut>(
-    mut stop_receiver: watch::Receiver<bool>,
-    polling_interval: Duration,
-    mut check: F,
-) -> anyhow::Result<()>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = anyhow::Result<bool>>,
-{
-    while !*stop_receiver.borrow() && !check().await? {
-        // Return value will be checked on the next iteration.
-        tokio::time::timeout(polling_interval, stop_receiver.changed())
-            .await
-            .ok();
-    }
-
-    Ok(())
 }
