@@ -104,22 +104,42 @@ impl ViaBlockReverter {
 
     /// Rolls back previously enabled DBs (Postgres + RocksDB) and the snapshot object store to a previous state.
     pub async fn roll_back(&self, last_l1_batch_to_keep: L1BatchNumber) -> anyhow::Result<()> {
+        let mut l1_block_number_to_keep = None;
+
         if !self.allow_rolling_back_executed_batches {
             let mut storage = self.connection_pool.connection().await?;
+
+            if let Some((l1_block_number, l1_batch_number)) =
+                storage.via_l1_block_dal().has_reorg_in_progress().await?
+            {
+                tracing::warn!(
+                    "Found reorg in progress at l1 block number: {} and l1 batch number: {}",
+                    l1_block_number,
+                    l1_batch_number
+                );
+
+                if last_l1_batch_to_keep.0 + 1 != l1_batch_number as u32 {
+                    anyhow::bail!(
+                        "Mismatch between reorg l1_batch_number {} and  last_l1_batch_to_keep {}",
+                        l1_batch_number - 1,
+                        last_l1_batch_to_keep.0,
+                    );
+                }
+
+                l1_block_number_to_keep = Some(l1_block_number - 1);
+            }
+
             if let Some(first_l1_batch_can_be_reverted) = storage
                 .via_blocks_dal()
                 .get_first_l1_batch_can_be_reverted()
                 .await?
             {
                 anyhow::ensure!(
-                    last_l1_batch_to_keep < first_l1_batch_can_be_reverted,
+                    last_l1_batch_to_keep >= first_l1_batch_can_be_reverted - 1,
                     "Attempt to roll back already CommitProofOnchain/executed L1 batches ; the last commited proof \
                     or finalized batch is: {:?}",
                     first_l1_batch_can_be_reverted -1
                 );
-            } else {
-                tracing::warn!("There are no L1 batches available for reversion.");
-                return Ok(());
             }
         }
 
@@ -127,7 +147,8 @@ impl ViaBlockReverter {
         self.roll_back_rocksdb_instances(last_l1_batch_to_keep)
             .await?;
         let deleted_snapshots = if self.should_roll_back_postgres {
-            self.roll_back_postgres(last_l1_batch_to_keep).await?
+            self.roll_back_postgres(last_l1_batch_to_keep, l1_block_number_to_keep)
+                .await?
         } else {
             vec![]
         };
@@ -258,6 +279,7 @@ impl ViaBlockReverter {
     async fn roll_back_postgres(
         &self,
         last_l1_batch_to_keep: L1BatchNumber,
+        l1_block_number_to_keep: Option<i64>,
     ) -> anyhow::Result<Vec<SnapshotMetadata>> {
         tracing::info!("Rolling back Postgres data");
         let mut storage = self.connection_pool.connection().await?;
@@ -332,6 +354,37 @@ impl ViaBlockReverter {
             .blocks_dal()
             .delete_l2_blocks(last_l2_block_to_keep)
             .await?;
+
+        if let Some(l1_block_number) = l1_block_number_to_keep {
+            transaction
+                .via_transactions_dal()
+                .delete_priority_txs(l1_block_number as i32)
+                .await?;
+
+            transaction
+                .via_l1_block_dal()
+                .delete_l1_blocks(l1_block_number)
+                .await?;
+
+            transaction
+                .via_l1_block_dal()
+                .delete_l1_reorg(l1_block_number)
+                .await?;
+
+            // Restart indexing from the last canonical l1 block number.
+            transaction
+                .via_indexer_dal()
+                .update_last_processed_l1_block(
+                    "via_btc_watch",
+                    std::cmp::max(0, l1_block_number - 1) as u32,
+                )
+                .await?;
+
+            transaction
+                .via_wallet_dal()
+                .delete_system_wallet(l1_block_number)
+                .await?;
+        }
 
         if self.node_role == NodeRole::Main {
             tracing::info!("Performing consensus hard fork");

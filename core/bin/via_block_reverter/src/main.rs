@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
         Some(general_config) => general_config
             .db_config
             .clone()
-            .context("Failed to find eth config")?,
+            .context("Failed to find general config")?,
         None => DBConfig::from_env().context("DBConfig::from_env()")?,
     };
 
@@ -109,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
         Some(general_config) => general_config
             .protective_reads_writer_config
             .clone()
-            .context("Failed to find eth config")?,
+            .context("Failed to find protective_reads_writer_config")?,
         None => ProtectiveReadsWriterConfig::from_env()
             .context("ProtectiveReadsWriterConfig::from_env()")?,
     };
@@ -118,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
         Some(general_config) => general_config
             .basic_witness_input_producer_config
             .clone()
-            .context("Failed to find eth config")?,
+            .context("Failed to find basic_witness_input_producer_config")?,
         None => BasicWitnessInputProducerConfig::from_env()
             .context("BasicWitnessInputProducerConfig::from_env()")?,
     };
