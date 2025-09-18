@@ -13,6 +13,7 @@ use crate::{
 #[derive(Debug)]
 pub struct L1ToL2Transaction {
     priority_id: i64,
+    l1_block_number: i64,
     tx_id: H256,
     receiver: Address,
     value: i64,
@@ -88,6 +89,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                     new_op.value,
                     new_op.calldata,
                     new_op.canonical_tx_hash,
+                    new_op.l1_block_number,
                 )
                 .await
                 .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
@@ -128,17 +130,10 @@ impl L1ToL2MessageProcessor {
             METRICS.inscriptions_processed[&InscriptionStage::Deposit]
                 .set(deposit.priority_id().0 as usize);
 
-            tracing::info!(
-                "Created L1 transaction with serial id {:?} (block {}) with deposit amount {} and tx hash {}",
-                l1_tx.common_data.serial_id,
-                l1_tx.common_data.eth_block,
-                deposit.amount,
-                l1_tx.common_data.canonical_tx_hash,
-            );
-
             return Ok(Some(L1ToL2Transaction {
                 priority_id: deposit.priority_id().0 as i64,
                 tx_id,
+                l1_block_number: msg.common.block_height as i64,
                 receiver: deposit.l2_receiver_address,
                 value: deposit.amount as i64,
                 calldata: deposit.calldata,

@@ -209,7 +209,7 @@ impl ViaVerifier {
                 for (hash, status) in deposits {
                     transaction
                         .via_transactions_dal()
-                        .update_transaction(&hash, status)
+                        .update_transaction(&hash, status, l1_batch_number)
                         .await?;
                 }
 
