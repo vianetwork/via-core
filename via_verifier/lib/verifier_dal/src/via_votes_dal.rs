@@ -859,4 +859,19 @@ impl ViaVotesDal<'_, '_> {
 
         Ok(exists.unwrap_or(false))
     }
+
+    pub async fn delete_votable_transactions(&mut self, l1_batch_number: i64) -> DalResult<()> {
+        sqlx::query_scalar!(
+            r#"
+            DELETE FROM via_votable_transactions 
+            WHERE l1_batch_number > $1
+            "#,
+            l1_batch_number
+        )
+        .instrument("delete_votable_transactions")
+        .execute(&mut self.storage)
+        .await?;
+
+        Ok(())
+    }
 }

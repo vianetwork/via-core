@@ -10991,6 +10991,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_verifier_block_reverter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitcoin",
+ "futures 0.3.30",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "via_verifier_dal",
+ "zksync_config",
+ "zksync_dal",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_verifier_btc_sender"
 version = "0.1.0"
 dependencies = [
@@ -13301,6 +13319,7 @@ dependencies = [
  "via_musig2",
  "via_node_storage_init",
  "via_state_keeper",
+ "via_verifier_block_reverter",
  "via_verifier_btc_sender",
  "via_verifier_btc_watch",
  "via_verifier_coordinator",

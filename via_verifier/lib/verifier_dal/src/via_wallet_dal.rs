@@ -82,4 +82,19 @@ impl ViaWalletDal<'_, '_> {
 
         Ok(Some(wallets))
     }
+
+    pub async fn delete_system_wallet(&mut self, l1_block_number: i64) -> DalResult<()> {
+        sqlx::query_scalar!(
+            r#"
+            DELETE FROM via_wallets 
+            WHERE l1_block_number > $1
+            "#,
+            l1_block_number
+        )
+        .instrument("delete_system_wallet")
+        .execute(&mut self.storage)
+        .await?;
+
+        Ok(())
+    }
 }
