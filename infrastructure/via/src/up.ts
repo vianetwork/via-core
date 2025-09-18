@@ -3,10 +3,14 @@ import * as utils from 'utils';
 import fs from 'fs';
 import { VIA_DOCKER_COMPOSE } from './docker';
 
-export async function up(composeFile?: string, envFilePath?: string) {
+export async function up(profile?: string, composeFile?: string, envFilePath?: string) {
     if (composeFile) {
         const envFile = envFilePath ? `--env-file ${envFilePath}` : '';
-        await utils.spawn(`docker compose ${envFile} -f ${composeFile} up -d`);
+        let profileArg = '';
+        if (profile == 'reorg') {
+            profileArg = '--profile reorg';
+        }
+        await utils.spawn(`docker compose ${envFile} -f ${composeFile} ${profileArg} up -d`);
     } else {
         await utils.spawn('docker compose up -d');
     }

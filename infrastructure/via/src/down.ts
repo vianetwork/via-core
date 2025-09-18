@@ -3,9 +3,13 @@ import * as utils from 'utils';
 import * as fs from 'fs';
 import { VIA_DOCKER_COMPOSE, BTC_EXPLORER_DOCKER_COMPOSE } from './docker';
 
-export async function down() {
-    await utils.spawn('docker compose -f ' + VIA_DOCKER_COMPOSE + ' down -v');
-    await utils.spawn('docker compose -f ' + VIA_DOCKER_COMPOSE + ' rm -s -f -v');
+export async function down(profile: string) {
+    let profileArg = '';
+    if (profile !== '') {
+        profileArg = ` --profile ${profile} `;
+    }
+    await utils.spawn('docker compose -f ' + VIA_DOCKER_COMPOSE + profileArg + ' down -v');
+    await utils.spawn('docker compose -f ' + VIA_DOCKER_COMPOSE + profileArg + ' rm -s -f -v');
 
     await utils.spawn('docker compose -f ' + BTC_EXPLORER_DOCKER_COMPOSE + ' down -v');
     await utils.spawn('docker compose -f ' + BTC_EXPLORER_DOCKER_COMPOSE + ' rm -s -f -v');
