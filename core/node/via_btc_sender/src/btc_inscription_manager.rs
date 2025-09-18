@@ -63,6 +63,15 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
+        if storage
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+
         self.update_inscription_status(storage).await?;
         self.send_new_inscription_txs(storage).await?;
         Ok(())

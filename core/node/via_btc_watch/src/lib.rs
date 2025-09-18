@@ -102,6 +102,15 @@ impl BtcWatch {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), MessageProcessorError> {
+        if storage
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+
         let last_processed_bitcoin_block = storage
             .via_indexer_dal()
             .get_last_processed_l1_block(BtcWatch::module_name())
