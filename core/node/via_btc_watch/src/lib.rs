@@ -1,7 +1,7 @@
 mod message_processors;
 mod metrics;
 
-use std::{future::Future, sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use message_processors::GovernanceUpgradesEventProcessor;
 use tokio::sync::watch;
@@ -128,9 +128,11 @@ impl BtcWatch {
             to_block = current_l1_block_number;
         }
 
+        let from_block = last_processed_bitcoin_block + 1;
+
         let mut messages = self
             .indexer
-            .process_blocks(last_processed_bitcoin_block + 1, to_block)
+            .process_blocks(from_block, to_block)
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?;
 
@@ -144,7 +146,7 @@ impl BtcWatch {
         {
             messages = self
                 .indexer
-                .process_blocks(last_processed_bitcoin_block + 1, to_block)
+                .process_blocks(from_block, to_block)
                 .await
                 .map_err(|e| MessageProcessorError::Internal(e.into()))?;
         }
@@ -161,6 +163,13 @@ impl BtcWatch {
             .update_last_processed_l1_block(BtcWatch::module_name(), to_block)
             .await
             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+
+        tracing::info!(
+            "The btc_watch processed {} blocks, from {} to {}",
+            L1_BLOCKS_CHUNK,
+            from_block,
+            to_block,
+        );
 
         Ok(())
     }
