@@ -874,4 +874,28 @@ impl ViaVotesDal<'_, '_> {
 
         Ok(())
     }
+
+    pub async fn get_parent_batch_exists_for_l1_batch(
+        &mut self,
+        l1_batch_number: i64,
+        parent_hash: &[u8],
+    ) -> DalResult<bool> {
+        let exists = sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM via_votable_transactions
+                WHERE l1_batch_number = $1
+                AND prev_l1_batch_hash = $2
+            )
+            "#,
+            l1_batch_number,
+            parent_hash
+        )
+        .instrument("get_parent_batch_exists_for_l1_batch")
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(exists.unwrap_or(false))
+    }
 }

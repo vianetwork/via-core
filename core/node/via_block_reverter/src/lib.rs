@@ -129,18 +129,22 @@ impl ViaBlockReverter {
                 l1_block_number_to_keep = Some(l1_block_number - 1);
             }
 
-            if let Some(first_l1_batch_can_be_reverted) = storage
-                .via_blocks_dal()
-                .get_first_l1_batch_can_be_reverted()
-                .await?
-            {
-                anyhow::ensure!(
-                    last_l1_batch_to_keep >= first_l1_batch_can_be_reverted - 1,
-                    "Attempt to roll back already CommitProofOnchain/executed L1 batches ; the last commited proof \
-                    or finalized batch is: {:?}",
-                    first_l1_batch_can_be_reverted -1
-                );
+            // If there is no reorg we should not revert the verified batches.
+            if l1_block_number_to_keep.is_none() {
+                if let Some(first_l1_batch_can_be_reverted) = storage
+                    .via_blocks_dal()
+                    .get_first_l1_batch_can_be_reverted()
+                    .await?
+                {
+                    anyhow::ensure!(
+                        last_l1_batch_to_keep >= first_l1_batch_can_be_reverted - 1,
+                        "Attempt to roll back already CommitProofOnchain/executed L1 batches ; the last commited proof \
+                        or finalized batch is: {:?}",
+                        first_l1_batch_can_be_reverted -1
+                    );
+                }
             }
+
         }
 
         // Tree needs to be rolled back first to keep the state recoverable

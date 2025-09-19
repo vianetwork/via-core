@@ -190,4 +190,22 @@ impl ViaTransactionsDal<'_, '_> {
 
         Ok(())
     }
+
+    pub async fn reset_transactions(&mut self, l1_batch_number: i64) -> DalResult<()> {
+        sqlx::query_scalar!(
+            r#"
+            UPDATE via_transactions SET
+                l1_batch_number = NULL,
+                status = NULL
+            WHERE
+                l1_batch_number > $1
+            "#,
+            l1_batch_number,
+        )
+        .instrument("reset_transactions")
+        .execute(self.storage)
+        .await?;
+
+        Ok(())
+    }
 }

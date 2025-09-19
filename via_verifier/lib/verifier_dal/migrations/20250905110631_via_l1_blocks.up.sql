@@ -17,6 +17,13 @@ BEGIN;
     ON via_wallets(l1_block_number);
 COMMIT;
 
+ALTER TABLE via_bridge_tx
+DROP CONSTRAINT via_bridge_tx_votable_tx_id_fkey,
+ADD CONSTRAINT via_bridge_tx_votable_tx_id_fkey
+    FOREIGN KEY ("votable_tx_id")
+    REFERENCES via_votable_transactions(id)
+    ON DELETE CASCADE;
+
 CREATE TABLE via_l1_blocks (
     "number" BIGINT UNIQUE NOT NULL,
     "hash" VARCHAR UNIQUE NOT NULL
