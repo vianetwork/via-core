@@ -4,7 +4,9 @@ use zksync_node_framework::{
     implementations::layers::{
         healtcheck_server::HealthCheckLayer, pools_layer::PoolsLayerBuilder,
         prometheus_exporter::PrometheusExporterLayer, sigint::SigintHandlerLayer,
-        via_btc_client::BtcClientLayer, via_l1_indexer::L1IndexerLayer,
+        via_btc_client::BtcClientLayer,
+        via_indexer_storage_init::ViaIndexerStorageInitializerLayer,
+        via_l1_indexer::L1IndexerLayer, via_node_storage_init::ViaNodeStorageInitializerLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
@@ -82,6 +84,14 @@ impl ViaNodeBuilder {
         self.node.add_layer(indexer_layer);
         Ok(self)
     }
+
+    fn add_init_indexer_storage_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ViaIndexerStorageInitializerLayer::new(
+            self.via_indexer_config.via_genesis_config.clone(),
+        ));
+        Ok(self)
+    }
+
     pub fn build(mut self) -> anyhow::Result<ZkStackService> {
         self = self
             .add_sigint_handler_layer()?
@@ -89,6 +99,7 @@ impl ViaNodeBuilder {
             .add_prometheus_exporter_layer()?
             .add_pools_layer()?
             .add_btc_client_layer()?
+            .add_init_indexer_storage_layer()?
             .add_l1_indexer_layer()?;
 
         Ok(self.node.build())

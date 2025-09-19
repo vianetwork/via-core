@@ -43,6 +43,7 @@ pub mod via_consistency_checker;
 pub mod via_da_dispatcher;
 pub mod via_gas_adjuster;
 pub mod via_indexer;
+pub mod via_indexer_storage_init;
 pub mod via_l1_gas;
 pub mod via_l1_indexer;
 pub mod via_main_node_fee_params_fetcher;

@@ -32,7 +32,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         storage: &mut Connection<'_, Indexer>,
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let mut deposits = Vec::new();
 
         for msg in msgs {
@@ -73,7 +73,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
             .insert_deposit_many(deposits)
             .await?;
 
-        Ok(())
+        Ok(true)
     }
 }
 

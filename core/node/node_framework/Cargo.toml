@@ -73,6 +73,7 @@ via_verifier_btc_sender.workspace = true
 via_musig2.workspace = true
 via_verifier_storage_init.workspace = true
 via_node_storage_init.workspace = true
+via_indexer_storage_init.workspace = true
 
 via_indexer_dal.workspace = true
 via_indexer.workspace = true

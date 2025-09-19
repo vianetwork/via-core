@@ -35,7 +35,7 @@ impl MessageProcessor for WithdrawalProcessor {
         storage: &mut Connection<'_, Indexer>,
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         for msg in msgs {
             if let FullInscriptionMessage::BridgeWithdrawal(withdrawal_msg) = msg {
                 let mut tx_id_bytes = withdrawal_msg.common.tx_id.as_raw_hash()[..].to_vec();
@@ -108,6 +108,6 @@ impl MessageProcessor for WithdrawalProcessor {
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 }

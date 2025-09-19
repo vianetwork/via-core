@@ -1,0 +1,23 @@
+[package]
+name = "via_indexer_storage_init"
+description = "VIA indexer storage initialization"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+zksync_config.workspace = true
+zksync_dal.workspace = true
+via_btc_client.workspace = true
+zksync_types.workspace = true
+via_indexer_dal.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
