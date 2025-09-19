@@ -42,14 +42,6 @@ For **L2 transactions**, the process is simpler:
 - The sequencer reprocesses them in upcoming batches. Some L2 transactions may fail during reprocessing. This typically
   happens if the transaction depends on a deposit that has not yet been reindexed (e.g., insufficient funds).
 
-## Risks & Mitigations
-
-The current reorg mechanism assumes that, under normal Bitcoin network conditions, a reorg will not exceed 60 blocks.
-VIA’s batch finality is approximately `72 blocks` (~12 hours at 10 minutes per block), which covers the sealing of the
-L1 batch, proof generation, and the on-chain inscription process. Any reorg that occurs within this window is managed by
-the VIA reorg mechanism, allowing the state to be rolled back. Looking ahead, VIA will enhance the reorg mechanism to
-further reduce the risk of unexpected situations.
-
 ---
 
 # Verifier
@@ -62,3 +54,4 @@ The verifier has two main layers responsible for detecting and handling reorgs:
   block reverter executes the rollback to the last valid block and restores the system state to ensure consistency. Once
   the rollback is complete, the verifier resumes normal operation, including batch processing, zero-knowledge (ZK)
   verification, and withdrawal handling.
+- If the reorg impacted already finalized transactions, the verifier can revert the finalized batches and process from the last valid batch.
