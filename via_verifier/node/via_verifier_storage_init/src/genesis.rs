@@ -1,7 +1,5 @@
-use tokio::sync::watch;
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal as _};
 use zksync_config::GenesisConfig;
-use zksync_node_storage_init::InitializeStorage;
 use zksync_types::H256;
 
 #[derive(Debug)]
@@ -10,19 +8,16 @@ pub struct VerifierGenesis {
     pub pool: ConnectionPool<Verifier>,
 }
 
-#[async_trait::async_trait]
-impl InitializeStorage for VerifierGenesis {
-    async fn initialize_storage(
-        &self,
-        _stop_receiver: watch::Receiver<bool>,
-    ) -> anyhow::Result<()> {
-        let mut storage = self.pool.connection_tagged("verifier_genesis").await?;
-
+impl VerifierGenesis {
+    pub async fn initialize_storage(&self) -> anyhow::Result<()> {
         if self.is_initialized().await? {
             return Ok(());
         }
 
-        storage
+        let mut storage = self.pool.connection_tagged("verifier_genesis").await?;
+        let mut transaction = storage.start_transaction().await?;
+
+        transaction
             .via_protocol_versions_dal()
             .save_protocol_version(
                 self.genesis_config
@@ -41,10 +36,13 @@ impl InitializeStorage for VerifierGenesis {
             )
             .await?;
 
-        storage
+        transaction
             .via_protocol_versions_dal()
             .mark_upgrade_as_executed(H256::zero().as_bytes())
             .await?;
+
+        transaction.commit().await?;
+
         Ok(())
     }
 

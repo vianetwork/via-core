@@ -20,16 +20,10 @@ use self::message_processors::{
 use crate::message_processors::SystemWalletProcessor;
 
 #[derive(Debug)]
-struct BtcWatchState {
-    last_processed_bitcoin_block: u32,
-}
-
-#[derive(Debug)]
 pub struct BtcWatch {
     btc_watch_config: ViaBtcWatchConfig,
     indexer: BitcoinInscriptionIndexer,
     pool: ConnectionPool<Core>,
-    state: BtcWatchState,
     system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
 }
@@ -44,15 +38,6 @@ impl BtcWatch {
         zk_agreement_threshold: f64,
         is_main_node: bool,
     ) -> anyhow::Result<Self> {
-        let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
-        let state = Self::initialize_state(
-            &mut storage,
-            btc_watch_config.start_l1_block_number,
-            btc_watch_config.restart_indexing,
-        )
-        .await?;
-        tracing::info!("initialized state: {state:?}");
-
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
 
         // Only build message processors that match the actor role:
@@ -62,6 +47,8 @@ impl BtcWatch {
         ];
 
         if is_main_node {
+            let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
+
             let protocol_semantic_version = storage
                 .protocol_versions_dal()
                 .latest_semantic_version()
@@ -74,38 +61,13 @@ impl BtcWatch {
                 protocol_semantic_version,
             )));
         }
-        drop(storage);
 
         Ok(Self {
             btc_watch_config,
             indexer,
             pool,
-            state,
             message_processors,
             system_wallet_processor,
-        })
-    }
-
-    async fn initialize_state(
-        storage: &mut Connection<'_, Core>,
-        start_l1_block_number: u32,
-        restart_indexing: bool,
-    ) -> anyhow::Result<BtcWatchState> {
-        let mut last_processed_bitcoin_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block(BtcWatch::module_name())
-            .await? as u32;
-
-        if last_processed_bitcoin_block == 0 || restart_indexing {
-            storage
-                .via_indexer_dal()
-                .init_indexer_metadata(BtcWatch::module_name(), start_l1_block_number)
-                .await?;
-            last_processed_bitcoin_block = start_l1_block_number - 1;
-        }
-
-        Ok(BtcWatchState {
-            last_processed_bitcoin_block,
         })
     }
 
@@ -128,13 +90,6 @@ impl BtcWatch {
                 }
                 Err(err) => {
                     tracing::error!("Failed to process new blocks: {err}");
-                    self.state.last_processed_bitcoin_block = Self::initialize_state(
-                        &mut storage,
-                        self.btc_watch_config.start_l1_block_number,
-                        self.btc_watch_config.restart_indexing,
-                    )
-                    .await?
-                    .last_processed_bitcoin_block;
                 }
             }
         }
@@ -147,24 +102,37 @@ impl BtcWatch {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), MessageProcessorError> {
+        let last_processed_bitcoin_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block(BtcWatch::module_name())
+            .await? as u32;
+
+        if last_processed_bitcoin_block == 0 {
+            return Err(MessageProcessorError::Internal(anyhow::anyhow!(
+                "The indexer is not initialized".to_string()
+            )));
+        }
+
         let current_l1_block_number =
             self.indexer
                 .fetch_block_height()
                 .await
                 .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
                 .saturating_sub(self.btc_watch_config.block_confirmations) as u32;
-        if current_l1_block_number <= self.state.last_processed_bitcoin_block {
+        if current_l1_block_number <= last_processed_bitcoin_block {
             return Ok(());
         }
 
-        let mut to_block = self.state.last_processed_bitcoin_block + L1_BLOCKS_CHUNK;
+        let mut to_block = last_processed_bitcoin_block + L1_BLOCKS_CHUNK;
         if to_block > current_l1_block_number {
             to_block = current_l1_block_number;
         }
 
+        let from_block = last_processed_bitcoin_block + 1;
+
         let mut messages = self
             .indexer
-            .process_blocks(self.state.last_processed_bitcoin_block + 1, to_block)
+            .process_blocks(from_block, to_block)
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?;
 
@@ -178,7 +146,7 @@ impl BtcWatch {
         {
             messages = self
                 .indexer
-                .process_blocks(self.state.last_processed_bitcoin_block + 1, to_block)
+                .process_blocks(from_block, to_block)
                 .await
                 .map_err(|e| MessageProcessorError::Internal(e.into()))?;
         }
@@ -196,7 +164,13 @@ impl BtcWatch {
             .await
             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
-        self.state.last_processed_bitcoin_block = to_block;
+        tracing::info!(
+            "The btc_watch processed {} blocks, from {} to {}",
+            L1_BLOCKS_CHUNK,
+            from_block,
+            to_block,
+        );
+
         Ok(())
     }
 

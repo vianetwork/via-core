@@ -1,21 +1,19 @@
 use via_btc_client::bootstrap::ViaBootstrap;
-use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
+use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails};
 
 #[derive(Debug, Clone)]
 pub struct ViaWalletsInitializer {
-    pool: ConnectionPool<Verifier>,
+    pool: ConnectionPool<Core>,
     bootstrap: ViaBootstrap,
 }
 
 impl ViaWalletsInitializer {
-    pub fn new(pool: ConnectionPool<Verifier>, bootstrap: ViaBootstrap) -> Self {
+    pub fn new(pool: ConnectionPool<Core>, bootstrap: ViaBootstrap) -> Self {
         Self { pool, bootstrap }
     }
 
-    pub async fn load_system_wallets(
-        pool: ConnectionPool<Verifier>,
-    ) -> anyhow::Result<SystemWallets> {
+    pub async fn load_system_wallets(pool: ConnectionPool<Core>) -> anyhow::Result<SystemWallets> {
         if let Some(system_wallet) =
             ViaWalletsInitializer::fetch_indexer_wallets_from_db(&pool).await?
         {
@@ -25,7 +23,7 @@ impl ViaWalletsInitializer {
     }
 
     pub async fn fetch_indexer_wallets_from_db(
-        pool: &ConnectionPool<Verifier>,
+        pool: &ConnectionPool<Core>,
     ) -> anyhow::Result<Option<SystemWallets>> {
         let system_wallet_raw_opt = pool
             .connection()
