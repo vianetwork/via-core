@@ -63,7 +63,7 @@ impl MempoolFetcher {
     }
 
     pub async fn run(mut self, stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
-        let mut storage = self.pool.connection_tagged("state_keeper").await?;
+        let mut storage = self.pool.connection_tagged("via_state_keeper").await?;
         if let Some(stuck_tx_timeout) = self.stuck_tx_timeout {
             let removed_txs = storage
                 .transactions_dal()
@@ -81,7 +81,7 @@ impl MempoolFetcher {
                 break;
             }
             let latency = KEEPER_METRICS.mempool_sync.start();
-            let mut storage = self.pool.connection_tagged("state_keeper").await?;
+            let mut storage = self.pool.connection_tagged("via_state_keeper").await?;
             let mempool_info = self.mempool.get_mempool_info();
             let protocol_version = storage
                 .blocks_dal()

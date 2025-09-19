@@ -13,13 +13,15 @@ use zksync_config::configs::chain::StateKeeperConfig;
 use zksync_contracts::BaseSystemContracts;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_multivm::{interface::Halt, utils::derive_base_fee_and_gas_per_pubdata};
+// use zksync_mempool::L2TxFilter;
+// use zksync_node_fee_model::BatchFeeModelInputProvider;
 use zksync_types::{
     protocol_upgrade::ProtocolUpgradeTx, utils::display_timestamp, Address, L1BatchNumber,
     L2BlockNumber, L2ChainId, ProtocolVersionId, Transaction, H256, U256,
 };
 // TODO (SMA-1206): use seconds instead of milliseconds.
 use zksync_utils::time::millis_since_epoch;
-use zksync_vm_utils::storage::L1BatchParamsProvider;
+use zksync_vm_executor::storage::L1BatchParamsProvider;
 
 use crate::{
     io::{
@@ -436,7 +438,7 @@ impl MempoolIO {
             l2_block_max_payload_size_sealer: L2BlockMaxPayloadSizeSealer::new(config),
             filter: L2TxFilter::default(),
             // ^ Will be initialized properly on the first newly opened batch
-            l1_batch_params_provider: L1BatchParamsProvider::new(),
+            l1_batch_params_provider: L1BatchParamsProvider::uninitialized(),
             fee_account,
             validation_computational_gas_limit: config.validation_computational_gas_limit,
             max_allowed_tx_gas_limit: config.max_allowed_l2_tx_gas_limit.into(),

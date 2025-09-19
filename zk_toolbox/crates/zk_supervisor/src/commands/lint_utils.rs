@@ -1,35 +1,9 @@
 use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 use xshell::{cmd, Shell};
 
-const IGNORED_DIRS: [&str; 18] = [
-    "target",
-    "node_modules",
-    "volumes",
-    "build",
-    "dist",
-    ".git",
-    "generated",
-    "grafonnet-lib",
-    "prettier-config",
-    "lint-config",
-    "cache",
-    "artifacts",
-    "typechain",
-    "binaryen",
-    "system-contracts",
-    "artifacts-zk",
-    "cache-zk",
-    // Ignore directories with OZ and forge submodules.
-    "contracts/l1-contracts/lib",
-];
-
-const IGNORED_FILES: [&str; 4] = [
-    "KeysWithPlonkVerifier.sol",
-    "TokenInit.sol",
-    ".tslintrc.js",
-    ".prettierrc.js",
-];
+const IGNORE_FILE: &str = "etc/lint-config/ignore.yaml";
 
 #[derive(Debug, ValueEnum, EnumIter, strum::Display, PartialEq, Eq, Clone, Copy)]
 #[strum(serialize_all = "lowercase")]
@@ -42,14 +16,35 @@ pub enum Target {
     Contracts,
 }
 
-pub fn get_unignored_files(shell: &Shell, target: &Target) -> anyhow::Result<Vec<String>> {
+#[derive(Deserialize, Serialize, Debug)]
+pub struct IgnoredData {
+    pub files: Vec<String>,
+    pub dirs: Vec<String>,
+}
+
+impl IgnoredData {
+    pub fn merge(&mut self, other: &IgnoredData) {
+        self.files.extend(other.files.clone());
+        self.dirs.extend(other.dirs.clone());
+    }
+}
+
+pub fn get_unignored_files(
+    shell: &Shell,
+    target: &Target,
+    ignored_data: Option<IgnoredData>,
+) -> anyhow::Result<Vec<String>> {
     let mut files = Vec::new();
+    let mut ignored_files: IgnoredData = serde_yaml::from_str(&shell.read_file(IGNORE_FILE)?)?;
+    if let Some(ignored_data) = ignored_data {
+        ignored_files.merge(&ignored_data);
+    }
     let output = cmd!(shell, "git ls-files --recurse-submodules").read()?;
 
     for line in output.lines() {
         let path = line.to_string();
-        if !IGNORED_DIRS.iter().any(|dir| path.contains(dir))
-            && !IGNORED_FILES.contains(&path.as_str())
+        if !ignored_files.dirs.iter().any(|dir| path.contains(dir))
+            && !ignored_files.files.contains(&path)
             && path.ends_with(&format!(".{}", target))
         {
             files.push(path);

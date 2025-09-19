@@ -32,6 +32,7 @@ fn main() -> anyhow::Result<()> {
                 consensus: None,
                 database: DatabaseSecrets::from_env().ok(),
                 l1: None,
+                data_availability: None,
             },
             via_l1: ViaL1Secrets::from_env().ok(),
             via_da: None,

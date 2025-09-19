@@ -4,7 +4,7 @@ use serde::Deserialize;
 use tokio::sync::Semaphore;
 use zksync_contracts::test_contracts::LoadnextContractExecutionParams;
 use zksync_types::L2ChainId;
-use zksync_utils::workspace_dir_or_current_dir;
+use zksync_utils::env::Workspace;
 
 /// Configuration for the loadtest.
 ///
@@ -205,7 +205,7 @@ fn default_accounts_group_size() -> usize {
 }
 
 fn default_test_contracts_path() -> PathBuf {
-    let test_contracts_path = workspace_dir_or_current_dir().join("etc/contracts-test-data");
+    let test_contracts_path = Workspace::locate().core().join("etc/contracts-test-data");
     tracing::info!("Test contracts path: {}", test_contracts_path.display());
     test_contracts_path
 }

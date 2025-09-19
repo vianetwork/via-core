@@ -13,7 +13,7 @@ use zksync_config::{
     PostgresConfig,
 };
 use zksync_metadata_calculator::{MetadataCalculatorConfig, MetadataCalculatorRecoveryConfig};
-use zksync_node_api_server::{tx_sender::ApiContracts, web3::Namespace};
+use zksync_node_api_server::web3::Namespace;
 use zksync_node_framework::{
     implementations::layers::{
         batch_status_updater::BatchStatusUpdaterLayer,
@@ -234,7 +234,14 @@ impl ExternalNodeBuilder {
         let config = self.config.consensus.clone();
         let secrets =
             config::read_consensus_secrets().context("config::read_consensus_secrets()")?;
-        let layer = ExternalNodeConsensusLayer { config, secrets };
+
+        let layer = ExternalNodeConsensusLayer {
+            build_version: crate::metadata::SERVER_VERSION
+                .parse()
+                .context("CRATE_VERSION.parse()")?,
+            config,
+            secrets,
+        };
         self.node.add_layer(layer);
         Ok(self)
     }
@@ -358,12 +365,10 @@ impl ExternalNodeBuilder {
             latest_values_cache_size: self.config.optional.latest_values_cache_size() as u64,
         };
         let max_vm_concurrency = self.config.optional.vm_concurrency_limit;
-        let api_contracts = ApiContracts::load_from_disk_blocking(); // TODO (BFT-138): Allow to dynamically reload API contracts;
         let tx_sender_layer = TxSenderLayer::new(
             (&self.config).into(),
             postgres_storage_config,
             max_vm_concurrency,
-            api_contracts,
         )
         .with_whitelisted_tokens_for_aa_cache(true);
 

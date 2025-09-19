@@ -98,7 +98,7 @@ impl From<ViaL1Deposit> for L1Tx {
 
         Self {
             execute: Execute {
-                contract_address: deposit.l2_receiver_address,
+                contract_address: Some(deposit.l2_receiver_address),
                 calldata: vec![],
                 value: U256::zero(),
                 factory_deps: vec![],

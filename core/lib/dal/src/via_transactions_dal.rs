@@ -18,7 +18,8 @@ impl ViaTransactionsDal<'_, '_> {
         l1_block_number: L1BlockNumber,
         tx_id: H256,
     ) -> DalResult<()> {
-        let contract_address = tx.execute.contract_address.as_bytes();
+        let contract_address = tx.execute.contract_address.unwrap_or_default().0.to_vec();
+
         let tx_hash = tx.hash();
         let tx_hash_bytes = tx_hash.as_bytes();
         let json_data = serde_json::to_value(&tx.execute)

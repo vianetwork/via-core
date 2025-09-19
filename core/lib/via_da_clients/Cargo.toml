@@ -10,8 +10,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-celestia-rpc = { version = "0.4.0", git = "https://github.com/eigerco/lumina.git" }
-celestia-types = { version = "0.4.0", git = "https://github.com/eigerco/lumina.git" }
+celestia-rpc = { version = "=0.4.0", git = "https://github.com/eigerco/lumina.git" }
+celestia-types = { version = "=0.4.0", git = "https://github.com/eigerco/lumina.git" }
 
 anyhow.workspace = true
 async-trait.workspace = true

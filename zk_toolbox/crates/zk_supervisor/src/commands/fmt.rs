@@ -5,6 +5,7 @@ use common::{cmd::Cmd, logger, spinner::Spinner};
 use config::EcosystemConfig;
 use xshell::{cmd, Shell};
 
+use super::sql_fmt::format_sql;
 use crate::{
     commands::lint_utils::{get_unignored_files, Target},
     messages::{
@@ -15,9 +16,10 @@ use crate::{
 
 async fn prettier(shell: Shell, target: Target, check: bool) -> anyhow::Result<()> {
     let spinner = Spinner::new(&msg_running_fmt_for_extension_spinner(target));
-    let files = get_unignored_files(&shell, &target)?;
+    let files = get_unignored_files(&shell, &target, None)?;
 
     if files.is_empty() {
+        logger::info(format!("No files for {target} found"));
         return Ok(());
     }
 
@@ -58,6 +60,7 @@ async fn run_all_rust_formatters(
     check: bool,
     link_to_code: PathBuf,
 ) -> anyhow::Result<()> {
+    format_sql(shell.clone(), check).await?;
     rustfmt(shell.clone(), check, link_to_code).await?;
     Ok(())
 }
@@ -91,7 +94,7 @@ pub async fn run(shell: Shell, args: FmtArgs) -> anyhow::Result<()> {
             for ext in extensions {
                 tasks.push(tokio::spawn(prettier(shell.clone(), ext, args.check)));
             }
-            tasks.push(tokio::spawn(rustfmt(
+            tasks.push(tokio::spawn(run_all_rust_formatters(
                 shell.clone(),
                 args.check,
                 ecosystem.link_to_code,
