@@ -83,9 +83,9 @@ export async function getExternalNodeHealth(url: string) {
     }
 }
 
-export async function dropNodeData(env: { [key: string]: string }, useZkSupervisor?: boolean, chain?: string) {
-    if (useZkSupervisor) {
-        let cmd = 'zk_inception external-node init';
+export async function dropNodeData(env: { [key: string]: string }, useZkStack?: boolean, chain?: string) {
+    if (useZkStack) {
+        let cmd = 'zkstack external-node init';
         cmd += chain ? ` --chain ${chain}` : '';
         await executeNodeCommand(env, cmd);
     } else {
@@ -187,7 +187,7 @@ export class NodeProcess {
         logsFile: FileHandle | string,
         pathToHome: string,
         components: NodeComponents = NodeComponents.STANDARD,
-        useZkInception?: boolean,
+        useZkStack?: boolean,
         chain?: string
     ) {
         const logs = typeof logsFile === 'string' ? await fs.open(logsFile, 'w') : logsFile;
@@ -197,7 +197,7 @@ export class NodeProcess {
             stdio: ['ignore', logs.fd, logs.fd],
             cwd: pathToHome,
             env,
-            useZkInception,
+            useZkStack,
             chain
         });
 

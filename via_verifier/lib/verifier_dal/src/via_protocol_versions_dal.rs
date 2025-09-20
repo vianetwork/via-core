@@ -27,22 +27,22 @@ impl ViaProtocolVersionsDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                protocol_versions (
-                    id,
-                    bootloader_code_hash,
-                    default_account_code_hash,
-                    upgrade_tx_hash,
-                    recursion_scheduler_level_vk_hash,
-                    executed,
-                    created_at
-                )
+            protocol_versions (
+                id,
+                bootloader_code_hash,
+                default_account_code_hash,
+                upgrade_tx_hash,
+                recursion_scheduler_level_vk_hash,
+                executed,
+                created_at
+            )
             VALUES
-                ($1, $2, $3, $4, $5, FALSE, NOW())
+            ($1, $2, $3, $4, $5, FALSE, NOW())
             ON CONFLICT (id) DO
             UPDATE
             SET
-                upgrade_tx_hash = EXCLUDED.upgrade_tx_hash,
-                executed = FALSE;
+            upgrade_tx_hash = excluded.upgrade_tx_hash,
+            executed = FALSE;
             "#,
             version.minor as i32,
             bootloader_code_hash,
@@ -65,9 +65,9 @@ impl ViaProtocolVersionsDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                protocol_patches (minor, patch, created_at)
+            protocol_patches (minor, patch, created_at)
             VALUES
-                ($1, $2, NOW())
+            ($1, $2, NOW())
             ON CONFLICT DO NOTHING
             "#,
             version.minor as i32,
@@ -121,7 +121,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
                 patch
             FROM
                 protocol_versions pv
-                LEFT JOIN protocol_patches pp ON pv.id = pp.minor
+            LEFT JOIN protocol_patches pp ON pv.id = pp.minor
             WHERE
                 pv.executed = TRUE
             ORDER BY
@@ -179,7 +179,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
                 default_account_code_hash
             FROM
                 protocol_versions pv
-                LEFT JOIN protocol_patches pp ON pv.id = pp.minor
+            LEFT JOIN protocol_patches pp ON pv.id = pp.minor
             WHERE
                 pv.id = $1
             ORDER BY

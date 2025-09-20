@@ -31,13 +31,23 @@ impl ViaTransactionsWeb3Dal<'_, '_> {
                 bir.is_finalized
             FROM
                 transactions
-                LEFT JOIN miniblocks ON miniblocks.number = transactions.miniblock_number
-                LEFT JOIN l1_batches ON l1_batches.number = miniblocks.l1_batch_number
-                LEFT JOIN via_l1_batch_inscription_request AS bir ON (l1_batches.number = bir.l1_batch_number)
-                LEFT JOIN via_btc_inscriptions_request commit_req ON bir.commit_l1_batch_inscription_id = commit_req.id
-                LEFT JOIN via_btc_inscriptions_request proof_req ON bir.commit_proof_inscription_id = proof_req.id
-                LEFT JOIN via_btc_inscriptions_request_history commit_history ON commit_req.confirmed_inscriptions_request_history_id = commit_history.id
-                LEFT JOIN via_btc_inscriptions_request_history proof_history ON proof_req.confirmed_inscriptions_request_history_id = proof_history.id
+            LEFT JOIN miniblocks ON miniblocks.number = transactions.miniblock_number
+            LEFT JOIN l1_batches ON l1_batches.number = miniblocks.l1_batch_number
+            LEFT JOIN
+                via_l1_batch_inscription_request AS bir
+                ON (l1_batches.number = bir.l1_batch_number)
+            LEFT JOIN
+                via_btc_inscriptions_request commit_req
+                ON bir.commit_l1_batch_inscription_id = commit_req.id
+            LEFT JOIN
+                via_btc_inscriptions_request proof_req
+                ON bir.commit_proof_inscription_id = proof_req.id
+            LEFT JOIN
+                via_btc_inscriptions_request_history commit_history
+                ON commit_req.confirmed_inscriptions_request_history_id = commit_history.id
+            LEFT JOIN
+                via_btc_inscriptions_request_history proof_history
+                ON proof_req.confirmed_inscriptions_request_history_id = proof_history.id
             WHERE
                 transactions.hash = $1
                 AND transactions.data != '{}'::jsonb

@@ -30,8 +30,12 @@ pub(super) struct MultiVMBaseSystemContracts {
 
 impl MultiVMBaseSystemContracts {
     /// Gets contracts for a certain version.
-    pub fn get_by_protocol_version(&self, version: ProtocolVersionId) -> &BaseSystemContracts {
-        match version {
+    pub fn get_by_protocol_version(
+        &self,
+        version: ProtocolVersionId,
+        use_evm_emulator: bool,
+    ) -> BaseSystemContracts {
+        let base = match version {
             ProtocolVersionId::Version0
             | ProtocolVersionId::Version1
             | ProtocolVersionId::Version2
@@ -60,6 +64,14 @@ impl MultiVMBaseSystemContracts {
             }
             ProtocolVersionId::Version26 => &self.vm_bitcoin,
             ProtocolVersionId::Version27 => &self.vm_bitcoin_1_0_1,
+        };
+        let base = base.clone();
+
+        if version.is_post_1_5_0() && use_evm_emulator {
+            // EVM emulator is not versioned now; the latest version is always checked out
+            base.with_latest_evm_emulator()
+        } else {
+            base
         }
     }
 

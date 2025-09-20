@@ -54,6 +54,7 @@ pub(crate) struct ViaStorageL1BatchDetails {
     pub fair_pubdata_price: Option<i64>,
     pub bootloader_code_hash: Option<Vec<u8>>,
     pub default_aa_code_hash: Option<Vec<u8>>,
+    pub evm_emulator_code_hash: Option<Vec<u8>>,
 }
 
 impl From<ViaStorageL1BatchDetails> for L1BatchDetails {
@@ -88,6 +89,7 @@ impl From<ViaStorageL1BatchDetails> for L1BatchDetails {
             base_system_contracts_hashes: convert_base_system_contracts_hashes(
                 details.bootloader_code_hash,
                 details.default_aa_code_hash,
+                details.evm_emulator_code_hash,
             ),
         };
         L1BatchDetails {
@@ -119,6 +121,7 @@ pub(crate) struct ViaStorageBlockDetails {
     pub fair_pubdata_price: Option<i64>,
     pub bootloader_code_hash: Option<Vec<u8>>,
     pub default_aa_code_hash: Option<Vec<u8>>,
+    pub evm_emulator_code_hash: Option<Vec<u8>>,
     pub fee_account_address: Vec<u8>,
     pub protocol_version: Option<i32>,
 }
@@ -162,6 +165,7 @@ impl From<ViaStorageBlockDetails> for BlockDetails {
             base_system_contracts_hashes: convert_base_system_contracts_hashes(
                 details.bootloader_code_hash,
                 details.default_aa_code_hash,
+                details.evm_emulator_code_hash,
             ),
         };
 

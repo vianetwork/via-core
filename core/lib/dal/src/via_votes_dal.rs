@@ -18,9 +18,9 @@ impl ViaVotesDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_votes (l1_batch_number, proof_reveal_tx_id, verifier_address, vote)
+            via_votes (l1_batch_number, proof_reveal_tx_id, verifier_address, vote)
             VALUES
-                ($1, $2, $3, $4)
+            ($1, $2, $3, $4)
             ON CONFLICT (l1_batch_number, proof_reveal_tx_id, verifier_address) DO NOTHING
             "#,
             l1_batch_number as i32,
@@ -43,11 +43,11 @@ impl ViaVotesDal<'_, '_> {
             SELECT
                 COUNT(*) FILTER (
                     WHERE
-                        vote = FALSE
+                    vote = FALSE
                 ) AS not_ok_votes,
                 COUNT(*) FILTER (
                     WHERE
-                        vote = TRUE
+                    vote = TRUE
                 ) AS ok_votes,
                 COUNT(*) AS total_votes
             FROM
@@ -80,7 +80,7 @@ impl ViaVotesDal<'_, '_> {
         let row = sqlx::query!(
             r#"
             SELECT
-                EXISTS (
+                EXISTS(
                     SELECT
                         1
                     FROM

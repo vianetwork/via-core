@@ -122,7 +122,6 @@ members = [
     "via_indexer/node/via_indexer_storage_init",
     "via_indexer/bin/indexer",
 ]
-
 resolver = "2"
 
 exclude = []
@@ -158,6 +157,7 @@ blake2 = "0.10"
 chrono = "0.4"
 clap = "4.2.2"
 codegen = "0.2.0"
+const-decoder = "0.4.0"
 criterion = "0.4.0"
 ctrlc = "3.1"
 dashmap = "5.5.3"
@@ -215,6 +215,7 @@ sqlx = "0.8.1"
 static_assertions = "1.1"
 structopt = "0.3.20"
 strum = "0.26"
+strum_macros = "0.26.4"
 tempfile = "3.0.2"
 test-casing = "0.1.2"
 test-log = "0.2.15"
@@ -271,19 +272,19 @@ zk_evm_1_4_1 = { package = "zk_evm", version = "0.141" }
 zk_evm_1_5_0 = { package = "zk_evm", version = "=0.150.5" }
 
 # New VM; pinned to a specific commit because of instability
-zksync_vm2 = { git = "https://github.com/matter-labs/vm2.git", rev = "74577d9be13b1bff9d1a712389731f669b179e47" }
+zksync_vm2 = { git = "https://github.com/matter-labs/vm2.git", rev = "a233d44bbe61dc6a758a754c3b78fe4f83e56699" }
 
 # Consensus dependencies.
-zksync_concurrency = "=0.3.0"
-zksync_consensus_bft = "=0.3.0"
-zksync_consensus_crypto = "=0.3.0"
-zksync_consensus_executor = "=0.3.0"
-zksync_consensus_network = "=0.3.0"
-zksync_consensus_roles = "=0.3.0"
-zksync_consensus_storage = "=0.3.0"
-zksync_consensus_utils = "=0.3.0"
-zksync_protobuf = "=0.3.0"
-zksync_protobuf_build = "=0.3.0"
+zksync_concurrency = "=0.5.0"
+zksync_consensus_bft = "=0.5.0"
+zksync_consensus_crypto = "=0.5.0"
+zksync_consensus_executor = "=0.5.0"
+zksync_consensus_network = "=0.5.0"
+zksync_consensus_roles = "=0.5.0"
+zksync_consensus_storage = "=0.5.0"
+zksync_consensus_utils = "=0.5.0"
+zksync_protobuf = "=0.5.0"
+zksync_protobuf_build = "=0.5.0"
 
 # "Local" dependencies
 zksync_multivm = { version = "0.1.0", path = "core/lib/multivm" }

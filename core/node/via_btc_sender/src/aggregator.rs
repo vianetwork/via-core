@@ -213,6 +213,7 @@ impl ViaAggregator {
             return Ok(BaseSystemContractsHashes {
                 bootloader: contracts.bootloader.hash,
                 default_aa: contracts.default_aa.hash,
+                evm_emulator: contracts.evm_emulator.map(|c| c.hash),
             });
         }
         anyhow::bail!(

@@ -415,6 +415,7 @@ impl ExternalNodeBuilder {
             response_body_size_limit: Some(self.config.optional.max_response_body_size()),
             with_extended_tracing: self.config.optional.extended_rpc_tracing,
             pruning_info_refresh_interval: Some(pruning_info_refresh_interval),
+            bridge_addresses_refresh_interval: None,
             polling_interval: Some(self.config.optional.polling_interval()),
             websocket_requests_per_minute_limit: None, // To be set by WS server layer method if required.
             replication_lag_limit: None,               // TODO: Support replication lag limit

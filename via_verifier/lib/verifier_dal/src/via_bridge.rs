@@ -19,9 +19,9 @@ impl ViaBridgeDal<'_, '_> {
             sqlx::query!(
                 r#"
                 INSERT INTO
-                    via_bridge_tx (votable_tx_id, data, INDEX)
+                via_bridge_tx (votable_tx_id, data, index)
                 VALUES
-                    ($1, $2, $3)
+                ($1, $2, $3)
                 "#,
                 votable_tx_id,
                 data,
@@ -46,9 +46,9 @@ impl ViaBridgeDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_bridge_tx (votable_tx_id, hash, data)
+            via_bridge_tx (votable_tx_id, hash, data)
             VALUES
-                ($1, $2, $3)
+            ($1, $2, $3)
             "#,
             votable_tx_id,
             hash,
@@ -75,7 +75,7 @@ impl ViaBridgeDal<'_, '_> {
                 updated_at = NOW()
             WHERE
                 votable_tx_id = $1
-                AND INDEX = $2
+                AND index = $2
             "#,
             votable_tx_id,
             index,

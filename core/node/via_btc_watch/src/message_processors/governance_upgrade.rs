@@ -112,6 +112,9 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                                         .input
                                         .default_account_code_hash,
                                 ),
+                                evm_emulator_code_hash: system_contract_upgrade_proposal_msg
+                                    .input
+                                    .evm_emulator_code_hash,
                                 tx: Some(tx),
                                 timestamp: 0,
                                 verifier_address: None,
