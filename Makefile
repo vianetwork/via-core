@@ -10,6 +10,7 @@ CMD := $(firstword $(MAKECMDGOALS))
 VIA_ENV ?= via
 DIFF ?= 0
 MODE ?= sequencer
+PROFILE ?= ""
 
 # Select the via env
 ifeq ($(CMD), via-verifier)
@@ -34,6 +35,8 @@ else ifeq ($(CMD), via-restart-indexer)
 	VIA_ENV := via_indexer
 else ifeq ($(CMD), via-ext-node)
 	VIA_ENV := via_ext_node
+else ifeq ($(CMD), via-multi)
+	PROFILE := reorg
 endif
 
 # Default target: Show help message
@@ -81,6 +84,10 @@ setup: base transactions celestia bootstrap-dev server-genesis
 # Run the basic setup workflow in sequence and server
 .PHONY: via
 via: base transactions celestia bootstrap-dev server-genesis server
+
+# Run the basic setup workflow in sequence and server with profile "reorg" for docker compose profile
+.PHONY: via-multi
+via-multi: via
 
 # Run the full setup workflow in sequence
 .PHONY: all
@@ -148,7 +155,7 @@ init:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Initializing the project...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) init --mode ${MODE}
+	@$(CLI_TOOL) init --mode ${MODE} --profile ${PROFILE}
 
 # Run 'via transactions'
 .PHONY: transactions
@@ -265,7 +272,15 @@ clean:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Cleaning the project, removing images, volumes, and generated files...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) clean
+	@$(CLI_TOOL) clean  --profile ${PROFILE}
+
+# Run 'via clean-multi'
+.PHONY: clean-multi
+clean-multi:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Cleaning the project, removing images, volumes, and generated files...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) clean --profile reorg
 
 # Run 'via l1-indexer'
 .PHONY: l1-indexer

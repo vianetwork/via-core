@@ -29,8 +29,9 @@ use crate::{
     tokens_web3_dal::TokensWeb3Dal, transactions_dal::TransactionsDal,
     transactions_web3_dal::TransactionsWeb3Dal, via_blocks_dal::ViaBlocksDal,
     via_btc_sender_dal::ViaBtcSenderDal, via_data_availability_dal::ViaDataAvailabilityDal,
-    via_indexer_dal::ViaIndexerDal, via_transactions_dal::ViaTransactionsDal,
-    via_votes_dal::ViaVotesDal, via_wallet_dal::ViaWalletDal, vm_runner_dal::VmRunnerDal,
+    via_indexer_dal::ViaIndexerDal, via_l1_block_dal::ViaL1BlockDal,
+    via_transactions_dal::ViaTransactionsDal, via_votes_dal::ViaVotesDal,
+    via_wallet_dal::ViaWalletDal, vm_runner_dal::VmRunnerDal,
 };
 
 pub mod base_token_dal;
@@ -71,6 +72,7 @@ pub mod via_blocks_web3_dal;
 pub mod via_btc_sender_dal;
 pub mod via_data_availability_dal;
 pub mod via_indexer_dal;
+pub mod via_l1_block_dal;
 pub mod via_transactions_dal;
 pub mod via_transactions_web3_dal;
 pub mod via_votes_dal;
@@ -162,6 +164,8 @@ where
     fn via_data_availability_dal(&mut self) -> ViaDataAvailabilityDal<'_, 'a>;
 
     fn via_wallet_dal(&mut self) -> ViaWalletDal<'_, 'a>;
+
+    fn via_l1_block_dal(&mut self) -> ViaL1BlockDal<'_, 'a>;
 
     fn vm_runner_dal(&mut self) -> VmRunnerDal<'_, 'a>;
 
@@ -321,6 +325,10 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
 
     fn via_wallet_dal(&mut self) -> ViaWalletDal<'_, 'a> {
         ViaWalletDal { storage: self }
+    }
+
+    fn via_l1_block_dal(&mut self) -> ViaL1BlockDal<'_, 'a> {
+        ViaL1BlockDal { storage: self }
     }
 
     fn vm_runner_dal(&mut self) -> VmRunnerDal<'_, 'a> {

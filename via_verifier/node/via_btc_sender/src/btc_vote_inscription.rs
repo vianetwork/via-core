@@ -53,6 +53,15 @@ impl ViaVoteInscription {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
+        if storage
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+
         if let Some((votable_transaction_id, vote, tx_id)) =
             self.get_voting_operation(storage).await?
         {
