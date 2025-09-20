@@ -29,9 +29,11 @@ impl ViaDataAvailabilityDal<'_, '_> {
         let update_result = sqlx::query!(
             r#"
             INSERT INTO
-                via_data_availability (l1_batch_number, is_proof, blob_id, sent_at, created_at, updated_at)
+            via_data_availability (
+                l1_batch_number, is_proof, blob_id, sent_at, created_at, updated_at
+            )
             VALUES
-                ($1, FALSE, $2, $3, NOW(), NOW())
+            ($1, FALSE, $2, $3, NOW(), NOW())
             ON CONFLICT DO NOTHING
             "#,
             i64::from(number.0),
@@ -96,9 +98,11 @@ impl ViaDataAvailabilityDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_data_availability (l1_batch_number, is_proof, blob_id, sent_at, created_at, updated_at)
+            via_data_availability (
+                l1_batch_number, is_proof, blob_id, sent_at, created_at, updated_at
+            )
             VALUES
-                ($1, TRUE, $2, $3, NOW(), NOW())
+            ($1, TRUE, $2, $3, NOW(), NOW())
             ON CONFLICT DO NOTHING
             "#,
             i64::from(number.0),
@@ -324,9 +328,13 @@ impl ViaDataAvailabilityDal<'_, '_> {
                 pubdata_input
             FROM
                 l1_batches
-                LEFT JOIN via_data_availability ON via_data_availability.l1_batch_number = l1_batches.number
-                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
-                AND via_data_availability.is_proof = FALSE
+            LEFT JOIN
+                via_data_availability
+                ON via_data_availability.l1_batch_number = l1_batches.number
+            LEFT JOIN via_l1_batch_inscription_request
+                ON
+                    via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
+                    AND via_data_availability.is_proof = FALSE
             WHERE
                 via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NULL
                 AND number != 0
@@ -419,7 +427,7 @@ impl ViaDataAvailabilityDal<'_, '_> {
                 vda.l1_batch_number
             FROM
                 via_data_availability vda
-                JOIN l1_batches lb ON vda.l1_batch_number = lb.number
+            JOIN l1_batches lb ON vda.l1_batch_number = lb.number
             WHERE
                 vda.is_proof = FALSE
                 AND vda.blob_id IS NOT NULL

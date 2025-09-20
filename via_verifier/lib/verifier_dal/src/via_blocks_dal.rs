@@ -28,9 +28,11 @@ impl ViaBlocksDal<'_, '_> {
                 let query = sqlx::query!(
                     r#"
                     INSERT INTO
-                        via_l1_batch_vote_inscription_request (votable_transaction_id, vote_l1_batch_inscription_id, created_at, updated_at)
+                    via_l1_batch_vote_inscription_request (
+                        votable_transaction_id, vote_l1_batch_inscription_id, created_at, updated_at
+                    )
                     VALUES
-                        ($1, $2, NOW(), NOW())
+                    ($1, $2, NOW(), NOW())
                     ON CONFLICT DO NOTHING
                     "#,
                     votable_transaction_id,

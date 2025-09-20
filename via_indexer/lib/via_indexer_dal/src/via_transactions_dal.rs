@@ -24,9 +24,19 @@ impl ViaTransactionsDal<'_, '_> {
             sqlx::query!(
                 r#"
                 INSERT INTO
-                    deposits (priority_id, tx_id, block_number, sender, receiver, value, calldata, canonical_tx_hash, created_at)
+                deposits (
+                    priority_id,
+                    tx_id,
+                    block_number,
+                    sender,
+                    receiver,
+                    value,
+                    calldata,
+                    canonical_tx_hash,
+                    created_at
+                )
                 VALUES
-                    ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ON CONFLICT (tx_id) DO NOTHING
                 "#,
                 deposit.priority_id,
@@ -123,11 +133,19 @@ impl ViaTransactionsDal<'_, '_> {
 
         let id = sqlx::query!(
             r#"
-                INSERT INTO bridge_withdrawals (tx_id, l1_batch_reveal_tx_id, block_number, fee, vsize, total_size, withdrawals_count)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (tx_id) DO NOTHING
-                RETURNING id
-                "#,
+            INSERT INTO bridge_withdrawals (
+                tx_id,
+                l1_batch_reveal_tx_id,
+                block_number,
+                fee,
+                vsize,
+                total_size,
+                withdrawals_count
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (tx_id) DO NOTHING
+            RETURNING id
+            "#,
             bridget_withdrawal_param.tx_id,
             bridget_withdrawal_param.l1_batch_reveal_tx_id,
             bridget_withdrawal_param.block_number,
@@ -145,9 +163,9 @@ impl ViaTransactionsDal<'_, '_> {
             sqlx::query!(
                 r#"
                 INSERT INTO
-                    withdrawals (tx_index, bridge_withdrawal_id, receiver, value)
+                withdrawals (tx_index, bridge_withdrawal_id, receiver, value)
                 VALUES
-                    ($1, $2, $3, $4)
+                ($1, $2, $3, $4)
                 "#,
                 withdrawal.tx_index,
                 i32::from(id),

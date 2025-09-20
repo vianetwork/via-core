@@ -24,18 +24,18 @@ impl ViaVotesDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_votable_transactions (
-                    l1_batch_number,
-                    l1_batch_hash,
-                    prev_l1_batch_hash,
-                    proof_reveal_tx_id,
-                    da_identifier,
-                    proof_blob_id,
-                    pubdata_reveal_tx_id,
-                    pubdata_blob_id
-                )
+            via_votable_transactions (
+                l1_batch_number,
+                l1_batch_hash,
+                prev_l1_batch_hash,
+                proof_reveal_tx_id,
+                da_identifier,
+                proof_blob_id,
+                pubdata_reveal_tx_id,
+                pubdata_blob_id
+            )
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8)
+            ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (l1_batch_hash) DO NOTHING
             "#,
             i64::from(l1_batch_number),
@@ -85,9 +85,9 @@ impl ViaVotesDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_votes (votable_transaction_id, verifier_address, vote)
+            via_votes (votable_transaction_id, verifier_address, vote)
             VALUES
-                ($1, $2, $3)
+            ($1, $2, $3)
             ON CONFLICT (votable_transaction_id, verifier_address) DO NOTHING
             "#,
             votable_transaction_id,
@@ -111,11 +111,11 @@ impl ViaVotesDal<'_, '_> {
             SELECT
                 COUNT(*) FILTER (
                     WHERE
-                        vote = FALSE
+                    vote = FALSE
                 ) AS not_ok_votes,
                 COUNT(*) FILTER (
                     WHERE
-                        vote = TRUE
+                    vote = TRUE
                 ) AS ok_votes,
                 COUNT(*) AS total_votes
             FROM
@@ -265,7 +265,7 @@ impl ViaVotesDal<'_, '_> {
                 l1_batch_number = $1
                 AND proof_reveal_tx_id = $2
             RETURNING
-                id
+            id
             "#,
             l1_batch_number,
             proof_reveal_tx_id.as_bytes(),
@@ -369,25 +369,26 @@ impl ViaVotesDal<'_, '_> {
         let row = sqlx::query!(
             r#"
             WITH
-                last_verified AS (
-                    SELECT
-                        l1_batch_number,
-                        l1_batch_hash
-                    FROM
-                        via_votable_transactions
-                    WHERE
-                        l1_batch_status = TRUE
-                    ORDER BY
-                        l1_batch_number DESC
-                    LIMIT
-                        1
-                )
+            last_verified AS (
+                SELECT
+                    l1_batch_number,
+                    l1_batch_hash
+                FROM
+                    via_votable_transactions
+                WHERE
+                    l1_batch_status = TRUE
+                ORDER BY
+                    l1_batch_number DESC
+                LIMIT
+                    1
+            )
+            
             SELECT
-                v.l1_batch_number AS l1_batch_number,
-                v.proof_reveal_tx_id AS proof_reveal_tx_id
+                v.l1_batch_number,
+                v.proof_reveal_tx_id
             FROM
                 via_votable_transactions v
-                LEFT JOIN last_verified lv ON v.prev_l1_batch_hash = lv.l1_batch_hash
+            LEFT JOIN last_verified lv ON v.prev_l1_batch_hash = lv.l1_batch_hash
             WHERE
                 v.l1_batch_status IS NULL
                 AND (
@@ -427,7 +428,7 @@ impl ViaVotesDal<'_, '_> {
                 v.proof_reveal_tx_id
             FROM
                 via_votable_transactions v
-                LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
+            LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
             WHERE
                 v.is_finalized = TRUE
                 AND v.l1_batch_status = TRUE
@@ -462,7 +463,7 @@ impl ViaVotesDal<'_, '_> {
                 v.proof_reveal_tx_id
             FROM
                 via_votable_transactions v
-                LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
+            LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
             WHERE
                 v.is_finalized = TRUE
                 AND v.l1_batch_status = TRUE
@@ -497,7 +498,7 @@ impl ViaVotesDal<'_, '_> {
                 b.hash
             FROM
                 via_bridge_tx b
-                JOIN via_votable_transactions v ON b.votable_tx_id = v.id
+            JOIN via_votable_transactions v ON b.votable_tx_id = v.id
             WHERE
                 v.l1_batch_number = $1
                 AND b.index = $2
@@ -562,7 +563,7 @@ impl ViaVotesDal<'_, '_> {
                         1
                     FROM
                         via_votable_transactions v2
-                        JOIN via_bridge_tx b2 ON b2.votable_tx_id = v2.id
+                    JOIN via_bridge_tx b2 ON b2.votable_tx_id = v2.id
                     WHERE
                         v1.prev_l1_batch_hash = v2.l1_batch_hash
                         AND v2.is_finalized = TRUE
@@ -597,8 +598,10 @@ impl ViaVotesDal<'_, '_> {
                 b.hash
             FROM
                 via_votable_transactions v
-                LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
-                AND b.index = $2
+            LEFT JOIN via_bridge_tx b
+                ON
+                    b.votable_tx_id = v.id
+                    AND b.index = $2
             WHERE
                 v.proof_reveal_tx_id = $1
             "#,
@@ -616,32 +619,34 @@ impl ViaVotesDal<'_, '_> {
         let row = sqlx::query!(
             r#"
             WITH RECURSIVE
-                canonical_chain AS (
-                    (
-                        SELECT
-                            *
-                        FROM
-                            via_votable_transactions
-                        WHERE
-                            is_finalized = TRUE
-                            OR is_finalized IS NULL
-                        ORDER BY
-                            l1_batch_number DESC
-                        LIMIT
-                            1
-                    )
-                    UNION ALL
+            canonical_chain AS (
+                (
                     SELECT
-                        vt.*
+                        *
                     FROM
-                        via_votable_transactions vt
-                        JOIN canonical_chain cc ON vt.prev_l1_batch_hash = cc.l1_batch_hash
-                        AND vt.l1_batch_number = cc.l1_batch_number + 1
-                        AND (
-                            vt.l1_batch_status IS NULL
-                            OR vt.l1_batch_status = TRUE
-                        )
+                        via_votable_transactions
+                    WHERE
+                        is_finalized = TRUE
+                        OR is_finalized IS NULL
+                    ORDER BY
+                        l1_batch_number DESC
+                    LIMIT
+                        1
                 )
+                UNION ALL
+                SELECT
+                    vt.*
+                FROM
+                    via_votable_transactions vt
+                JOIN canonical_chain cc ON
+                    vt.prev_l1_batch_hash = cc.l1_batch_hash
+                    AND vt.l1_batch_number = cc.l1_batch_number + 1
+                    AND (
+                        vt.l1_batch_status IS NULL
+                        OR vt.l1_batch_status = TRUE
+                    )
+            )
+            
             SELECT
                 l1_batch_number,
                 l1_batch_hash
@@ -665,86 +670,92 @@ impl ViaVotesDal<'_, '_> {
         let result = sqlx::query!(
             r#"
             WITH RECURSIVE
-                canonical_chain AS (
-                    (
-                        SELECT
-                            *,
-                            1::BIGINT AS chain_position,
-                            TRUE AS is_valid_link
-                        FROM
-                            via_votable_transactions
-                        WHERE
-                            l1_batch_number = 1
-                        ORDER BY
-                            created_at ASC -- Take the first one if multiple exist
-                        LIMIT
-                            1
-                    )
-                    UNION ALL
+            canonical_chain AS (
+                (
                     SELECT
-                        vt.*,
-                        cc.chain_position + 1 AS chain_position,
-                        (
-                            vt.prev_l1_batch_hash = cc.l1_batch_hash
-                            AND vt.l1_batch_number = cc.l1_batch_number + 1
-                        ) AS is_valid_link
+                        *,
+                        1::BIGINT AS chain_position,
+                        TRUE AS is_valid_link
                     FROM
-                        via_votable_transactions vt
-                        JOIN canonical_chain cc ON vt.prev_l1_batch_hash = cc.l1_batch_hash
+                        via_votable_transactions
+                    WHERE
+                        l1_batch_number = 1
+                    ORDER BY
+                        created_at ASC -- Take the first one if multiple exist
+                    LIMIT
+                        1
+                )
+                UNION ALL
+                SELECT
+                    vt.*,
+                    cc.chain_position + 1 AS chain_position,
+                    (
+                        vt.prev_l1_batch_hash = cc.l1_batch_hash
+                        AND vt.l1_batch_number = cc.l1_batch_number + 1
+                    ) AS is_valid_link
+                FROM
+                    via_votable_transactions vt
+                JOIN canonical_chain cc
+                    ON
+                        vt.prev_l1_batch_hash = cc.l1_batch_hash
                         AND vt.l1_batch_number = cc.l1_batch_number + 1
                         AND (
                             vt.l1_batch_status IS NULL
                             OR vt.l1_batch_status = TRUE
                         )
-                    WHERE
-                        cc.is_valid_link = TRUE -- Only continue if previous link was valid
-                ),
-                chain_stats AS (
-                    SELECT
-                        COUNT(*) AS total_batches,
-                        MAX(l1_batch_number) AS max_batch_number,
-                        MIN(l1_batch_number) AS min_batch_number,
-                        BOOL_AND(is_valid_link) AS all_links_valid,
-                        ARRAY_AGG(
+                WHERE
+                    cc.is_valid_link = TRUE -- Only continue if previous link was valid
+            ),
+            
+            chain_stats AS (
+                SELECT
+                    COUNT(*) AS total_batches,
+                    MAX(l1_batch_number) AS max_batch_number,
+                    MIN(l1_batch_number) AS min_batch_number,
+                    BOOL_AND(is_valid_link) AS all_links_valid,
+                    ARRAY_AGG(
+                        l1_batch_number
+                        ORDER BY
                             l1_batch_number
-                            ORDER BY
-                                l1_batch_number
-                        ) AS batch_numbers
-                    FROM
-                        canonical_chain
-                ),
-                expected_sequence AS (
-                    SELECT
-                        GENERATE_SERIES(
-                            (
-                                SELECT
-                                    min_batch_number
-                                FROM
-                                    chain_stats
-                            ),
-                            (
-                                SELECT
-                                    max_batch_number
-                                FROM
-                                    chain_stats
-                            )
-                        ) AS expected_batch
-                ),
-                missing_batches AS (
-                    SELECT
-                        ARRAY_AGG(expected_batch) AS missing
-                    FROM
-                        expected_sequence es
-                    WHERE
-                        NOT EXISTS (
+                    ) AS batch_numbers
+                FROM
+                    canonical_chain
+            ),
+            
+            expected_sequence AS (
+                SELECT
+                    GENERATE_SERIES(
+                        (
                             SELECT
-                                1
+                                min_batch_number
                             FROM
-                                canonical_chain cc
-                            WHERE
-                                cc.l1_batch_number = es.expected_batch
+                                chain_stats
+                        ),
+                        (
+                            SELECT
+                                max_batch_number
+                            FROM
+                                chain_stats
                         )
-                )
+                    ) AS expected_batch
+            ),
+            
+            missing_batches AS (
+                SELECT
+                    ARRAY_AGG(expected_batch) AS missing
+                FROM
+                    expected_sequence es
+                WHERE
+                    NOT EXISTS (
+                        SELECT
+                            1
+                        FROM
+                            canonical_chain cc
+                        WHERE
+                            cc.l1_batch_number = es.expected_batch
+                    )
+            )
+            
             SELECT
                 cs.total_batches,
                 cs.max_batch_number,
@@ -752,7 +763,9 @@ impl ViaVotesDal<'_, '_> {
                 cs.all_links_valid,
                 cs.batch_numbers,
                 mb.missing,
-                (cs.total_batches = cs.max_batch_number - cs.min_batch_number + 1) AS is_continuous,
+                (
+                    cs.total_batches = cs.max_batch_number - cs.min_batch_number + 1
+                ) AS is_continuous,
                 (
                     SELECT
                         COUNT(*)

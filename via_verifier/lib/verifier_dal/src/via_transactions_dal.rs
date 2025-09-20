@@ -21,9 +21,11 @@ impl ViaTransactionsDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_transactions (priority_id, tx_id, receiver, value, calldata, canonical_tx_hash)
+            via_transactions (
+                priority_id, tx_id, receiver, value, calldata, canonical_tx_hash
+            )
             VALUES
-                ($1, $2, $3, $4, $5, $6)
+            ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (tx_id) DO NOTHING
             "#,
             priority_id,

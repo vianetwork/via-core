@@ -24,18 +24,19 @@ impl ViaBlocksWeb3Dal<'_, '_> {
             ViaStorageL1BatchDetails,
             r#"
             WITH
-                mb AS (
-                    SELECT
-                        l1_gas_price,
-                        l2_fair_gas_price,
-                        fair_pubdata_price
-                    FROM
-                        miniblocks
-                    WHERE
-                        l1_batch_number = $1
-                    LIMIT
-                        1
-                )
+            mb AS (
+                SELECT
+                    l1_gas_price,
+                    l2_fair_gas_price,
+                    fair_pubdata_price
+                FROM
+                    miniblocks
+                WHERE
+                    l1_batch_number = $1
+                LIMIT
+                    1
+            )
+            
             SELECT
                 l1_batches.number,
                 l1_batches.timestamp,
@@ -56,12 +57,22 @@ impl ViaBlocksWeb3Dal<'_, '_> {
                 l1_batches.evm_emulator_code_hash
             FROM
                 l1_batches
-                INNER JOIN mb ON TRUE
-                LEFT JOIN via_l1_batch_inscription_request AS bir ON (l1_batches.number = bir.l1_batch_number)
-                LEFT JOIN via_btc_inscriptions_request commit_req ON bir.commit_l1_batch_inscription_id = commit_req.id
-                LEFT JOIN via_btc_inscriptions_request proof_req ON bir.commit_proof_inscription_id = proof_req.id
-                LEFT JOIN via_btc_inscriptions_request_history commit_history ON commit_req.confirmed_inscriptions_request_history_id = commit_history.id
-                LEFT JOIN via_btc_inscriptions_request_history proof_history ON proof_req.confirmed_inscriptions_request_history_id = proof_history.id
+            INNER JOIN mb ON TRUE
+            LEFT JOIN
+                via_l1_batch_inscription_request AS bir
+                ON (l1_batches.number = bir.l1_batch_number)
+            LEFT JOIN
+                via_btc_inscriptions_request commit_req
+                ON bir.commit_l1_batch_inscription_id = commit_req.id
+            LEFT JOIN
+                via_btc_inscriptions_request proof_req
+                ON bir.commit_proof_inscription_id = proof_req.id
+            LEFT JOIN
+                via_btc_inscriptions_request_history commit_history
+                ON commit_req.confirmed_inscriptions_request_history_id = commit_history.id
+            LEFT JOIN
+                via_btc_inscriptions_request_history proof_history
+                ON proof_req.confirmed_inscriptions_request_history_id = proof_history.id
             WHERE
                 l1_batches.number = $1
             "#,
@@ -116,12 +127,22 @@ impl ViaBlocksWeb3Dal<'_, '_> {
                 miniblocks.fee_account_address
             FROM
                 miniblocks
-                LEFT JOIN l1_batches ON miniblocks.l1_batch_number = l1_batches.number
-                LEFT JOIN via_l1_batch_inscription_request AS bir ON (l1_batches.number = bir.l1_batch_number)
-                LEFT JOIN via_btc_inscriptions_request commit_req ON bir.commit_l1_batch_inscription_id = commit_req.id
-                LEFT JOIN via_btc_inscriptions_request proof_req ON bir.commit_proof_inscription_id = proof_req.id
-                LEFT JOIN via_btc_inscriptions_request_history commit_history ON commit_req.confirmed_inscriptions_request_history_id = commit_history.id
-                LEFT JOIN via_btc_inscriptions_request_history proof_history ON proof_req.confirmed_inscriptions_request_history_id = proof_history.id
+            LEFT JOIN l1_batches ON miniblocks.l1_batch_number = l1_batches.number
+            LEFT JOIN
+                via_l1_batch_inscription_request AS bir
+                ON (l1_batches.number = bir.l1_batch_number)
+            LEFT JOIN
+                via_btc_inscriptions_request commit_req
+                ON bir.commit_l1_batch_inscription_id = commit_req.id
+            LEFT JOIN
+                via_btc_inscriptions_request proof_req
+                ON bir.commit_proof_inscription_id = proof_req.id
+            LEFT JOIN
+                via_btc_inscriptions_request_history commit_history
+                ON commit_req.confirmed_inscriptions_request_history_id = commit_history.id
+            LEFT JOIN
+                via_btc_inscriptions_request_history proof_history
+                ON proof_req.confirmed_inscriptions_request_history_id = proof_history.id
             WHERE
                 miniblocks.number = $1
             "#,
