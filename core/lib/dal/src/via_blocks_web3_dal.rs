@@ -92,6 +92,8 @@ impl ViaBlocksWeb3Dal<'_, '_> {
                             (MAX(number) + 1)
                         FROM
                             l1_batches
+                        WHERE
+                            is_sealed
                     )
                 ) AS "l1_batch_number!",
                 miniblocks.timestamp,
