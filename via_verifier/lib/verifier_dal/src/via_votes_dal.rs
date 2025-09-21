@@ -428,7 +428,7 @@ impl ViaVotesDal<'_, '_> {
                 v.proof_reveal_tx_id
             FROM
                 via_votable_transactions v
-            LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
+                LEFT JOIN via_bridge_tx b ON b.proof_reveal_tx_id = v.proof_reveal_tx_id
             WHERE
                 v.is_finalized = TRUE
                 AND v.l1_batch_status = TRUE
@@ -463,7 +463,7 @@ impl ViaVotesDal<'_, '_> {
                 v.proof_reveal_tx_id
             FROM
                 via_votable_transactions v
-            LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id
+                LEFT JOIN via_bridge_tx b ON b.proof_reveal_tx_id = v.proof_reveal_tx_id
             WHERE
                 v.is_finalized = TRUE
                 AND v.l1_batch_status = TRUE
@@ -498,7 +498,7 @@ impl ViaVotesDal<'_, '_> {
                 b.hash
             FROM
                 via_bridge_tx b
-            JOIN via_votable_transactions v ON b.votable_tx_id = v.id
+                JOIN via_votable_transactions v ON b.proof_reveal_tx_id = v.proof_reveal_tx_id
             WHERE
                 v.l1_batch_number = $1
                 AND b.index = $2
@@ -555,7 +555,7 @@ impl ViaVotesDal<'_, '_> {
                     FROM
                         via_bridge_tx b
                     WHERE
-                        b.votable_tx_id = v1.id
+                        b.proof_reveal_tx_id = v1.proof_reveal_tx_id
                         AND b.hash IS NOT NULL
                 )
                 AND EXISTS (
@@ -563,15 +563,11 @@ impl ViaVotesDal<'_, '_> {
                         1
                     FROM
                         via_votable_transactions v2
-                    JOIN via_bridge_tx b2 ON b2.votable_tx_id = v2.id
+                        JOIN via_bridge_tx b2 ON b2.proof_reveal_tx_id = v2.proof_reveal_tx_id
                     WHERE
                         v1.prev_l1_batch_hash = v2.l1_batch_hash
                         AND v2.is_finalized = TRUE
-                        AND v2.l1_batch_status = TRUE
-                        AND b2.hash IS NOT NULL
-                )
             ORDER BY
-                v1.l1_batch_number ASC
             LIMIT
                 1
             "#
@@ -598,10 +594,8 @@ impl ViaVotesDal<'_, '_> {
                 b.hash
             FROM
                 via_votable_transactions v
-            LEFT JOIN via_bridge_tx b
-                ON
-                    b.votable_tx_id = v.id
-                    AND b.index = $2
+                LEFT JOIN via_bridge_tx b ON b.proof_reveal_tx_id = v.proof_reveal_tx_id
+                AND b.index = $2
             WHERE
                 v.proof_reveal_tx_id = $1
             "#,

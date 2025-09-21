@@ -2,11 +2,7 @@ use std::{any::Any, sync::Arc};
 
 use anyhow::{Context, Ok};
 use axum::async_trait;
-use bitcoin::{
-    hashes::Hash,
-    hex::{Case, DisplayHex},
-    Address, Amount, OutPoint, TxOut, Txid,
-};
+use bitcoin::{hashes::Hash, Address, Amount, OutPoint, TxOut, Txid};
 use indexmap::IndexMap;
 use via_btc_client::traits::Serializable;
 use via_musig2::{fee::WithdrawalFeeStrategy, transaction_builder::TransactionBuilder};
@@ -62,13 +58,13 @@ impl ISession for WithdrawalSession {
 
         let proof_txid = h256_to_txid(&raw_proof_tx_id).with_context(|| "Invalid proof tx id")?;
 
-        let votable_tx_id_opt = self.get_votable_tx_id(&raw_proof_tx_id).await?;
-        let Some(votable_tx_id) = votable_tx_id_opt else {
-            return Ok(None);
-        };
+        // let votable_tx_id_opt = self.get_votable_tx_id(&raw_proof_tx_id).await?;
+        // let Some(votable_tx_id) = votable_tx_id_opt else {
+        //     return Ok(None);
+        // };
 
         let (index, unsigned_txs) =
-            if let Some((index, unsigned_txs)) = self.get_unsigned_txs(votable_tx_id).await? {
+            if let Some((index, unsigned_txs)) = self.get_unsigned_txs(&raw_proof_tx_id).await? {
                 (index, unsigned_txs)
             } else {
                 let (index, unsigned_txs) = self
@@ -84,7 +80,7 @@ impl ISession for WithdrawalSession {
                         anyhow::format_err!("Invalid unsigned tx for batch {l1_batch_number}: {e}")
                     })?;
 
-                self.insert_bridge_tx(votable_tx_id, unsigned_txs.clone())
+                self.insert_bridge_tx(&raw_proof_tx_id, unsigned_txs.clone())
                     .await?;
                 (index, unsigned_txs)
             };
@@ -173,10 +169,10 @@ impl ISession for WithdrawalSession {
         txid: Txid,
         session_op: &SessionOperation,
     ) -> anyhow::Result<bool> {
-        let votable_tx_id = self
-            .get_votable_tx_id(&session_op.get_proof_tx_id())
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Votable transaction does not exist"))?;
+        // let votable_tx_id = self
+        //     .get_votable_tx_id(&session_op.get_proof_tx_id())
+        //     .await?
+        //     .ok_or_else(|| anyhow::anyhow!("Votable transaction does not exist"))?;
 
         let hash_bytes = txid.to_byte_array().to_vec();
 
@@ -184,7 +180,11 @@ impl ISession for WithdrawalSession {
             .connection_tagged("verifier task")
             .await?
             .via_bridge_dal()
-            .update_bridge_tx(votable_tx_id, session_op.index() as i64, &hash_bytes)
+            .update_bridge_tx(
+                &session_op.get_proof_tx_id(),
+                session_op.index() as i64,
+                &hash_bytes,
+            )
             .await?;
 
         self.transaction_builder
@@ -249,7 +249,7 @@ impl WithdrawalSession {
         for (batch_number, blob_id, proof_tx_id) in l1_batches.iter() {
             let withdrawals: Vec<WithdrawalRequest> = self
                 .withdrawal_client
-                .get_withdrawals(blob_id)
+                .get_withdrawals(blob_id, 1)
                 .await
                 .with_context(|| "Error to get withdrawals from DA")?;
             raw_proof_tx_id = proof_tx_id.clone();
@@ -265,22 +265,21 @@ impl WithdrawalSession {
                 break;
             } else {
                 // If there is no withdrawals to process in a batch, update the status and mark it as processed
-                let votable_tx_id = self
-                    .get_votable_tx_id(&raw_proof_tx_id)
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("Votable transaction does not exist"))?;
+                // let votable_tx_id = self
+                //     .get_votable_tx_id(&raw_proof_tx_id)
+                //     .await?
+                //     .ok_or_else(|| anyhow::anyhow!("Votable transaction does not exist"))?;
 
                 self.master_connection_pool
                     .connection_tagged("verifier task")
                     .await?
                     .via_bridge_dal()
-                    .insert_bridge_tx(votable_tx_id, Some(H256::zero().as_bytes()), None)
+                    .insert_bridge_tx(&raw_proof_tx_id, Some(H256::zero().as_bytes()), None)
                     .await?;
 
                 tracing::info!(
-                    "There is no withdrawal to process in l1 batch {} votable_tx_id {}",
+                    "There is no withdrawal to process in l1 batch {}",
                     batch_number.clone(),
-                    votable_tx_id
                 );
             }
         }
@@ -289,14 +288,14 @@ impl WithdrawalSession {
 
     pub async fn get_unsigned_txs(
         &self,
-        votable_tx_id: i64,
+        raw_proof_tx_id: &[u8],
     ) -> anyhow::Result<Option<(usize, Vec<UnsignedBridgeTx>)>> {
         let db_unsigned_bridge_txs = self
             .master_connection_pool
             .connection_tagged("verifier")
             .await?
             .via_bridge_dal()
-            .get_vote_transaction_bridge_txs(votable_tx_id)
+            .get_vote_transaction_bridge_txs(raw_proof_tx_id)
             .await?;
 
         if let Some((index, _)) = db_unsigned_bridge_txs
@@ -361,7 +360,11 @@ impl WithdrawalSession {
         blob_id: &str,
         raw_proof_tx_id: Vec<u8>,
     ) -> anyhow::Result<bool> {
-        let withdrawals = self.withdrawal_client.get_withdrawals(blob_id).await?;
+        let l_batch_number = 1;
+        let withdrawals = self
+            .withdrawal_client
+            .get_withdrawals(blob_id, l_batch_number)
+            .await?;
 
         // Verify the fee used to build the withdrawal transaction.
         let fee_rate = self
@@ -402,16 +405,16 @@ impl WithdrawalSession {
             return Ok(false);
         }
 
-        let Some(votable_tx_id) = self.get_votable_tx_id(&raw_proof_tx_id).await? else {
-            tracing::error!(
-                "Theres is no votable transaction with proof_tx_id {}",
-                raw_proof_tx_id.to_hex_string(Case::Lower)
-            );
-            return Ok(false);
-        };
+        // let Some(votable_tx_id) = self.get_votable_tx_id(&raw_proof_tx_id).await? else {
+        //     tracing::error!(
+        //         "Theres is no votable transaction with proof_tx_id {}",
+        //         raw_proof_tx_id.to_hex_string(Case::Lower)
+        //     );
+        //     return Ok(false);
+        // };
 
-        if self.get_unsigned_txs(votable_tx_id).await?.is_none() {
-            self.insert_bridge_tx(votable_tx_id, recovered_unsigned_txs)
+        if self.get_unsigned_txs(&raw_proof_tx_id).await?.is_none() {
+            self.insert_bridge_tx(&raw_proof_tx_id, recovered_unsigned_txs)
                 .await?;
         }
 
@@ -488,7 +491,7 @@ impl WithdrawalSession {
 
     async fn insert_bridge_tx(
         &self,
-        votable_tx_id: i64,
+        raw_proof_tx_id: &[u8],
         unsigned_bridge_txs: Vec<UnsignedBridgeTx>,
     ) -> anyhow::Result<()> {
         let mut data = vec![];
@@ -500,22 +503,22 @@ impl WithdrawalSession {
             .connection_tagged("verifier")
             .await?
             .via_bridge_dal()
-            .insert_bridge_txs(votable_tx_id, &data)
+            .insert_bridge_txs(raw_proof_tx_id, &data)
             .await?;
 
         Ok(())
     }
 
-    async fn get_votable_tx_id(&self, proof_txid: &[u8]) -> anyhow::Result<Option<i64>> {
-        let votable_tx_id = self
-            .master_connection_pool
-            .connection_tagged("verifier")
-            .await?
-            .via_votes_dal()
-            .get_votable_transaction_id(proof_txid)
-            .await?;
-        Ok(votable_tx_id)
-    }
+    // async fn get_votable_tx_id(&self, proof_txid: &[u8]) -> anyhow::Result<Option<i64>> {
+    //     let votable_tx_id = self
+    //         .master_connection_pool
+    //         .connection_tagged("verifier")
+    //         .await?
+    //         .via_votes_dal()
+    //         .get_votable_transaction_id(proof_txid)
+    //         .await?;
+    //     Ok(votable_tx_id)
+    // }
 
     async fn get_bridget_address(&self) -> anyhow::Result<Address> {
         let Some(system_wallets_map) = self

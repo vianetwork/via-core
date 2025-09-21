@@ -17,7 +17,7 @@ pub use zksync_db_connection::{
 use crate::{
     via_blocks_dal::ViaBlocksDal, via_btc_sender_dal::ViaBtcSenderDal,
     via_indexer_dal::ViaIndexerDal, via_l1_block_dal::ViaL1BlockDal, via_votes_dal::ViaVotesDal,
-    via_wallet_dal::ViaWalletDal,
+    via_wallet_dal::ViaWalletDal, withdrawals_dal::ViaWithdrawalDal,
 };
 
 pub mod models;
@@ -30,6 +30,7 @@ pub mod via_protocol_versions_dal;
 pub mod via_transactions_dal;
 pub mod via_votes_dal;
 pub mod via_wallet_dal;
+pub mod withdrawals_dal;
 
 #[cfg(test)]
 mod tests;
@@ -54,6 +55,7 @@ where
     fn via_bridge_dal(&mut self) -> ViaBridgeDal<'_, 'a>;
     fn via_wallet_dal(&mut self) -> ViaWalletDal<'_, 'a>;
     fn via_l1_block_dal(&mut self) -> ViaL1BlockDal<'_, 'a>;
+    fn via_withdrawal_dal(&mut self) -> ViaWithdrawalDal<'_, 'a>;
 }
 
 #[derive(Clone, Debug)]
@@ -99,5 +101,9 @@ impl<'a> VerifierDal<'a> for Connection<'a, Verifier> {
 
     fn via_l1_block_dal(&mut self) -> ViaL1BlockDal<'_, 'a> {
         ViaL1BlockDal { storage: self }
+    }
+
+    fn via_withdrawal_dal(&mut self) -> ViaWithdrawalDal<'_, 'a> {
+        ViaWithdrawalDal { storage: self }
     }
 }
