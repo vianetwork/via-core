@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                number,\n                l1_tx_count,\n                l2_tx_count,\n                timestamp\n            FROM\n                l1_batches\n            LEFT JOIN\n                via_l1_batch_inscription_request\n                ON l1_batches.number = via_l1_batch_inscription_request.l1_batch_number\n            WHERE\n                commit_l1_batch_inscription_id = $1\n                OR commit_proof_inscription_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "l1_tx_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "l2_tx_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "timestamp",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "98e137ed64fd5f72a7aa7a8f20c377ff22709581440f38226aa6afaf5b0153ef"
+}

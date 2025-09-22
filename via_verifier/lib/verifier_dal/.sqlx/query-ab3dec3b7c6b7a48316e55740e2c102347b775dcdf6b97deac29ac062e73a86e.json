@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE via_votable_transactions\n            SET\n                l1_batch_status = $3,\n                updated_at = NOW()\n            WHERE\n                l1_batch_number = $1\n                AND proof_reveal_tx_id = $2\n            RETURNING\n            id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bytea",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ab3dec3b7c6b7a48316e55740e2c102347b775dcdf6b97deac29ac062e73a86e"
+}

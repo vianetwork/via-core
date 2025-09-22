@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n            via_votes (l1_batch_number, proof_reveal_tx_id, verifier_address, vote)\n            VALUES\n            ($1, $2, $3, $4)\n            ON CONFLICT (l1_batch_number, proof_reveal_tx_id, verifier_address) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bytea",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "42fa85f375a251f2c69696202987586c5eb903cfc72b18dae10da7b05e76237b"
+}

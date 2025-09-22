@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO\n                    via_l1_batch_inscription_request (\n                        l1_batch_number, commit_l1_batch_inscription_id, created_at, updated_at\n                    )\n                    VALUES\n                    ($1, $2, NOW(), NOW())\n                    ON CONFLICT DO NOTHING\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4aeef8b82ccf40085c28f0cb5b073b5552d25725b796021f735dc3ece0c814a2"
+}
