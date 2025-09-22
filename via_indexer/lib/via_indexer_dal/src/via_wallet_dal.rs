@@ -29,10 +29,10 @@ impl ViaWalletDal<'_, '_> {
             sqlx::query!(
                 r#"
                 INSERT INTO
-                    via_wallets (ROLE, address, tx_hash)
+                via_wallets (role, address, tx_hash)
                 VALUES
-                    ($1, $2, $3)
-                ON CONFLICT (tx_hash, address, ROLE) DO NOTHING
+                ($1, $2, $3)
+                ON CONFLICT (tx_hash, address, role) DO NOTHING
                 "#,
                 role.to_string(),
                 addresses_str,
@@ -53,13 +53,14 @@ impl ViaWalletDal<'_, '_> {
         let rows = sqlx::query!(
             r#"
             SELECT DISTINCT
-                ON (ROLE) ROLE,
-                address
+            ON (ROLE)
+                ROLE,
+                ADDRESS
             FROM
-                via_wallets
+                VIA_WALLETS
             ORDER BY
                 ROLE,
-                created_at DESC
+                CREATED_AT DESC
             "#
         )
         .instrument("get_system_wallets_raw")

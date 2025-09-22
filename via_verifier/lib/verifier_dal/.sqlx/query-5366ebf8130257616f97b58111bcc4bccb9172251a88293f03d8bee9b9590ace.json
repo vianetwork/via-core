@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n            protocol_versions (\n                id,\n                bootloader_code_hash,\n                default_account_code_hash,\n                upgrade_tx_hash,\n                recursion_scheduler_level_vk_hash,\n                executed,\n                created_at\n            )\n            VALUES\n            ($1, $2, $3, $4, $5, FALSE, NOW())\n            ON CONFLICT (id) DO\n            UPDATE\n            SET\n            upgrade_tx_hash = excluded.upgrade_tx_hash,\n            executed = FALSE;\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Bytea",
+        "Bytea",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5366ebf8130257616f97b58111bcc4bccb9172251a88293f03d8bee9b9590ace"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n            via_votes (votable_transaction_id, verifier_address, vote)\n            VALUES\n            ($1, $2, $3)\n            ON CONFLICT (votable_transaction_id, verifier_address) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a27b8600e701b9e0d60873e7c9462ee41a9e4e34494b801b30b50823c1d542a6"
+}

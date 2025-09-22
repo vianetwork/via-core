@@ -35,9 +35,11 @@ impl ViaBlocksDal<'_, '_> {
                 let query = sqlx::query!(
                     r#"
                     INSERT INTO
-                        via_l1_batch_inscription_request (l1_batch_number, commit_l1_batch_inscription_id, created_at, updated_at)
+                    via_l1_batch_inscription_request (
+                        l1_batch_number, commit_l1_batch_inscription_id, created_at, updated_at
+                    )
                     VALUES
-                        ($1, $2, NOW(), NOW())
+                    ($1, $2, NOW(), NOW())
                     ON CONFLICT DO NOTHING
                     "#,
                     i64::from(batch_number.0),
@@ -106,20 +108,26 @@ impl ViaBlocksDal<'_, '_> {
             ViaBtcStorageL1BlockDetails,
             r#"
             SELECT
-                l1_batches.number AS number,
-                l1_batches.timestamp AS timestamp,
-                l1_batches.hash AS hash,
+                l1_batches.number,
+                l1_batches.timestamp,
+                l1_batches.hash,
                 ''::bytea AS commit_tx_id,
                 ''::bytea AS reveal_tx_id,
                 via_data_availability.blob_id,
                 prev_l1_batches.hash AS prev_l1_batch_hash
             FROM
                 l1_batches
-                LEFT JOIN l1_batches prev_l1_batches ON prev_l1_batches.number = l1_batches.number - 1
-                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
-                LEFT JOIN commitments ON commitments.l1_batch_number = l1_batches.number
-                LEFT JOIN via_data_availability ON via_data_availability.l1_batch_number = l1_batches.number
-                JOIN protocol_versions ON protocol_versions.id = l1_batches.protocol_version
+            LEFT JOIN
+                l1_batches prev_l1_batches
+                ON prev_l1_batches.number = l1_batches.number - 1
+            LEFT JOIN
+                via_l1_batch_inscription_request
+                ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
+            LEFT JOIN commitments ON commitments.l1_batch_number = l1_batches.number
+            LEFT JOIN
+                via_data_availability
+                ON via_data_availability.l1_batch_number = l1_batches.number
+            JOIN protocol_versions ON protocol_versions.id = l1_batches.protocol_version
             WHERE
                 commit_l1_batch_inscription_id IS NULL
                 AND l1_batches.number != 0
@@ -165,18 +173,19 @@ impl ViaBlocksDal<'_, '_> {
             ViaBtcStorageL1BlockDetails,
             r#"
             WITH
-                latest_history AS (
-                    SELECT
-                        *,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY
-                                inscription_request_id
-                            ORDER BY
-                                created_at DESC
-                        ) AS rn
-                    FROM
-                        via_btc_inscriptions_request_history
-                )
+            latest_history AS (
+                SELECT
+                    *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY
+                            inscription_request_id
+                        ORDER BY
+                            created_at DESC
+                    ) AS rn
+                FROM
+                    via_btc_inscriptions_request_history
+            )
+            
             SELECT
                 l1_batches.number,
                 l1_batches.timestamp,
@@ -187,18 +196,28 @@ impl ViaBlocksDal<'_, '_> {
                 prev_l1_batches.hash AS prev_l1_batch_hash
             FROM
                 l1_batches
-                LEFT JOIN l1_batches prev_l1_batches ON prev_l1_batches.number = l1_batches.number - 1
-                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
-                LEFT JOIN via_data_availability ON via_data_availability.l1_batch_number = l1_batches.number
-                LEFT JOIN via_btc_inscriptions_request ON via_l1_batch_inscription_request.commit_l1_batch_inscription_id = via_btc_inscriptions_request.id
-                LEFT JOIN (
-                    SELECT
-                        *
-                    FROM
-                        latest_history
-                    WHERE
-                        rn = 1
-                ) AS lh ON via_btc_inscriptions_request.id = lh.inscription_request_id
+            LEFT JOIN
+                l1_batches prev_l1_batches
+                ON prev_l1_batches.number = l1_batches.number - 1
+            LEFT JOIN
+                via_l1_batch_inscription_request
+                ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
+            LEFT JOIN
+                via_data_availability
+                ON via_data_availability.l1_batch_number = l1_batches.number
+            LEFT JOIN
+                via_btc_inscriptions_request
+                ON
+                    via_l1_batch_inscription_request.commit_l1_batch_inscription_id
+                    = via_btc_inscriptions_request.id
+            LEFT JOIN (
+                SELECT
+                    *
+                FROM
+                    latest_history
+                WHERE
+                    rn = 1
+            ) AS lh ON via_btc_inscriptions_request.id = lh.inscription_request_id
             WHERE
                 via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL
                 AND via_l1_batch_inscription_request.commit_proof_inscription_id IS NULL
@@ -255,7 +274,7 @@ impl ViaBlocksDal<'_, '_> {
                 MIN(number) AS l1_batch_number
             FROM
                 l1_batches
-                LEFT JOIN via_l1_batch_inscription_request ON number = l1_batch_number
+            LEFT JOIN via_l1_batch_inscription_request ON number = l1_batch_number
             WHERE
                 commit_proof_inscription_id IS NULL
                 AND number != 0
@@ -292,13 +311,17 @@ impl ViaBlocksDal<'_, '_> {
         let row = sqlx::query!(
             r#"
             SELECT
-                EXISTS (
+                EXISTS(
                     SELECT
                         1
                     FROM
                         via_l1_batch_inscription_request ir
-                        LEFT JOIN via_btc_inscriptions_request a ON ir.commit_proof_inscription_id = a.id
-                        LEFT JOIN via_btc_inscriptions_request_history irh ON irh.id = a.confirmed_inscriptions_request_history_id
+                    LEFT JOIN
+                        via_btc_inscriptions_request a
+                        ON ir.commit_proof_inscription_id = a.id
+                    LEFT JOIN
+                        via_btc_inscriptions_request_history irh
+                        ON irh.id = a.confirmed_inscriptions_request_history_id
                     WHERE
                         ir.l1_batch_number = $1
                         AND irh.reveal_tx_id = $2
@@ -350,18 +373,22 @@ impl ViaBlocksDal<'_, '_> {
             ViaBtcStorageL1BlockDetails,
             r#"
             SELECT
-                l1_batches.number AS number,
-                l1_batches.timestamp AS timestamp,
-                l1_batches.hash AS hash,
+                l1_batches.number,
+                l1_batches.timestamp,
+                l1_batches.hash,
                 ''::bytea AS commit_tx_id,
                 ''::bytea AS reveal_tx_id,
                 '' AS blob_id,
                 prev_l1_batches.hash AS prev_l1_batch_hash
             FROM
                 l1_batches
-                LEFT JOIN l1_batches prev_l1_batches ON prev_l1_batches.number = l1_batches.number - 1
-                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
-                LEFT JOIN commitments ON commitments.l1_batch_number = l1_batches.number
+            LEFT JOIN
+                l1_batches prev_l1_batches
+                ON prev_l1_batches.number = l1_batches.number - 1
+            LEFT JOIN
+                via_l1_batch_inscription_request
+                ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
+            LEFT JOIN commitments ON commitments.l1_batch_number = l1_batches.number
             WHERE
                 via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL
                 AND events_queue_commitment IS NOT NULL
@@ -385,17 +412,21 @@ impl ViaBlocksDal<'_, '_> {
             ViaBtcStorageL1BlockDetails,
             r#"
             SELECT
-                l1_batches.number AS number,
-                l1_batches.timestamp AS timestamp,
-                l1_batches.hash AS hash,
+                l1_batches.number,
+                l1_batches.timestamp,
+                l1_batches.hash,
                 ''::bytea AS commit_tx_id,
                 ''::bytea AS reveal_tx_id,
                 '' AS blob_id,
                 prev_l1_batches.hash AS prev_l1_batch_hash
             FROM
                 l1_batches
-                LEFT JOIN l1_batches prev_l1_batches ON prev_l1_batches.number = l1_batches.number - 1
-                LEFT JOIN via_l1_batch_inscription_request ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
+            LEFT JOIN
+                l1_batches prev_l1_batches
+                ON prev_l1_batches.number = l1_batches.number - 1
+            LEFT JOIN
+                via_l1_batch_inscription_request
+                ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number
             WHERE
                 via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL
                 AND via_l1_batch_inscription_request.commit_proof_inscription_id IS NOT NULL
@@ -424,7 +455,9 @@ impl ViaBlocksDal<'_, '_> {
                 timestamp
             FROM
                 l1_batches
-                LEFT JOIN via_l1_batch_inscription_request ON l1_batches.number = via_l1_batch_inscription_request.l1_batch_number
+            LEFT JOIN
+                via_l1_batch_inscription_request
+                ON l1_batches.number = via_l1_batch_inscription_request.l1_batch_number
             WHERE
                 commit_l1_batch_inscription_id = $1
                 OR commit_proof_inscription_id = $1

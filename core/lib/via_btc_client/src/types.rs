@@ -154,7 +154,9 @@ pub struct SystemContractUpgradeProposalInput {
     pub bootloader_code_hash: H256,
     /// New default account code hash.
     pub default_account_code_hash: H256,
-    /// Verfier key hash.
+    /// New EVM emulator code hash
+    pub evm_emulator_code_hash: Option<H256>,
+    /// Verifier key hash.
     pub recursion_scheduler_level_vk_hash: H256,
     /// The L2 transaction calldata.
     pub system_contracts: Vec<(EVMAddress, H256)>,

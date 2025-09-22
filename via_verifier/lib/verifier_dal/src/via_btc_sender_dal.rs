@@ -25,11 +25,13 @@ impl ViaBtcSenderDal<'_, '_> {
             ViaBtcInscriptionRequest,
             r#"
             INSERT INTO
-                via_btc_inscriptions_request (request_type, inscription_message, predicted_fee, created_at, updated_at)
+            via_btc_inscriptions_request (
+                request_type, inscription_message, predicted_fee, created_at, updated_at
+            )
             VALUES
-                ($1, $2, $3, NOW(), NOW())
+            ($1, $2, $3, NOW(), NOW())
             RETURNING
-                *
+            *
             "#,
             inscription_request_type,
             inscription_message,
@@ -50,22 +52,25 @@ impl ViaBtcSenderDal<'_, '_> {
                 via_btc_inscriptions_request.*
             FROM
                 via_btc_inscriptions_request
-                JOIN via_btc_inscriptions_request_history ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
-                AND via_btc_inscriptions_request_history.sent_at_block IS NOT NULL
-                AND via_btc_inscriptions_request.confirmed_inscriptions_request_history_id IS NULL
-                AND via_btc_inscriptions_request_history.id = (
-                    SELECT
-                        id
-                    FROM
-                        via_btc_inscriptions_request_history
-                    WHERE
-                        inscription_request_id = via_btc_inscriptions_request.id
-                        AND via_btc_inscriptions_request_history.sent_at_block IS NOT NULL
-                    ORDER BY
-                        created_at DESC
-                    LIMIT
-                        1
-                )
+            JOIN via_btc_inscriptions_request_history
+                ON
+                    via_btc_inscriptions_request.id
+                    = via_btc_inscriptions_request_history.inscription_request_id
+                    AND via_btc_inscriptions_request_history.sent_at_block IS NOT NULL
+                    AND via_btc_inscriptions_request.confirmed_inscriptions_request_history_id IS NULL
+                    AND via_btc_inscriptions_request_history.id = (
+                        SELECT
+                            id
+                        FROM
+                            via_btc_inscriptions_request_history
+                        WHERE
+                            inscription_request_id = via_btc_inscriptions_request.id
+                            AND via_btc_inscriptions_request_history.sent_at_block IS NOT NULL
+                        ORDER BY
+                            created_at DESC
+                        LIMIT
+                            1
+                    )
             ORDER BY
                 id
             "#
@@ -86,7 +91,11 @@ impl ViaBtcSenderDal<'_, '_> {
                 via_btc_inscriptions_request.*
             FROM
                 via_btc_inscriptions_request
-                LEFT JOIN via_btc_inscriptions_request_history ON via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
+            LEFT JOIN
+                via_btc_inscriptions_request_history
+                ON
+                    via_btc_inscriptions_request.id
+                    = via_btc_inscriptions_request_history.inscription_request_id
             WHERE
                 via_btc_inscriptions_request_history.inscription_request_id IS NULL
             ORDER BY
@@ -115,21 +124,21 @@ impl ViaBtcSenderDal<'_, '_> {
         Ok(sqlx::query!(
             r#"
             INSERT INTO
-                via_btc_inscriptions_request_history (
-                    commit_tx_id,
-                    reveal_tx_id,
-                    inscription_request_id,
-                    signed_commit_tx,
-                    signed_reveal_tx,
-                    actual_fees,
-                    sent_at_block,
-                    created_at,
-                    updated_at
-                )
+            via_btc_inscriptions_request_history (
+                commit_tx_id,
+                reveal_tx_id,
+                inscription_request_id,
+                signed_commit_tx,
+                signed_reveal_tx,
+                actual_fees,
+                sent_at_block,
+                created_at,
+                updated_at
+            )
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+            ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
             RETURNING
-                id
+            id
             "#,
             commit_tx_id,
             reveal_tx_id,

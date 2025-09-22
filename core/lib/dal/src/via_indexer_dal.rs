@@ -12,9 +12,9 @@ impl ViaIndexerDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_indexer_metadata (last_indexer_l1_block, module, updated_at)
+            via_indexer_metadata (last_indexer_l1_block, module, updated_at)
             VALUES
-                ($1, $2, NOW())
+            ($1, $2, NOW())
             ON CONFLICT DO NOTHING
             "#,
             i64::from(l1_block),

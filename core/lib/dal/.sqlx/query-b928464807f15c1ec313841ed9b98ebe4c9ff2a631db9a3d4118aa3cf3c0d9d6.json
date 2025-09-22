@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                l1_batches.number,\n                l1_batches.timestamp,\n                l1_batches.hash,\n                ''::bytea AS commit_tx_id,\n                ''::bytea AS reveal_tx_id,\n                '' AS blob_id,\n                prev_l1_batches.hash AS prev_l1_batch_hash\n            FROM\n                l1_batches\n            LEFT JOIN\n                l1_batches prev_l1_batches\n                ON prev_l1_batches.number = l1_batches.number - 1\n            LEFT JOIN\n                via_l1_batch_inscription_request\n                ON via_l1_batch_inscription_request.l1_batch_number = l1_batches.number\n            LEFT JOIN commitments ON commitments.l1_batch_number = l1_batches.number\n            WHERE\n                via_l1_batch_inscription_request.commit_l1_batch_inscription_id IS NOT NULL\n                AND events_queue_commitment IS NOT NULL\n            ORDER BY\n                l1_batches.number DESC\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "timestamp",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "hash",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "commit_tx_id",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 4,
+        "name": "reveal_tx_id",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "blob_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "prev_l1_batch_hash",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "b928464807f15c1ec313841ed9b98ebe4c9ff2a631db9a3d4118aa3cf3c0d9d6"
+}

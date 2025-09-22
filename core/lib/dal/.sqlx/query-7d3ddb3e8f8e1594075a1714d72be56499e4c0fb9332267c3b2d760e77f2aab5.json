@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                EXISTS(\n                    SELECT\n                        1\n                    FROM\n                        via_l1_batch_inscription_request\n                    WHERE\n                        l1_batch_number = $1\n                        AND is_finalized IS NOT NULL\n                ) AS already_finalized\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "already_finalized",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7d3ddb3e8f8e1594075a1714d72be56499e4c0fb9332267c3b2d760e77f2aab5"
+}
