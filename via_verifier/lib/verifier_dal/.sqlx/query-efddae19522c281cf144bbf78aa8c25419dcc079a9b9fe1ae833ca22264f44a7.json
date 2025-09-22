@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                v.pubdata_blob_id,\n                v.proof_reveal_tx_id\n            FROM\n                via_votable_transactions v\n            LEFT JOIN via_bridge_tx b ON b.votable_tx_id = v.id\n            WHERE\n                v.is_finalized = TRUE\n                AND v.l1_batch_status = TRUE\n                AND v.l1_batch_number = $1\n                AND (\n                    b.hash IS NULL\n                    OR b.id IS NULL\n                )\n            ORDER BY\n                v.l1_batch_number ASC\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pubdata_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "proof_reveal_tx_id",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "efddae19522c281cf144bbf78aa8c25419dcc079a9b9fe1ae833ca22264f44a7"
+}

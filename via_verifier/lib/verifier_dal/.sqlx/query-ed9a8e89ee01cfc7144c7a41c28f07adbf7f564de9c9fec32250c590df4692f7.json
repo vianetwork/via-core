@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH\n            last_verified AS (\n                SELECT\n                    l1_batch_number,\n                    l1_batch_hash\n                FROM\n                    via_votable_transactions\n                WHERE\n                    l1_batch_status = TRUE\n                ORDER BY\n                    l1_batch_number DESC\n                LIMIT\n                    1\n            )\n            \n            SELECT\n                v.l1_batch_number,\n                v.proof_reveal_tx_id\n            FROM\n                via_votable_transactions v\n            LEFT JOIN last_verified lv ON v.prev_l1_batch_hash = lv.l1_batch_hash\n            WHERE\n                v.l1_batch_status IS NULL\n                AND (\n                    v.l1_batch_number = 1\n                    OR (\n                        lv.l1_batch_hash IS NOT NULL\n                        AND v.l1_batch_number = lv.l1_batch_number + 1\n                    )\n                )\n            ORDER BY\n                v.l1_batch_number ASC\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "proof_reveal_tx_id",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ed9a8e89ee01cfc7144c7a41c28f07adbf7f564de9c9fec32250c590df4692f7"
+}

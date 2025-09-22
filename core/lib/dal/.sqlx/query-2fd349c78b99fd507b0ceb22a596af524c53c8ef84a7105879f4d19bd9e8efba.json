@@ -1,0 +1,118 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH\n            mb AS (\n                SELECT\n                    l1_gas_price,\n                    l2_fair_gas_price,\n                    fair_pubdata_price\n                FROM\n                    miniblocks\n                WHERE\n                    l1_batch_number = $1\n                LIMIT\n                    1\n            )\n            \n            SELECT\n                l1_batches.number,\n                l1_batches.timestamp,\n                l1_batches.l1_tx_count,\n                l1_batches.l2_tx_count,\n                l1_batches.hash AS \"root_hash?\",\n                commit_history.reveal_tx_id AS \"commit_tx_hash?\",\n                commit_history.confirmed_at AS \"committed_at?\",\n                proof_history.reveal_tx_id AS \"prove_tx_hash?\",\n                proof_history.confirmed_at AS \"proven_at?\",\n                bir.is_finalized AS \"is_finalized?\",\n                bir.updated_at AS \"executed_at?\",\n                mb.l1_gas_price,\n                mb.l2_fair_gas_price,\n                mb.fair_pubdata_price,\n                l1_batches.bootloader_code_hash,\n                l1_batches.default_aa_code_hash,\n                l1_batches.evm_emulator_code_hash\n            FROM\n                l1_batches\n            INNER JOIN mb ON TRUE\n            LEFT JOIN\n                via_l1_batch_inscription_request AS bir\n                ON (l1_batches.number = bir.l1_batch_number)\n            LEFT JOIN\n                via_btc_inscriptions_request commit_req\n                ON bir.commit_l1_batch_inscription_id = commit_req.id\n            LEFT JOIN\n                via_btc_inscriptions_request proof_req\n                ON bir.commit_proof_inscription_id = proof_req.id\n            LEFT JOIN\n                via_btc_inscriptions_request_history commit_history\n                ON commit_req.confirmed_inscriptions_request_history_id = commit_history.id\n            LEFT JOIN\n                via_btc_inscriptions_request_history proof_history\n                ON proof_req.confirmed_inscriptions_request_history_id = proof_history.id\n            WHERE\n                l1_batches.number = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "timestamp",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "l1_tx_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "l2_tx_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "root_hash?",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "commit_tx_hash?",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 6,
+        "name": "committed_at?",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "prove_tx_hash?",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 8,
+        "name": "proven_at?",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_finalized?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "executed_at?",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 11,
+        "name": "l1_gas_price",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "l2_fair_gas_price",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "fair_pubdata_price",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "bootloader_code_hash",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 15,
+        "name": "default_aa_code_hash",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 16,
+        "name": "evm_emulator_code_hash",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2fd349c78b99fd507b0ceb22a596af524c53c8ef84a7105879f4d19bd9e8efba"
+}
