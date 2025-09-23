@@ -40,7 +40,7 @@ impl MessageProcessor for WithdrawalProcessor {
                     .to_byte_array()
                     .to_vec();
 
-                let Some((votable_tx_id, l1_batch_number, bridge_tx_id)) = storage
+                let Some((_, l1_batch_number, bridge_tx_id)) = storage
                     .via_votes_dal()
                     .get_vote_transaction_info(
                         proof_reveal_tx_id.clone(),
@@ -74,7 +74,7 @@ impl MessageProcessor for WithdrawalProcessor {
                 storage
                     .via_bridge_dal()
                     .update_bridge_tx(
-                        votable_tx_id,
+                        &proof_reveal_tx_id_bytes,
                         withdrawal_msg.input.index_withdrawal,
                         &indexed_bridge_tx_id,
                     )
