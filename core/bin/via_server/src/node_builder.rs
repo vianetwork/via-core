@@ -238,7 +238,7 @@ impl ViaNodeBuilder {
 
     fn add_l1_gas_layer(mut self) -> anyhow::Result<Self> {
         let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
-        let l1_gas_layer = ViaL1GasLayer::new(state_keeper_config);
+        let l1_gas_layer = ViaL1GasLayer::new(&state_keeper_config);
         self.node.add_layer(l1_gas_layer);
         Ok(self)
     }
