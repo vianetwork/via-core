@@ -41,4 +41,7 @@ via_verifier_btc_sender=info,\
 via_verifier_btc_watch=info,\
 via_verifier_dal=info,\
 via_indexer=info,\
+via_main_node_reorg_detector=info,\
+via_verifier_reorg_detector=info,\
+via_verifier_block_reverter=info,\
 """

@@ -96,6 +96,15 @@ impl ViaVerifier {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
+        if storage
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+
         self.validate_verifier_address().await?;
 
         if let Some((l1_batch_number, mut raw_tx_id)) = storage
@@ -209,7 +218,7 @@ impl ViaVerifier {
                 for (hash, status) in deposits {
                     transaction
                         .via_transactions_dal()
-                        .update_transaction(&hash, status)
+                        .update_transaction(&hash, status, l1_batch_number)
                         .await?;
                 }
 
@@ -228,6 +237,16 @@ impl ViaVerifier {
                 METRICS.last_valid_l1_batch.set(l1_batch_number as usize);
             } else {
                 METRICS.last_invalid_l1_batch.set(l1_batch_number as usize);
+            }
+
+            // Before commit the verification make sure that no reorg was detected during he ZK verification.
+            if transaction
+                .via_l1_block_dal()
+                .has_reorg_in_progress()
+                .await?
+                .is_some()
+            {
+                return Ok(());
             }
 
             transaction.commit().await?;

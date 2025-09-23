@@ -64,6 +64,7 @@ via_consistency_checker.workspace = true
 via_fee_model.workspace = true
 via_da_dispatcher.workspace = true
 via_state_keeper.workspace = true
+via_main_node_reorg_detector.workspace = true
 via_verifier_coordinator.workspace = true
 via_withdrawal_client.workspace = true
 via_verifier_dal.workspace = true
@@ -72,6 +73,8 @@ via_verifier_btc_watch.workspace = true
 via_verifier_btc_sender.workspace = true
 via_musig2.workspace = true
 via_verifier_storage_init.workspace = true
+via_verifier_block_reverter.workspace = true
+via_verifier_reorg_detector.workspace = true
 via_node_storage_init.workspace = true
 via_indexer_storage_init.workspace = true
 

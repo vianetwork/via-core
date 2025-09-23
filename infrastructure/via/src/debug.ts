@@ -34,7 +34,8 @@ export async function depositMany(
             l2RpcUrl,
             rpcUsername,
             rpcPassword,
-            bridgeAddress
+            bridgeAddress,
+            'https://mempool.space/testnet/api/v1/fees/recommended'
         );
 
         console.log(`\n\nDeposit ${i + 1}/${count}`);

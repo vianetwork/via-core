@@ -61,6 +61,15 @@ impl ViaBtcInscriptionAggregator {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> Result<(), anyhow::Error> {
+        if storage
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+
         let latency = METRICS.inscription_preparation_time.start();
         let mut processed_inscriptions = vec![];
 

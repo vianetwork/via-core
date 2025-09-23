@@ -276,7 +276,10 @@ impl ViaBlocksDal<'_, '_> {
                 l1_batches
             LEFT JOIN via_l1_batch_inscription_request ON number = l1_batch_number
             WHERE
-                commit_proof_inscription_id IS NULL
+                (
+                    commit_l1_batch_inscription_id IS NULL
+                    OR commit_proof_inscription_id IS NULL
+                )
                 AND number != 0
             "#
         )
