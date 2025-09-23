@@ -15,6 +15,9 @@ import * as zksync from 'zksync-ethers';
 import * as elliptic from 'elliptic';
 import { RetryProvider } from '../src/retry-provider';
 
+const SECONDS = 1000;
+jest.setTimeout(400 * SECONDS);
+
 // TODO: Leave only important ones.
 const contracts = {
     counter: getTestContract('Counter'),
