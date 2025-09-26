@@ -1,5 +1,5 @@
 use anyhow::Context;
-use via_da_clients::celestia::wiring_layer::ViaCelestiaClientWiringLayer;
+use via_da_clients::wiring_layer::ViaDaClientWiringLayer;
 use zksync_config::{
     configs::{via_celestia::ProofSendingMode, via_secrets::ViaSecrets, via_wallets::ViaWallets},
     ContractsConfig, GenesisConfig, ViaGeneralConfig,
@@ -439,22 +439,22 @@ impl ViaNodeBuilder {
     fn add_da_dispatcher_layer(mut self) -> anyhow::Result<Self> {
         let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
         let da_config = try_load_config!(self.configs.da_dispatcher_config);
-        let celestia_config = try_load_config!(self.configs.via_celestia_config);
+        let via_celestia_config = try_load_config!(self.configs.via_celestia_config);
 
         self.node.add_layer(DataAvailabilityDispatcherLayer::new(
             state_keeper_config,
             da_config,
-            celestia_config.proof_sending_mode == ProofSendingMode::OnlyRealProofs,
+            via_celestia_config.proof_sending_mode == ProofSendingMode::OnlyRealProofs,
         ));
 
         Ok(self)
     }
 
-    fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
-        let celestia_config = try_load_config!(self.configs.via_celestia_config);
-        let secrets = self.secrets.via_da.clone().unwrap();
+    fn add_via_da_client_layer(mut self) -> anyhow::Result<Self> {
+        let via_celestia_config = try_load_config!(self.configs.via_celestia_config);
+        let secrets = self.secrets.via_da.clone();
         self.node
-            .add_layer(ViaCelestiaClientWiringLayer::new(celestia_config, secrets));
+            .add_layer(ViaDaClientWiringLayer::new(via_celestia_config, secrets));
         Ok(self)
     }
 
@@ -615,7 +615,7 @@ impl ViaNodeBuilder {
                         .add_l1_gas_layer()?;
                 }
                 ViaComponent::Celestia => {
-                    self = self.add_via_celestia_da_client_layer()?;
+                    self = self.add_via_da_client_layer()?;
                 }
             }
         }
