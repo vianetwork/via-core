@@ -3,11 +3,17 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use base64::Engine;
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use zksync_da_client::{
     types::{DAError, DispatchResponse, InclusionData},
     DataAvailabilityClient,
 };
+
+#[derive(Serialize, Deserialize)]
+pub struct InclusionResponse {
+    pub data: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct HttpDaClient {
@@ -35,7 +41,7 @@ impl DataAvailabilityClient for HttpDaClient {
         let url = format!("{}/da/dispatch", self.base_url);
         let body = json!({
             "batch_number": batch_number,
-            "data": base64::engine::general_purpose::STANDARD.encode(data),
+            "data": hex::encode(data),
         });
 
         let res = self
@@ -81,13 +87,17 @@ impl DataAvailabilityClient for HttpDaClient {
             });
         }
 
-        res.json::<InclusionData>()
-            .await
-            .map(Some)
-            .map_err(|e| DAError {
+        let inclusion_res = res.json::<InclusionResponse>().await.map_err(|e| DAError {
+            error: e.into(),
+            is_retriable: false,
+        })?;
+
+        Ok(Some(InclusionData {
+            data: hex::decode(inclusion_res.data).map_err(|e| DAError {
                 error: e.into(),
                 is_retriable: false,
-            })
+            })?,
+        }))
     }
 
     fn clone_boxed(&self) -> Box<dyn DataAvailabilityClient> {
