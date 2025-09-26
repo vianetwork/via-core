@@ -124,7 +124,9 @@ members = [
 ]
 resolver = "2"
 
-exclude = []
+exclude = [
+    "via-core-ext"
+]
 
 # for `perf` profiling
 [profile.perf]

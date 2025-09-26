@@ -152,7 +152,7 @@ services:
 
   celestia-node:
     user: 1000:1000
-    image: "ghcr.io/celestiaorg/celestia-node:v0.24.1-mocha"
+    image: "ghcr.io/celestiaorg/celestia-node:v0.25.2-mocha"
     volumes:
       - type: bind
         source: ./volumes/celestia
@@ -165,6 +165,18 @@ services:
       - NODE_TYPE=light
       - P2P_NETWORK=mocha
     restart: unless-stopped
+
+  da-proxy:
+    build:
+      context: ./via-core-ext
+      dockerfile: Dockerfile
+    container_name: da-proxy
+    ports:
+      - "3001:3001"
+    env_file:
+      - via-core-ext/.env.example
+    restart: unless-stopped
+    profiles: ["da-proxy"]
 
 volumes:
   bitcoin_data:
