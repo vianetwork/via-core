@@ -5,7 +5,10 @@ use tracing::info;
 use via_da_clients::celestia::client::CelestiaClient;
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{
-    configs::{via_celestia::ProofSendingMode, via_secrets::ViaDASecrets},
+    configs::{
+        via_celestia::{DaBackend, ProofSendingMode},
+        via_secrets::ViaDASecrets,
+    },
     ViaCelestiaConfig,
 };
 use zksync_da_client::DataAvailabilityClient;
@@ -54,6 +57,7 @@ async fn main() -> Result<()> {
         api_node_url: String::from(DEFAULT_CELESTIA),
         blob_size_limit: 1973786,
         proof_sending_mode: ProofSendingMode::SkipEveryProof,
+        da_backend: DaBackend::Http,
     };
 
     let secrets = ViaDASecrets {
