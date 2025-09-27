@@ -143,7 +143,8 @@ impl ProtocolVersionId {
     }
 
     pub fn is_pre_gateway(&self) -> bool {
-        self <= &Self::Version26
+        // self <= &Self::Version26 // TODO uncomment this when switch to latest vm
+        true
     }
 
     pub fn is_1_4_0(&self) -> bool {

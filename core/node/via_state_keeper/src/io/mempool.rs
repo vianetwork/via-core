@@ -16,7 +16,10 @@ use zksync_multivm::{interface::Halt, utils::derive_base_fee_and_gas_per_pubdata
 // use zksync_mempool::L2TxFilter;
 // use zksync_node_fee_model::BatchFeeModelInputProvider;
 use zksync_types::{
-    block::UnsealedL1BatchHeader, protocol_upgrade::ProtocolUpgradeTx, utils::display_timestamp,
+    block::UnsealedL1BatchHeader,
+    commitment::{L1BatchCommitmentMode, PubdataParams},
+    protocol_upgrade::ProtocolUpgradeTx,
+    utils::display_timestamp,
     Address, L1BatchNumber, L2BlockNumber, L2ChainId, ProtocolVersionId, Transaction, H256, U256,
 };
 // TODO (SMA-1206): use seconds instead of milliseconds.
@@ -57,6 +60,8 @@ pub struct MempoolIO {
     // Used to keep track of gas prices to set accepted price per pubdata byte in blocks.
     batch_fee_input_provider: Arc<dyn BatchFeeModelInputProvider>,
     chain_id: L2ChainId,
+    l2_da_validator_address: Option<Address>,
+    pubdata_type: L1BatchCommitmentMode,
 }
 
 impl IoSealCriteria for MempoolIO {
@@ -113,7 +118,7 @@ impl StateKeeperIO for MempoolIO {
             return Ok((cursor, None));
         };
 
-        let (system_env, l1_batch_env) = self
+        let (system_env, l1_batch_env, pubdata_params) = self
             .l1_batch_params_provider
             .load_l1_batch_params(
                 &mut storage,
@@ -123,26 +128,24 @@ impl StateKeeperIO for MempoolIO {
             )
             .await
             .with_context(|| format!("failed loading params for L1 batch #{}", cursor.l1_batch))?;
-        let pending_batch_data = load_pending_batch(&mut storage, system_env, l1_batch_env)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed loading data for re-execution for pending L1 batch #{}",
-                    cursor.l1_batch
-                )
-            })?;
+        let pending_batch_data =
+            load_pending_batch(&mut storage, system_env, l1_batch_env, pubdata_params)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed loading data for re-execution for pending L1 batch #{}",
+                        cursor.l1_batch
+                    )
+                })?;
 
-        let PendingBatchData {
-            l1_batch_env,
-            system_env,
-            pending_l2_blocks,
-        } = pending_batch_data;
         // Initialize the filter for the transactions that come after the pending batch.
         // We use values from the pending block to match the filter with one used before the restart.
-        let (base_fee, gas_per_pubdata) =
-            derive_base_fee_and_gas_per_pubdata(l1_batch_env.fee_input, system_env.version.into());
+        let (base_fee, gas_per_pubdata) = derive_base_fee_and_gas_per_pubdata(
+            pending_batch_data.l1_batch_env.fee_input,
+            pending_batch_data.system_env.version.into(),
+        );
         self.filter = L2TxFilter {
-            fee_input: l1_batch_env.fee_input,
+            fee_input: pending_batch_data.l1_batch_env.fee_input,
             fee_per_gas: base_fee,
             gas_per_pubdata: gas_per_pubdata as u32,
         };
@@ -150,20 +153,14 @@ impl StateKeeperIO for MempoolIO {
         storage
             .blocks_dal()
             .ensure_unsealed_l1_batch_exists(
-                l1_batch_env
+                pending_batch_data
+                    .l1_batch_env
                     .clone()
-                    .into_unsealed_header(Some(system_env.version)),
+                    .into_unsealed_header(Some(pending_batch_data.system_env.version)),
             )
             .await?;
 
-        Ok((
-            cursor,
-            Some(PendingBatchData {
-                l1_batch_env,
-                system_env,
-                pending_l2_blocks,
-            }),
-        ))
+        Ok((cursor, Some(pending_batch_data)))
     }
 
     async fn wait_for_new_batch_params(
@@ -180,10 +177,11 @@ impl StateKeeperIO for MempoolIO {
             .get_unsealed_l1_batch()
             .await?
         {
+            let protocol_version = unsealed_storage_batch
+                .protocol_version
+                .context("unsealed batch is missing protocol version")?;
             return Ok(Some(L1BatchParams {
-                protocol_version: unsealed_storage_batch
-                    .protocol_version
-                    .expect("unsealed batch is missing protocol version"),
+                protocol_version,
                 validation_computational_gas_limit: self.validation_computational_gas_limit,
                 operator_address: unsealed_storage_batch.fee_address,
                 fee_input: unsealed_storage_batch.fee_input,
@@ -192,6 +190,7 @@ impl StateKeeperIO for MempoolIO {
                     // This value is effectively ignored by the protocol.
                     virtual_blocks: 1,
                 },
+                pubdata_params: self.pubdata_params(protocol_version)?,
             }));
         }
 
@@ -261,6 +260,7 @@ impl StateKeeperIO for MempoolIO {
                     // This value is effectively ignored by the protocol.
                     virtual_blocks: 1,
                 },
+                pubdata_params: self.pubdata_params(protocol_version)?,
             }));
         }
         Ok(None)
@@ -468,6 +468,7 @@ async fn sleep_past(timestamp: u64, l2_block: L2BlockNumber) -> u64 {
 }
 
 impl MempoolIO {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         mempool: MempoolGuard,
         batch_fee_input_provider: Arc<dyn BatchFeeModelInputProvider>,
@@ -476,6 +477,8 @@ impl MempoolIO {
         fee_account: Address,
         delay_interval: Duration,
         chain_id: L2ChainId,
+        l2_da_validator_address: Option<Address>,
+        pubdata_type: L1BatchCommitmentMode,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             mempool,
@@ -491,7 +494,25 @@ impl MempoolIO {
             delay_interval,
             batch_fee_input_provider,
             chain_id,
+            l2_da_validator_address,
+            pubdata_type,
         })
+    }
+
+    fn pubdata_params(&self, protocol_version: ProtocolVersionId) -> anyhow::Result<PubdataParams> {
+        let pubdata_params = match (
+            protocol_version.is_pre_gateway(),
+            self.l2_da_validator_address,
+        ) {
+            (true, _) => PubdataParams::default(),
+            (false, Some(l2_da_validator_address)) => PubdataParams {
+                l2_da_validator_address,
+                pubdata_type: self.pubdata_type,
+            },
+            (false, None) => anyhow::bail!("L2 DA validator address not found"),
+        };
+
+        Ok(pubdata_params)
     }
 }
 
