@@ -149,6 +149,7 @@ impl ZksNamespace {
         BridgeAddresses {
             l1_shared_default_bridge: None,
             l2_shared_default_bridge: None,
+            l2_legacy_shared_bridge: None,
             l1_erc20_default_bridge: None,
             l2_erc20_default_bridge: None,
             l1_weth_bridge: None,

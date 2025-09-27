@@ -114,7 +114,12 @@ pub(crate) struct RemoteENConfig {
     // the `l2_erc20_bridge_addr` and `l2_shared_bridge_addr` are basically the same contract, but with
     // a different name, with names adapted only for consistency.
     pub l1_shared_bridge_proxy_addr: Option<Address>,
+    /// Contract address that serves as a shared bridge on L2.
+    /// It is expected that `L2SharedBridge` is used before gateway upgrade, and `L2AssetRouter` is used after.
     pub l2_shared_bridge_addr: Option<Address>,
+    /// Address of `L2SharedBridge` that was used before gateway upgrade.
+    /// `None` if chain genesis used post-gateway protocol version.
+    pub l2_legacy_shared_bridge_addr: Option<Address>,
     pub l1_erc20_bridge_proxy_addr: Option<Address>,
     pub l2_erc20_bridge_addr: Option<Address>,
     pub l1_weth_bridge_addr: Option<Address>,
@@ -148,6 +153,7 @@ impl RemoteENConfig {
             l2_erc20_bridge_addr: None,
             l1_shared_bridge_proxy_addr: None,
             l2_shared_bridge_addr: Some(Address::repeat_byte(1)), // required in state keeper constructor
+            l2_legacy_shared_bridge_addr: None,
             l1_weth_bridge_addr: None,
             l2_weth_bridge_addr: None,
             base_token_addr: ETHEREUM_ADDRESS,
@@ -178,6 +184,7 @@ impl RemoteENConfig {
             l1_shared_bridge_proxy_addr: Some(Address::repeat_byte(5)),
             l1_weth_bridge_addr: None,
             l2_shared_bridge_addr: Some(Address::repeat_byte(6)),
+            l2_legacy_shared_bridge_addr: Some(Address::repeat_byte(7)),
             l1_batch_commit_data_generator_mode: L1BatchCommitmentMode::Rollup,
             dummy_verifier: true,
             via_network: BitcoinNetwork::Regtest,
@@ -1356,6 +1363,7 @@ impl From<&ExternalNodeConfig> for InternalApiConfig {
                 l2_erc20_default_bridge: config.remote.l2_erc20_bridge_addr,
                 l1_shared_default_bridge: config.remote.l1_shared_bridge_proxy_addr,
                 l2_shared_default_bridge: config.remote.l2_shared_bridge_addr,
+                l2_legacy_shared_bridge: config.remote.l2_legacy_shared_bridge_addr,
                 l1_weth_bridge: config.remote.l1_weth_bridge_addr,
                 l2_weth_bridge: config.remote.l2_weth_bridge_addr,
             },
