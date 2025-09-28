@@ -7,10 +7,12 @@ use tokio::{
     io::{self, AsyncReadExt},
 };
 use via_block_reverter::{NodeRole, ViaBlockReverter};
-use zksync_config::configs::chain::TimestampAsserterConfig;
 use zksync_config::{
     configs::{
-        chain::{CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig},
+        chain::{
+            CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig,
+            TimestampAsserterConfig,
+        },
         fri_prover_group::FriProverGroupConfig,
         house_keeper::HouseKeeperConfig,
         BasicWitnessInputProducerConfig, DatabaseSecrets, ExperimentalVmConfig,
