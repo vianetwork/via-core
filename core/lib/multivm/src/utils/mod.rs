@@ -260,7 +260,7 @@ pub fn get_bootloader_encoding_space(version: VmVersion) -> u32 {
             crate::vm_latest::MultiVmSubversion::Gateway,
         ),
         VmVersion::VmBitcoin1_0_0 => crate::vm_latest::constants::get_bootloader_tx_encoding_space(
-            crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+            crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
         ),
     }
 }
@@ -427,7 +427,7 @@ pub fn get_used_bootloader_memory_bytes(version: VmVersion) -> usize {
             crate::vm_latest::MultiVmSubversion::Gateway,
         ),
         VmVersion::VmBitcoin1_0_0 => crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-            crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+            crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
         ),
     }
 }
@@ -466,7 +466,7 @@ pub fn get_used_bootloader_memory_words(version: VmVersion) -> usize {
             crate::vm_latest::MultiVmSubversion::Gateway,
         ),
         VmVersion::VmBitcoin1_0_0 => crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-            crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+            crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
         ),
     }
 }

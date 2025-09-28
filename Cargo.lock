@@ -12019,7 +12019,6 @@ dependencies = [
  "zksync_system_constants",
  "zksync_test_account",
  "zksync_types",
- "zksync_utils",
  "zksync_vm_executor",
 ]
 
@@ -13339,18 +13338,20 @@ name = "zksync_basic_types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bigdecimal",
  "bincode",
  "chrono",
  "const-decoder",
  "ethabi",
  "hex",
+ "num",
  "num_enum 0.7.3",
  "secrecy",
  "serde",
  "serde_json",
  "serde_with",
  "sha2 0.10.8",
- "strum",
+ "strum 0.26.3",
  "thiserror",
  "tiny-keccak 2.0.2",
  "url",

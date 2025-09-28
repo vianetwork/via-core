@@ -222,7 +222,7 @@ impl<S: ReadStorage, H: HistoryMode> LegacyVmInstance<S, H> {
                     l1_batch_env,
                     system_env,
                     storage_view,
-                    crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+                    crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
                 );
                 Self::Vm1_5_0(vm)
             }
