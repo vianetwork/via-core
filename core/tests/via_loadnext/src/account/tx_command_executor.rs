@@ -314,7 +314,7 @@ impl AccountLifespan {
         function
             .encode_input(&vec![
                 ethabi::Token::Uint(U256::from(self.contract_execution_params.reads)),
-                ethabi::Token::Uint(U256::from(self.contract_execution_params.writes)),
+                ethabi::Token::Uint(U256::from(self.contract_execution_params.initial_writes)),
                 ethabi::Token::Uint(U256::from(self.contract_execution_params.hashes)),
                 ethabi::Token::Uint(U256::from(self.contract_execution_params.events)),
                 ethabi::Token::Uint(U256::from(self.contract_execution_params.recursive_calls)),
