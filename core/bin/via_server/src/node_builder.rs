@@ -1,5 +1,6 @@
-use anyhow::Context;
 use std::time::Duration;
+
+use anyhow::Context;
 use via_da_clients::celestia::wiring_layer::ViaCelestiaClientWiringLayer;
 use zksync_config::{
     configs::{via_celestia::ProofSendingMode, via_secrets::ViaSecrets, via_wallets::ViaWallets},
