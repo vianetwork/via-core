@@ -68,7 +68,7 @@ impl AccountLifespan {
         let params = match subscription_type {
             SubscriptionType::Logs => {
                 let topics = super::api_request_executor::random_topics(
-                    &self.eth_wallet.test_contract.contract,
+                    &self.eth_wallet.test_contract.abi,
                     &mut self.eth_wallet.rng,
                 );
                 let contract_address = self.eth_wallet.deployed_contract_address.get().unwrap();

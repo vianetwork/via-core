@@ -233,7 +233,7 @@ impl AccountLifespan {
 
         let mut builder = wallet
             .start_deploy_contract()
-            .bytecode(self.eth_wallet.test_contract.bytecode.clone())
+            .bytecode(self.eth_wallet.test_contract.bytecode.to_vec())
             .constructor_calldata(constructor_calldata);
 
         let paymaster_approval = if self.config.use_paymaster {
@@ -309,7 +309,7 @@ impl AccountLifespan {
     }
 
     fn prepare_calldata_for_loadnext_contract(&self) -> Vec<u8> {
-        let contract = &self.eth_wallet.test_contract.contract;
+        let contract = &self.eth_wallet.test_contract.abi;
         let function = contract.function("execute").unwrap();
         function
             .encode_input(&vec![
@@ -335,7 +335,7 @@ impl AccountLifespan {
             .start_execute_contract()
             .calldata(calldata)
             .contract_address(contract_address)
-            .factory_deps(self.eth_wallet.test_contract.factory_deps.clone());
+            .factory_deps(self.eth_wallet.test_contract.factory_deps());
 
         let paymaster_approval = if self.config.use_paymaster {
             Some(get_approval_based_paymaster_input_for_estimation(

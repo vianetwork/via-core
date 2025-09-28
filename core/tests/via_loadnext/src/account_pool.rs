@@ -8,13 +8,13 @@ use via_btc_client::types::{
     BitcoinAddress, BitcoinNetwork, BitcoinPrivateKey, BitcoinSecp256k1, CompressedPublicKey,
 };
 use zksync_eth_signer::PrivateKeySigner;
+use zksync_test_contracts::TestContract;
 use zksync_types::{Address, K256PrivateKey, L2ChainId, H256};
 use zksync_web3_decl::client::{Client, L2};
 
 use crate::{
     config::LoadtestConfig,
     corrupted_tx::CorruptedSigner,
-    fs_utils::{loadnext_contract, TestContract},
     rng::{LoadtestRng, Random},
     sdk::{signer::Signer, Wallet, ZksNamespaceClient},
 };
@@ -94,7 +94,7 @@ pub struct TestWallet {
     /// Wallet with corrupted signer.
     pub corrupted_wallet: CorruptedSyncWallet,
     /// Contract bytecode and calldata to be used for sending `Execute` transactions.
-    pub test_contract: TestContract,
+    pub test_contract: &'static TestContract,
     /// Address of the deployed contract to be used for sending
     /// `Execute` transaction.
     pub deployed_contract_address: Arc<OnceCell<Address>>,
@@ -150,7 +150,7 @@ impl AccountPool {
             anyhow::bail!("Via server does not respond. Please check RPC address and whether server is launched");
         }
 
-        let test_contract = loadnext_contract(&config.test_contracts_path)?;
+        let test_contract = TestContract::load_test();
 
         let eth_master_wallet = {
             let eth_private_key: H256 = config
@@ -219,7 +219,7 @@ impl AccountPool {
                 let account = TestWallet {
                     wallet: Arc::new(wallet),
                     corrupted_wallet: Arc::new(corrupted_wallet),
-                    test_contract: test_contract.clone(),
+                    test_contract,
                     deployed_contract_address: deployed_contract_address.clone(),
                     rng: rng.derive(private_key_bytes),
                 };
