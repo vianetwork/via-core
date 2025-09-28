@@ -11125,7 +11125,6 @@ dependencies = [
  "zksync_state_keeper",
  "zksync_storage",
  "zksync_types",
- "zksync_utils",
  "zksync_vlog",
  "zksync_web3_decl",
 ]
@@ -11331,7 +11330,6 @@ dependencies = [
  "zksync_protobuf_config",
  "zksync_storage",
  "zksync_types",
- "zksync_utils",
  "zksync_vlog",
 ]
 
@@ -11458,7 +11456,6 @@ dependencies = [
  "zksync_node_test_utils",
  "zksync_object_store",
  "zksync_types",
- "zksync_utils",
 ]
 
 [[package]]
@@ -11513,7 +11510,6 @@ dependencies = [
  "vise",
  "zksync_config",
  "zksync_types",
- "zksync_utils",
 ]
 
 [[package]]
@@ -12597,10 +12593,12 @@ name = "zksync_basic_types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bigdecimal",
  "bincode",
  "chrono",
  "ethabi",
  "hex",
+ "num",
  "num_enum 0.7.3",
  "secrecy",
  "serde",

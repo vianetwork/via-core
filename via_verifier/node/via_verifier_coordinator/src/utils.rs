@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use anyhow::Context;
 use base64::Engine;
 use bitcoin::{hashes::Hash, Txid};
@@ -48,4 +50,11 @@ pub(crate) fn h256_to_txid(h256_bytes: &[u8]) -> anyhow::Result<Txid> {
     let mut reversed_bytes = h256_bytes.to_vec();
     reversed_bytes.reverse();
     Txid::from_slice(&reversed_bytes).with_context(|| "Failed to convert H256 to Txid")
+}
+
+pub(crate) fn seconds_since_epoch() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Incorrect system time")
+        .as_secs()
 }
