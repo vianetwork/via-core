@@ -1,4 +1,5 @@
 use super::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig};
+use crate::configs::chain::TimestampAsserterConfig;
 use crate::{
     configs::{
         base_token_adjuster::BaseTokenAdjusterConfig,
@@ -57,6 +58,7 @@ pub struct ViaGeneralConfig {
     pub external_proof_integration_api_config: Option<ExternalProofIntegrationApiConfig>,
     pub experimental_vm_config: Option<ExperimentalVmConfig>,
     pub prover_job_monitor_config: Option<ProverJobMonitorConfig>,
+    pub timestamp_asserter_config: Option<TimestampAsserterConfig>,
     // VIA specific configs
     pub via_btc_client_config: Option<ViaBtcClientConfig>,
     pub via_btc_sender_config: Option<ViaBtcSenderConfig>,
@@ -103,6 +105,7 @@ impl From<GeneralConfig> for ViaGeneralConfig {
             external_proof_integration_api_config: value.external_proof_integration_api_config,
             experimental_vm_config: value.experimental_vm_config,
             prover_job_monitor_config: value.prover_job_monitor_config,
+            timestamp_asserter_config: value.timestamp_asserter_config,
             // VIA specific configs
             via_btc_sender_config: None,
             via_btc_watch_config: None,
