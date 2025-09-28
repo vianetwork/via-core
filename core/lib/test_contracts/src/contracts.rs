@@ -9,10 +9,10 @@ use zksync_types::{Execute, H256, U256};
 ///
 /// - Each dir in `/contracts` translates into a module with the same name (just with `-` chars replaced with `_`).
 /// - Each contract in all files in this dir produces a `RawContract` constant with the same name as the contract.
-mod raw {
-    #![allow(unused, non_upper_case_globals)]
-    include!(concat!(env!("OUT_DIR"), "/raw_contracts.rs"));
-}
+// mod raw {
+//     #![allow(unused, non_upper_case_globals)]
+//     include!(concat!(env!("OUT_DIR"), "/raw_contracts.rs"));
+// }
 
 /// Raw contracts produced by the build script.
 #[derive(Debug, Clone, Copy)]
@@ -45,165 +45,511 @@ impl TestContract {
 
     /// Returns a contract used to test complex system contract upgrades.
     pub fn complex_upgrade() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::complex_upgrade::ComplexUpgrade));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::complex_upgrade::ComplexUpgrade));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract used to test context methods.
     pub fn context_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::context::Context));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::context::Context));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+
+        &DUMMY_CONTRACT
     }
 
     /// Returns a simple counter contract.
     pub fn counter() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::counter::Counter));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::counter::Counter));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract used in load testing that emulates various kinds of expensive operations
     /// (storage reads / writes, hashing, recursion via far calls etc.).
     pub fn load_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
-            let mut contract = TestContract::new(raw::loadnext::LoadnextContract);
-            contract.dependencies = vec![TestContract::new(raw::loadnext::Foo)];
-            contract
+        // static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+        //     let mut contract = TestContract::new(raw::loadnext::LoadnextContract);
+        //     contract.dependencies = vec![TestContract::new(raw::loadnext::Foo)];
+        //     contract
+        // });
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
         });
-        &CONTRACT
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract with expensive storage operations.
     pub fn expensive() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::expensive::Expensive));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::expensive::Expensive));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     pub fn failed_call() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::failed_call::FailedCall));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::failed_call::FailedCall));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract with an infinite loop (useful for testing out-of-gas reverts).
     pub fn infinite_loop() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::infinite::InfiniteLoop));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::infinite::InfiniteLoop));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a custom account with multiple owners.
     pub fn many_owners() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::custom_account::ManyOwnersCustomAccount));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::custom_account::ManyOwnersCustomAccount));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract testing `msg.sender` value.
     pub fn msg_sender_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::complex_upgrade::MsgSenderTest));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::complex_upgrade::MsgSenderTest));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     pub fn nonce_holder() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::custom_account::NonceHolderTest));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::custom_account::NonceHolderTest));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract testing precompiles.
     pub fn precompiles_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::precompiles::Precompiles));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::precompiles::Precompiles));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract proxying calls to a [counter](Self::counter()).
     pub fn proxy_counter() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::counter::ProxyCounter));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::counter::ProxyCounter));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a reentrant recipient for transfers.
     pub fn reentrant_recipient() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::transfer::ReentrantRecipient));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::transfer::ReentrantRecipient));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract testing reverts.
     pub fn reverts_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::error::SimpleRequire));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::error::SimpleRequire));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a simple fungible token contract.
     pub fn simple_transfer() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::simple_transfer::SimpleTransfer));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::simple_transfer::SimpleTransfer));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract testing storage operations.
     pub fn storage_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::storage::StorageTester));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::storage::StorageTester));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a contract for testing base token transfers.
     pub fn transfer_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::transfer::TransferTest));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::transfer::TransferTest));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a test recipient for the [transfer test](Self::transfer_test()) contract.
     pub fn transfer_recipient() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::transfer::Recipient));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::transfer::Recipient));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a mock version of `ContractDeployer`.
     pub fn mock_deployer() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::MockContractDeployer));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::mock_evm::MockContractDeployer));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a mock version of `KnownCodeStorage`.
     pub fn mock_known_code_storage() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::MockKnownCodeStorage));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::mock_evm::MockKnownCodeStorage));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns a mock EVM emulator.
     pub fn mock_evm_emulator() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::MockEvmEmulator));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::mock_evm::MockEvmEmulator));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Contract testing recursive calls.
     pub fn recursive_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::NativeRecursiveContract));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::mock_evm::NativeRecursiveContract));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Contract implementing incrementing operations. Used to test static / delegate calls.
     pub fn increment_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::IncrementingContract));
-        &CONTRACT
+        // static CONTRACT: Lazy<TestContract> =
+        //     Lazy::new(|| TestContract::new(raw::mock_evm::IncrementingContract));
+        // &CONTRACT
+        static DUMMY_CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // We create a `TestContract` instance with valid, but empty, values.
+            TestContract {
+                // The simplest valid JSON ABI is an empty array "[]".
+                // We parse it to create a valid ABI object.
+                abi: serde_json::from_str("[]").expect("Parsing dummy ABI failed"),
+
+                // An empty vector is a valid value for bytecode.
+                bytecode: &[],
+
+                // An empty vector is a valid value for dependencies.
+                dependencies: vec![],
+            }
+        });
+        &DUMMY_CONTRACT
     }
 
     /// Returns all factory deps for this contract deployment (including its own bytecode).

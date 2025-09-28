@@ -108,36 +108,37 @@ fn compiler_settings() -> ZkSolcSettings {
 }
 
 fn main() {
-    let settings = compiler_settings();
-    let temp_dir = PathBuf::from(env::var("OUT_DIR").expect("no `OUT_DIR` provided"));
-    let paths = ProjectPathsConfig::builder()
-        .sources(Path::new(env!("CARGO_MANIFEST_DIR")).join("contracts"))
-        .remapping(Remapping {
-            context: None,
-            name: "@openzeppelin/contracts".into(),
-            path: format!(
-                "{}/contract-libs/openzeppelin-contracts-v4/contracts",
-                env!("CARGO_MANIFEST_DIR")
-            ),
-        })
-        .artifacts(temp_dir.join("artifacts"))
-        .cache(temp_dir.join("cache"))
-        .build()
-        .unwrap();
-
-    let project = ProjectBuilder::<ZkSolcCompiler, _>::new(ZkArtifactOutput::default())
-        .paths(paths)
-        .settings(settings)
-        .build(ZkSolcCompiler::default())
-        .unwrap();
-    let output = zksync::project_compile(&project).unwrap();
-    output.assert_success();
-
-    let module_path = temp_dir.join("raw_contracts.rs");
-    let module = File::create(&module_path).expect("failed creating output Rust module");
-    let mut module = BufWriter::new(module);
-    save_artifacts(&mut module, output.into_artifacts());
-
-    // Tell Cargo that if a source file changes, to rerun this build script.
-    project.rerun_if_sources_changed();
+    // TODO fix this then contract are upgraded
+    // let settings = compiler_settings();
+    // let temp_dir = PathBuf::from(env::var("OUT_DIR").expect("no `OUT_DIR` provided"));
+    // let paths = ProjectPathsConfig::builder()
+    //     .sources(Path::new(env!("CARGO_MANIFEST_DIR")).join("contracts"))
+    //     .remapping(Remapping {
+    //         context: None,
+    //         name: "@openzeppelin/contracts".into(),
+    //         path: format!(
+    //             "{}/contract-libs/openzeppelin-contracts-v4/contracts",
+    //             env!("CARGO_MANIFEST_DIR")
+    //         ),
+    //     })
+    //     .artifacts(temp_dir.join("artifacts"))
+    //     .cache(temp_dir.join("cache"))
+    //     .build()
+    //     .unwrap();
+    //
+    // let project = ProjectBuilder::<ZkSolcCompiler, _>::new(ZkArtifactOutput::default())
+    //     .paths(paths)
+    //     .settings(settings)
+    //     .build(ZkSolcCompiler::default())
+    //     .unwrap();
+    // let output = zksync::project_compile(&project).unwrap();
+    // output.assert_success();
+    //
+    // let module_path = temp_dir.join("raw_contracts.rs");
+    // let module = File::create(&module_path).expect("failed creating output Rust module");
+    // let mut module = BufWriter::new(module);
+    // save_artifacts(&mut module, output.into_artifacts());
+    //
+    // // Tell Cargo that if a source file changes, to rerun this build script.
+    // project.rerun_if_sources_changed();
 }
