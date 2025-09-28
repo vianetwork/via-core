@@ -16,11 +16,11 @@ export async function compileSystemContracts() {
 
 export async function compileAll() {
     await compileSystemContracts();
-    await compileTestContracts();
+    // await compileTestContracts();
 }
 
 export const command = new Command('compiler').description('compile contract');
 
 command.command('all').description('').action(compileAll);
 command.command('system-contracts').description('').action(compileSystemContracts);
-command.command('test-contracts').description('').action(compileTestContracts);
+// command.command('test-contracts').description('').action(compileTestContracts);
