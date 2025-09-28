@@ -1,9 +1,11 @@
 use super::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig};
-use crate::configs::chain::TimestampAsserterConfig;
 use crate::{
     configs::{
         base_token_adjuster::BaseTokenAdjusterConfig,
-        chain::{CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig},
+        chain::{
+            CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig,
+            TimestampAsserterConfig,
+        },
         consensus::ConsensusConfig,
         da_dispatcher::DADispatcherConfig,
         fri_prover_group::FriProverGroupConfig,
