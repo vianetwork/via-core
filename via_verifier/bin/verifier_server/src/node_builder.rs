@@ -1,5 +1,5 @@
 use anyhow::Context;
-use via_da_clients::celestia::wiring_layer::ViaCelestiaClientWiringLayer;
+use via_da_clients::wiring_layer::ViaDaClientWiringLayer;
 use zksync_config::configs::via_verifier::ViaGeneralVerifierConfig;
 use zksync_node_framework::{
     implementations::layers::{
@@ -58,10 +58,10 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
-    fn add_via_celestia_da_client_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(ViaCelestiaClientWiringLayer::new(
+    fn add_via_da_client_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ViaDaClientWiringLayer::new(
             self.configs.via_celestia_config.clone(),
-            self.configs.secrets.via_da.clone().unwrap(),
+            self.configs.secrets.via_da.clone(),
         ));
         Ok(self)
     }
@@ -178,8 +178,8 @@ impl ViaNodeBuilder {
             .add_btc_client_layer()?
             .add_storage_initialization_layer()?
             .add_btc_sender_layer()?
-            .add_btc_watcher_layer()?
-            .add_via_celestia_da_client_layer()?
+            .add_verifier_btc_watcher_layer()?
+            .add_via_da_client_layer()?
             .add_zkp_verification_layer()?;
 
         if self.is_coordinator {
