@@ -83,7 +83,7 @@ setup: base transactions celestia bootstrap-dev server-genesis
 
 # Run the basic setup workflow in sequence and server
 .PHONY: via
-via: base transactions celestia bootstrap-dev server-genesis server
+via: base transactions celestia da-proxy-setup da-proxy bootstrap-dev server-genesis server
 
 # Run the basic setup workflow in sequence and server with profile "reorg" for docker compose profile
 .PHONY: via-multi
@@ -95,7 +95,7 @@ all: base transactions celestia btc-explorer bootstrap-dev server-genesis server
 
 # Run the basic setup workflow in verifier
 .PHONY: via-verifier
-via-verifier: base celestia verifier
+via-verifier: base verifier
 
 # Restart the verifier
 .PHONY: via-restart-verifier
@@ -103,7 +103,7 @@ via-restart-verifier: env-soft verifier
 
 # Run the basic setup workflow for the coordinator
 .PHONY: via-coordinator
-via-coordinator: base celestia verifier
+via-coordinator: base verifier
 
 # Restart the coordinator
 .PHONY: via-restart-coordinator
@@ -172,6 +172,21 @@ celestia:
 	@echo "$(YELLOW)Updating Celestia configuration and obtaining TIA test tokens...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
 	@$(CLI_TOOL) celestia
+
+# Run 'via celestia --backend http'
+.PHONY: da-proxy-setup
+da-proxy-setup:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Setup da-proxy...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	@$(CLI_TOOL) celestia --backend http
+
+.PHONY: da-proxy
+da-proxy:
+	@echo "------------------------------------------------------------------------------------"
+	@echo "$(YELLOW)Start da-proxy...$(RESET)"
+	@echo "------------------------------------------------------------------------------------"
+	docker compose -f docker-compose-via.yml up -d da-proxy
 
 # Run 'via btc-explorer'
 .PHONY: btc-explorer
@@ -272,7 +287,8 @@ clean:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Cleaning the project, removing images, volumes, and generated files...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) clean  --profile ${PROFILE}
+	@$(CLI_TOOL) clean  --profile ${PROFILE} && \
+	docker compose -f docker-compose-via.yml down da-proxy
 
 # Run 'via clean-multi'
 .PHONY: clean-multi
@@ -280,7 +296,8 @@ clean-multi:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Cleaning the project, removing images, volumes, and generated files...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	@$(CLI_TOOL) clean --profile reorg
+	@$(CLI_TOOL) clean --profile reorg && \
+	docker compose -f docker-compose-via.yml down da-proxy
 
 # Run 'via l1-indexer'
 .PHONY: l1-indexer

@@ -1,7 +1,9 @@
 [via_celestia_client]
-# The Celestia node API URL.
-api_node_url = "http://0.0.0.0:26658"
-# The Celestia blob size limit.
+# The DA backend "http", "celestia"
+da_backend = "http"
+# The da node API URL.
+api_node_url = "http://0.0.0.0:3001"
+# The da blob size limit.
 blob_size_limit = 1973786
 # The mode in which proofs are sent.
 proof_sending_mode = "SkipEveryProof"

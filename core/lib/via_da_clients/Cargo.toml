@@ -19,6 +19,9 @@ zksync_types.workspace = true
 zksync_config.workspace = true
 serde = { workspace = true, features = ["derive"] }
 hex = "0.4"
+serde_json.workspace = true
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+base64 = "0.21"
 
 zksync_object_store.workspace = true
 zksync_da_client.workspace = true
