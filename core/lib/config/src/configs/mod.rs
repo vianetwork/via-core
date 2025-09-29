@@ -80,6 +80,7 @@ pub mod via_celestia;
 pub mod via_consensus;
 pub mod via_general;
 pub mod via_l1_indexer;
+pub mod via_reorg_detector;
 pub mod via_secrets;
 pub mod via_verifier;
 pub mod via_wallets;

@@ -13,6 +13,7 @@ use zksync_config::{
         via_bridge::ViaBridgeConfig,
         via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
+        via_reorg_detector::ViaReorgDetectorConfig,
         vm_runner::BasicWitnessInputProducerConfig,
         wallets::{AddressWallet, EthSender, StateKeeper, TokenMultiplierSetter, Wallet, Wallets},
         CommitmentGeneratorConfig, DatabaseSecrets, ExperimentalVmConfig,
@@ -231,6 +232,9 @@ impl ViaTempConfigStore {
             Some(ViaGenesisConfig::from_env().context("Failed to load genesis config")?);
         via_general_config.via_bridge_config =
             Some(ViaBridgeConfig::from_env().context("Failed to load bridge config")?);
+        via_general_config.via_reorg_detector_config = Some(
+            ViaReorgDetectorConfig::from_env().context("Failed to load reorg detector config")?,
+        );
         Ok(via_general_config)
     }
 }
