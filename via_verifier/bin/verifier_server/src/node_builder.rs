@@ -178,7 +178,7 @@ impl ViaNodeBuilder {
             .add_btc_client_layer()?
             .add_storage_initialization_layer()?
             .add_btc_sender_layer()?
-            .add_verifier_btc_watcher_layer()?
+            .add_btc_watcher_layer()?
             .add_via_da_client_layer()?
             .add_zkp_verification_layer()?;
 
