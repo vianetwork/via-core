@@ -177,9 +177,12 @@ impl ViaNodeBuilder {
     // VIA related layers
     fn add_init_node_storage_layer(mut self) -> anyhow::Result<Self> {
         let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
+        let via_btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
 
-        self.node
-            .add_layer(ViaNodeStorageInitializerLayer::new(via_genesis_config));
+        self.node.add_layer(ViaNodeStorageInitializerLayer {
+            via_genesis_config,
+            via_btc_watch_config,
+        });
         Ok(self)
     }
 
@@ -198,15 +201,13 @@ impl ViaNodeBuilder {
 
     fn add_btc_watcher_layer(mut self) -> anyhow::Result<Self> {
         let via_bridge_config = try_load_config!(self.configs.via_bridge_config);
-        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
         let via_btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
 
-        self.node.add_layer(BtcWatchLayer::new(
+        self.node.add_layer(BtcWatchLayer {
             via_bridge_config,
-            via_btc_client_config,
             via_btc_watch_config,
-            true,
-        ));
+            is_main_node: true,
+        });
         Ok(self)
     }
 

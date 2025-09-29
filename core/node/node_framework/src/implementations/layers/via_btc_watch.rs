@@ -1,9 +1,7 @@
 use via_btc_client::indexer::BitcoinInscriptionIndexer;
-use via_btc_watch::{BitcoinNetwork, BtcWatch};
-use zksync_config::{
-    configs::{via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig},
-    ViaBtcWatchConfig,
-};
+use via_btc_watch::BtcWatch;
+use via_node_storage_init::wallets::ViaWalletsInitializer;
+use zksync_config::{configs::via_bridge::ViaBridgeConfig, ViaBtcWatchConfig};
 
 use crate::{
     implementations::resources::{
@@ -23,10 +21,9 @@ use crate::{
 /// Responsible for initializing and running of [`BtcWatch`] component, that polls the Bitcoin node for the relevant events.
 #[derive(Debug)]
 pub struct BtcWatchLayer {
-    via_bridge_config: ViaBridgeConfig,
-    via_btc_client: ViaBtcClientConfig,
-    btc_watch_config: ViaBtcWatchConfig,
-    is_main_node: bool,
+    pub via_bridge_config: ViaBridgeConfig,
+    pub via_btc_watch_config: ViaBtcWatchConfig,
+    pub is_main_node: bool,
 }
 
 #[derive(Debug, FromContext)]
@@ -34,31 +31,15 @@ pub struct BtcWatchLayer {
 pub struct Input {
     pub master_pool: PoolResource<MasterPool>,
     pub btc_client_resource: BtcClientResource,
-    pub system_wallets_resource: ViaSystemWalletsResource,
 }
 
 #[derive(Debug, IntoContext)]
 #[context(crate = crate)]
 pub struct Output {
+    pub system_wallets_resource: ViaSystemWalletsResource,
     pub btc_indexer_resource: BtcIndexerResource,
     #[context(task)]
     pub btc_watch: BtcWatch,
-}
-
-impl BtcWatchLayer {
-    pub fn new(
-        via_bridge_config: ViaBridgeConfig,
-        via_btc_client: ViaBtcClientConfig,
-        btc_watch_config: ViaBtcWatchConfig,
-        is_main_node: bool,
-    ) -> Self {
-        Self {
-            via_bridge_config,
-            via_btc_client,
-            btc_watch_config,
-            is_main_node,
-        }
-    }
 }
 
 #[async_trait::async_trait]
@@ -67,28 +48,22 @@ impl WiringLayer for BtcWatchLayer {
     type Output = Output;
 
     fn layer_name(&self) -> &'static str {
-        "btc_watch_layer"
+        "via_btc_watch_layer"
     }
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
         let client = input.btc_client_resource.default;
-        let system_wallets = input.system_wallets_resource.0;
-        let indexer = BitcoinInscriptionIndexer::new(client.clone(), system_wallets);
 
+        let system_wallets = ViaWalletsInitializer::load_system_wallets(main_pool.clone()).await?;
+        let system_wallets_resource = ViaSystemWalletsResource::from(system_wallets);
+
+        let indexer =
+            BitcoinInscriptionIndexer::new(client.clone(), system_wallets_resource.0.clone());
         let btc_indexer_resource = BtcIndexerResource::from(indexer.clone());
-        // We should not set block_confirmations to 0 for mainnet,
-        // because we need to wait for some confirmations to be sure that the transaction is included in a block.
-        if self.via_btc_client.network() == BitcoinNetwork::Bitcoin
-            && self.btc_watch_config.block_confirmations == 0
-        {
-            return Err(WiringError::Configuration(
-                "block_confirmations cannot be 0 for mainnet".into(),
-            ));
-        }
 
         let btc_watch = BtcWatch::new(
-            self.btc_watch_config,
+            self.via_btc_watch_config,
             indexer,
             client,
             main_pool,
@@ -98,6 +73,7 @@ impl WiringLayer for BtcWatchLayer {
         .await?;
 
         Ok(Output {
+            system_wallets_resource,
             btc_indexer_resource,
             btc_watch,
         })
@@ -107,7 +83,7 @@ impl WiringLayer for BtcWatchLayer {
 #[async_trait::async_trait]
 impl Task for BtcWatch {
     fn id(&self) -> TaskId {
-        "btc_watch".into()
+        "via_btc_watch".into()
     }
 
     async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {

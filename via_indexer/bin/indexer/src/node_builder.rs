@@ -6,7 +6,7 @@ use zksync_node_framework::{
         prometheus_exporter::PrometheusExporterLayer, sigint::SigintHandlerLayer,
         via_btc_client::BtcClientLayer,
         via_indexer_storage_init::ViaIndexerStorageInitializerLayer,
-        via_l1_indexer::L1IndexerLayer, via_node_storage_init::ViaNodeStorageInitializerLayer,
+        via_l1_indexer::L1IndexerLayer,
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
