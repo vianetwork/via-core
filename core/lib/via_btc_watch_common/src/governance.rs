@@ -4,7 +4,7 @@ use via_btc_client::{
     client::BitcoinClient,
     indexer::MessageParser,
     traits::BitcoinOps,
-    types::{FullInscriptionMessage, SystemContractUpgradeProposalInput, BitcoinTxid as Txid},
+    types::{BitcoinTxid as Txid, FullInscriptionMessage, SystemContractUpgradeProposalInput},
 };
 use zksync_types::{protocol_version::ProtocolSemanticVersion, Address as EVMAddress, H256};
 
@@ -24,13 +24,16 @@ pub async fn extract_governance_proposals(
     proposal_tx_id: &Txid,
     block_height: u32,
 ) -> anyhow::Result<Vec<GovernanceProposal>> {
-    let proposal_tx = btc_client.get_transaction(proposal_tx_id).await.map_err(|err| {
-        anyhow::anyhow!(
-            "Failed to fetch protocol upgrade transaction: {}, error {}",
-            proposal_tx_id,
-            err
-        )
-    })?;
+    let proposal_tx = btc_client
+        .get_transaction(proposal_tx_id)
+        .await
+        .map_err(|err| {
+            anyhow::anyhow!(
+                "Failed to fetch protocol upgrade transaction: {}, error {}",
+                proposal_tx_id,
+                err
+            )
+        })?;
 
     let messages = message_parser.parse_system_transaction(&proposal_tx, block_height, None);
 
@@ -59,5 +62,3 @@ pub async fn extract_governance_proposals(
 
     Ok(upgrades)
 }
-
-

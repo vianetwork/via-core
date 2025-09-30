@@ -1,11 +1,12 @@
+// no direct imports here to avoid unused warnings
+use std::sync::Arc;
 use std::{future::Future, marker::PhantomData, pin::Pin};
 
-use crate::dal::{IndexerMetaDal, WalletsDal};
-// no direct imports here to avoid unused warnings
+use tokio::sync::Mutex;
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
-use tokio::sync::Mutex;
-use std::sync::Arc;
+
+use crate::dal::{IndexerMetaDal, WalletsDal};
 
 pub struct WatchOrchestrator<S, GetConn, ProcessCb, PreCb, SysCb> {
     config: ViaBtcWatchConfig,
@@ -23,9 +24,15 @@ impl<S, GetConn, ProcessCb, PreCb, SysCb> WatchOrchestrator<S, GetConn, ProcessC
 where
     S: IndexerMetaDal + WalletsDal + Send + Clone + 'static,
     GetConn: Fn() -> ConnFut<S> + Send + Sync + 'static,
-    ProcessCb: Fn(S, Vec<FullInscriptionMessage>, Arc<Mutex<BitcoinInscriptionIndexer>>) -> ProcFut + Send + Sync + 'static,
+    ProcessCb: Fn(S, Vec<FullInscriptionMessage>, Arc<Mutex<BitcoinInscriptionIndexer>>) -> ProcFut
+        + Send
+        + Sync
+        + 'static,
     PreCb: Fn(S) -> PreFut + Send + Sync + 'static,
-    SysCb: Fn(S, Vec<FullInscriptionMessage>, Arc<Mutex<BitcoinInscriptionIndexer>>) -> SysFut + Send + Sync + 'static,
+    SysCb: Fn(S, Vec<FullInscriptionMessage>, Arc<Mutex<BitcoinInscriptionIndexer>>) -> SysFut
+        + Send
+        + Sync
+        + 'static,
 {
     pub async fn new(
         config: ViaBtcWatchConfig,
@@ -66,9 +73,8 @@ where
         start_l1_block_number: u32,
         restart_indexing: bool,
     ) -> anyhow::Result<u32> {
-        let mut last_processed_bitcoin_block = storage
-            .get_last_processed_l1_block(module_name)
-            .await?;
+        let mut last_processed_bitcoin_block =
+            storage.get_last_processed_l1_block(module_name).await?;
 
         if last_processed_bitcoin_block == 0 || restart_indexing {
             storage
@@ -80,7 +86,10 @@ where
         Ok(last_processed_bitcoin_block)
     }
 
-    pub async fn run(mut self, mut stop_receiver: tokio::sync::watch::Receiver<bool>) -> anyhow::Result<()> {
+    pub async fn run(
+        mut self,
+        mut stop_receiver: tokio::sync::watch::Receiver<bool>,
+    ) -> anyhow::Result<()> {
         let mut timer = tokio::time::interval(self.config.poll_interval());
 
         while !*stop_receiver.borrow_and_update() {
@@ -117,8 +126,7 @@ where
     async fn loop_iteration(&mut self, storage: &mut S) -> anyhow::Result<()> {
         let current_l1_block_number = {
             let idx = self.indexer.lock().await;
-            idx
-                .fetch_block_height()
+            idx.fetch_block_height()
                 .await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?
                 .saturating_sub(self.config.block_confirmations) as u32
@@ -135,18 +143,15 @@ where
 
         let mut messages = {
             let mut idx = self.indexer.lock().await;
-            idx
-                .process_blocks(self.last_processed_bitcoin_block + 1, to_block)
+            idx.process_blocks(self.last_processed_bitcoin_block + 1, to_block)
                 .await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?
         };
 
-        if (self.system_wallet_cb)(storage.clone(), messages.clone(), self.indexer.clone())
-        .await? {
+        if (self.system_wallet_cb)(storage.clone(), messages.clone(), self.indexer.clone()).await? {
             messages = {
                 let mut idx = self.indexer.lock().await;
-                idx
-                    .process_blocks(self.last_processed_bitcoin_block + 1, to_block)
+                idx.process_blocks(self.last_processed_bitcoin_block + 1, to_block)
                     .await
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?
             };
@@ -167,5 +172,3 @@ pub type ConnFut<S> = Pin<Box<dyn Future<Output = anyhow::Result<S>> + Send>>;
 pub type ProcFut = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 pub type PreFut = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 pub type SysFut = Pin<Box<dyn Future<Output = anyhow::Result<bool>> + Send>>;
-
-

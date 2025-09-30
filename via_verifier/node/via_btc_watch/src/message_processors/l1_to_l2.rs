@@ -1,9 +1,12 @@
-use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::{BitcoinAddress, FullInscriptionMessage}};
+use via_btc_client::{
+    indexer::BitcoinInscriptionIndexer,
+    types::{BitcoinAddress, FullInscriptionMessage},
+};
+use via_btc_watch_common::utils::normalize_deposit_from_message;
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
 use zksync_types::{ethabi::Address, H256};
 
 use crate::message_processors::{MessageProcessor, MessageProcessorError};
-use via_btc_watch_common::utils::normalize_deposit_from_message;
 
 #[derive(Debug)]
 pub struct L1ToL2Transaction {

@@ -1,18 +1,18 @@
-mod message_processors;
 mod dal_adapters;
-mod storage;
+mod message_processors;
 mod metrics;
+mod storage;
 
-use std::sync::Arc;
+use std::sync::{Arc, Arc as StdArc};
 
 use message_processors::GovernanceUpgradesEventProcessor;
 use tokio::sync::watch;
 pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
+use via_btc_watch_common::orchestrator::WatchOrchestrator;
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use via_btc_watch_common::orchestrator::WatchOrchestrator;
-use std::sync::Arc as StdArc;
+
 use crate::storage::SequencerStorage;
 
 #[cfg(test)]
@@ -111,7 +111,11 @@ impl BtcWatch {
                     })
                 }
             },
-            Some(|_: SequencerStorage| -> via_btc_watch_common::orchestrator::PreFut { Box::pin(async { Ok(()) }) }),
+            Some(
+                |_: SequencerStorage| -> via_btc_watch_common::orchestrator::PreFut {
+                    Box::pin(async { Ok(()) })
+                },
+            ),
             {
                 let sys_proc = sys_proc.clone();
                 move |storage: SequencerStorage, messages, indexer| {
@@ -130,7 +134,8 @@ impl BtcWatch {
             module,
             self.btc_watch_config.start_l1_block_number,
             self.btc_watch_config.restart_indexing,
-        ).await?;
+        )
+        .await?;
 
         orchestrator.run(stop_receiver).await
     }

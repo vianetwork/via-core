@@ -1,12 +1,12 @@
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
+use via_btc_watch_common::utils::create_l1_tx_from_message;
 use zksync_dal::{Connection, Core, CoreDal};
-// L1Tx is only used indirectly via insertion; remove direct import
 
+// L1Tx is only used indirectly via insertion; remove direct import
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
     metrics::{InscriptionStage, METRICS},
 };
-use via_btc_watch_common::utils::create_l1_tx_from_message;
 
 #[derive(Debug, Default)]
 pub struct L1ToL2MessageProcessor {}

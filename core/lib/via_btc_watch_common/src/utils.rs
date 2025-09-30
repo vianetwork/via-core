@@ -1,7 +1,6 @@
 use via_btc_client::types::{BitcoinTxid, L1ToL2Message};
 use zksync_types::{
-    l1::via_l1::ViaL1Deposit,
-    l1::L1Tx,
+    l1::{via_l1::ViaL1Deposit, L1Tx},
     H256,
 };
 
@@ -11,20 +10,20 @@ pub fn convert_txid_to_h256(txid: BitcoinTxid) -> H256 {
     H256::from_slice(&tx_id_bytes)
 }
 
-pub fn create_l1_tx_from_message(
-    msg: &L1ToL2Message,
-) -> anyhow::Result<Option<(L1Tx, H256)>> {
+pub fn create_l1_tx_from_message(msg: &L1ToL2Message) -> anyhow::Result<Option<(L1Tx, H256)>> {
     let deposit = ViaL1Deposit {
         l2_receiver_address: msg.input.receiver_l2_address,
         amount: msg.amount.to_sat(),
         calldata: msg.input.call_data.clone(),
         l1_block_number: msg.common.block_height as u64,
-        tx_index: msg.common.tx_index.ok_or_else(|| {
-            anyhow::anyhow!("deposit missing tx_index")
-        })?,
-        output_vout: msg.common.output_vout.ok_or_else(|| {
-            anyhow::anyhow!("deposit missing output_vout")
-        })?,
+        tx_index: msg
+            .common
+            .tx_index
+            .ok_or_else(|| anyhow::anyhow!("deposit missing tx_index"))?,
+        output_vout: msg
+            .common
+            .output_vout
+            .ok_or_else(|| anyhow::anyhow!("deposit missing output_vout"))?,
     };
 
     if let Some(l1_tx) = deposit.l1_tx() {
@@ -73,5 +72,3 @@ pub fn normalize_deposit_from_message(
         Ok(None)
     }
 }
-
-

@@ -1,25 +1,24 @@
-mod message_processors;
 mod dal_adapters;
-mod storage;
+mod message_processors;
 mod metrics;
+mod storage;
 
-use std::sync::Arc;
+use std::sync::{Arc, Arc as StdArc};
 
 use message_processors::{GovernanceUpgradesEventProcessor, WithdrawalProcessor};
 use tokio::sync::watch;
 pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
+use via_btc_watch_common::orchestrator::WatchOrchestrator;
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 
 use self::message_processors::{MessageProcessor, MessageProcessorError};
-use crate::message_processors::{
-    L1ToL2MessageProcessor, SystemWalletProcessor, VerifierMessageProcessor,
+use crate::{
+    message_processors::{L1ToL2MessageProcessor, SystemWalletProcessor, VerifierMessageProcessor},
+    storage::VerifierStorage,
 };
-use via_btc_watch_common::orchestrator::WatchOrchestrator;
-use std::sync::Arc as StdArc;
-use crate::storage::VerifierStorage;
 
 #[cfg(test)]
 mod test;
@@ -132,7 +131,8 @@ impl VerifierBtcWatch {
             module,
             self.config.start_l1_block_number,
             false,
-        ).await?;
+        )
+        .await?;
 
         orchestrator.run(stop_receiver).await
     }

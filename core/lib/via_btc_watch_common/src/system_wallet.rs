@@ -5,7 +5,9 @@ use via_btc_client::{
     client::BitcoinClient,
     indexer::{BitcoinInscriptionIndexer, MessageParser},
     traits::BitcoinOps,
-    types::{BitcoinAddress, FullInscriptionMessage, UpdateBridge, UpdateGovernance, UpdateSequencer},
+    types::{
+        BitcoinAddress, FullInscriptionMessage, UpdateBridge, UpdateGovernance, UpdateSequencer,
+    },
 };
 use zksync_types::via_wallet::{SystemWalletsDetails, WalletInfo, WalletRole};
 
@@ -65,7 +67,9 @@ impl<S: WalletsDal + Send> SystemWalletProcessorApi<S> for SystemWalletProcessor
                     }
                 }
                 FullInscriptionMessage::UpdateBridge(msg) => {
-                    let updated = self.handle_update_bridge_proposal(storage, msg, indexer).await?;
+                    let updated = self
+                        .handle_update_bridge_proposal(storage, msg, indexer)
+                        .await?;
                     if updated {
                         wallets_updated = updated;
                     }
@@ -243,5 +247,3 @@ impl SystemWalletProcessor {
         Ok(true)
     }
 }
-
-
