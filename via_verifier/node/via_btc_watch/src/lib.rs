@@ -1,11 +1,12 @@
 mod message_processors;
+mod dal_adapters;
+mod storage;
 mod metrics;
 
 use std::sync::Arc;
 
 use message_processors::{GovernanceUpgradesEventProcessor, WithdrawalProcessor};
 use tokio::sync::watch;
-// re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
@@ -16,6 +17,9 @@ use self::message_processors::{MessageProcessor, MessageProcessorError};
 use crate::message_processors::{
     L1ToL2MessageProcessor, SystemWalletProcessor, VerifierMessageProcessor,
 };
+use via_btc_watch_common::orchestrator::WatchOrchestrator;
+use std::sync::Arc as StdArc;
+use crate::storage::VerifierStorage;
 
 #[cfg(test)]
 mod test;
@@ -58,32 +62,79 @@ impl VerifierBtcWatch {
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
-        let mut timer = tokio::time::interval(self.config.poll_interval());
         let pool = self.pool.clone();
+        let mut storage_adapter = VerifierStorage { pool };
+        let sys_proc = StdArc::new(tokio::sync::Mutex::new(self.system_wallet_processor));
+        let module = Self::module_name();
+        let processors = StdArc::new(tokio::sync::Mutex::new(self.message_processors));
+        let cfg = self.config.clone();
+        let mut indexer = self.indexer;
 
-        while !*stop_receiver.borrow_and_update() {
-            tokio::select! {
-                _ = timer.tick() => { /* continue iterations */ }
-                _ = stop_receiver.changed() => break,
-            }
-
-            let mut storage = pool
-                .connection_tagged(VerifierBtcWatch::module_name())
-                .await?;
-            match self.loop_iteration(&mut storage).await {
-                Ok(()) => { /* everything went fine */ }
-                Err(MessageProcessorError::Internal(err)) => {
-                    tracing::error!("Internal error processing new blocks: {err:?}");
-                    return Err(err);
+        let pre_cb = move |storage: VerifierStorage| -> via_btc_watch_common::orchestrator::PreFut {
+            Box::pin(async move {
+                let mut conn = storage.pool.connection_tagged("via_btc_watch").await?;
+                if let Some(last_protocol_version) = conn
+                    .via_protocol_versions_dal()
+                    .latest_protocol_semantic_version()
+                    .await
+                    .expect("Error load the protocol version")
+                {
+                    check_if_supported_sequencer_version(last_protocol_version)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 }
-                Err(err) => {
-                    tracing::error!("Failed to process new blocks: {err}");
-                }
-            }
-        }
+                Ok(())
+            })
+        };
 
-        tracing::info!("Stop signal received, via_btc_watch is shutting down");
-        Ok(())
+        let orchestrator = WatchOrchestrator::new(
+            cfg,
+            indexer,
+            move || {
+                let mut s = storage_adapter.clone();
+                Box::pin(async move { Ok::<_, anyhow::Error>(s) })
+            },
+            {
+                let processors = processors.clone();
+                move |storage: VerifierStorage, messages, indexer| {
+                    let processors = processors.clone();
+                    let pool = storage.pool.clone();
+                    Box::pin(async move {
+                        let mut guard = processors.lock().await;
+                        for p in guard.iter_mut() {
+                            p.process_messages(
+                                &mut pool.connection_tagged("via_btc_watch").await?,
+                                messages.clone(),
+                                &mut *indexer.lock().await,
+                            )
+                            .await
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                        }
+                        Ok(())
+                    })
+                }
+            },
+            Some(pre_cb),
+            {
+                let sys_proc = sys_proc.clone();
+                move |storage: VerifierStorage, messages, indexer| {
+                    let sys_proc = sys_proc.clone();
+                    let pool = storage.pool.clone();
+                    Box::pin(async move {
+                        let mut conn = pool.connection_tagged("via_btc_watch").await?;
+                        let mut guard = sys_proc.lock().await;
+                        guard
+                            .process_messages(&mut conn, messages, &mut *indexer.lock().await)
+                            .await
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))
+                    })
+                }
+            },
+            module,
+            self.config.start_l1_block_number,
+            false,
+        ).await?;
+
+        orchestrator.run(stop_receiver).await
     }
 
     async fn loop_iteration(
