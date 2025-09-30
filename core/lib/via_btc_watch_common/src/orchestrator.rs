@@ -1,6 +1,5 @@
 // no direct imports here to avoid unused warnings
-use std::sync::Arc;
-use std::{future::Future, marker::PhantomData, pin::Pin};
+use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc};
 
 use tokio::sync::Mutex;
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
