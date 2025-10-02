@@ -75,6 +75,8 @@ pub struct MultiVMBaseSystemContracts<C> {
     pub(crate) vm_bitcoin: BaseSystemContracts,
     /// Contracts to be used after the bitcoin upgrade
     pub(crate) vm_bitcoin_1_0_1: BaseSystemContracts,
+    /// Contracts to be used after the gateway upgrade
+    pub(crate) vm_bitcoin_gateway: BaseSystemContracts,
 }
 
 impl<C: ContractsKind> MultiVMBaseSystemContracts<C> {
@@ -111,9 +113,8 @@ impl<C: ContractsKind> MultiVMBaseSystemContracts<C> {
             ProtocolVersionId::Version25 | ProtocolVersionId::Version26 => {
                 &self.vm_protocol_defense
             }
-            // ProtocolVersionId::Version27 => &self.gateway,
-            // ProtocolVersionId::Version26 => &self.vm_bitcoin,
-            ProtocolVersionId::Version27 => &self.vm_bitcoin_1_0_1,
+            ProtocolVersionId::Version27 => &self.gateway,
+            ProtocolVersionId::Version28 => &self.vm_bitcoin_gateway,
         };
         let base = base.clone();
 
@@ -146,6 +147,7 @@ impl MultiVMBaseSystemContracts<EstimateGas> {
             _contracts_kind: PhantomData,
             vm_bitcoin: BaseSystemContracts::estimate_gas_bitcoin_1_0_0(),
             vm_bitcoin_1_0_1: BaseSystemContracts::estimate_gas_bitcoin_1_0_1(),
+            vm_bitcoin_gateway: BaseSystemContracts::estimate_gas_bitcoin_gateway(),
         }
     }
 }
@@ -170,6 +172,7 @@ impl MultiVMBaseSystemContracts<CallOrExecute> {
             _contracts_kind: PhantomData,
             vm_bitcoin: BaseSystemContracts::playground_bitcoin_1_0_0(),
             vm_bitcoin_1_0_1: BaseSystemContracts::playground_bitcoin_1_0_1(),
+            vm_bitcoin_gateway: BaseSystemContracts::playground_bitcoin_gateway(),
         }
     }
 }
