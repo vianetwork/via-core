@@ -31,7 +31,7 @@ services:
     stop_grace_period: 1m
     command: "./wait-for-it.sh db:3306 --timeout=720 --strict -- ./start.sh"
     volumes:
-      - ./volumes/btc-explorer/data:/backend/cache
+      - api:/backend/cache
   db:
     container_name: btc-explorer-db
     environment:
@@ -44,4 +44,8 @@ services:
     restart: on-failure
     stop_grace_period: 1m
     volumes:
-      - ./volumes/btc-explorer/mysql:/var/lib/mysql
+      - mysql:/var/lib/mysql
+
+volumes:
+  mysql:
+  api:

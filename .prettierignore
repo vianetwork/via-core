@@ -9,6 +9,8 @@ node_modules
 
 # Ignore contract submodules
 contracts
+# Ignore via-core-ext submodules
+via-core-ext
 
 **/target/**
 **/node_modules
