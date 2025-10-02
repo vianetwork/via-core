@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
-use bincode::serialize;
-use bitcoin::hashes::Hash;
+use anyhow::Result;
 use tokio::sync::watch;
-use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
+use via_btc_client::inscriber::Inscriber;
+use via_btc_send_common::inscribe_and_prepare;
 use zksync_config::ViaBtcSenderConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_shared_metrics::BlockL1Stage;
@@ -131,7 +130,7 @@ impl ViaBtcInscriptionManager {
                             storage,
                             BlockL1Stage::Mined,
                             vec![(
-                                inscription.id as u32,
+                                (inscription.id) as u32,
                                 ViaBtcInscriptionRequestType::from(inscription.request_type),
                             )],
                         )
@@ -234,52 +233,32 @@ impl ViaBtcInscriptionManager {
             .fetch_block_height()
             .await? as i64;
 
-        let input =
-            InscriptionMessage::from_bytes(&tx.inscription_message.clone().unwrap_or_default());
-
+        let input = tx.inscription_message.clone().unwrap_or_default();
         let latency = METRICS.broadcast_time.start();
-        let inscribe_info = match self.inscriber.inscribe(input).await {
-            Ok(info) => info,
+        let result = match inscribe_and_prepare(&mut self.inscriber, &input).await {
+            Ok(r) => r,
             Err(e) => {
                 METRICS.l1_transient_errors.inc();
-                return Err(anyhow::anyhow!(e));
+                return Err(e);
             }
         };
-
         latency.observe();
-
-        let signed_commit_tx = serialize(&inscribe_info.final_commit_tx.tx)
-            .with_context(|| "Error serializing the commit tx")?;
-
-        let signed_reveal_tx = serialize(&inscribe_info.final_reveal_tx.tx)
-            .with_context(|| "Error serializing the reveal tx")?;
-
-        let actual_fees = inscribe_info.reveal_tx_output_info._reveal_fee
-            + inscribe_info.commit_tx_output_info.commit_tx_fee;
 
         tracing::info!(
             "New inscription created {commit_tx} {reveal_tx}",
-            commit_tx = inscribe_info.final_commit_tx.txid,
-            reveal_tx = inscribe_info.final_reveal_tx.txid,
+            commit_tx = result.commit_txid,
+            reveal_tx = result.reveal_txid,
         );
 
         storage
             .btc_sender_dal()
             .insert_inscription_request_history(
-                &inscribe_info
-                    .final_commit_tx
-                    .txid
-                    .as_raw_hash()
-                    .to_byte_array(),
-                &inscribe_info
-                    .final_reveal_tx
-                    .txid
-                    .as_raw_hash()
-                    .to_byte_array(),
+                &result.commit_tx_id_bytes,
+                &result.reveal_tx_id_bytes,
                 tx.id,
-                &signed_commit_tx,
-                &signed_reveal_tx,
-                actual_fees.to_sat() as i64,
+                &result.signed_commit_tx,
+                &result.signed_reveal_tx,
+                result.actual_fees_sat,
                 sent_at_block,
             )
             .await?;

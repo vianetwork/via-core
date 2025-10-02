@@ -1,4 +1,8 @@
 use anyhow::Context;
+use async_trait::async_trait;
+use via_btc_send_common::{
+    CommonInscriptionHistory, CommonInscriptionRequest, InscriptionHistoryInput, ViaBtcSenderDalOps,
+};
 use zksync_db_connection::connection::Connection;
 use zksync_types::via_btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
 
@@ -223,5 +227,107 @@ impl ViaBtcSenderDal<'_, '_> {
             .commit()
             .await
             .with_context(|| "Error commit and confirm transaction")
+    }
+}
+
+// Implement the common trait for the verifier DAL
+#[async_trait]
+impl ViaBtcSenderDalOps for ViaBtcSenderDal<'_, '_> {
+    async fn list_new_inscription_requests(
+        &mut self,
+        limit: i64,
+    ) -> anyhow::Result<Vec<CommonInscriptionRequest>> {
+        let requests = self
+            .list_new_inscription_request(limit)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to list new inscriptions: {}", e))?;
+        Ok(requests
+            .into_iter()
+            .map(|r| CommonInscriptionRequest {
+                id: r.id,
+                request_type: r.request_type,
+                inscription_message: r.inscription_message,
+                predicted_fee: r.predicted_fee,
+                confirmed_inscriptions_request_history_id: r
+                    .confirmed_inscriptions_request_history_id,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            })
+            .collect())
+    }
+
+    async fn get_inflight_inscriptions(&mut self) -> anyhow::Result<Vec<CommonInscriptionRequest>> {
+        let inscriptions = self
+            .get_inflight_inscriptions()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get inflight inscriptions: {}", e))?;
+        Ok(inscriptions
+            .into_iter()
+            .map(|r| CommonInscriptionRequest {
+                id: r.id,
+                request_type: r.request_type,
+                inscription_message: r.inscription_message,
+                predicted_fee: r.predicted_fee,
+                confirmed_inscriptions_request_history_id: r
+                    .confirmed_inscriptions_request_history_id,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            })
+            .collect())
+    }
+
+    async fn get_last_inscription_history(
+        &mut self,
+        inscription_id: i64,
+    ) -> anyhow::Result<Option<CommonInscriptionHistory>> {
+        let history = self
+            .get_last_inscription_request_history(inscription_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get last inscription history: {}", e))?;
+        Ok(history.map(|h| CommonInscriptionHistory {
+            id: h.id,
+            commit_txid: h.commit_tx_id,
+            reveal_txid: h.reveal_tx_id,
+            inscription_request_id: h.inscription_request_id,
+            signed_commit_tx: h.signed_commit_tx,
+            signed_reveal_tx: h.signed_reveal_tx,
+            actual_fees: h.actual_fees,
+            sent_at_block: h.sent_at_block,
+            confirmed_at: h.confirmed_at,
+            created_at: h.created_at,
+        }))
+    }
+
+    async fn insert_inscription_history(
+        &mut self,
+        inscription_id: i64,
+        input: InscriptionHistoryInput<'_>,
+    ) -> anyhow::Result<i64> {
+        let commit_tx_str = input.commit_txid.to_string();
+        let reveal_tx_str = input.reveal_txid.to_string();
+
+        let id = self
+            .insert_inscription_request_history(
+                commit_tx_str,
+                reveal_tx_str,
+                inscription_id,
+                input.signed_commit_tx.to_vec(),
+                input.signed_reveal_tx.to_vec(),
+                input.actual_fees_sat,
+                input.sent_at_block,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to insert inscription history: {}", e))?
+            .ok_or_else(|| anyhow::anyhow!("Insert returned no ID"))?;
+
+        Ok(i64::from(id))
+    }
+
+    async fn confirm_inscription(
+        &mut self,
+        inscription_id: i64,
+        history_id: i64,
+    ) -> anyhow::Result<()> {
+        self.confirm_inscription(inscription_id, history_id).await
     }
 }
