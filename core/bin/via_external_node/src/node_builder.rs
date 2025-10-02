@@ -527,8 +527,16 @@ impl ExternalNodeBuilder {
             .clone()
             .ok_or_else(|| anyhow!("via_genesis_config is required"))?;
 
-        self.node
-            .add_layer(ViaNodeStorageInitializerLayer::new(via_genesis_config));
+        let via_btc_watch_config = self
+            .config
+            .via_btc_watch_config
+            .clone()
+            .ok_or_else(|| anyhow!("via_btc_watch_config is required"))?;
+
+        self.node.add_layer(ViaNodeStorageInitializerLayer {
+            via_genesis_config,
+            via_btc_watch_config,
+        });
 
         Ok(self)
     }
@@ -540,24 +548,17 @@ impl ExternalNodeBuilder {
             .clone()
             .ok_or_else(|| anyhow!("via_bridge_config is required"))?;
 
-        let via_btc_client_config = self
-            .config
-            .via_btc_client_config
-            .clone()
-            .ok_or_else(|| anyhow!("via_btc_client_config is required"))?;
-
         let via_btc_watch_config = self
             .config
             .via_btc_watch_config
             .clone()
             .ok_or_else(|| anyhow!("via_btc_watch_config is required"))?;
 
-        self.node.add_layer(BtcWatchLayer::new(
+        self.node.add_layer(BtcWatchLayer {
             via_bridge_config,
-            via_btc_client_config,
             via_btc_watch_config,
-            false,
-        ));
+            is_main_node: true,
+        });
 
         Ok(self)
     }
