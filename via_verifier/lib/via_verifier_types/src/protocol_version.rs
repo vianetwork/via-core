@@ -3,7 +3,7 @@ use zksync_types::{
     ProtocolVersionId,
 };
 
-const SEQUENCER_MINOR: ProtocolVersionId = ProtocolVersionId::Version27;
+const SEQUENCER_MINOR: ProtocolVersionId = ProtocolVersionId::Version28;
 const SEQUENCER_PATCH: u32 = 0;
 
 /// Get the supported sequencer version by the verifier.
