@@ -22,15 +22,19 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 via_btc_client.workspace = true
 via_da_client.workspace = true
+zksync_web3_decl.workspace = true
 
 bitcoin.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 via_verifier_types.workspace = true
+ethers = "2.0"
 
 [dev-dependencies]
 dotenv = "0.15"
 zksync_dal.workspace = true
 via_da_clients.workspace = true
+hex = "0.4"
 
 [[example]]
 name = "withdraw"

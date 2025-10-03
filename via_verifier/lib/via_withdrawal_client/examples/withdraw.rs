@@ -14,6 +14,7 @@ use zksync_config::{
 use zksync_da_client::DataAvailabilityClient;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_types::{url::SensitiveUrl, L1BatchNumber};
+use zksync_web3_decl::client::Client;
 
 const DEFAULT_DATABASE_URL: &str = "postgres://postgres:notsecurepassword@0.0.0.0:5432/via";
 const DEFAULT_CELESTIA: &str = "http://0.0.0.0:26658";
@@ -68,10 +69,18 @@ async fn main() -> Result<()> {
     // Connect to withdrawl client
     let client = CelestiaClient::new(secrets, da_config.blob_size_limit).await?;
     let da_client: Box<dyn DataAvailabilityClient> = Box::new(client);
-    let withdrawal_client = WithdrawalClient::new(da_client, bitcoin::Network::Regtest);
+
+    let web3_client = Box::new(
+        Client::http("http://0.0.0.0:3050".parse::<SensitiveUrl>().unwrap())
+            .context("Client::new()")?
+            .build(),
+    );
+
+    let withdrawal_client =
+        WithdrawalClient::new(da_client, bitcoin::Network::Regtest, web3_client);
 
     let withdrawals = withdrawal_client
-        .get_withdrawals(header.blob_id.as_str())
+        .get_withdrawals(header.blob_id.as_str(), L1BatchNumber(block_number))
         .await?;
 
     info!("--------------------------------------------------------");

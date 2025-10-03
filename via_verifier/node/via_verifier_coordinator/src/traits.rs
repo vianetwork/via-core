@@ -7,6 +7,8 @@ use crate::types::SessionOperation;
 
 #[async_trait]
 pub trait ISession: Any + Send + Sync {
+    async fn prepare_session(&self) -> anyhow::Result<()>;
+
     async fn session(&self) -> anyhow::Result<Option<SessionOperation>>;
 
     async fn is_session_in_progress(

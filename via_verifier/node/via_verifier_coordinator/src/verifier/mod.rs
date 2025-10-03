@@ -19,7 +19,7 @@ use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::{
     via_bridge::ViaBridgeConfig, via_verifier::ViaVerifierConfig, via_wallets::ViaWallet,
 };
-use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets, H256};
+use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets};
 use zksync_utils::time::seconds_since_epoch;
 
 use crate::{
@@ -122,6 +122,8 @@ impl ViaWithdrawalVerifier {
             return Ok(());
         }
 
+        self.session_manager.prepare_session().await?;
+
         let mut session_info = self.get_session().await?;
 
         if self.is_coordinator() {
@@ -140,7 +142,7 @@ impl ViaWithdrawalVerifier {
                 .before_process_session(&session_op)
                 .await?
             {
-                tracing::debug!("Empty session, nothing to process");
+                tracing::debug!("Session already processed");
                 return Ok(());
             }
         }
@@ -160,43 +162,14 @@ impl ViaWithdrawalVerifier {
 
         let messages = session_op.get_message_to_sign();
 
-        // The verifier checks if the session is sequential.
-        if session_op.get_session_type() == SessionType::Withdrawal {
-            let session = self
-                .session_manager
-                .sessions
-                .get(&session_op.get_session_type())
-                .ok_or_else(|| anyhow!("Failed to get session withdrawal"))?
-                .clone();
-
-            let withdrawal_session = session
-                .as_ref()
-                .as_any()
-                .downcast_ref::<WithdrawalSession>()
-                .ok_or_else(|| anyhow!("Failed to cast to WithdrawalSession"))?;
-
-            let (expected_l1_batch_number, _, _) =
-                withdrawal_session.prepare_withdrawal_session().await?;
-
-            let actual_batch_number = session_op.get_l1_batch_number();
-            if expected_l1_batch_number > 0 && actual_batch_number != expected_l1_batch_number {
-                tracing::warn!(
-                    "Withdrawal session not yet sequential: last processed {}, found {}",
-                    expected_l1_batch_number,
-                    actual_batch_number
-                );
-                return Ok(());
-            }
-        }
-
         if self
             .session_manager
             .is_bridge_session_already_processed(&session_op)
             .await?
         {
             tracing::info!(
-                "Session already processed l1_batch_number {}",
-                session_op.get_l1_batch_number()
+                "Session already processed, txid: {}",
+                session_op.get_unsigned_bridge_tx().txid.to_string()
             );
             return Ok(());
         }
@@ -241,31 +214,8 @@ impl ViaWithdrawalVerifier {
         let received_nonces = session_nonces.get(&input_index).map_or(0, |map| map.len());
         if received_nonces < session_info.required_signers {
             if !self.session_manager.verify_message(&session_op).await? {
-                METRICS
-                    .session_invalid_message
-                    .set(session_op.get_l1_batch_number() as usize);
+                METRICS.session_invalid_message.inc();
                 anyhow::bail!("Invalid session message");
-            }
-
-            // If the session is valid but there is no withdrawal to process, insert and empty hash.
-            if session_op.get_unsigned_bridge_tx().is_empty() {
-                let votable_tx_id = self
-                    .master_connection_pool
-                    .connection_tagged("verifier task")
-                    .await?
-                    .via_votes_dal()
-                    .get_votable_transaction_id(&session_op.get_proof_tx_id())
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("Votable transaction does not exist"))?;
-
-                self.master_connection_pool
-                    .connection_tagged("verifier task")
-                    .await?
-                    .via_bridge_dal()
-                    .update_bridge_tx(votable_tx_id, 0, &H256::zero().as_bytes())
-                    .await?;
-
-                return Ok(());
             }
 
             if !already_sent_nonce {
@@ -278,9 +228,7 @@ impl ViaWithdrawalVerifier {
 
             self.submit_partial_signature(session_nonces).await?;
 
-            METRICS
-                .session_last_valid_session
-                .set(session_op.get_l1_batch_number() as usize);
+            METRICS.session_valid_session.inc();
         }
 
         Ok(())
@@ -717,51 +665,52 @@ impl ViaWithdrawalVerifier {
             return Ok(false);
         }
 
-        if let Some((unsigned_tx, messages)) = session_op.session() {
-            self.create_final_signature(messages)
-                .await
-                .map_err(|e| anyhow::format_err!("Error create final signature: {e}"))?;
+        let unsigned_tx = session_op.get_unsigned_bridge_tx();
+        let messages = session_op.get_message_to_sign();
 
-            if !self.final_sig_per_utxo_input.is_empty() {
-                if !self
-                    .session_manager
-                    .before_broadcast_final_transaction(session_op)
-                    .await?
-                {
-                    return Ok(false);
-                }
+        self.create_final_signature(&messages)
+            .await
+            .map_err(|e| anyhow::format_err!("Error create final signature: {e}"))?;
 
-                let signed_tx = self.sign_transaction(unsigned_tx.clone());
-
-                tracing::debug!("Signed transaction {:?}", &signed_tx);
-
-                let txid = self
-                    .btc_client
-                    .broadcast_signed_transaction(&signed_tx)
-                    .await?;
-
-                tracing::info!(
-                    "Broadcast {} signed transaction with txid {}",
-                    &session_op.get_session_type(),
-                    &txid.to_string()
-                );
-
-                if !self
-                    .session_manager
-                    .after_broadcast_final_transaction(txid, session_op)
-                    .await?
-                {
-                    return Ok(false);
-                }
-
-                METRICS.session_time.observe(Duration::from_secs(
-                    seconds_since_epoch() - session_info.created_at,
-                ));
-
-                self.clear_signers();
-
-                return Ok(true);
+        if !self.final_sig_per_utxo_input.is_empty() {
+            if !self
+                .session_manager
+                .before_broadcast_final_transaction(session_op)
+                .await?
+            {
+                return Ok(false);
             }
+
+            let signed_tx = self.sign_transaction(unsigned_tx.clone());
+
+            tracing::debug!("Signed transaction {:?}", &signed_tx);
+
+            let txid = self
+                .btc_client
+                .broadcast_signed_transaction(&signed_tx)
+                .await?;
+
+            tracing::info!(
+                "Broadcast {} signed transaction with txid {}",
+                &session_op.get_session_type(),
+                &txid.to_string()
+            );
+
+            if !self
+                .session_manager
+                .after_broadcast_final_transaction(txid, session_op)
+                .await?
+            {
+                return Ok(false);
+            }
+
+            METRICS.session_time.observe(Duration::from_secs(
+                seconds_since_epoch() - session_info.created_at,
+            ));
+
+            self.clear_signers();
+
+            return Ok(true);
         }
         Ok(false)
     }

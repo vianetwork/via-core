@@ -17,6 +17,8 @@ use crate::{
     },
 };
 
+pub mod withdrawal;
+
 /// The main indexer struct for processing Bitcoin inscriptions
 #[derive(Debug, Clone)]
 pub struct BitcoinInscriptionIndexer {

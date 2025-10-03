@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::Context;
 use zksync_basic_types::url::SensitiveUrl;
-use zksync_config::configs::via_secrets::{ViaDASecrets, ViaL1Secrets, ViaSecrets};
+use zksync_config::configs::via_secrets::{ViaDASecrets, ViaL1Secrets, ViaL2Secrets, ViaSecrets};
 use zksync_protobuf::{required, ProtoRepr};
 
 use crate::{
@@ -21,6 +21,7 @@ impl ProtoRepr for proto::ViaSecrets {
             base_secrets: read_optional_repr(&self.base_secrets).unwrap(),
             via_da: read_optional_repr(&self.via_da),
             via_l1: read_optional_repr(&self.via_l1),
+            via_l2: read_optional_repr(&self.via_l2),
         })
     }
 
@@ -29,6 +30,7 @@ impl ProtoRepr for proto::ViaSecrets {
             base_secrets: Some(Secrets::build(&this.base_secrets)),
             via_da: this.via_da.as_ref().map(ProtoRepr::build),
             via_l1: this.via_l1.as_ref().map(ProtoRepr::build),
+            via_l2: this.via_l2.as_ref().map(ProtoRepr::build),
         }
     }
 }
@@ -49,6 +51,22 @@ impl ProtoRepr for proto::ViaL1Secrets {
             rpc_url: Some(this.rpc_url.expose_str().to_string()),
             rpc_password: Some(this.rpc_password.clone()),
             rpc_user: Some(this.rpc_user.clone()),
+        }
+    }
+}
+
+impl ProtoRepr for proto::ViaL2Secrets {
+    type Type = ViaL2Secrets;
+
+    fn read(&self) -> anyhow::Result<Self::Type> {
+        Ok(Self::Type {
+            rpc_url: SensitiveUrl::from_str(required(&self.rpc_url).context("rpc_url")?)?,
+        })
+    }
+
+    fn build(this: &Self::Type) -> Self {
+        Self {
+            rpc_url: Some(this.rpc_url.expose_str().to_string()),
         }
     }
 }

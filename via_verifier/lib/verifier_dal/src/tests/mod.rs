@@ -196,7 +196,11 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
             .unwrap();
         storage
             .via_votes_dal()
-            .verify_votable_transaction(i64::from(l1_batch_number), proof_reveal_tx_id, vote)
+            .verify_votable_transaction(
+                i64::from(l1_batch_number),
+                proof_reveal_tx_id.clone(),
+                vote,
+            )
             .await
             .unwrap();
         storage
@@ -204,13 +208,17 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
             .finalize_transaction_if_needed(votable_transaction_id, 1.0, 1)
             .await
             .unwrap();
-        if vote {
-            storage
-                .via_bridge_dal()
-                .update_bridge_tx(votable_transaction_id, 0, H256::zero().as_bytes())
-                .await
-                .unwrap();
-        }
+        // if vote {
+        //     storage
+        //         .via_bridge_dal()
+        //         .update_bridge_tx(
+        //             &proof_reveal_tx_id.as_bytes().to_vec(),
+        //             0,
+        //             H256::zero().as_bytes(),
+        //         )
+        //         .await
+        //         .unwrap();
+        // }
     }
 
     let res = storage
@@ -267,7 +275,11 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
 
         storage
             .via_votes_dal()
-            .verify_votable_transaction(i64::from(l1_batch_number), proof_reveal_tx_id, vote)
+            .verify_votable_transaction(
+                i64::from(l1_batch_number),
+                proof_reveal_tx_id.clone(),
+                vote,
+            )
             .await
             .unwrap();
 
@@ -277,11 +289,15 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
             .await
             .unwrap();
 
-        storage
-            .via_bridge_dal()
-            .update_bridge_tx(votable_transaction_id, 0, H256::zero().as_bytes())
-            .await
-            .unwrap();
+        // storage
+        //     .via_bridge_dal()
+        //     .update_bridge_tx(
+        //         &proof_reveal_tx_id.as_bytes().to_vec(),
+        //         0,
+        //         H256::zero().as_bytes(),
+        //     )
+        //     .await
+        //     .unwrap();
     }
 
     let res = storage

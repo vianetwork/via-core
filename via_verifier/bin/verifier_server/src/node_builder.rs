@@ -12,6 +12,7 @@ use zksync_node_framework::{
         via_btc_sender::{
             vote::ViaBtcVoteInscriptionLayer, vote_manager::ViaInscriptionManagerLayer,
         },
+        via_query_eth_client::ViaQueryEthClientLayer,
         via_verifier::{
             coordinator_api::ViaCoordinatorApiLayer, verifier::ViaWithdrawalVerifierLayer,
         },
@@ -184,6 +185,13 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_query_eth_client_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ViaQueryEthClientLayer::new(
+            self.configs.secrets.via_l2.clone().unwrap().rpc_url,
+        ));
+        Ok(self)
+    }
+
     pub fn build(mut self) -> anyhow::Result<ZkStackService> {
         self = self
             .add_sigint_handler_layer()?
@@ -198,7 +206,8 @@ impl ViaNodeBuilder {
             .add_btc_sender_layer()?
             .add_btc_watcher_layer()?
             .add_via_da_client_layer()?
-            .add_zkp_verification_layer()?;
+            .add_zkp_verification_layer()?
+            .add_query_eth_client_layer()?;
 
         if self.is_coordinator {
             self = self.add_verifier_coordinator_api_layer()?
