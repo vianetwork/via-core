@@ -13,6 +13,7 @@ categories.workspace = true
 [dependencies]
 vise.workspace = true
 via_btc_client.workspace = true
+via_btc_watch_common.workspace = true
 via_verifier_types.workspace = true
 zksync_shared_metrics.workspace = true
 zksync_types.workspace = true

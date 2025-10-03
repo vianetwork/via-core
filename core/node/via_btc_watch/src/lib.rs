@@ -1,15 +1,19 @@
+mod dal_adapters;
 mod message_processors;
 mod metrics;
+mod storage;
 
-use std::sync::Arc;
+use std::sync::{Arc, Arc as StdArc};
 
 use message_processors::GovernanceUpgradesEventProcessor;
 use tokio::sync::watch;
-// re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
+use via_btc_watch_common::orchestrator::WatchOrchestrator;
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
+
+use crate::storage::SequencerStorage;
 
 #[cfg(test)]
 mod test;
@@ -72,30 +76,68 @@ impl BtcWatch {
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
-        let mut timer = tokio::time::interval(self.btc_watch_config.poll_interval());
         let pool = self.pool.clone();
+        let mut storage_adapter = SequencerStorage { pool };
+        let sys_proc = StdArc::new(tokio::sync::Mutex::new(self.system_wallet_processor));
+        let module = Self::module_name();
+        let processors = StdArc::new(tokio::sync::Mutex::new(self.message_processors));
+        let cfg = self.btc_watch_config.clone();
+        let mut indexer = self.indexer;
 
-        while !*stop_receiver.borrow_and_update() {
-            tokio::select! {
-                _ = timer.tick() => { /* continue iterations */ }
-                _ = stop_receiver.changed() => break,
-            }
-
-            let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
-            match self.loop_iteration(&mut storage).await {
-                Ok(()) => { /* everything went fine */ }
-                Err(MessageProcessorError::Internal(err)) => {
-                    tracing::error!("Internal error processing new blocks: {err:?}");
-                    return Err(err);
+        let orchestrator = WatchOrchestrator::new(
+            cfg,
+            indexer,
+            move || {
+                let mut s = storage_adapter.clone();
+                Box::pin(async move { Ok::<_, anyhow::Error>(s) })
+            },
+            {
+                let processors = processors.clone();
+                move |storage: SequencerStorage, messages, indexer| {
+                    let processors = processors.clone();
+                    let pool = storage.pool.clone();
+                    Box::pin(async move {
+                        let mut guard = processors.lock().await;
+                        for p in guard.iter_mut() {
+                            p.process_messages(
+                                &mut pool.connection_tagged("via_btc_watch").await?,
+                                messages.clone(),
+                                &mut *indexer.lock().await,
+                            )
+                            .await
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                        }
+                        Ok(())
+                    })
                 }
-                Err(err) => {
-                    tracing::error!("Failed to process new blocks: {err}");
+            },
+            Some(
+                |_: SequencerStorage| -> via_btc_watch_common::orchestrator::PreFut {
+                    Box::pin(async { Ok(()) })
+                },
+            ),
+            {
+                let sys_proc = sys_proc.clone();
+                move |storage: SequencerStorage, messages, indexer| {
+                    let sys_proc = sys_proc.clone();
+                    let pool = storage.pool.clone();
+                    Box::pin(async move {
+                        let mut conn = pool.connection_tagged("via_btc_watch").await?;
+                        let mut guard = sys_proc.lock().await;
+                        guard
+                            .process_messages(&mut conn, messages, &mut *indexer.lock().await)
+                            .await
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))
+                    })
                 }
-            }
-        }
+            },
+            module,
+            self.btc_watch_config.start_l1_block_number,
+            self.btc_watch_config.restart_indexing,
+        )
+        .await?;
 
-        tracing::info!("Stop signal received, via_btc_watch is shutting down");
-        Ok(())
+        orchestrator.run(stop_receiver).await
     }
 
     async fn loop_iteration(
