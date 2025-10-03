@@ -93,7 +93,7 @@ async function fixCelestiaConfig() {
     }
 
     await runCommand(
-        `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME} sed -i 's/  SampleFrom = 1/  SampleFrom = ${height}/' config.toml`
+        `docker compose -f ${VIA_DOCKER_COMPOSE} exec ${CONTAINER_NAME} sed -i 's/  SyncFromHeight = 0/  SyncFromHeight = ${height}/' config.toml`
     );
 
     // Join the updated lines back into a single string

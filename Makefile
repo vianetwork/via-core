@@ -76,15 +76,15 @@ via-restart: env-soft server
 
 # Run the basic setup workflow in sequence
 .PHONY: setup
-setup: base transactions celestia bootstrap-dev server-genesis
+setup: base transactions bootstrap-dev server-genesis
 
 # Run the basic setup workflow in sequence and server
 .PHONY: via
-via: base transactions celestia da-proxy-setup da-proxy bootstrap-dev server-genesis server
+via: base transactions da-proxy-setup da-proxy bootstrap-dev server-genesis server
 
 # Run the full setup workflow in sequence
 .PHONY: all
-all: base transactions celestia btc-explorer bootstrap-dev server-genesis server
+all: base transactions btc-explorer bootstrap-dev server-genesis server
 
 # Run the basic setup workflow in verifier
 .PHONY: via-verifier

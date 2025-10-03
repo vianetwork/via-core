@@ -18,9 +18,7 @@ services:
       - '18443:18443'  # RPC port
       - '18444:18444'  # P2P port
     volumes:
-      - type: bind
-        source: ./volumes/bitcoin
-        target: /home/bitcoin/.bitcoin
+      - bitcoin:/home/bitcoin/.bitcoin
     environment:
       - BITCOIN_DATA=/home/bitcoin/.bitcoin
 
@@ -29,9 +27,7 @@ services:
     depends_on:
       - bitcoind
     volumes:
-      - type: bind
-        source: ./volumes/bitcoin
-        target: /home/bitcoin/.bitcoin
+      - bitcoin:/home/bitcoin/.bitcoin
     entrypoint: /bin/sh
     command:
       - -c
@@ -144,26 +140,40 @@ services:
     ports:
       - '127.0.0.1:5432:5432'
     volumes:
-      - type: bind
-        source: ./volumes/postgres
-        target: /var/lib/postgresql/data
+      - postgres:/var/lib/postgresql/data
     environment:
       - POSTGRES_PASSWORD=notsecurepassword
 
-  celestia-node:
-    user: 1000:1000
-    image: "ghcr.io/celestiaorg/celestia-node:v0.25.2-mocha"
+  celestia-node-init:
+    image: "ghcr.io/celestiaorg/celestia-node:v0.27.4-mocha"
     volumes:
-      - type: bind
-        source: ./volumes/celestia
-        target: /home/celestia
-      - ./celestia-keys/keys:/home/celestia/keys
-    command: celestia light start --headers.trusted-hash=${VIA_CELESTIA_CLIENT_TRUSTED_BLOCK_HASH} --core.ip=rpc-mocha.pops.one --p2p.network=mocha --keyring.backend=test --keyring.keyname=via
+      - ./etc/docker-data/celestia/keys:/keys
+      - celestia:/home/celestia
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        cp -r /keys /home/celestia
+        celestia light init
+
+        # https://docs.celestia.org/how-to-guides/celestia-node-trusted-hash
+        read -r TRUSTED_HEIGHT TRUSTED_HASH <<<"$(curl -s https://rpc-mocha.pops.one/header | jq -r '.result.header | "\(.height) \(.last_block_id.hash)"')" && export TRUSTED_HEIGHT TRUSTED_HASH
+        sed -i "s/SyncFromHeight = .*/SyncFromHeight = $$TRUSTED_HEIGHT/" ~/config.toml
+        sed -i "s/SyncFromHash = .*/SyncFromHash = \"$$TRUSTED_HASH\"/" ~/config.toml
+
+        echo "SampleFrom updated to: $$TRUSTED_HEIGHT"
+        echo "TrustedHash updated to: $$TRUSTED_HASH"
+
+  celestia-node:
+    image: "ghcr.io/celestiaorg/celestia-node:v0.27.4-mocha"
+    depends_on:
+      celestia-node-init:
+        condition: service_completed_successfully
+    volumes:
+      - celestia:/home/celestia
+    command: celestia light start --core.ip=rpc-mocha.pops.one --p2p.network=mocha --keyring.backend=test --keyring.keyname=via
     ports:
       - '26658:26658'
-    environment:
-      - NODE_TYPE=light
-      - P2P_NETWORK=mocha
     restart: unless-stopped
 
   da-proxy:
@@ -179,4 +189,6 @@ services:
     profiles: ["da-proxy"]
 
 volumes:
-  bitcoin_data:
+  bitcoin:
+  postgres:
+  celestia:

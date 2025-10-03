@@ -11,7 +11,7 @@ import * as docker from './docker';
 import * as env from './env';
 import * as run from './run';
 import { Mode } from './types';
-import { createVolumes, up } from './up';
+import { up } from './up';
 import path from 'path';
 
 // Checks if all required tools are installed with the correct versions
@@ -47,7 +47,7 @@ const initSetup = async ({
     skipEnvSetup,
     runObservability
 }: InitSetupOptions): Promise<void> => {
-    await announced(`Initializing in 'Roll-up mode'}`);
+    await announced(`Initializing in 'Roll-up mode`);
     if (!skipSubmodulesCheckout) {
         await announced('Checkout submodules', submoduleUpdate());
     }
@@ -55,7 +55,6 @@ const initSetup = async ({
         await announced('Pulling images', docker.pull());
         await announced('Checking environment', checkEnv());
         await announced('Checking git hooks', env.gitHooks());
-        await announced('Create volumes', createVolumes());
         const envFilePath = path.join(process.env.VIA_HOME!, `etc/env/l2-inits/${process.env.VIA_ENV}.init.env`);
 
         await announced('Setting up containers', up(docker.VIA_DOCKER_COMPOSE, envFilePath));
