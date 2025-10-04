@@ -3,6 +3,7 @@ use std::convert::TryFrom;
 use bitcoin::{Address, Amount};
 
 const WITHDRAWAL_BYTE_SIZE: usize = 10;
+const ID_BYTE_SIZE: usize = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WithdrawalVersion {
@@ -45,9 +46,9 @@ impl L2WithdrawalMeta {
             )
         }
 
-        let l2_id = hex::encode(&bytes[..8]);
+        let l2_id = hex::encode(&bytes[..WITHDRAWAL_BYTE_SIZE]);
 
-        let l2_tx_event_index_bytes: [u8; 2] = bytes[8..].try_into().unwrap();
+        let l2_tx_event_index_bytes: [u8; 2] = bytes[ID_BYTE_SIZE..].try_into()?;
         let l2_tx_event_index = u16::from_be_bytes(l2_tx_event_index_bytes);
 
         Ok(Self {
@@ -59,19 +60,15 @@ impl L2WithdrawalMeta {
     pub fn to_bytes(&self) -> anyhow::Result<[u8; WITHDRAWAL_BYTE_SIZE]> {
         let mut buf = [0u8; WITHDRAWAL_BYTE_SIZE];
 
-        // convert hex string back into 8 raw bytes
         let id_bytes = hex::decode(&self.l2_id)?;
-        if id_bytes.len() != 8 {
+        if id_bytes.len() != WITHDRAWAL_BYTE_SIZE {
             anyhow::bail!(
-                "l2_id must decode into exactly 8 bytes, got {}",
+                "l2_id must decode into exactly {} bytes, got {}",
+                WITHDRAWAL_BYTE_SIZE,
                 id_bytes.len()
             );
         }
-        buf[..8].copy_from_slice(&id_bytes);
-
-        // last 2 bytes
-        let index_bytes = self.l2_tx_event_index.to_be_bytes();
-        buf[8..].copy_from_slice(&index_bytes);
+        buf[..WITHDRAWAL_BYTE_SIZE].copy_from_slice(&id_bytes);
 
         Ok(buf)
     }
@@ -92,17 +89,16 @@ pub fn parse_withdrawals(
 ) -> anyhow::Result<Vec<L2WithdrawalMeta>> {
     match version {
         WithdrawalVersion::Version0 => {
-            let record_size = 10;
-            if bytes.len() % record_size != 0 {
+            if bytes.len() % WITHDRAWAL_BYTE_SIZE != 0 {
                 anyhow::bail!(
                     "buffer length {} is not a multiple of {}",
                     bytes.len(),
-                    record_size
+                    WITHDRAWAL_BYTE_SIZE
                 );
             }
 
             let mut withdrawals = Vec::new();
-            for chunk in bytes.chunks(record_size) {
+            for chunk in bytes.chunks(WITHDRAWAL_BYTE_SIZE) {
                 withdrawals.push(L2WithdrawalMeta::from_bytes(chunk)?);
             }
             Ok(withdrawals)
@@ -116,11 +112,11 @@ mod tests {
 
     #[test]
     fn test_encode_decode_withdrawal_meta() {
-        let tx_hash_hex = "a3f207a872cc5a8618cb5ff7a59d53f2f9302a38f5b7b65e7112c6a0f56edc3a";
+        let tx_hash_hex = "a3f207a872cc5a861234";
         let tx_hash_bytes: Vec<u8> = hex::decode(tx_hash_hex).unwrap();
 
         // First 8 bytes → hex string
-        let l2_id = hex::encode(&tx_hash_bytes[..8]);
+        let l2_id = hex::encode(&tx_hash_bytes[..WITHDRAWAL_BYTE_SIZE]);
 
         let meta = L2WithdrawalMeta {
             l2_id,

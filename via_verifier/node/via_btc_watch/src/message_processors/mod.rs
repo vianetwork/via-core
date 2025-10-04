@@ -22,8 +22,6 @@ pub(super) enum MessageProcessorError {
     Internal(#[from] anyhow::Error),
     #[error("database error: {0}")]
     DatabaseError(String),
-    #[error("sync error: {0}")]
-    SyncError(String),
 }
 
 impl From<IndexerError> for MessageProcessorError {

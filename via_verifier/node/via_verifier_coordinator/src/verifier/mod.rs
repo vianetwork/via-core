@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use bitcoin::{TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
@@ -56,7 +56,6 @@ impl ViaWithdrawalVerifier {
         let transaction_builder = Arc::new(TransactionBuilder::new(btc_client.clone())?);
 
         let withdrawal_session = WithdrawalSession::new(
-            verifier_config.clone(),
             master_connection_pool.clone(),
             transaction_builder.clone(),
             withdrawal_client,
@@ -104,6 +103,8 @@ impl ViaWithdrawalVerifier {
         Ok(())
     }
     async fn loop_iteration(&mut self) -> Result<(), anyhow::Error> {
+        self.session_manager.prepare_session().await?;
+
         if self
             .master_connection_pool
             .connection()
@@ -115,14 +116,11 @@ impl ViaWithdrawalVerifier {
         {
             return Ok(());
         }
-
         self.validate_verifier_addresses().await?;
 
         if self.sync_in_progress().await? {
             return Ok(());
         }
-
-        self.session_manager.prepare_session().await?;
 
         let mut session_info = self.get_session().await?;
 
@@ -696,13 +694,9 @@ impl ViaWithdrawalVerifier {
                 &txid.to_string()
             );
 
-            if !self
-                .session_manager
+            self.session_manager
                 .after_broadcast_final_transaction(txid, session_op)
-                .await?
-            {
-                return Ok(false);
-            }
+                .await?;
 
             METRICS.session_time.observe(Duration::from_secs(
                 seconds_since_epoch() - session_info.created_at,

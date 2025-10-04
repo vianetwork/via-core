@@ -146,6 +146,7 @@ impl MessageParser {
         // Try to parse as inscription-based deposit first
         if let Some(inscription_message) = self.parse_inscription_deposit(tx, block_height, wallets)
         {
+            println!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
             messages.push(inscription_message);
         }
 
@@ -153,6 +154,7 @@ impl MessageParser {
         if let Some(op_return_message) =
             self.parse_op_return_deposit(tx, block_height, bridge_output)
         {
+            println!("VVVVVVVVVVVVVVVVVVVVVVVVVVV");
             messages.push(op_return_message);
         }
 
@@ -833,8 +835,13 @@ impl MessageParser {
             return None;
         }
 
+        let mut start_index = 2;
+        if op_return_data.len() > 75 {
+            start_index += 1;
+        }
+
         // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
+        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(start_index..) {
             if op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX)
                 || op_return_data.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX)
                 || op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX)
@@ -893,8 +900,14 @@ impl MessageParser {
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
 
+        let mut start_index = 2;
+        // When data > 75 OP_PUSHDATA1 is used which requires additional byte.
+        if op_return_output.script_pubkey.as_bytes().len() > 75 {
+            start_index += 1;
+        }
+
         // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
+        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(start_index..) {
             if !op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX) {
                 return None;
             }

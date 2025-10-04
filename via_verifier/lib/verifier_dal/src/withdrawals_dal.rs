@@ -56,7 +56,8 @@ impl ViaWithdrawalDal<'_, '_> {
             UPDATE
                 via_bridge_withdrawals
             SET
-                executed = TRUE
+                executed = TRUE,
+                updated_at = NOW()
             WHERE
                 tx_id=$1
             "#,
@@ -68,6 +69,7 @@ impl ViaWithdrawalDal<'_, '_> {
 
         Ok(())
     }
+
     pub async fn bridge_withdrawal_exists(&mut self, tx_id: &[u8]) -> DalResult<bool> {
         let row = sqlx::query!(
             r#"
@@ -86,10 +88,29 @@ impl ViaWithdrawalDal<'_, '_> {
         Ok(row.exists)
     }
 
+    pub async fn get_bridge_withdrawal_id(&mut self, tx_id: &[u8]) -> DalResult<Option<i64>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                id
+            FROM
+                via_bridge_withdrawals
+            WHERE
+                tx_id = $1
+            "#,
+            tx_id,
+        )
+        .instrument("get_bridge_withdrawal_id")
+        .fetch_optional(&mut self.storage)
+        .await?;
+
+        Ok(row.map(|r| r.id))
+    }
+
     /// Inserts a new withdrawals.
     pub async fn insert_withdrawals(
         &mut self,
-        withdrawals: Vec<WithdrawalRequest>,
+        withdrawals: &[WithdrawalRequest],
     ) -> DalResult<Vec<bool>> {
         let mut results = Vec::with_capacity(withdrawals.len());
 
@@ -100,7 +121,14 @@ impl ViaWithdrawalDal<'_, '_> {
                     via_withdrawals (id, l2_tx_hash, l2_tx_log_index, receiver, value)
                 VALUES
                     ($1, $2, $3, $4, $5)
-                ON CONFLICT (l2_tx_hash, l2_tx_log_index) DO NOTHING
+                ON CONFLICT (id)
+                DO UPDATE SET
+                    value = EXCLUDED.value,
+                    l2_tx_hash = CASE
+                        WHEN EXCLUDED.l2_tx_hash <> '' THEN EXCLUDED.l2_tx_hash
+                        ELSE via_withdrawals.l2_tx_hash
+                    END,
+                    updated_at = NOW();
                 "#,
                 withdrawal.id,
                 withdrawal.l2_tx_hash,
@@ -139,7 +167,8 @@ impl ViaWithdrawalDal<'_, '_> {
         sqlx::query!(
             r#"
             UPDATE via_withdrawals SET
-                bridge_withdrawal_id = $5
+                bridge_withdrawal_id = $5,
+                updated_at = NOW()
             WHERE
                 id = $1
                 AND l2_tx_log_index = $2
@@ -186,6 +215,34 @@ impl ViaWithdrawalDal<'_, '_> {
         .await?;
 
         Ok(row.is_some())
+    }
+
+    pub async fn check_if_withdrawal_exists(
+        &mut self,
+        withdrawal: &WithdrawalRequest,
+    ) -> DalResult<bool> {
+        let row = sqlx::query!(
+            r#"
+            SELECT EXISTS (
+                SELECT
+                    1
+                FROM
+                    via_withdrawals
+                WHERE
+                    id = $1
+                    AND l2_tx_log_index = $2
+                    AND receiver = $3
+            ) AS "exists!"
+           "#,
+            withdrawal.id,
+            withdrawal.l2_tx_log_index as i64,
+            withdrawal.receiver.to_string(),
+        )
+        .instrument("check_if_withdrawal_exists")
+        .fetch_one(&mut self.storage)
+        .await?;
+
+        Ok(row.exists)
     }
 
     pub async fn list_no_processed_withdrawals(

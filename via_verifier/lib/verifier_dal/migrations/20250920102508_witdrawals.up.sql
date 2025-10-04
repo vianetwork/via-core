@@ -21,6 +21,5 @@ CREATE TABLE IF NOT EXISTS via_withdrawals (
     "receiver" VARCHAR NOT NULL,
     "value" BIGINT NOT NULL,
     "updated_at" TIMESTAMP NOT NULL DEFAULT NOW(),
-    "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_tx_index UNIQUE ("l2_tx_hash", "l2_tx_log_index")
+    "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
 );

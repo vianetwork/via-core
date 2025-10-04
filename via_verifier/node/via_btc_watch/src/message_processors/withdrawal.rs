@@ -38,31 +38,31 @@ impl MessageProcessor for WithdrawalProcessor {
                 let tx_id = withdrawal_msg.common.tx_id.as_byte_array().to_vec();
                 let withdrawals = get_withdrawal_requests(withdrawal_msg.input.withdrawals);
 
-                // Check if the withdrawals are already indexed and stored in DB.
-                for w in &withdrawals {
-                    let exists = storage
-                        .via_withdrawal_dal()
-                        .check_if_withdrawal_exists_unprocessed(w)
-                        .await?;
-
-                    if !exists {
-                        return Err(MessageProcessorError::SyncError(format!(
-                            "Withdrawal with hash id {} not found",
-                            &w.id
-                        )));
-                    }
-                }
+                let id_opt = storage
+                    .via_withdrawal_dal()
+                    .get_bridge_withdrawal_id(&tx_id)
+                    .await?;
 
                 let mut transaction = storage.start_transaction().await?;
 
-                let id = transaction
-                    .via_withdrawal_dal()
-                    .insert_bridge_withdrawal_tx(&tx_id)
-                    .await?;
+                let id = match id_opt {
+                    Some(id) => id,
+                    None => {
+                        transaction
+                            .via_withdrawal_dal()
+                            .insert_bridge_withdrawal_tx(&tx_id)
+                            .await?
+                    }
+                };
 
                 transaction
                     .via_withdrawal_dal()
                     .mark_bridge_withdrawal_tx_as_processed(&tx_id)
+                    .await?;
+
+                transaction
+                    .via_withdrawal_dal()
+                    .insert_withdrawals(&withdrawals)
                     .await?;
 
                 transaction

@@ -48,7 +48,6 @@ impl RestApi {
         let transaction_builder = Arc::new(TransactionBuilder::new(btc_client.clone())?);
 
         let withdrawal_session = WithdrawalSession::new(
-            config.clone(),
             master_connection_pool.clone(),
             transaction_builder.clone(),
             withdrawal_client.clone(),

@@ -92,8 +92,18 @@ pub fn parse_l2_withdrawal_message(
         )
     }
 
+    let mut id_bytes = Vec::with_capacity(10);
+    id_bytes.extend_from_slice(&l2_tx_hash.0[..8]);
+
+    let log_index_u16: u16 = l2_tx_log_index
+        .as_u64()
+        .try_into()
+        .expect("l2_tx_log_index too large for u16");
+
+    id_bytes.extend_from_slice(&log_index_u16.to_be_bytes());
+
     Ok(WithdrawalRequest {
-        id: l2_tx_hash.0[0..8].to_vec().to_hex_string(Case::Lower),
+        id: id_bytes.to_hex_string(Case::Lower),
         receiver,
         amount,
         l2_sender,
