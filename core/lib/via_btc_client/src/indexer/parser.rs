@@ -14,18 +14,22 @@ use zksync_types::{
     L1BatchNumber, U256,
 };
 
-use crate::types::{
-    self, BridgeWithdrawal, BridgeWithdrawalInput, CommonFields, FullInscriptionMessage,
-    L1BatchDAReference, L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput,
-    ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
-    SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
-    SystemContractUpgradeInput, SystemContractUpgradeProposal, SystemContractUpgradeProposalInput,
-    TransactionWithMetadata, UpdateBridge, UpdateBridgeInput, UpdateBridgeProposal,
-    UpdateBridgeProposalInput, UpdateGovernance, UpdateGovernanceInput, UpdateSequencer,
-    UpdateSequencerInput, ValidatorAttestation, ValidatorAttestationInput, Vote,
+use crate::{
+    indexer::withdrawal::{parse_withdrawals, L1Withdrawal, WithdrawalVersion},
+    types::{
+        self, BridgeWithdrawal, BridgeWithdrawalInput, CommonFields, FullInscriptionMessage,
+        L1BatchDAReference, L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput,
+        ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
+        SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
+        SystemContractUpgradeInput, SystemContractUpgradeProposal,
+        SystemContractUpgradeProposalInput, TransactionWithMetadata, UpdateBridge,
+        UpdateBridgeInput, UpdateBridgeProposal, UpdateBridgeProposalInput, UpdateGovernance,
+        UpdateGovernanceInput, UpdateSequencer, UpdateSequencerInput, ValidatorAttestation,
+        ValidatorAttestationInput, Vote,
+    },
 };
 
-const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL";
+const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_WI";
 const OP_RETURN_UPGRADE_PROTOCOL_PREFIX: &[u8] = b"VIA_PROTOCOL:UPGRADE";
 const OP_RETURN_UPDATE_SEQUENCER_PREFIX: &[u8] = b"VIA_PROTOCOL:SEQ";
 const OP_RETURN_UPDATE_BRIDGE_PREFIX: &[u8] = b"VIA_PROTOCOL:BRI";
@@ -829,8 +833,13 @@ impl MessageParser {
             return None;
         }
 
+        let mut start_index = 2;
+        if op_return_data.len() > 75 {
+            start_index += 1;
+        }
+
         // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
+        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(start_index..) {
             if op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX)
                 || op_return_data.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX)
                 || op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX)
@@ -889,53 +898,73 @@ impl MessageParser {
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
 
+        let mut start_index = 2;
+        // When data > 75 OP_PUSHDATA1 is used which requires additional byte.
+        if op_return_output.script_pubkey.as_bytes().len() > 75 {
+            start_index += 1;
+        }
+
         // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
+        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(start_index..) {
             if !op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX) {
                 return None;
             }
 
-            let start = OP_RETURN_WITHDRAW_PREFIX.len() + 1;
-            if op_return_data.len() < start + 32 {
-                return None;
-            }
+            let version_start = OP_RETURN_WITHDRAW_PREFIX.len();
+            let version: u8 = op_return_data[version_start];
 
-            // Parse l1_batch_reveal_tx_id from OP_RETURN data
-            let l1_batch_proof_reveal_tx_id =
-                match Txid::from_slice(&op_return_data[start..start + 32]) {
-                    Ok(tx_id) => tx_id.as_raw_hash().as_byte_array().to_vec(),
-                    Err(_) => return None,
-                };
-
-            // Optional index_withdrawal
-            let index_withdrawal = if op_return_data.len() >= start + 40 {
-                let bytes: [u8; 8] = op_return_data[start + 32..start + 40].try_into().ok()?;
-                i64::from_le_bytes(bytes)
-            } else {
-                0
+            let version = match WithdrawalVersion::try_from(version) {
+                Ok(version) => version,
+                Err(_) => {
+                    tracing::warn!("Failed to parse the withdrawal version");
+                    return None;
+                }
             };
 
-            let mut withdrawals = Vec::new();
-            for output in &tx.output {
-                let address = match Address::from_script(&output.script_pubkey, self.network) {
-                    Ok(address) => address,
-                    Err(_) => continue,
+            let msg_start = version_start + 1;
+
+            let withdrawals_meta =
+                match parse_withdrawals(version.clone(), &op_return_data[msg_start..]) {
+                    Ok(result) => result,
+                    Err(err) => {
+                        tracing::warn!(
+                            "Failed to parse the withdrawals, version: {:?}, error: {}",
+                            version,
+                            err
+                        );
+                        return None;
+                    }
                 };
 
-                if address == wallets.bridge {
+            let mut withdrawals = Vec::new();
+            for (i, output) in tx.output.iter().enumerate() {
+                let receiver =
+                    match Address::from_script(&output.script_pubkey.clone(), self.network) {
+                        Ok(receiver) => receiver,
+                        Err(_) => continue,
+                    };
+
+                if receiver == wallets.bridge {
                     continue;
                 }
 
-                withdrawals.push((address.to_string(), output.value.to_sat() as i64));
+                if output.value == Amount::ZERO {
+                    continue;
+                }
+
+                withdrawals.push(L1Withdrawal {
+                    l2_meta: withdrawals_meta[i].clone(),
+                    receiver: receiver,
+                    value: output.value,
+                });
             }
 
             let input = BridgeWithdrawalInput {
-                index_withdrawal,
+                version,
                 v_size: tx.vsize() as i64,
                 total_size: tx.total_size() as i64,
                 inputs: tx.input.iter().map(|input| input.previous_output).collect(),
                 output_amount: tx.output.iter().map(|out| out.value.to_sat()).sum(),
-                l1_batch_proof_reveal_tx_id,
                 withdrawals,
             };
 
