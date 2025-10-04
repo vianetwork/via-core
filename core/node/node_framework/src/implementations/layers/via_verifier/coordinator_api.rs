@@ -11,6 +11,7 @@ use zksync_config::{
 use crate::{
     implementations::resources::{
         da_client::DAClientResource,
+        eth_interface::L2InterfaceResource,
         pools::{PoolResource, VerifierPool},
         via_btc_client::BtcClientResource,
     },
@@ -34,6 +35,7 @@ pub struct Input {
     pub master_pool: PoolResource<VerifierPool>,
     pub da_client: DAClientResource,
     pub btc_client_resource: BtcClientResource,
+    pub query_client_l2: L2InterfaceResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -69,9 +71,13 @@ impl WiringLayer for ViaCoordinatorApiLayer {
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let master_pool = input.master_pool.get().await?;
         let btc_client = input.btc_client_resource.bridge.unwrap();
+        let query_client_l2 = input.query_client_l2.0;
 
-        let withdrawal_client =
-            WithdrawalClient::new(input.da_client.0, self.via_btc_client.network());
+        let withdrawal_client = WithdrawalClient::new(
+            input.da_client.0,
+            self.via_btc_client.network(),
+            query_client_l2,
+        );
 
         let via_coordinator_api_task = ViaCoordinatorApiTask {
             verifier_config: self.verifier_config,

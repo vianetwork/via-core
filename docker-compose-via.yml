@@ -29,7 +29,7 @@ x-cli-env: &cli-env
   VERIFIER_2_ADDRESS: bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
   VERIFIER_3_ADDRESS: bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm
   BRIDGE_TEST_ADDRESS: bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg
-  BRIDGE_TEST_ADDRESS2: bcrt1p5kp3mnv8tjdly0yyxmed5pl34gy8ufeh9kaf4vk3e7atxrcaq93s7w4xwq
+  BRIDGE_TEST_ADDRESS2: bcrt1pm4rre0xv8ryr9lr5lrnzx5tpyk0xr43kfw3aja68c0845vsu5wus3u40fp
   GOV_ADDRESS: bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm
   VIA_LOADNEXT_TEST_ADDRESS: bcrt1q8tuqv885kehnzucdfskuw6mrhxcj7cjs4gfk5z
   

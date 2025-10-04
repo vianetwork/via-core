@@ -97,6 +97,7 @@ fn main() -> anyhow::Result<()> {
                 data_availability: None,
             },
             via_l1: ViaL1Secrets::from_env().ok(),
+            via_l2: None,
             via_da: ViaDASecrets::from_env().ok(),
         },
     };
