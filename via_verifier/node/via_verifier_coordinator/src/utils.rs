@@ -1,6 +1,5 @@
 use anyhow::Context;
 use base64::Engine;
-use bitcoin::{hashes::Hash, Txid};
 use musig2::{BinaryEncoding, PartialSignature, PubNonce};
 
 use crate::types::{NoncePair, PartialSignaturePair};
@@ -38,14 +37,4 @@ pub fn decode_nonce(nonce_pair: NoncePair) -> anyhow::Result<PubNonce> {
         .with_context(|| "Error to encode nonce")?;
     let pub_nonce = PubNonce::from_bytes(&decoded_nonce)?;
     Ok(pub_nonce)
-}
-
-/// Converts H256 bytes (from the DB) to a Txid by reversing the byte order.
-pub(crate) fn h256_to_txid(h256_bytes: &[u8]) -> anyhow::Result<Txid> {
-    if h256_bytes.len() != 32 {
-        return Err(anyhow::anyhow!("H256 must be 32 bytes"));
-    }
-    let mut reversed_bytes = h256_bytes.to_vec();
-    reversed_bytes.reverse();
-    Txid::from_slice(&reversed_bytes).with_context(|| "Failed to convert H256 to Txid")
 }

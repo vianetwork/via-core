@@ -20,3 +20,7 @@ auth_token = ""
 rpc_user = "rpcuser"
 # The btc client password.
 rpc_password = "rpcpassword"
+
+[via_l2_client]
+# The l1 client user.
+rpc_url = "http://0.0.0.0:3050"

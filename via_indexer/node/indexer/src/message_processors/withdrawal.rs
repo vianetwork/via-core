@@ -69,42 +69,42 @@ impl MessageProcessor for WithdrawalProcessor {
                     }
                 }
 
-                let fee: i64 = (total_input - withdrawal_msg.input.output_amount).try_into()?;
+                // let fee: i64 = (total_input - withdrawal_msg.input.output_amount).try_into()?;
 
-                let mut l1_batch_proof_reveal_tx_id_bytes =
-                    withdrawal_msg.input.l1_batch_proof_reveal_tx_id;
-                l1_batch_proof_reveal_tx_id_bytes.reverse();
+                // let mut l1_batch_proof_reveal_tx_id_bytes =
+                //     withdrawal_msg.input.l1_batch_proof_reveal_tx_id;
+                // l1_batch_proof_reveal_tx_id_bytes.reverse();
 
-                let mut withdrawals: Vec<WithdrawalParam> = Vec::new();
-                let bridge_withdrawal = BridgeWithdrawalParam {
-                    vsize: withdrawal_msg.input.v_size,
-                    total_size: withdrawal_msg.input.total_size,
-                    tx_id: tx_id_bytes,
-                    block_number: withdrawal_msg.common.block_height as i64,
-                    l1_batch_reveal_tx_id: l1_batch_proof_reveal_tx_id_bytes,
-                    fee,
-                    withdrawals_count: withdrawal_msg.input.withdrawals.len() as i64,
-                };
+                // let mut withdrawals: Vec<WithdrawalParam> = Vec::new();
+                // let bridge_withdrawal = BridgeWithdrawalParam {
+                //     vsize: withdrawal_msg.input.v_size,
+                //     total_size: withdrawal_msg.input.total_size,
+                //     tx_id: tx_id_bytes,
+                //     block_number: withdrawal_msg.common.block_height as i64,
+                //     l1_batch_reveal_tx_id: l1_batch_proof_reveal_tx_id_bytes,
+                //     fee,
+                //     withdrawals_count: withdrawal_msg.input.withdrawals.len() as i64,
+                // };
 
-                for (index, (receiver, amount)) in
-                    withdrawal_msg.input.withdrawals.iter().enumerate()
-                {
-                    withdrawals.push(WithdrawalParam {
-                        tx_index: index as i64,
-                        receiver: receiver.to_string(),
-                        value: *amount,
-                    });
-                }
+                // for (index, (receiver, amount)) in
+                //     withdrawal_msg.input.withdrawals.iter().enumerate()
+                // {
+                //     withdrawals.push(WithdrawalParam {
+                //         tx_index: index as i64,
+                //         receiver: receiver.to_string(),
+                //         value: *amount,
+                //     });
+                // }
 
-                tracing::info!(
-                    "New withdrawal found {}",
-                    BitcoinTxid::from_slice(&bridge_withdrawal.tx_id)?
-                );
+                // tracing::info!(
+                //     "New withdrawal found {}",
+                //     BitcoinTxid::from_slice(&bridge_withdrawal.tx_id)?
+                // );
 
-                storage
-                    .via_transactions_dal()
-                    .insert_withdraw(bridge_withdrawal, withdrawals)
-                    .await?;
+                // storage
+                //     .via_transactions_dal()
+                //     .insert_withdraw(bridge_withdrawal, withdrawals)
+                //     .await?;
             }
         }
 

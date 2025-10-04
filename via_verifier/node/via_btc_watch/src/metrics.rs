@@ -7,7 +7,6 @@ pub enum InscriptionStage {
     Deposit,
     Upgrade,
     Vote,
-    Withdrawal,
 }
 
 #[derive(Debug, Metrics)]
@@ -15,6 +14,9 @@ pub enum InscriptionStage {
 pub struct ViaVerifierBtcWatcherMetrics {
     /// Number of inscriptions processed, labeled by type.
     pub inscriptions_processed: Family<InscriptionStage, Gauge<usize>>,
+
+    /// The number of withdrawals processed.
+    pub number_withdrawals_processed: Gauge<usize>,
 
     /// Last indexed l1 batch number.
     pub last_finalized_l1_batch: Gauge<usize>,

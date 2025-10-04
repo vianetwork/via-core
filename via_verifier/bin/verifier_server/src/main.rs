@@ -8,7 +8,7 @@ use zksync_config::{
         via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
         via_reorg_detector::ViaReorgDetectorConfig,
-        via_secrets::{ViaDASecrets, ViaL1Secrets, ViaSecrets},
+        via_secrets::{ViaDASecrets, ViaL1Secrets, ViaL2Secrets, ViaSecrets},
         via_verifier::ViaGeneralVerifierConfig,
         via_wallets::ViaWallets,
         DatabaseSecrets, L1Secrets, ObservabilityConfig, PrometheusConfig, Secrets,
@@ -65,6 +65,7 @@ fn main() -> anyhow::Result<()> {
                 data_availability: None,
             },
             via_l1: ViaL1Secrets::from_env().ok(),
+            via_l2: ViaL2Secrets::from_env().ok(),
             via_da: ViaDASecrets::from_env().ok(),
         },
     };

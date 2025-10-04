@@ -107,6 +107,7 @@ async fn main() -> Result<()> {
         default_account_code_hash,
         recursion_scheduler_level_vk_hash,
         system_contracts,
+        evm_emulator_code_hash: None,
     };
     let system_contract_upgrade_info = inscriber
         .inscribe(InscriptionMessage::SystemContractUpgradeProposal(input))

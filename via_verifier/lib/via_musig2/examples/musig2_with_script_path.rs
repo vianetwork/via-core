@@ -17,9 +17,13 @@ use musig2::KeyAggContext;
 use tokio::time::sleep;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
 use via_musig2::{
-    fee::WithdrawalFeeStrategy, get_signer_with_merkle_root,
-    transaction_builder::TransactionBuilder, verify_signature, Signer,
+    fee::WithdrawalFeeStrategy,
+    get_signer_with_merkle_root,
+    transaction_builder::TransactionBuilder,
+    types::{TransactionBuilderConfig, TransactionOutput},
+    verify_signature, Signer,
 };
+use via_test_utils::utils::generate_return_data_per_outputs;
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
@@ -195,27 +199,32 @@ async fn process_withdraw_using_key_hash(
     // -------------------------------------------
     let receivers_address = receivers_address();
 
+    let op_return_prefix: &[u8] = b"VIA_WI";
+
+    let tx_builder = TransactionBuilder::new(Arc::new(btc_client.clone()))?;
+
     // Create outputs for grouped withdrawals
-    let outputs: Vec<TxOut> = vec![TxOut {
-        value: Amount::from_sat(50000000),
-        script_pubkey: receivers_address.script_pubkey(),
+    let outputs: Vec<TransactionOutput> = vec![TransactionOutput {
+        output: TxOut {
+            value: Amount::from_sat(50000000),
+            script_pubkey: receivers_address.script_pubkey(),
+        },
+        op_return_data: Some(generate_return_data_per_outputs(1)[0].clone()),
     }];
 
-    let op_return_prefix: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
-    let op_return_data = Txid::all_zeros().to_byte_array();
+    let config = TransactionBuilderConfig {
+        fee_strategy: Arc::new(WithdrawalFeeStrategy::new()),
+        max_tx_weight: MAX_STANDARD_TX_WEIGHT as u64,
+        max_output_per_tx: 7,
+        op_return_prefix: op_return_prefix.to_vec(),
+        bridge_address: taproot_address.clone(),
+        default_fee_rate_opt: None,
+        default_available_utxos_opt: None,
+        op_return_data_input_opt: None,
+    };
 
-    let tx_builder =
-        TransactionBuilder::new(Arc::new(btc_client.clone()), taproot_address.clone())?;
     let mut unsigned_tx = tx_builder
-        .build_transaction_with_op_return(
-            outputs,
-            op_return_prefix,
-            vec![&op_return_data.to_vec()],
-            Arc::new(WithdrawalFeeStrategy::new()),
-            None,
-            None,
-            MAX_STANDARD_TX_WEIGHT as u64,
-        )
+        .build_transaction_with_op_return(outputs, config)
         .await?[0]
         .clone();
 

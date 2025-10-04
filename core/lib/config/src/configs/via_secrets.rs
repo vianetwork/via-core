@@ -35,6 +35,20 @@ impl Debug for ViaL1Secrets {
 }
 
 #[derive(Clone, Deserialize, PartialEq)]
+pub struct ViaL2Secrets {
+    /// URL of the Bitcoin node RPC.
+    pub rpc_url: SensitiveUrl,
+}
+
+impl Debug for ViaL2Secrets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ViaL1Secrets")
+            .field("rpc_url", &"********")
+            .finish()
+    }
+}
+
+#[derive(Clone, Deserialize, PartialEq)]
 pub struct ViaDASecrets {
     /// URL for the Celestia node RPC.
     pub api_node_url: SensitiveUrl,
@@ -56,6 +70,7 @@ impl Debug for ViaDASecrets {
 pub struct ViaSecrets {
     pub base_secrets: Secrets,
     pub via_l1: Option<ViaL1Secrets>,
+    pub via_l2: Option<ViaL2Secrets>,
     pub via_da: Option<ViaDASecrets>,
 }
 
@@ -69,6 +84,7 @@ impl Default for ViaSecrets {
                 data_availability: None,
             },
             via_l1: None,
+            via_l2: None,
             via_da: None,
         }
     }
