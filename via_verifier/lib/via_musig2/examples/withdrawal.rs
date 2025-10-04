@@ -1,24 +1,25 @@
-// SPDX-License-Identifier: CC0-1.0
-
 //! Demonstrate creating a transaction that spends to and from p2tr outputs with musig2.
 
 use std::{str::FromStr, sync::Arc};
 
 use bitcoin::{
-    hashes::Hash,
     hex::{Case, DisplayHex},
     key::Keypair,
     policy::MAX_STANDARD_TX_WEIGHT,
     secp256k1::{Secp256k1, SecretKey},
     sighash::TapSighashType,
-    Address, Amount, Network, PrivateKey, TapTweakHash, TxOut, Txid, Witness,
+    Address, Amount, Network, PrivateKey, TapTweakHash, TxOut, Witness,
 };
 use musig2::KeyAggContext;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
 use via_musig2::{
-    fee::WithdrawalFeeStrategy, get_signer, transaction_builder::TransactionBuilder,
+    fee::WithdrawalFeeStrategy,
+    get_signer,
+    transaction_builder::TransactionBuilder,
+    types::{TransactionBuilderConfig, TransactionOutput},
     verify_signature,
 };
+use via_test_utils::utils::generate_return_data_per_outputs;
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
@@ -108,33 +109,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Fetching UTXOs from node
     // -------------------------------------------
     let receivers_address = receivers_address();
+    let mut op_return_prefix = Vec::new();
+    op_return_prefix.extend_from_slice(b"VIA_WI");
+    op_return_prefix.push(0);
 
-    // Create outputs for grouped withdrawals
-    let outputs: Vec<TxOut> = vec![
-        TxOut {
-            value: Amount::from_sat(150000000),
-            script_pubkey: receivers_address.script_pubkey(),
+    let tx_builder = TransactionBuilder::new(Arc::new(btc_client.clone()))?;
+
+    let data1 = generate_return_data_per_outputs(1)[0].clone();
+
+    let data2 = generate_return_data_per_outputs(1)[0].clone();
+
+    let outputs: Vec<TransactionOutput> = vec![
+        TransactionOutput {
+            output: TxOut {
+                value: Amount::from_sat(150000000),
+                script_pubkey: receivers_address.script_pubkey(),
+            },
+            op_return_data: Some(data1),
         },
-        TxOut {
-            value: Amount::from_sat(40000000),
-            script_pubkey: address.script_pubkey(),
+        TransactionOutput {
+            output: TxOut {
+                value: Amount::from_sat(40000000),
+                script_pubkey: receivers_address.script_pubkey(),
+            },
+            op_return_data: Some(data2),
         },
     ];
 
-    let op_return_prefix: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
-    let op_return_data = Txid::all_zeros().to_byte_array();
+    println!("outputs: {:?}", &outputs);
 
-    let tx_builder = TransactionBuilder::new(Arc::new(btc_client.clone()), address.clone())?;
+    let config = TransactionBuilderConfig {
+        fee_strategy: Arc::new(WithdrawalFeeStrategy::new()),
+        max_tx_weight: MAX_STANDARD_TX_WEIGHT as u64,
+        max_output_per_tx: 7,
+        op_return_prefix: op_return_prefix,
+        bridge_address: address.clone(),
+        default_fee_rate_opt: Some(2),
+        default_available_utxos_opt: None,
+        op_return_data_input_opt: None,
+    };
+
     let mut unsigned_tx = tx_builder
-        .build_transaction_with_op_return(
-            outputs,
-            op_return_prefix,
-            vec![&op_return_data.to_vec()],
-            Arc::new(WithdrawalFeeStrategy::new()),
-            None,
-            None,
-            MAX_STANDARD_TX_WEIGHT as u64,
-        )
+        .build_transaction_with_op_return(outputs, config)
         .await?[0]
         .clone();
 
@@ -228,8 +244,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// (FWIW this is an arbitrary mainnet address from block 805222.)
 pub(crate) fn receivers_address() -> Address {
-    Address::from_str("bc1p0dq0tzg2r780hldthn5mrznmpxsxc0jux5f20fwj0z3wqxxk6fpqm7q0va")
+    Address::from_str("bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56")
         .expect("a valid address")
-        .require_network(Network::Bitcoin)
+        .require_network(Network::Regtest)
         .expect("valid address for mainnet")
 }
