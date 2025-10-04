@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                l2_tx_hash,\n                l2_tx_log_index,\n                receiver,\n                value\n            FROM\n                via_withdrawals\n            WHERE\n                value >= $1 AND bridge_withdrawal_id IS NULL\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "l2_tx_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "l2_tx_log_index",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "receiver",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "value",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3bf713026c6e2630d63ee7cc7f4aa67a0f2af3f6a1dbb8fc8c7163b0ebe8401b"
+}
