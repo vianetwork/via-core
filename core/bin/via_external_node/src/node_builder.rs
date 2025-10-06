@@ -557,7 +557,7 @@ impl ExternalNodeBuilder {
         self.node.add_layer(BtcWatchLayer {
             via_bridge_config,
             via_btc_watch_config,
-            is_main_node: true,
+            is_main_node: false,
         });
 
         Ok(self)

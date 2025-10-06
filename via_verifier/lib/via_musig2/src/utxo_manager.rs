@@ -256,7 +256,7 @@ mod tests {
 
         let client = Arc::new(MockBitcoinOps::new(config));
         let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
-        let utxos_out = manager.get_utxos_to_merge().await.unwrap();
+        let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
 
         assert_eq!(utxos, utxos_out);
     }
@@ -292,7 +292,7 @@ mod tests {
         let client = Arc::new(MockBitcoinOps::new(config));
         let merge_limit = 2;
         let manager = UtxoManager::new(client, Amount::from_sat(0), merge_limit);
-        let utxos_out = manager.get_utxos_to_merge().await.unwrap();
+        let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
 
         assert_eq!(utxos_out.len(), merge_limit);
     }
@@ -337,7 +337,7 @@ mod tests {
 
         let client = Arc::new(MockBitcoinOps::new(config));
         let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
-        let utxos_out = manager.get_utxos_to_merge().await.unwrap();
+        let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
         let expected_utxos = vec![utxos[1].clone(), utxos[2].clone()];
         assert_eq!(expected_utxos, utxos_out);
     }
@@ -360,7 +360,7 @@ mod tests {
 
         let client = Arc::new(MockBitcoinOps::new(config));
         let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
-        let utxos_out = manager.get_utxos_to_merge().await.unwrap();
+        let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
         let expected_utxos: Vec<(OutPoint, TxOut)> = vec![];
         assert_eq!(expected_utxos, utxos_out);
     }
@@ -415,7 +415,7 @@ mod tests {
 
         manager.insert_transaction(unsigned_tx.clone()).await;
 
-        let utxos_out = manager.get_available_utxos(bridge_address).await.unwrap();
+        let utxos_out = manager.get_available_utxos(bridge_address.clone()).await.unwrap();
         let expected_utxos: Vec<(OutPoint, TxOut)> = vec![(outpoint, outputs[0].clone())];
         assert_eq!(expected_utxos, utxos_out);
 

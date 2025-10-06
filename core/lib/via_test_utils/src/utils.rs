@@ -1,12 +1,9 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use bitcoin::{
-    address::NetworkUnchecked,
-    key::rand,
-    script::PushBytesBuf,
-    secp256k1::{self, SecretKey},
-    CompressedPublicKey, PrivateKey,
+    address::NetworkUnchecked, key::rand, script::PushBytesBuf, secp256k1::{self, SecretKey}, CompressedPublicKey, PrivateKey, ScriptBuf, TxOut
 };
+use rand::Rng;
 use tokio::time::sleep;
 use via_btc_client::{
     client::BitcoinClient,
@@ -283,4 +280,24 @@ pub fn random_bitcoin_wallet() -> (PrivateKey, BitcoinAddress) {
     let address = BitcoinAddress::p2wpkh(&cpk, NETWORK);
 
     (private_key, address)
+}
+
+fn dummy_txout(value: u64) -> TxOut {
+    TxOut {
+        value: bitcoin::Amount::from_sat(value),
+        script_pubkey: ScriptBuf::new(),
+    }
+}
+
+pub fn generate_return_data_per_outputs(count: usize) -> Vec<Vec<u8>> {
+    (0..count)
+        .map(|_| {
+            let mut rng = rand::thread_rng();
+            (0..10).map(|_| rng.gen()).collect::<Vec<u8>>()
+        })
+        .collect()
+}
+
+pub fn generate_dummy_outputs(count: usize, value: u64) -> Vec<TxOut> {
+    (0..count).map(|_| dummy_txout(value)).collect()
 }

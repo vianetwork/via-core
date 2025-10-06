@@ -144,7 +144,6 @@ impl ViaBlockReverter {
                     );
                 }
             }
-
         }
 
         // Tree needs to be rolled back first to keep the state recoverable

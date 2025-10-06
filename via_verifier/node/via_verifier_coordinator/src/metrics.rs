@@ -40,11 +40,11 @@ pub struct ViaVerifierCoordinatorMetrics {
     #[metrics(buckets = Buckets::LATENCIES, unit = vise::Unit::Seconds)]
     pub session_time: Histogram<Duration>,
 
-    /// Invalid session message for a batch number.
-    pub session_invalid_message: Gauge<usize>,
+    /// Invalid session message.
+    pub session_invalid_message: Counter,
 
-    /// The last valid session for a batch number.
-    pub session_last_valid_session: Gauge<usize>,
+    /// Valid session.
+    pub session_valid_session: Counter,
 
     /// The BTC balance of the account used in musig2 sessions.
     pub musig2_session_account_balance: Gauge<usize>,

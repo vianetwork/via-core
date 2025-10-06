@@ -89,6 +89,10 @@ via: base transactions da-proxy-setup da-proxy bootstrap-dev server-genesis serv
 .PHONY: via-multi
 via-multi: via
 
+# Run the basic setup workflow in sequence and server with profile "reorg" for docker compose profile
+.PHONY: via-multi
+via-multi: via
+
 # Run the full setup workflow in sequence
 .PHONY: all
 all: base transactions btc-explorer bootstrap-dev server-genesis server

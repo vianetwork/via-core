@@ -54,4 +54,5 @@ The verifier has two main layers responsible for detecting and handling reorgs:
   block reverter executes the rollback to the last valid block and restores the system state to ensure consistency. Once
   the rollback is complete, the verifier resumes normal operation, including batch processing, zero-knowledge (ZK)
   verification, and withdrawal handling.
-- If the reorg impacted already finalized transactions, the verifier can revert the finalized batches and process from the last valid batch.
+- If the reorg impacted already finalized transactions, the verifier can revert the finalized batches and process from
+  the last valid batch.

@@ -77,10 +77,9 @@ impl ViaNodeBuilder {
     }
 
     fn add_l1_indexer_layer(mut self) -> anyhow::Result<Self> {
-        let via_bridge_config = self.via_indexer_config.via_bridge_config.clone();
         let via_btc_watch_config = self.via_indexer_config.via_btc_watch_config.clone();
 
-        let indexer_layer = L1IndexerLayer::new(via_bridge_config, via_btc_watch_config);
+        let indexer_layer = L1IndexerLayer::new(via_btc_watch_config);
         self.node.add_layer(indexer_layer);
         Ok(self)
     }

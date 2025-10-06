@@ -16,6 +16,13 @@ impl SessionManager {
         Self { sessions }
     }
 
+    pub async fn prepare_session(&self) -> anyhow::Result<()> {
+        for session in self.sessions.values() {
+            session.prepare_session().await?;
+        }
+        Ok(())
+    }
+
     pub async fn get_next_session(&self) -> anyhow::Result<Option<SessionOperation>> {
         for session in self.sessions.values() {
             if let Some(op) = session.session().await? {
