@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
 use bitcoin::Block;
 use futures::future::try_join_all;
+use tokio::time::sleep;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
@@ -224,6 +225,32 @@ impl ViaMainNodeReorgDetector {
             .await?
         else {
             tracing::info!("There is no l1 batch affected by the reorg, no action is required");
+            // Reset the indexing because it's possible that verifier transactions are affected.
+            let mut transaction = storage.start_transaction().await?;
+
+            // Insert a reorg in the DB to stop all the other components from processing
+            transaction
+                .via_l1_block_dal()
+                .insert_reorg_metadata(reorg_start_block_height, 0)
+                .await?;
+
+            // Sleep and wait for the reorg event is received by all components
+            sleep(Duration::from_secs(30)).await;
+
+            // Reset the BtcWatch last indexer to the last valid batch.
+            transaction
+                .via_indexer_dal()
+                .update_last_processed_l1_block(
+                    "via_btc_watch",
+                    (reorg_start_block_height - 1) as u32,
+                )
+                .await?;
+
+            // Delete the reorg
+            transaction.via_l1_block_dal().delete_l1_reorg(0).await?;
+
+            transaction.commit().await?;
+
             return Ok(());
         };
 
