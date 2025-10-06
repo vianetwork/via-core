@@ -39,10 +39,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-<<<<<<<< HEAD:.github/workflows/build-prover-fri-gpu-gar.yml.disabled
-      - name: Build and push
-        uses: docker/build-push-action@v4
-========
       - name: Login to Asia GAR
         run: |
           gcloud auth print-access-token --lifetime=7200 --impersonate-service-account=gha-ci-runners@matterlabs-infra.iam.gserviceaccount.com | docker login -u oauth2accesstoken --password-stdin https://asia-docker.pkg.dev
@@ -53,7 +49,6 @@ jobs:
 
       - name: Build and push prover-gpu-fri-gar
         uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85 # v6.7.0
->>>>>>>> 1095ae7bf (feat(circuit-prover): Add circuit_prover Dockerfile and build rules (#2939)):.github/workflows/build-prover-fri-gpu-gar-and-circuit-prover-gpu-gar.yml
         with:
           context: docker/prover-gpu-fri-gar
           build-args: |
