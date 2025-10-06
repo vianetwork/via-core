@@ -36,6 +36,7 @@ use zksync_node_framework::{
         via_da_dispatcher::DataAvailabilityDispatcherLayer,
         via_gas_adjuster::ViaGasAdjusterLayer,
         via_l1_gas::ViaL1GasLayer,
+        via_main_node_reorg_detector::ViaNodeReorgDetectorLayer,
         via_node_storage_init::ViaNodeStorageInitializerLayer,
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
@@ -525,6 +526,13 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_init_node_reorg_detector_layer(mut self) -> anyhow::Result<Self> {
+        let config = try_load_config!(self.configs.via_reorg_detector_config);
+
+        self.node.add_layer(ViaNodeReorgDetectorLayer::new(config));
+        Ok(self)
+    }
+
     pub fn build(mut self, mut components: Vec<ViaComponent>) -> anyhow::Result<ZkStackService> {
         self = self
             .add_pools_layer()?
@@ -610,6 +618,7 @@ impl ViaNodeBuilder {
                     self = self
                         .add_btc_client_layer()?
                         .add_init_node_storage_layer()?
+                        .add_init_node_reorg_detector_layer()?
                         .add_gas_adjuster_layer()?
                         .add_btc_watcher_layer()?
                         .add_btc_sender_layer()?

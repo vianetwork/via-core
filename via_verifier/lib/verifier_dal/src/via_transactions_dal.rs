@@ -17,15 +17,22 @@ impl ViaTransactionsDal<'_, '_> {
         value: i64,
         calldata: Vec<u8>,
         canonical_tx_hash: H256,
+        l1_block_number: i64,
     ) -> DalResult<()> {
         sqlx::query!(
             r#"
             INSERT INTO
-            via_transactions (
-                priority_id, tx_id, receiver, value, calldata, canonical_tx_hash
-            )
+                via_transactions (
+                    priority_id,
+                    tx_id,
+                    receiver,
+                    value,
+                    calldata,
+                    canonical_tx_hash,
+                    l1_block_number
+                )
             VALUES
-            ($1, $2, $3, $4, $5, $6)
+                ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (tx_id) DO NOTHING
             "#,
             priority_id,
@@ -34,6 +41,7 @@ impl ViaTransactionsDal<'_, '_> {
             value,
             calldata,
             canonical_tx_hash.as_bytes(),
+            l1_block_number,
         )
         .instrument("insert_transaction")
         .fetch_optional(self.storage)
@@ -84,17 +92,20 @@ impl ViaTransactionsDal<'_, '_> {
         &mut self,
         canonical_tx_hash: &H256,
         status: bool,
+        l1_batch_number: i64,
     ) -> DalResult<()> {
         sqlx::query!(
             r#"
             UPDATE via_transactions
             SET
-                status = $2
+                status = $2,
+                l1_batch_number = $3
             WHERE
                 canonical_tx_hash = $1
             "#,
             canonical_tx_hash.as_bytes(),
-            status
+            status,
+            l1_batch_number,
         )
         .instrument("update_transaction")
         .fetch_optional(self.storage)
@@ -122,5 +133,79 @@ impl ViaTransactionsDal<'_, '_> {
         .await?;
 
         Ok(exists.is_some())
+    }
+
+    pub async fn get_last_processed_l1_batch_number(&mut self) -> DalResult<Option<i64>> {
+        let record = sqlx::query!(
+            r#"
+            SELECT
+                MAX(l1_batch_number) AS "min_l1_batch_number"
+            FROM
+                via_transactions
+            WHERE
+                l1_batch_number IS NOT NULL
+            "#,
+        )
+        .instrument("get_last_processed_l1_batch_number")
+        .report_latency()
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(record.min_l1_batch_number)
+    }
+
+    pub async fn get_not_finalized_transactions(&mut self, l1_block_number: i64) -> DalResult<i64> {
+        let record = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(l1_block_number) AS "count!"
+            FROM
+                via_transactions
+            WHERE
+                l1_batch_number IS NULL
+                AND l1_block_number > $1
+            "#,
+            l1_block_number,
+        )
+        .instrument("get_not_finalized_transactions")
+        .report_latency()
+        .fetch_one(self.storage)
+        .await?;
+
+        Ok(record.count)
+    }
+
+    pub async fn delete_transactions(&mut self, l1_block_number: i64) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            DELETE FROM via_transactions
+            WHERE
+                l1_block_number > $1
+            "#,
+            l1_block_number,
+        )
+        .instrument("delete_transactions")
+        .execute(self.storage)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn reset_transactions(&mut self, l1_batch_number: i64) -> DalResult<()> {
+        sqlx::query_scalar!(
+            r#"
+            UPDATE via_transactions SET
+                l1_batch_number = NULL,
+                status = NULL
+            WHERE
+                l1_batch_number > $1
+            "#,
+            l1_batch_number,
+        )
+        .instrument("reset_transactions")
+        .execute(self.storage)
+        .await?;
+
+        Ok(())
     }
 }

@@ -12,10 +12,13 @@ use zksync_node_framework::{
         via_btc_sender::{
             vote::ViaBtcVoteInscriptionLayer, vote_manager::ViaInscriptionManagerLayer,
         },
+        via_query_eth_client::ViaQueryEthClientLayer,
         via_verifier::{
             coordinator_api::ViaCoordinatorApiLayer, verifier::ViaWithdrawalVerifierLayer,
         },
+        via_verifier_block_reverter::VerifierBlockReverterLayer,
         via_verifier_btc_watch::VerifierBtcWatchLayer,
+        via_verifier_reorg_detector::ViaVerifierReorgDetectorLayer,
         via_verifier_storage_init::ViaVerifierInitLayer,
         via_zk_verification::ViaBtcProofVerificationLayer,
     },
@@ -158,6 +161,13 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_block_reverter_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(VerifierBlockReverterLayer::new(
+            self.configs.via_reorg_detector_config.clone(),
+        ));
+        Ok(self)
+    }
+
     fn add_storage_initialization_layer(mut self) -> anyhow::Result<Self> {
         let layer = ViaVerifierInitLayer {
             genesis: self.configs.genesis_config.clone(),
@@ -168,6 +178,20 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_reorg_detector_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ViaVerifierReorgDetectorLayer::new(
+            self.configs.via_reorg_detector_config.clone(),
+        ));
+        Ok(self)
+    }
+
+    fn add_query_eth_client_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(ViaQueryEthClientLayer::new(
+            self.configs.secrets.via_l2.clone().unwrap().rpc_url,
+        ));
+        Ok(self)
+    }
+
     pub fn build(mut self) -> anyhow::Result<ZkStackService> {
         self = self
             .add_sigint_handler_layer()?
@@ -175,12 +199,15 @@ impl ViaNodeBuilder {
             .add_circuit_breaker_checker_layer()?
             .add_prometheus_exporter_layer()?
             .add_pools_layer()?
+            .add_block_reverter_layer()?
             .add_btc_client_layer()?
+            .add_reorg_detector_layer()?
             .add_storage_initialization_layer()?
             .add_btc_sender_layer()?
             .add_btc_watcher_layer()?
             .add_via_da_client_layer()?
-            .add_zkp_verification_layer()?;
+            .add_zkp_verification_layer()?
+            .add_query_eth_client_layer()?;
 
         if self.is_coordinator {
             self = self.add_verifier_coordinator_api_layer()?

@@ -199,4 +199,23 @@ impl ViaTransactionsDal<'_, '_> {
 
         Ok(maybe_row.is_some())
     }
+
+    // Removes transactions that are affected by a detected L1 reorg event.
+    pub async fn delete_priority_txs(&mut self, l1_block_number: i32) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            DELETE FROM transactions
+            WHERE
+                is_priority = TRUE
+                AND l1_block_number >= $1
+            "#,
+            l1_block_number
+        )
+        .instrument("remove_txs_affected_by_reorg")
+        .report_latency()
+        .execute(self.storage)
+        .await?;
+
+        Ok(())
+    }
 }

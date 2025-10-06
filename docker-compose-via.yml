@@ -1,42 +1,52 @@
-services:
-  bitcoind:
-    image: 'lightninglabs/bitcoin-core:27'
-    command:
-      - -regtest
-      - -server
-      - -rpcbind=0.0.0.0
-      - -rpcallowip=0.0.0.0/0
-      - -rpcuser=rpcuser
-      - -rpcpassword=rpcpassword
-      - -fallbackfee=0.0002
-      - -txindex
-      - -printtoconsole
-      - -dustrelayfee=0.0
-      - -minrelaytxfee=0
-      - -acceptnonstdtxn=1
-    ports:
-      - '18443:18443'  # RPC port
-      - '18444:18444'  # P2P port
-    volumes:
-      - bitcoin:/home/bitcoin/.bitcoin
-    environment:
-      - BITCOIN_DATA=/home/bitcoin/.bitcoin
+x-bitcoind-common: &bitcoind-common
+  image: "lightninglabs/bitcoin-core:27"
+  command:
+    - -regtest
+    - -server
+    - -rpcbind=0.0.0.0
+    - -rpcallowip=0.0.0.0/0
+    - -rpcuser=rpcuser
+    - -rpcpassword=rpcpassword
+    - -fallbackfee=0.0002
+    - -txindex
+    - -printtoconsole
+    - -dustrelayfee=0.0
+    - -minrelaytxfee=0
+    - -acceptnonstdtxn=1
 
-  bitcoin-cli:
-    image: 'lightninglabs/bitcoin-core:27'
-    depends_on:
-      - bitcoind
-    volumes:
-      - bitcoin:/home/bitcoin/.bitcoin
-    entrypoint: /bin/sh
-    command:
-      - -c
-      - |
+  environment:
+    - BITCOIN_DATA=/home/bitcoin/.bitcoin
+
+x-cli-env: &cli-env
+  BITCOIN_DATA: /home/bitcoin/.bitcoin
+  SLEEP_SECONDS: 1
+  TEST_ADDRESS: bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
+  TEST_ADDRESS_NESTED_SEGWITH: 2NGECSjWS6YDaqX64qCrbyQp2DquQviG5Dv
+  TEST_ADDRESS_TAPROOT: bcrt1pfceu92l2rz44acv6y37etczl73prv09esdp0ec0srttltf5yvj3qwtuky6
+  TEST_ADDRESS_LEGACY: mk9HNmebx6A7XwaZvmA8woieCddKFCqwRd
+  TEST_ADDRESS_OP_RETURN: bcrt1qu7z4qrlwl33qqz8duph0k7hv8trvgx8dt8jzfz
+  VERIFIER_1_ADDRESS: bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
+  VERIFIER_2_ADDRESS: bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
+  VERIFIER_3_ADDRESS: bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm
+  BRIDGE_TEST_ADDRESS: bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg
+  BRIDGE_TEST_ADDRESS2: bcrt1pm4rre0xv8ryr9lr5lrnzx5tpyk0xr43kfw3aja68c0845vsu5wus3u40fp
+  GOV_ADDRESS: bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm
+  VIA_LOADNEXT_TEST_ADDRESS: bcrt1q8tuqv885kehnzucdfskuw6mrhxcj7cjs4gfk5z
+  
+x-bitcoin-cli-common: &bitcoin-cli-common
+  image: "lightninglabs/bitcoin-core:27"
+  entrypoint: /bin/sh 
+  command:
+    - -c
+    - |
+      if [ ! -f "$$BITCOIN_DATA/miner-init" ]; then
         set -e
         apt-get update && apt-get install -y jq
 
+        echo "Initializing miner setup..."
+        
         bitcoin-cli $${RPC_ARGS} createwallet Alice
-        ALICE_ADDRESS=$(bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice getnewaddress)
+        ALICE_ADDRESS=$$(bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice getnewaddress)
         echo "Alice's address: $${ALICE_ADDRESS}"
 
         bitcoin-cli $${RPC_ARGS} generatetoaddress 201 $${ALICE_ADDRESS}
@@ -95,44 +105,130 @@ services:
         IMPORT_DESCRIPTOR="[ { \"desc\": \"$${DESCRIPTOR}\", \"timestamp\": \"now\", \"watchonly\": true } ]"
         echo "Importing descriptor into Watcher wallet: $${IMPORT_DESCRIPTOR}"
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "$${IMPORT_DESCRIPTOR}"
-        
-        TEST_ADDRESS_LEGACY_DESCRIPTOR=$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($$TEST_ADDRESS_LEGACY)" | jq -r ".descriptor")
-        TEST_ADDRESS_NESTED_SEGWITH_DESCRIPTOR=$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($$TEST_ADDRESS_NESTED_SEGWITH)" | jq -r ".descriptor")
-        TEST_ADDRESS_TAPROOT_DESCRIPTOR=$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($$TEST_ADDRESS_TAPROOT)" | jq -r ".descriptor")
-        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "[ { \"desc\": \"$$TEST_ADDRESS_LEGACY_DESCRIPTOR\", \"timestamp\": \"now\", \"watchonly\": true } ]"
-        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "[ { \"desc\": \"$$TEST_ADDRESS_NESTED_SEGWITH_DESCRIPTOR\", \"timestamp\": \"now\", \"watchonly\": true } ]"
-        bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher importdescriptors "[ { \"desc\": \"$$TEST_ADDRESS_TAPROOT_DESCRIPTOR\", \"timestamp\": \"now\", \"watchonly\": true } ]"
-        
         bitcoin-cli $${RPC_ARGS} -rpcwallet=Watcher rescanblockchain
 
+        # Create the marker file to indicate initialization is done
+        touch "$${BITCOIN_DATA}/miner-init"
+        echo "Initialization complete. Marker file created at $${BITCOIN_DATA}/miner-init"
+      else
+        bitcoin-cli $${RPC_ARGS} loadwallet Alice
+        ALICE_ADDRESS=$$(bitcoin-cli $${RPC_ARGS} -rpcwallet=Alice getaddressesbylabel "" | jq -r 'keys[0]')
+      fi
+
+      echo "Started generating blocks"
+
+      while true; do
+          MEMPOOL_COUNT=$$(bitcoin-cli $${RPC_ARGS} getmempoolinfo | jq -r '.size')
+          echo "Mempool transaction count: $${MEMPOOL_COUNT}"
+          if [ "$${MEMPOOL_COUNT}" -gt 0 ]; then
+              echo "Transactions found in mempool: $${MEMPOOL_COUNT}. Generating a block..."
+              bitcoin-cli $${RPC_ARGS} generatetoaddress 1 $${ALICE_ADDRESS}
+          else
+              echo "No transactions in mempool. Skipping block generation..."
+          fi
+          sleep $${SLEEP_SECONDS} &
+          wait $$!
+      done
+      
+services:
+  bitcoind:
+    <<: *bitcoind-common
+    ports:
+      - "18443:18443"
+      - "18444:18444"
+    volumes:
+      - type: bind
+        source: ./volumes/bitcoin
+        target: /home/bitcoin/.bitcoin
+
+  bitcoin-cli:
+    <<: *bitcoin-cli-common
+    depends_on:
+      - bitcoind
+    volumes:
+      - ./volumes/bitcoin:/home/bitcoin/.bitcoin
+    environment:
+      <<: *cli-env
+      BITCOIN_DATA: /home/bitcoin/.bitcoin
+      RPC_ARGS: -chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
+      SLEEP_SECONDS: 1
+
+  # Node 2 (only runs in "reorg" profile)
+  bitcoind2:
+    <<: *bitcoind-common
+    command:
+      - -regtest
+      - -server
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -rpcuser=rpcuser
+      - -rpcpassword=rpcpassword
+      - -fallbackfee=0.0002
+      - -txindex
+      - -printtoconsole
+      - -dustrelayfee=0.0
+      - -minrelaytxfee=0
+      - -acceptnonstdtxn=1
+      - -port=19444
+      - -rpcport=19443
+      - -addnode=bitcoind:18444 # Connect to bitcoind
+    ports:
+      - "19443:19443"
+      - "19444:19444"
+    volumes:
+      - type: bind
+        source: ./volumes/bitcoin2
+        target: /home/bitcoin/.bitcoin
+    profiles: ["reorg"]
+
+  bitcoin-cli2:
+    <<: *bitcoin-cli-common
+    depends_on:
+      - bitcoind2
+    volumes:
+      - ./volumes/bitcoin2:/home/bitcoin/.bitcoin
+    environment:
+      <<: *cli-env
+      BITCOIN_DATA: /home/bitcoin/.bitcoin
+      RPC_ARGS: -chain=regtest -rpcconnect=bitcoind2 -rpcwait -rpcuser=rpcuser -rpcport=19443 -rpcpassword=rpcpassword
+      SLEEP_SECONDS: 1
+    entrypoint: /bin/sh 
+    command:
+      - -c
+      - |
+        if [ ! -f "$$BITCOIN_DATA/miner-init" ]; then
+          set -e
+          apt-get update && apt-get install -y jq
+
+          echo "Initializing miner setup..."
+          
+          bitcoin-cli $${RPC_ARGS} createwallet Bob
+          BOB_ADDRESS=$$(bitcoin-cli $${RPC_ARGS} -rpcwallet=Bob getnewaddress)
+          echo "Bob's address: $${BOB_ADDRESS}"
+
+          # Create the marker file to indicate initialization is done
+          touch "$${BITCOIN_DATA}/miner-init"
+          echo "Initialization complete. Marker file created at $${BITCOIN_DATA}/miner-init"
+        else
+          bitcoin-cli $${RPC_ARGS} loadwallet Bob
+          BOB_ADDRESS=$$(bitcoin-cli $${RPC_ARGS} -rpcwallet=Bob getaddressesbylabel "" | jq -r 'keys[0]')
+        fi
+
+        echo "Started generating blocks"
+
         while true; do
-            MEMPOOL_COUNT=$(bitcoin-cli $${RPC_ARGS} getmempoolinfo | jq -r '.size')
+            MEMPOOL_COUNT=$$(bitcoin-cli $${RPC_ARGS} getmempoolinfo | jq -r '.size')
             echo "Mempool transaction count: $${MEMPOOL_COUNT}"
             if [ "$${MEMPOOL_COUNT}" -gt 0 ]; then
                 echo "Transactions found in mempool: $${MEMPOOL_COUNT}. Generating a block..."
-                bitcoin-cli $${RPC_ARGS} generatetoaddress 1 $${ALICE_ADDRESS}
+                bitcoin-cli $${RPC_ARGS} generatetoaddress 1 $${BOB_ADDRESS}
             else
                 echo "No transactions in mempool. Skipping block generation..."
             fi
             sleep $${SLEEP_SECONDS} &
-            wait $!
+            wait $$!
         done
-    environment:
-      - BITCOIN_DATA=/home/bitcoin/.bitcoin
-      - TEST_ADDRESS=bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
-      - TEST_ADDRESS_NESTED_SEGWITH=2NGECSjWS6YDaqX64qCrbyQp2DquQviG5Dv
-      - TEST_ADDRESS_TAPROOT=bcrt1pfceu92l2rz44acv6y37etczl73prv09esdp0ec0srttltf5yvj3qwtuky6
-      - TEST_ADDRESS_LEGACY=mk9HNmebx6A7XwaZvmA8woieCddKFCqwRd
-      - TEST_ADDRESS_OP_RETURN=bcrt1qu7z4qrlwl33qqz8duph0k7hv8trvgx8dt8jzfz
-      - VERIFIER_1_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
-      - VERIFIER_2_ADDRESS=bcrt1qk8mkhrmgtq24nylzyzejznfzws6d98g4kmuuh4
-      - VERIFIER_3_ADDRESS=bcrt1q23lgaa90s85jvtl6dsrkvn0g949cwjkwuyzwdm
-      - BRIDGE_TEST_ADDRESS=bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg
-      - BRIDGE_TEST_ADDRESS2=bcrt1p5kp3mnv8tjdly0yyxmed5pl34gy8ufeh9kaf4vk3e7atxrcaq93s7w4xwq
-      - GOV_ADDRESS=bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm
-      - VIA_LOADNEXT_TEST_ADDRESS=bcrt1q8tuqv885kehnzucdfskuw6mrhxcj7cjs4gfk5z
-      - RPC_ARGS=-chain=regtest -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
-      - SLEEP_SECONDS=1
+    profiles: ["reorg"]
 
   postgres:
     image: 'postgres:14'

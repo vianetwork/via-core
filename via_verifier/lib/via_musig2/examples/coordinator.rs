@@ -20,10 +20,15 @@ use tracing::{info, instrument};
 use uuid::Uuid;
 use via_btc_client::{client::BitcoinClient, types::BitcoinNetwork};
 use via_musig2::{
-    fee::WithdrawalFeeStrategy, transaction_builder::TransactionBuilder, verify_signature, Signer,
+    fee::WithdrawalFeeStrategy,
+    transaction_builder::TransactionBuilder,
+    types::{TransactionBuilderConfig, TransactionOutput},
+    verify_signature, Signer,
 };
+use via_test_utils::utils::generate_return_data_per_outputs;
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
+use zksync_types::Address as EVMAddress;
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -420,41 +425,48 @@ async fn get_final_signature(
 
 async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessionResponse> {
     let unsigned_tx = {
-        let transaction_builder = create_test_withdrawal_builder(&state.bridge_address).await?;
+        let transaction_builder =
+            create_test_withdrawal_builder(&state.bridge_address.clone()).await?;
         let withdrawals = create_test_withdrawal_requests()?;
-        let proof_txid = Txid::hash(&[0x42; 32]);
 
         let mut grouped_withdrawals: HashMap<Address, Amount> = HashMap::new();
         for w in withdrawals {
-            *grouped_withdrawals.entry(w.address).or_insert(Amount::ZERO) = grouped_withdrawals
-                .get(&w.address)
+            *grouped_withdrawals
+                .entry(w.receiver)
+                .or_insert(Amount::ZERO) = grouped_withdrawals
+                .get(&w.receiver)
                 .unwrap_or(&Amount::ZERO)
                 .checked_add(w.amount)
                 .ok_or_else(|| anyhow::anyhow!("Withdrawal amount overflow when grouping"))?;
         }
 
+        const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
+
         // Create outputs for grouped withdrawals
-        let outputs: Vec<TxOut> = grouped_withdrawals
+        let outputs: Vec<TransactionOutput> = grouped_withdrawals
             .into_iter()
-            .map(|(address, amount)| TxOut {
-                value: amount,
-                script_pubkey: address.script_pubkey(),
+            .map(|(address, amount)| TransactionOutput {
+                output: TxOut {
+                    value: amount,
+                    script_pubkey: address.script_pubkey(),
+                },
+                op_return_data: Some(generate_return_data_per_outputs(1)[0].clone()),
             })
             .collect();
 
-        const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_PROTOCOL:WITHDRAWAL:";
+        let config = TransactionBuilderConfig {
+            fee_strategy: Arc::new(WithdrawalFeeStrategy::new()),
+            max_tx_weight: MAX_STANDARD_TX_WEIGHT as u64,
+            max_output_per_tx: 7,
+            op_return_prefix: OP_RETURN_WITHDRAW_PREFIX.to_vec(),
+            bridge_address: state.bridge_address.clone(),
+            default_fee_rate_opt: None,
+            default_available_utxos_opt: None,
+            op_return_data_input_opt: None,
+        };
 
         transaction_builder
-            .build_transaction_with_op_return(
-                outputs,
-                OP_RETURN_WITHDRAW_PREFIX,
-                vec![&proof_txid.as_raw_hash().to_byte_array().to_vec()],
-                Arc::new(WithdrawalFeeStrategy::new()),
-                None,
-                None,
-                MAX_STANDARD_TX_WEIGHT as u64,
-                bridge_address()?,
-            )
+            .build_transaction_with_op_return(outputs, config)
             .await?[0]
             .clone()
     };
@@ -541,12 +553,20 @@ fn create_test_withdrawal_requests() -> anyhow::Result<Vec<WithdrawalRequest>> {
 
     let requests = vec![
         WithdrawalRequest {
-            address: addr1,
+            id: "11111111".into(),
+            receiver: addr1,
             amount: Amount::from_btc(0.1)?,
+            l2_sender: EVMAddress::random(),
+            l2_tx_hash: "".into(),
+            l2_tx_log_index: 0,
         },
         WithdrawalRequest {
-            address: addr2,
+            id: "22222222".into(),
+            receiver: addr2,
             amount: Amount::from_btc(0.05)?,
+            l2_sender: EVMAddress::random(),
+            l2_tx_hash: "".into(),
+            l2_tx_log_index: 0,
         },
     ];
     Ok(requests)

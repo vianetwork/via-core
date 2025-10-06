@@ -1,10 +1,7 @@
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
 
 use crate::{
-    models::{
-        deposit::Deposit,
-        withdraw::{BridgeWithdrawalParam, WithdrawalParam},
-    },
+    models::{deposit::Deposit, withdraw::Withdrawal},
     Indexer,
 };
 
@@ -103,81 +100,32 @@ impl ViaTransactionsDal<'_, '_> {
         Ok(priority_id.unwrap_or(0))
     }
 
-    pub async fn withdrawal_exists(&mut self, tx_id: &[u8]) -> DalResult<bool> {
-        let exists = sqlx::query_scalar!(
+    pub async fn insert_withdraw(&mut self, withdrawal: Withdrawal) -> DalResult<()> {
+        sqlx::query!(
             r#"
-                SELECT EXISTS(
-                    SELECT 1 FROM bridge_withdrawals WHERE tx_id = $1
-                )
-                "#,
-            tx_id
-        )
-        .instrument("withdrawal_exists")
-        .fetch_one(self.storage)
-        .await?
-        .unwrap_or(false);
-
-        Ok(exists)
-    }
-
-    pub async fn insert_withdraw(
-        &mut self,
-        bridget_withdrawal_param: BridgeWithdrawalParam,
-        withdrawals: Vec<WithdrawalParam>,
-    ) -> DalResult<()> {
-        if withdrawals.is_empty() {
-            return Ok(());
-        }
-
-        let mut transaction = self.storage.start_transaction().await?;
-
-        let id = sqlx::query!(
-            r#"
-            INSERT INTO bridge_withdrawals (
+            INSERT INTO withdrawals (
+                id,
                 tx_id,
-                l1_batch_reveal_tx_id,
-                block_number,
-                fee,
-                vsize,
-                total_size,
-                withdrawals_count
+                l2_tx_log_index,
+                receiver,
+                value,
+                timestamp,
+                block_number
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (tx_id) DO NOTHING
-            RETURNING id
+            ON CONFLICT (id) DO NOTHING
             "#,
-            bridget_withdrawal_param.tx_id,
-            bridget_withdrawal_param.l1_batch_reveal_tx_id,
-            bridget_withdrawal_param.block_number,
-            bridget_withdrawal_param.vsize,
-            bridget_withdrawal_param.total_size,
-            bridget_withdrawal_param.fee,
-            withdrawals.len() as i64
+            withdrawal.id,
+            withdrawal.tx_id,
+            withdrawal.l2_tx_log_index,
+            withdrawal.receiver,
+            withdrawal.value,
+            withdrawal.timestamp,
+            withdrawal.block_number
         )
-        .instrument("insert_bridge_withdrawal")
-        .fetch_one(&mut transaction)
-        .await?
-        .id;
-
-        for withdrawal in withdrawals {
-            sqlx::query!(
-                r#"
-                INSERT INTO
-                withdrawals (tx_index, bridge_withdrawal_id, receiver, value)
-                VALUES
-                ($1, $2, $3, $4)
-                "#,
-                withdrawal.tx_index,
-                i32::from(id),
-                withdrawal.receiver,
-                withdrawal.value,
-            )
-            .instrument("insert_withdrawal")
-            .execute(&mut transaction)
-            .await?;
-        }
-
-        transaction.commit().await?;
+        .instrument("insert_withdrawal")
+        .execute(&mut self.storage)
+        .await?;
 
         Ok(())
     }
@@ -185,7 +133,7 @@ impl ViaTransactionsDal<'_, '_> {
     async fn delete_all_withdrawals(&mut self, block_number: i64) -> DalResult<()> {
         sqlx::query!(
             r#"
-            DELETE FROM bridge_withdrawals WHERE block_number >= $1
+            DELETE FROM withdrawals WHERE block_number >= $1
             "#,
             block_number
         )

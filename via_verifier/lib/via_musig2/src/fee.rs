@@ -1,9 +1,11 @@
-use std::vec;
-
 use bitcoin::{Amount, TxOut};
 
-use crate::constants::{
-    INPUT_BASE_SIZE, INPUT_WITNESS_SIZE, OP_RETURN_SIZE, OUTPUT_SIZE, TX_OVERHEAD, WITNESS_OVERHEAD,
+use crate::{
+    constants::{
+        INPUT_BASE_SIZE, INPUT_WITNESS_SIZE, OP_RETURN_SIZE, OUTPUT_SIZE, TX_OVERHEAD,
+        WITNESS_OVERHEAD,
+    },
+    types::{TransactionOutput, TransactionWithFee},
 };
 
 pub trait FeeStrategy: Send + Sync {
@@ -35,10 +37,10 @@ pub trait FeeStrategy: Send + Sync {
 
     fn apply_fee_to_outputs(
         &self,
-        outputs: Vec<TxOut>,
+        outputs: Vec<TransactionOutput>,
         input_count: u32,
         fee_rate: u64,
-    ) -> anyhow::Result<(Vec<TxOut>, Amount, Amount)>;
+    ) -> anyhow::Result<TransactionWithFee>;
 }
 
 pub struct WithdrawalFeeStrategy {}
@@ -52,14 +54,18 @@ impl WithdrawalFeeStrategy {
 impl FeeStrategy for WithdrawalFeeStrategy {
     fn apply_fee_to_outputs(
         &self,
-        mut outputs: Vec<TxOut>,
+        mut outputs: Vec<TransactionOutput>,
         input_count: u32,
         fee_rate: u64,
-    ) -> anyhow::Result<(Vec<TxOut>, Amount, Amount)> {
+    ) -> anyhow::Result<TransactionWithFee> {
         loop {
             let fee = self.estimate_fee(input_count, outputs.len() as u32, fee_rate)?;
             if outputs.is_empty() {
-                return Ok((vec![], fee, Amount::ZERO));
+                return Ok(TransactionWithFee {
+                    outputs_with_fees: vec![],
+                    fee,
+                    total_value_needed: Amount::ZERO,
+                });
             }
 
             let fee_per_user = Amount::from_sat(fee.to_sat() / outputs.len() as u64);
@@ -67,9 +73,9 @@ impl FeeStrategy for WithdrawalFeeStrategy {
             let mut valid_outputs_count = 0;
 
             for output in &outputs {
-                if output.value >= fee_per_user {
+                if output.output.value >= fee_per_user {
                     valid_outputs_count += 1;
-                    total_value_needed += output.value - fee_per_user;
+                    total_value_needed += output.output.value - fee_per_user;
                 }
             }
 
@@ -77,23 +83,31 @@ impl FeeStrategy for WithdrawalFeeStrategy {
                 let mut new_outputs_with_fee = Vec::with_capacity(outputs.len());
 
                 for output in outputs {
-                    new_outputs_with_fee.push(TxOut {
-                        script_pubkey: output.script_pubkey,
-                        value: output.value - fee_per_user,
-                    });
+                    let output_with_fee = TransactionOutput {
+                        output: TxOut {
+                            script_pubkey: output.output.script_pubkey,
+                            value: output.output.value - fee_per_user,
+                        },
+                        op_return_data: output.op_return_data,
+                    };
+                    new_outputs_with_fee.push(output_with_fee);
                 }
 
-                return Ok((new_outputs_with_fee, fee, total_value_needed));
+                return Ok(TransactionWithFee {
+                    outputs_with_fees: new_outputs_with_fee,
+                    fee,
+                    total_value_needed,
+                });
             }
 
-            outputs.retain(|output| output.value >= fee_per_user);
+            outputs.retain(|output| output.output.value >= fee_per_user);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{Amount, ScriptBuf};
+    use bitcoin::{Amount, ScriptBuf, TxOut};
 
     use super::*;
 
@@ -108,16 +122,25 @@ mod tests {
     fn test_fee_applied_equally_to_outputs() {
         let strategy = WithdrawalFeeStrategy::new();
         let amount = Amount::from_sat(10_000);
-        let outputs = vec![dummy_output(amount), dummy_output(amount)];
+        let outputs = vec![
+            TransactionOutput {
+                output: dummy_output(amount),
+                op_return_data: None,
+            },
+            TransactionOutput {
+                output: dummy_output(amount),
+                op_return_data: None,
+            },
+        ];
 
         let input_count = 2;
         let fee_rate = 2;
 
-        let (adjusted_outputs, fee, _) = strategy
+        let tx_fee = strategy
             .apply_fee_to_outputs(outputs.clone(), input_count, fee_rate)
             .expect("fee application failed");
 
-        assert_eq!(adjusted_outputs.len(), 2);
+        assert_eq!(tx_fee.outputs_with_fees.len(), 2);
 
         let expected_fee = strategy
             .estimate_fee(input_count, outputs.len() as u32, fee_rate)
@@ -125,11 +148,11 @@ mod tests {
 
         let fee_per_output = Amount::from_sat(expected_fee.to_sat() / 2);
 
-        for output in adjusted_outputs {
-            assert_eq!(output.value, amount - fee_per_output);
+        for output in tx_fee.outputs_with_fees {
+            assert_eq!(output.output.value, amount - fee_per_output);
         }
 
-        assert_eq!(fee, expected_fee);
+        assert_eq!(tx_fee.fee, expected_fee);
     }
 
     #[test]
@@ -139,25 +162,31 @@ mod tests {
         let amount2 = Amount::from_sat(500);
 
         let outputs = vec![
-            dummy_output(amount1),
-            dummy_output(amount2), // this one will be too small to cover fee
-        ];
+            TransactionOutput {
+                output: dummy_output(amount1),
+                op_return_data: None,
+            },
+            TransactionOutput {
+                output: dummy_output(amount2),
+                op_return_data: None,
+            },
+        ]; // this one will be too small to cover fee
 
         let input_count = 2;
         let fee_rate = 10;
 
-        let (adjusted_outputs, fee, _) = strategy
+        let tx_fee = strategy
             .apply_fee_to_outputs(outputs.clone(), input_count, fee_rate)
             .expect("fee application failed");
 
         // One output should be removed
-        assert_eq!(adjusted_outputs.len(), 1);
-        assert!(adjusted_outputs[0].value < amount1);
+        assert_eq!(tx_fee.outputs_with_fees.len(), 1);
+        assert!(tx_fee.outputs_with_fees[0].output.value < amount1);
 
         // Make sure fee is re-estimated with 1 output
         let expected_fee = strategy.estimate_fee(input_count, 1, fee_rate).unwrap();
 
-        assert_eq!(fee, expected_fee);
+        assert_eq!(tx_fee.fee, expected_fee);
     }
 
     #[test]
@@ -166,23 +195,29 @@ mod tests {
         let amount = Amount::from_sat(100);
 
         let outputs = vec![
-            dummy_output(amount), // not enough to cover any reasonable fee
-            dummy_output(amount),
+            TransactionOutput {
+                output: dummy_output(amount), // not enough to cover any reasonable fee
+                op_return_data: None,
+            },
+            TransactionOutput {
+                output: dummy_output(amount),
+                op_return_data: None,
+            },
         ];
 
         let input_count = 1;
         let fee_rate = 100;
 
-        let (adjusted_outputs, fee, total_value_needed) = strategy
+        let tx_fee = strategy
             .apply_fee_to_outputs(outputs.clone(), input_count, fee_rate)
             .expect("fee application failed");
         let expected_fee = strategy
-            .estimate_fee(input_count, adjusted_outputs.len() as u32, fee_rate)
+            .estimate_fee(input_count, tx_fee.outputs_with_fees.len() as u32, fee_rate)
             .unwrap();
 
-        assert_eq!(adjusted_outputs.len(), 0);
-        assert_eq!(total_value_needed, Amount::ZERO);
-        assert_eq!(fee, expected_fee);
+        assert_eq!(tx_fee.outputs_with_fees.len(), 0);
+        assert_eq!(tx_fee.total_value_needed, Amount::ZERO);
+        assert_eq!(tx_fee.fee, expected_fee);
     }
 
     #[test]
@@ -190,19 +225,28 @@ mod tests {
         let strategy = WithdrawalFeeStrategy::new();
         let amount1 = Amount::from_sat(1000);
         let amount2 = Amount::from_sat(2000);
-        let outputs = vec![dummy_output(amount1), dummy_output(amount2)];
+        let outputs = vec![
+            TransactionOutput {
+                output: dummy_output(amount1),
+                op_return_data: None,
+            },
+            TransactionOutput {
+                output: dummy_output(amount2),
+                op_return_data: None,
+            },
+        ];
 
         let input_count = 1;
         let fee_rate = 0;
 
-        let (adjusted_outputs, fee, _) = strategy
+        let tx_fee = strategy
             .apply_fee_to_outputs(outputs.clone(), input_count, fee_rate)
             .expect("fee application failed");
 
-        assert_eq!(adjusted_outputs.len(), 2);
-        assert_eq!(adjusted_outputs[0].value, amount1);
-        assert_eq!(adjusted_outputs[1].value, amount2);
-        assert_eq!(fee.to_sat(), 0);
+        assert_eq!(tx_fee.outputs_with_fees.len(), 2);
+        assert_eq!(tx_fee.outputs_with_fees[0].output.value, amount1);
+        assert_eq!(tx_fee.outputs_with_fees[1].output.value, amount2);
+        assert_eq!(tx_fee.fee.to_sat(), 0);
     }
 
     #[test]
@@ -233,11 +277,11 @@ mod tests {
         impl FeeStrategy for MockFeeEstimator {
             fn apply_fee_to_outputs(
                 &self,
-                _: Vec<TxOut>,
+                _: Vec<TransactionOutput>,
                 _: u32,
                 _: u64,
-            ) -> anyhow::Result<(Vec<TxOut>, Amount, Amount)> {
-                Ok((vec![], Amount::ZERO, Amount::ZERO))
+            ) -> anyhow::Result<TransactionWithFee> {
+                Ok(TransactionWithFee::default())
             }
         }
 

@@ -24,7 +24,8 @@ export async function deposit(
     l2RpcUrl: string,
     rpcUsername: string,
     rpcPassword: string,
-    bridgeAddress: string
+    bridgeAddress: string,
+    externalApiFee: string
 ) {
     if (isNaN(amount)) {
         console.error('Error: Invalid deposit amount. Please provide a valid number.');
@@ -41,7 +42,7 @@ export async function deposit(
 
     process.chdir(`${process.env.VIA_HOME}`);
     await utils.spawn(
-        `cargo run --example deposit -- ${amountWithFees} ${receiverL2Address} ${senderPrivateKey} ${network} ${l1RpcUrl} ${rpcUsername} ${rpcPassword} ${bridgeAddress}`
+        `cargo run --example deposit -- ${amountWithFees} ${receiverL2Address} ${senderPrivateKey} ${network} ${l1RpcUrl} ${rpcUsername} ${rpcPassword} ${bridgeAddress} ${externalApiFee}`
     );
 }
 
@@ -180,6 +181,11 @@ command
     .option('--l2-rpc-url <l2RcpUrl>', 'RPC URL', DEFAULT_L2_RPC_URL)
     .option('--rpc-username <rcpUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
+    .option(
+        '--external-api-fee <externalApiFee>',
+        'External API to use as fallback fee',
+        'https://mempool.space/testnet/api/v1/fees/recommended'
+    )
 
     .action((cmd: Command) =>
         deposit(
@@ -191,7 +197,8 @@ command
             cmd.l2RpcUrl,
             cmd.rpcUsername,
             cmd.rpcPassword,
-            cmd.bridgeAddress
+            cmd.bridgeAddress,
+            cmd.externalApiFee
         )
     );
 
