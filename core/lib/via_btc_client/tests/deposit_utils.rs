@@ -353,7 +353,11 @@ impl DepositTestUtils {
         debug!("Using private key: {}...", &private_key[..8]);
         debug!("L2 balance check: {}", check_l2_balance);
 
-        let (client, mut inscriber) = Self::setup_funded_inscriber_with_key(private_key).await?;
+        let client = Self::create_bitcoin_client()?;
+        let context = None;
+        let mut inscriber = Inscriber::new(client.clone(), private_key, context)
+            .await
+            .context("Failed to create Depositor Inscriber")?;
 
         let balance = inscriber
             .get_balance()
@@ -452,7 +456,7 @@ impl DepositTestUtils {
         debug!("Amount: {} sats", amount);
         debug!("Using private key: {}...", &private_key[..8]);
 
-        let (client, _) = Self::setup_funded_inscriber_with_key(private_key).await?;
+        let client = Self::create_bitcoin_client()?;
 
         let bridge_address = Self::get_bridge_address()?;
         let receiver_l2_address = Self::get_test_receiver_l2_address()?;
@@ -472,7 +476,7 @@ impl DepositTestUtils {
         Ok(txid)
     }
 
-    async fn create_opreturn_transaction(
+    pub async fn create_opreturn_transaction(
         client: &Arc<BitcoinClient>,
         private_key: &str,
         amount_sats: u64,
