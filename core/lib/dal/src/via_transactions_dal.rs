@@ -207,7 +207,7 @@ impl ViaTransactionsDal<'_, '_> {
             DELETE FROM transactions
             WHERE
                 is_priority = TRUE
-                AND l1_block_number >= $1
+                AND l1_block_number > $1
             "#,
             l1_block_number
         )
