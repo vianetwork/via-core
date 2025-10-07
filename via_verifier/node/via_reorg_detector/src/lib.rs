@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
 use bitcoin::Block;
 use futures::future::try_join_all;
+use tokio::time::sleep;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use via_verifier_dal::{Verifier, VerifierDal};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
@@ -34,6 +35,8 @@ impl ViaVerifierReorgDetector {
     ) -> anyhow::Result<()> {
         let mut timer = tokio::time::interval(self.config.poll_interval());
         let pool = self.pool.clone();
+
+        self.init().await?;
 
         while !*stop_receiver.borrow_and_update() {
             tokio::select! {
@@ -71,12 +74,38 @@ impl ViaVerifierReorgDetector {
         Ok(())
     }
 
+    async fn init(&mut self) -> anyhow::Result<()> {
+        let mut storage = self
+            .pool
+            .connection_tagged("via main node reorg detector")
+            .await?;
+
+        match storage.via_l1_block_dal().get_last_l1_block().await? {
+            Some(_) => {}
+            None => {
+                let block_height = storage
+                    .via_indexer_dal()
+                    .get_last_processed_l1_block("via_btc_watch")
+                    .await? as i64;
+
+                let block = self.btc_client.fetch_block(block_height as u128).await?;
+
+                storage
+                    .via_l1_block_dal()
+                    .insert_l1_block(block_height, block.block_hash().to_string())
+                    .await?;
+            }
+        };
+
+        Ok(())
+    }
+
     async fn fetch_blocks(
         &self,
         from_block_height: i64,
         to_block_height: i64,
     ) -> anyhow::Result<Vec<Block>> {
-        let calls = (from_block_height..to_block_height + 1)
+        let calls = (from_block_height..=to_block_height)
             .map(|height| self.btc_client.fetch_block(height as u128))
             .collect::<Vec<_>>();
 
@@ -85,17 +114,26 @@ impl ViaVerifierReorgDetector {
         Ok(results)
     }
 
-    async fn sync_l1_blocks(&self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
-        let block_height = if let Some((block_height, _)) =
-            storage.via_l1_block_dal().get_last_l1_block().await?
-        {
-            block_height
-        } else {
-            storage
-                .via_indexer_dal()
-                .get_last_processed_l1_block("via_btc_watch")
-                .await? as i64
+    async fn is_canonical_chain(&self, block_height: i64, hash: String) -> anyhow::Result<bool> {
+        let blocks = self.fetch_blocks(block_height, block_height).await?;
+
+        let Some(block) = blocks.first() else {
+            anyhow::bail!("Cannot fetch the block {}", block_height);
         };
+
+        Ok(block.block_hash().to_string() == hash)
+    }
+
+    async fn sync_l1_blocks(&self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
+        let Some((block_height, hash)) = storage.via_l1_block_dal().get_last_l1_block().await?
+        else {
+            anyhow::bail!("No blocks found to sync blocks")
+        };
+
+        if !self.is_canonical_chain(block_height, hash).await? {
+            tracing::warn!("No canonical chain found from block height {block_height}");
+            return Ok(());
+        }
 
         let last_block_height = self.btc_client.fetch_block_height().await? as i64;
 
@@ -105,38 +143,33 @@ impl ViaVerifierReorgDetector {
             from_block_height + self.config.block_limit(),
         );
 
-        // Inclusive "to_block_height".
         let blocks = self
             .fetch_blocks(from_block_height, to_block_height)
             .await?;
 
-        for (height, block) in (from_block_height..to_block_height + 1).zip(blocks) {
+        let mut transaction = storage.start_transaction().await?;
+
+        for (height, block) in (from_block_height..=to_block_height).zip(blocks) {
             tracing::debug!(
                 "Fetched block {height} with hash {}",
                 block.block_hash().to_string()
             );
 
-            storage
+            transaction
                 .via_l1_block_dal()
                 .insert_l1_block(height, block.block_hash().to_string())
                 .await?;
         }
 
+        transaction.commit().await?;
+
         Ok(())
     }
 
     async fn detect_reorg(&self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<bool> {
-        let (block_height, hash) = match storage.via_l1_block_dal().get_last_l1_block().await? {
-            Some(data) => data,
-            None => {
-                let block_height = storage
-                    .via_indexer_dal()
-                    .get_last_processed_l1_block("via_btc_watch")
-                    .await? as i64;
-
-                let block = self.btc_client.fetch_block(block_height as u128).await?;
-                (block_height, block.block_hash().to_string())
-            }
+        let Some((block_height, hash)) = storage.via_l1_block_dal().get_last_l1_block().await?
+        else {
+            anyhow::bail!("No blocks found to detect reorg")
         };
 
         let block = self
