@@ -130,9 +130,21 @@ impl VerifierBtcWatch {
             return Ok(());
         }
 
+        let Some((last_l1_block_number, _)) =
+            storage.via_l1_block_dal().get_last_l1_block().await?
+        else {
+            tracing::warn!("Reorg did not start yet");
+            return Ok(());
+        };
+
         let mut to_block = last_processed_bitcoin_block + L1_BLOCKS_CHUNK;
         if to_block > current_l1_block_number {
             to_block = current_l1_block_number;
+        }
+
+        // Clamp the to_batch to the last valid block number validated by the reorg detector
+        if to_block > last_l1_block_number as u32 {
+            to_block = last_l1_block_number as u32;
         }
 
         let from_block = last_processed_bitcoin_block + 1;
