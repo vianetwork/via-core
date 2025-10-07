@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT EXISTS (\n                SELECT 1\n                FROM via_bridge_withdrawals\n                WHERE tx_id = $1\n            ) AS \"exists!\"\n            ",
+  "query": "\n            SELECT EXISTS(\n                SELECT 1\n                FROM via_bridge_withdrawals\n                WHERE tx_id = $1\n            ) AS \"exists!\"\n            ",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "8b9f74e320100e0b07c43da54f76487e550fcb581f0bc379952553e35d0c3b7b"
+  "hash": "da2133a1d07ee04b1bbb69aefc0406a1beb3daa6bb8a32c973e2e247d9d48109"
 }

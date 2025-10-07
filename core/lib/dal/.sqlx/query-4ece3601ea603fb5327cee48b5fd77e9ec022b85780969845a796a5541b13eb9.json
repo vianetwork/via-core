@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO\n                via_wallets (role, address, tx_hash, l1_block_number)\n                VALUES\n                ($1, $2, $3, $4)\n                ON CONFLICT (tx_hash, address, role) DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4ece3601ea603fb5327cee48b5fd77e9ec022b85780969845a796a5541b13eb9"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE\n            via_bridge_withdrawals\n            SET\n                executed = TRUE,\n                updated_at = NOW()\n            WHERE\n                tx_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "17892bb5a9515da87239d8766ee37b409065b4b5ed1aca4bde2f6408f616adff"
+}
