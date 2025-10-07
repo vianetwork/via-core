@@ -75,8 +75,11 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
         let master_pool = input.master_pool.get().await?;
         let query_client_l22 = input.query_client_l2.0;
 
-        let withdrawal_client =
-            WithdrawalClient::new(input.da_client.0, self.via_btc_client.network(), query_client_l22);
+        let withdrawal_client = WithdrawalClient::new(
+            input.da_client.0,
+            self.via_btc_client.network(),
+            query_client_l22,
+        );
 
         let btc_client = input.btc_client_resource.verifier.unwrap();
 

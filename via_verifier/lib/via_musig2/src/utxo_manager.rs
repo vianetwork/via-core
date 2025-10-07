@@ -415,7 +415,10 @@ mod tests {
 
         manager.insert_transaction(unsigned_tx.clone()).await;
 
-        let utxos_out = manager.get_available_utxos(bridge_address.clone()).await.unwrap();
+        let utxos_out = manager
+            .get_available_utxos(bridge_address.clone())
+            .await
+            .unwrap();
         let expected_utxos: Vec<(OutPoint, TxOut)> = vec![(outpoint, outputs[0].clone())];
         assert_eq!(expected_utxos, utxos_out);
 
