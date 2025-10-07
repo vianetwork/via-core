@@ -20,7 +20,10 @@ use zksync_types::{
     protocol_version::ProtocolSemanticVersion, Address as EVMAddress, L1BatchNumber,
 };
 
-use crate::{indexer::withdrawal::{L1Withdrawal, WithdrawalVersion}, traits::Serializable};
+use crate::{
+    indexer::withdrawal::{L1Withdrawal, WithdrawalVersion},
+    traits::Serializable,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {

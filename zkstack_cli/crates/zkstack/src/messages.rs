@@ -16,6 +16,13 @@ pub(super) const MSG_CHAIN_NOT_INITIALIZED: &str =
     "Chain not initialized. Please create a chain first";
 pub(super) const MSG_ARGS_VALIDATOR_ERR: &str = "Invalid arguments";
 
+/// Autocomplete message
+pub(super) fn msg_generate_autocomplete_file(filename: &str) -> String {
+    format!("Generating completion file: {filename}")
+}
+pub(super) const MSG_OUTRO_AUTOCOMPLETE_GENERATION: &str =
+    "Autocompletion file correctly generated";
+
 /// Ecosystem create related messages
 pub(super) const MSG_L1_NETWORK_HELP: &str = "L1 Network";
 pub(super) const MSG_LINK_TO_CODE_HELP: &str = "Code link";
@@ -351,6 +358,7 @@ pub(super) const MSG_RUNNING_PROVER_JOB_MONITOR: &str = "Running prover job moni
 pub(super) const MSG_RUNNING_WITNESS_GENERATOR: &str = "Running witness generator";
 pub(super) const MSG_RUNNING_WITNESS_VECTOR_GENERATOR: &str = "Running witness vector generator";
 pub(super) const MSG_RUNNING_PROVER: &str = "Running prover";
+pub(super) const MSG_RUNNING_CIRCUIT_PROVER: &str = "Running circuit prover";
 pub(super) const MSG_RUNNING_COMPRESSOR: &str = "Running compressor";
 pub(super) const MSG_RUN_COMPONENT_PROMPT: &str = "What component do you want to run?";
 pub(super) const MSG_RUNNING_PROVER_GATEWAY_ERR: &str = "Failed to run prover gateway";
@@ -359,6 +367,7 @@ pub(super) const MSG_RUNNING_WITNESS_VECTOR_GENERATOR_ERR: &str =
     "Failed to run witness vector generator";
 pub(super) const MSG_RUNNING_COMPRESSOR_ERR: &str = "Failed to run compressor";
 pub(super) const MSG_RUNNING_PROVER_ERR: &str = "Failed to run prover";
+pub(super) const MSG_RUNNING_CIRCUIT_PROVER_ERR: &str = "Failed to run circuit prover";
 pub(super) const MSG_PROOF_STORE_CONFIG_PROMPT: &str =
     "Select where you would like to store the proofs";
 pub(super) const MSG_PROOF_STORE_DIR_PROMPT: &str =

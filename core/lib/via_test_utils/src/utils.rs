@@ -1,7 +1,11 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use bitcoin::{
-    address::NetworkUnchecked, key::rand, script::PushBytesBuf, secp256k1::{self, SecretKey}, CompressedPublicKey, PrivateKey, ScriptBuf, TxOut
+    address::NetworkUnchecked,
+    key::rand,
+    script::PushBytesBuf,
+    secp256k1::{self, SecretKey},
+    CompressedPublicKey, PrivateKey, ScriptBuf, TxOut,
 };
 use rand::Rng;
 use tokio::time::sleep;

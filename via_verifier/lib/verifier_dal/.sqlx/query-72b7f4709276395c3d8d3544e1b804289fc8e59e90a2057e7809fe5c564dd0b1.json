@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n            via_transactions (\n                priority_id,\n                tx_id,\n                receiver,\n                value,\n                calldata,\n                canonical_tx_hash,\n                l1_block_number\n            )\n            VALUES\n            ($1, $2, $3, $4, $5, $6, $7)\n            ON CONFLICT (tx_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bytea",
+        "Varchar",
+        "Int8",
+        "Bytea",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "72b7f4709276395c3d8d3544e1b804289fc8e59e90a2057e7809fe5c564dd0b1"
+}

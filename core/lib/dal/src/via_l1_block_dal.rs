@@ -12,9 +12,9 @@ impl ViaL1BlockDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_l1_blocks (number, hash)
+            via_l1_blocks (number, hash)
             VALUES
-                ($1, $2)
+            ($1, $2)
             ON CONFLICT (number) DO NOTHING
             "#,
             number,
@@ -180,9 +180,9 @@ impl ViaL1BlockDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_l1_reorg (l1_block_number, l1_batch_number)
+            via_l1_reorg (l1_block_number, l1_batch_number)
             VALUES
-                ($1, $2)
+            ($1, $2)
             ON CONFLICT (l1_block_number) DO NOTHING
             "#,
             l1_block_number,

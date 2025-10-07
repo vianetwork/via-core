@@ -19,9 +19,9 @@ impl ViaWithdrawalDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO
-                via_l1_batch_bridge_withdrawals (proof_reveal_tx_id)
+            via_l1_batch_bridge_withdrawals (proof_reveal_tx_id)
             VALUES
-                ($1)
+            ($1)
             ON CONFLICT (proof_reveal_tx_id) DO NOTHING
             "#,
             &proof_reveal_tx_id,
@@ -54,12 +54,12 @@ impl ViaWithdrawalDal<'_, '_> {
         sqlx::query!(
             r#"
             UPDATE
-                via_bridge_withdrawals
+            via_bridge_withdrawals
             SET
                 executed = TRUE,
                 updated_at = NOW()
             WHERE
-                tx_id=$1
+                tx_id = $1
             "#,
             tx_id,
         )
@@ -73,7 +73,7 @@ impl ViaWithdrawalDal<'_, '_> {
     pub async fn bridge_withdrawal_exists(&mut self, tx_id: &[u8]) -> DalResult<bool> {
         let row = sqlx::query!(
             r#"
-            SELECT EXISTS (
+            SELECT EXISTS(
                 SELECT 1
                 FROM via_bridge_withdrawals
                 WHERE tx_id = $1
@@ -118,17 +118,17 @@ impl ViaWithdrawalDal<'_, '_> {
             let res = sqlx::query!(
                 r#"
                 INSERT INTO
-                    via_withdrawals (id, l2_tx_hash, l2_tx_log_index, receiver, value)
+                via_withdrawals (id, l2_tx_hash, l2_tx_log_index, receiver, value)
                 VALUES
-                    ($1, $2, $3, $4, $5)
+                ($1, $2, $3, $4, $5)
                 ON CONFLICT (id)
                 DO UPDATE SET
-                    value = EXCLUDED.value,
-                    l2_tx_hash = CASE
-                        WHEN EXCLUDED.l2_tx_hash <> '' THEN EXCLUDED.l2_tx_hash
-                        ELSE via_withdrawals.l2_tx_hash
-                    END,
-                    updated_at = NOW();
+                value = excluded.value,
+                l2_tx_hash = CASE
+                    WHEN excluded.l2_tx_hash <> '' THEN excluded.l2_tx_hash
+                    ELSE via_withdrawals.l2_tx_hash
+                END,
+                updated_at = NOW();
                 "#,
                 withdrawal.id,
                 withdrawal.l2_tx_hash,
@@ -204,7 +204,7 @@ impl ViaWithdrawalDal<'_, '_> {
                 AND receiver = $3
                 AND value = $4
                 AND bridge_withdrawal_id IS NULL
-        "#,
+            "#,
             withdrawal.id,
             withdrawal.l2_tx_log_index as i64,
             withdrawal.receiver.to_string(),
@@ -223,7 +223,7 @@ impl ViaWithdrawalDal<'_, '_> {
     ) -> DalResult<bool> {
         let row = sqlx::query!(
             r#"
-            SELECT EXISTS (
+            SELECT EXISTS(
                 SELECT
                     1
                 FROM
@@ -233,7 +233,7 @@ impl ViaWithdrawalDal<'_, '_> {
                     AND l2_tx_log_index = $2
                     AND receiver = $3
             ) AS "exists!"
-           "#,
+            "#,
             withdrawal.id,
             withdrawal.l2_tx_log_index as i64,
             withdrawal.receiver.to_string(),
@@ -299,7 +299,9 @@ impl ViaWithdrawalDal<'_, '_> {
                 v.proof_reveal_tx_id
             FROM
                 via_votable_transactions v
-                LEFT JOIN via_l1_batch_bridge_withdrawals b ON b.proof_reveal_tx_id = v.proof_reveal_tx_id
+            LEFT JOIN
+                via_l1_batch_bridge_withdrawals b
+                ON b.proof_reveal_tx_id = v.proof_reveal_tx_id
             WHERE
                 v.is_finalized = TRUE
                 AND v.l1_batch_status = TRUE
@@ -331,7 +333,9 @@ impl ViaWithdrawalDal<'_, '_> {
                 v.proof_reveal_tx_id
             FROM
                 via_votable_transactions v
-                LEFT JOIN via_l1_batch_bridge_withdrawals b ON b.proof_reveal_tx_id = v.proof_reveal_tx_id
+            LEFT JOIN
+                via_l1_batch_bridge_withdrawals b
+                ON b.proof_reveal_tx_id = v.proof_reveal_tx_id
             WHERE
                 v.is_finalized = TRUE
                 AND v.l1_batch_status = TRUE

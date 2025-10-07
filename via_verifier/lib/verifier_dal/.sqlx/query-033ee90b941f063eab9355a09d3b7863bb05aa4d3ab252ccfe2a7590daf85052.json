@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                v.l1_batch_number,\n                v.pubdata_blob_id,\n                v.proof_reveal_tx_id\n            FROM\n                via_votable_transactions v\n            LEFT JOIN\n                via_l1_batch_bridge_withdrawals b\n                ON b.proof_reveal_tx_id = v.proof_reveal_tx_id\n            WHERE\n                v.is_finalized = TRUE\n                AND v.l1_batch_status = TRUE\n                AND b.proof_reveal_tx_id IS NULL\n            ORDER BY\n                v.l1_batch_number ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "pubdata_blob_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "proof_reveal_tx_id",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "033ee90b941f063eab9355a09d3b7863bb05aa4d3ab252ccfe2a7590daf85052"
+}

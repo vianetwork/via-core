@@ -30,10 +30,10 @@ impl ViaWalletDal<'_, '_> {
             sqlx::query!(
                 r#"
                 INSERT INTO
-                    via_wallets (ROLE, address, tx_hash, l1_block_number)
+                via_wallets (role, address, tx_hash, l1_block_number)
                 VALUES
-                    ($1, $2, $3, $4)
-                ON CONFLICT (tx_hash, address, ROLE) DO NOTHING
+                ($1, $2, $3, $4)
+                ON CONFLICT (tx_hash, address, role) DO NOTHING
                 "#,
                 role.to_string(),
                 addresses_str,

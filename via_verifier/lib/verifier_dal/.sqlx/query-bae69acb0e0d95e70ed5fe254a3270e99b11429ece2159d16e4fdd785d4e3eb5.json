@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n            via_l1_batch_bridge_withdrawals (proof_reveal_tx_id)\n            VALUES\n            ($1)\n            ON CONFLICT (proof_reveal_tx_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bae69acb0e0d95e70ed5fe254a3270e99b11429ece2159d16e4fdd785d4e3eb5"
+}

@@ -240,7 +240,7 @@ impl ViaNodeBuilder {
 
     fn add_l1_gas_layer(mut self) -> anyhow::Result<Self> {
         let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
-        let l1_gas_layer = ViaL1GasLayer::new(state_keeper_config);
+        let l1_gas_layer = ViaL1GasLayer::new(&state_keeper_config);
         self.node.add_layer(l1_gas_layer);
         Ok(self)
     }
@@ -252,6 +252,7 @@ impl ViaNodeBuilder {
             factory_deps_cache_size: rpc_config.factory_deps_cache_size() as u64,
             initial_writes_cache_size: rpc_config.initial_writes_cache_size() as u64,
             latest_values_cache_size: rpc_config.latest_values_cache_size() as u64,
+            latest_values_max_block_lag: rpc_config.latest_values_max_block_lag(),
         };
 
         // On main node we always use master pool sink.
@@ -464,6 +465,7 @@ impl ViaNodeBuilder {
         self.node.add_layer(ProofDataHandlerLayer::new(
             try_load_config!(self.configs.proof_data_handler_config),
             self.genesis_config.l1_batch_commit_data_generator_mode,
+            self.genesis_config.l2_chain_id,
         ));
         Ok(self)
     }
