@@ -5,6 +5,7 @@ use metrics::METRICS;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, RwLock};
 use via_btc_client::{
+    client::BitcoinClient,
     indexer::BitcoinInscriptionIndexer,
     types::{BitcoinTxid, FullInscriptionMessage, L1BatchDAReference, ProofDAReference},
     utils::bytes_to_txid,
@@ -14,8 +15,9 @@ use via_verification::proof::{
     Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
 };
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
+use via_verifier_state::sync::ViaState;
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
-use zksync_config::ViaVerifierConfig;
+use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_types::{
     commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion,
@@ -48,6 +50,7 @@ pub struct ViaVerifier {
     indexer: BitcoinInscriptionIndexer,
     test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
     zk_agreement_threshold: f64,
+    state: ViaState,
 }
 
 impl ViaVerifier {
@@ -57,8 +60,12 @@ impl ViaVerifier {
         indexer: BitcoinInscriptionIndexer,
         pool: ConnectionPool<Verifier>,
         da_client: Box<dyn DataAvailabilityClient>,
+        btc_client: Arc<BitcoinClient>,
         zk_agreement_threshold: f64,
+        via_btc_watch_config: ViaBtcWatchConfig,
     ) -> anyhow::Result<Self> {
+        let state = ViaState::new(pool.clone(), btc_client.clone(), via_btc_watch_config);
+
         Ok(Self {
             config: config.clone(),
             pool,
@@ -68,6 +75,7 @@ impl ViaVerifier {
                 config.test_zk_proof_invalid_l1_batch_numbers,
             )),
             zk_agreement_threshold,
+            state,
         })
     }
 
@@ -96,12 +104,11 @@ impl ViaVerifier {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
-        if storage
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some()
-        {
+        if self.state.is_reorg_in_progress().await? {
+            return Ok(());
+        }
+
+        if self.state.is_sync_in_progress().await? {
             return Ok(());
         }
 

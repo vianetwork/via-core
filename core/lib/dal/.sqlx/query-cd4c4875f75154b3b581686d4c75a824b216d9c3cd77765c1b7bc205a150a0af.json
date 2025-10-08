@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM transactions\n            WHERE\n                is_priority = TRUE\n                AND l1_block_number > $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cd4c4875f75154b3b581686d4c75a824b216d9c3cd77765c1b7bc205a150a0af"
+}

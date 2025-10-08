@@ -148,6 +148,7 @@ impl ViaNodeBuilder {
             self.configs.via_bridge_config.clone(),
             self.configs.via_btc_client_config.clone(),
             self.configs.via_verifier_config.clone(),
+            self.configs.via_btc_watch_config.clone(),
             wallet,
         ));
         Ok(self)
@@ -157,6 +158,7 @@ impl ViaNodeBuilder {
         self.node.add_layer(ViaBtcProofVerificationLayer::new(
             self.configs.via_verifier_config.clone(),
             self.configs.via_bridge_config.clone(),
+            self.configs.via_btc_watch_config.clone(),
         ));
         Ok(self)
     }

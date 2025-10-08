@@ -5,7 +5,7 @@ use zksync_config::{
     configs::{
         via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig, via_wallets::ViaWallet,
     },
-    ViaVerifierConfig,
+    ViaBtcWatchConfig, ViaVerifierConfig,
 };
 
 use crate::{
@@ -27,6 +27,7 @@ pub struct ViaWithdrawalVerifierLayer {
     via_bridge_config: ViaBridgeConfig,
     via_btc_client: ViaBtcClientConfig,
     verifier_config: ViaVerifierConfig,
+    btc_watch_config: ViaBtcWatchConfig,
     wallet: ViaWallet,
 }
 
@@ -51,12 +52,14 @@ impl ViaWithdrawalVerifierLayer {
         via_bridge_config: ViaBridgeConfig,
         via_btc_client: ViaBtcClientConfig,
         verifier_config: ViaVerifierConfig,
+        btc_watch_config: ViaBtcWatchConfig,
         wallet: ViaWallet,
     ) -> Self {
         Self {
             via_bridge_config,
             via_btc_client,
             verifier_config,
+            btc_watch_config,
             wallet,
         }
     }
@@ -90,6 +93,7 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
             btc_client,
             withdrawal_client,
             self.via_bridge_config,
+            self.btc_watch_config,
         )
         .context("Error to init the via withdrawal verifier")?;
 

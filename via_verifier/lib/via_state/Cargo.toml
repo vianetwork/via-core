@@ -1,6 +1,5 @@
 [package]
-name = "via_zk_verifier"
-description = "VIA zk verifier"
+name = "via_verifier_state"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -21,7 +20,6 @@ zksync_da_client.workspace = true
 zksync_prover_interface.workspace = true
 via_da_client.workspace = true
 via_verifier_types.workspace = true
-
 tokio.workspace = true
 anyhow.workspace = true
 bincode.workspace = true
@@ -30,9 +28,5 @@ async-trait.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
 serde.workspace = true
-
 via_verification.workspace = true
 via_verifier_dal.workspace = true
-via_verifier_state.workspace = true
-
-[dev-dependencies]

@@ -12179,6 +12179,7 @@ dependencies = [
  "via_btc_client",
  "via_musig2",
  "via_verifier_dal",
+ "via_verifier_state",
  "via_verifier_types",
  "via_withdrawal_client",
  "vise",
@@ -12219,6 +12220,32 @@ dependencies = [
  "via_verifier_dal",
  "zksync_config",
  "zksync_dal",
+ "zksync_types",
+]
+
+[[package]]
+name = "via_verifier_state"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "serde",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "via_da_client",
+ "via_verification",
+ "via_verifier_dal",
+ "via_verifier_types",
+ "vise",
+ "zksync_config",
+ "zksync_da_client",
+ "zksync_dal",
+ "zksync_prover_interface",
+ "zksync_shared_metrics",
  "zksync_types",
 ]
 
@@ -12294,6 +12321,7 @@ dependencies = [
  "via_da_client",
  "via_verification",
  "via_verifier_dal",
+ "via_verifier_state",
  "via_verifier_types",
  "vise",
  "zksync_config",
