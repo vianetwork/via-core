@@ -33,5 +33,6 @@ serde.workspace = true
 
 via_verification.workspace = true
 via_verifier_dal.workspace = true
+via_verifier_state.workspace = true
 
 [dev-dependencies]

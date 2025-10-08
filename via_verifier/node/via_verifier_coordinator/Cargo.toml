@@ -19,6 +19,7 @@ via_musig2.workspace = true
 reqwest.workspace = true
 via_withdrawal_client.workspace = true
 via_verifier_types.workspace = true
+via_verifier_state.workspace = true
 
 anyhow.workspace = true
 axum.workspace = true

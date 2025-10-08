@@ -14,10 +14,14 @@ use via_musig2::{
     get_signer_with_merkle_root, transaction_builder::TransactionBuilder, verify_signature, Signer,
 };
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
+use via_verifier_state::sync::ViaState;
 use via_verifier_types::{protocol_version::get_sequencer_version, transaction::UnsignedBridgeTx};
 use via_withdrawal_client::client::WithdrawalClient;
-use zksync_config::configs::{
-    via_bridge::ViaBridgeConfig, via_verifier::ViaVerifierConfig, via_wallets::ViaWallet,
+use zksync_config::{
+    configs::{
+        via_bridge::ViaBridgeConfig, via_verifier::ViaVerifierConfig, via_wallets::ViaWallet,
+    },
+    ViaBtcWatchConfig,
 };
 use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets};
 use zksync_utils::time::seconds_since_epoch;
@@ -42,6 +46,7 @@ pub struct ViaWithdrawalVerifier {
     signer_per_utxo_input: BTreeMap<usize, Signer>,
     final_sig_per_utxo_input: BTreeMap<usize, CompactSignature>,
     via_bridge_config: ViaBridgeConfig,
+    state: ViaState,
 }
 
 impl ViaWithdrawalVerifier {
@@ -52,6 +57,7 @@ impl ViaWithdrawalVerifier {
         btc_client: Arc<dyn BitcoinOps>,
         withdrawal_client: WithdrawalClient,
         via_bridge_config: ViaBridgeConfig,
+        via_btc_watch_config: ViaBtcWatchConfig,
     ) -> anyhow::Result<Self> {
         let transaction_builder = Arc::new(TransactionBuilder::new(btc_client.clone())?);
 
@@ -59,6 +65,12 @@ impl ViaWithdrawalVerifier {
             master_connection_pool.clone(),
             transaction_builder.clone(),
             withdrawal_client,
+        );
+
+        let state = ViaState::new(
+            master_connection_pool.clone(),
+            btc_client.clone(),
+            via_btc_watch_config,
         );
 
         // Add sessions type the verifier network can process
@@ -79,6 +91,7 @@ impl ViaWithdrawalVerifier {
             signer_per_utxo_input: BTreeMap::new(),
             final_sig_per_utxo_input: BTreeMap::new(),
             via_bridge_config,
+            state,
         })
     }
 
@@ -105,22 +118,15 @@ impl ViaWithdrawalVerifier {
     async fn loop_iteration(&mut self) -> Result<(), anyhow::Error> {
         self.session_manager.prepare_session().await?;
 
-        if self
-            .master_connection_pool
-            .connection()
-            .await?
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some()
-        {
+        if self.state.is_reorg_in_progress().await? {
             return Ok(());
         }
-        self.validate_verifier_addresses().await?;
 
-        if self.sync_in_progress().await? {
+        if self.state.is_sync_in_progress().await? {
             return Ok(());
         }
+
+        self.validate_verifier_addresses().await?;
 
         let mut session_info = self.get_session().await?;
 
@@ -711,27 +717,6 @@ impl ViaWithdrawalVerifier {
 
     fn is_coordinator(&self) -> bool {
         self.verifier_config.role == ViaNodeRole::Coordinator
-    }
-
-    async fn sync_in_progress(&self) -> anyhow::Result<bool> {
-        let last_indexed_l1_block_number = self
-            .master_connection_pool
-            .connection_tagged("verifier task")
-            .await?
-            .via_indexer_dal()
-            .get_last_processed_l1_block("via_btc_watch")
-            .await?;
-        let current_l1_block_number = self.btc_client.fetch_block_height().await?;
-
-        if last_indexed_l1_block_number < current_l1_block_number {
-            tracing::debug!(
-                "The verifier synchronization in progress {}/{}",
-                last_indexed_l1_block_number,
-                current_l1_block_number
-            );
-            return Ok(true);
-        }
-        Ok(false)
     }
 
     /// Check if the verifier is in the verifier set and the bridge address is correct.
