@@ -9218,9 +9218,9 @@ checksum = "a3f0bf26fd526d2a95683cd0f87bf103b8539e2ca1ef48ce002d67aad59aa0b4"
 
 [[package]]
 name = "serde"
-version = "1.0.226"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dca6411025b24b60bfa7ec1fe1f8e710ac09782dca409ee8237ba74b51295fd"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
@@ -9257,18 +9257,18 @@ dependencies = [
 
 [[package]]
 name = "serde_core"
-version = "1.0.226"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba2ba63999edb9dac981fb34b3e5c0d111a69b0924e253ed29d83f7c99e966a4"
+checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.226"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8db53ae22f34573731bafa1db20f04027b2d25e02d8205921b569171699cdb33"
+checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2 1.0.89",
  "quote 1.0.37",
@@ -11569,6 +11569,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_btc_send_common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "bitcoin",
+ "chrono",
+ "via_btc_client",
+]
+
+[[package]]
 name = "via_btc_sender"
 version = "0.1.0"
 dependencies = [
@@ -11582,6 +11594,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_send_common",
  "via_da_dispatcher",
  "vise",
  "zksync_config",
@@ -12120,6 +12133,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_send_common",
  "via_da_dispatcher",
  "via_verifier_dal",
  "vise",
@@ -12193,12 +12207,14 @@ name = "via_verifier_dal"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bitcoin",
  "rand 0.8.5",
  "sqlx",
  "strum 0.26.3",
  "thiserror",
  "tokio",
+ "via_btc_send_common",
  "via_verifier_types",
  "zksync_basic_types",
  "zksync_db_connection",
@@ -13873,6 +13889,7 @@ name = "zksync_dal"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bigdecimal",
  "bincode",
  "bitcoin",
@@ -13888,6 +13905,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "via_btc_send_common",
  "vise",
  "zksync_concurrency",
  "zksync_consensus_crypto",

@@ -1,4 +1,9 @@
 use anyhow::Context;
+use async_trait::async_trait;
+use bitcoin::hashes::Hash;
+use via_btc_send_common::{
+    CommonInscriptionHistory, CommonInscriptionRequest, InscriptionHistoryInput, ViaBtcSenderDalOps,
+};
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
 use zksync_types::{
     via_btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory},
@@ -275,5 +280,100 @@ impl ViaBtcSenderDal<'_, '_> {
             .with_context(|| "Error commit transaction confirm inscription")?;
 
         Ok(inscription.into())
+    }
+}
+
+// Implement the common trait for the sequencer DAL
+#[async_trait]
+impl ViaBtcSenderDalOps for ViaBtcSenderDal<'_, '_> {
+    async fn list_new_inscription_requests(
+        &mut self,
+        limit: i64,
+    ) -> anyhow::Result<Vec<CommonInscriptionRequest>> {
+        let requests = self.list_new_inscription_request(limit).await?;
+        Ok(requests
+            .into_iter()
+            .map(|r| CommonInscriptionRequest {
+                id: r.id,
+                request_type: r.request_type,
+                inscription_message: r.inscription_message,
+                predicted_fee: r.predicted_fee,
+                confirmed_inscriptions_request_history_id: r
+                    .confirmed_inscriptions_request_history_id,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            })
+            .collect())
+    }
+
+    async fn get_inflight_inscriptions(&mut self) -> anyhow::Result<Vec<CommonInscriptionRequest>> {
+        let ids = self.list_inflight_inscription_ids().await?;
+        let mut result = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(req) = self.get_inscription_request(id).await? {
+                result.push(CommonInscriptionRequest {
+                    id: req.id,
+                    request_type: req.request_type,
+                    inscription_message: req.inscription_message,
+                    predicted_fee: req.predicted_fee,
+                    confirmed_inscriptions_request_history_id: req
+                        .confirmed_inscriptions_request_history_id,
+                    created_at: req.created_at,
+                    updated_at: req.updated_at,
+                });
+            }
+        }
+        Ok(result)
+    }
+
+    async fn get_last_inscription_history(
+        &mut self,
+        inscription_id: i64,
+    ) -> anyhow::Result<Option<CommonInscriptionHistory>> {
+        let history = self
+            .get_last_inscription_request_history(inscription_id)
+            .await?;
+        Ok(history.map(|h| CommonInscriptionHistory {
+            id: h.id,
+            commit_txid: h.commit_tx_id,
+            reveal_txid: h.reveal_tx_id,
+            inscription_request_id: h.inscription_request_id,
+            signed_commit_tx: h.signed_commit_tx,
+            signed_reveal_tx: h.signed_reveal_tx,
+            actual_fees: h.actual_fees,
+            sent_at_block: h.sent_at_block,
+            confirmed_at: h.confirmed_at,
+            created_at: h.created_at,
+        }))
+    }
+
+    async fn insert_inscription_history(
+        &mut self,
+        inscription_id: i64,
+        input: InscriptionHistoryInput<'_>,
+    ) -> anyhow::Result<i64> {
+        let commit_tx_bytes = input.commit_txid.as_raw_hash().to_byte_array();
+        let reveal_tx_bytes = input.reveal_txid.as_raw_hash().to_byte_array();
+
+        self.insert_inscription_request_history(
+            &commit_tx_bytes,
+            &reveal_tx_bytes,
+            inscription_id,
+            input.signed_commit_tx,
+            input.signed_reveal_tx,
+            input.actual_fees_sat,
+            input.sent_at_block,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    async fn confirm_inscription(
+        &mut self,
+        inscription_id: i64,
+        history_id: i64,
+    ) -> anyhow::Result<()> {
+        self.confirm_inscription(inscription_id, history_id).await?;
+        Ok(())
     }
 }
