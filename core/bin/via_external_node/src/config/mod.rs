@@ -1,6 +1,7 @@
 use std::{
     env,
     ffi::OsString,
+    future::Future,
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     path::PathBuf,
     time::Duration,
@@ -29,7 +30,7 @@ use zksync_dal::{ConnectionPool, Core};
 use zksync_env_config::FromEnv;
 use zksync_metadata_calculator::MetadataCalculatorRecoveryConfig;
 use zksync_node_api_server::{
-    tx_sender::TxSenderConfig,
+    tx_sender::{TimestampAsserterParams, TxSenderConfig},
     web3::{state::InternalApiConfig, Namespace},
 };
 use zksync_protobuf_config::proto;
@@ -41,6 +42,7 @@ use zksync_types::{
 use zksync_web3_decl::{
     client::{DynClient, L2},
     error::ClientRpcContext,
+    jsonrpsee::{core::ClientError, types::error::ErrorCode},
     namespaces::{EnNamespaceClient, ViaNamespaceClient, ZksNamespaceClient},
 };
 
@@ -114,12 +116,18 @@ pub(crate) struct RemoteENConfig {
     // the `l2_erc20_bridge_addr` and `l2_shared_bridge_addr` are basically the same contract, but with
     // a different name, with names adapted only for consistency.
     pub l1_shared_bridge_proxy_addr: Option<Address>,
+    /// Contract address that serves as a shared bridge on L2.
+    /// It is expected that `L2SharedBridge` is used before gateway upgrade, and `L2AssetRouter` is used after.
     pub l2_shared_bridge_addr: Option<Address>,
+    /// Address of `L2SharedBridge` that was used before gateway upgrade.
+    /// `None` if chain genesis used post-gateway protocol version.
+    pub l2_legacy_shared_bridge_addr: Option<Address>,
     pub l1_erc20_bridge_proxy_addr: Option<Address>,
     pub l2_erc20_bridge_addr: Option<Address>,
     pub l1_weth_bridge_addr: Option<Address>,
     pub l2_weth_bridge_addr: Option<Address>,
     pub l2_testnet_paymaster_addr: Option<Address>,
+    pub l2_timestamp_asserter_addr: Option<Address>,
     pub base_token_addr: Address,
     pub l1_batch_commit_data_generator_mode: L1BatchCommitmentMode,
     pub dummy_verifier: bool,
@@ -137,6 +145,12 @@ impl RemoteENConfig {
             .get_bitcoin_network()
             .rpc_context("get_bitcoin_network")
             .await?;
+        let timestamp_asserter_address = handle_rpc_response_with_fallback(
+            client.get_timestamp_asserter(),
+            None,
+            "Failed to fetch timestamp asserter address".to_string(),
+        )
+        .await?;
 
         Ok(Self {
             bridgehub_proxy_addr: None,
@@ -148,6 +162,7 @@ impl RemoteENConfig {
             l2_erc20_bridge_addr: None,
             l1_shared_bridge_proxy_addr: None,
             l2_shared_bridge_addr: Some(Address::repeat_byte(1)), // required in state keeper constructor
+            l2_legacy_shared_bridge_addr: None,
             l1_weth_bridge_addr: None,
             l2_weth_bridge_addr: None,
             base_token_addr: ETHEREUM_ADDRESS,
@@ -159,6 +174,7 @@ impl RemoteENConfig {
                 .as_ref()
                 .map(|a| a.dummy_verifier)
                 .unwrap_or_default(),
+            l2_timestamp_asserter_addr: timestamp_asserter_address,
             via_network,
         })
     }
@@ -178,10 +194,37 @@ impl RemoteENConfig {
             l1_shared_bridge_proxy_addr: Some(Address::repeat_byte(5)),
             l1_weth_bridge_addr: None,
             l2_shared_bridge_addr: Some(Address::repeat_byte(6)),
+            l2_legacy_shared_bridge_addr: Some(Address::repeat_byte(7)),
             l1_batch_commit_data_generator_mode: L1BatchCommitmentMode::Rollup,
             dummy_verifier: true,
+            l2_timestamp_asserter_addr: None,
             via_network: BitcoinNetwork::Regtest,
         }
+    }
+}
+
+async fn handle_rpc_response_with_fallback<T, F>(
+    rpc_call: F,
+    fallback: T,
+    context: String,
+) -> anyhow::Result<T>
+where
+    F: Future<Output = Result<T, ClientError>>,
+    T: Clone,
+{
+    match rpc_call.await {
+        Err(ClientError::Call(err))
+            if [
+                ErrorCode::MethodNotFound.code(),
+                // This what `Web3Error::NotImplemented` gets
+                // `casted` into in the `api` server.
+                ErrorCode::InternalError.code(),
+            ]
+            .contains(&(err.code())) =>
+        {
+            Ok(fallback)
+        }
+        response => response.context(context),
     }
 }
 
@@ -406,6 +449,9 @@ pub(crate) struct OptionalENConfig {
     /// Gateway RPC URL, needed for operating during migration.
     #[allow(dead_code)]
     pub gateway_url: Option<SensitiveUrl>,
+    /// Minimum time between current block.timestamp and the end of the asserted range for TimestampAsserter
+    #[serde(default = "OptionalENConfig::default_timestamp_asserter_min_time_till_end_sec")]
+    pub timestamp_asserter_min_time_till_end_sec: u32,
 }
 
 impl OptionalENConfig {
@@ -636,6 +682,11 @@ impl OptionalENConfig {
             api_namespaces,
             contracts_diamond_proxy_addr: None,
             gateway_url: enconfig.gateway_url.clone(),
+            timestamp_asserter_min_time_till_end_sec: general_config
+                .timestamp_asserter_config
+                .as_ref()
+                .map(|x| x.min_time_till_end_sec)
+                .unwrap_or_else(Self::default_timestamp_asserter_min_time_till_end_sec),
         })
     }
 
@@ -770,6 +821,9 @@ impl OptionalENConfig {
         3_600 * 24 * 7 // 7 days
     }
 
+    const fn default_timestamp_asserter_min_time_till_end_sec() -> u32 {
+        60
+    }
     fn from_env() -> anyhow::Result<Self> {
         let mut result: OptionalENConfig = envy::prefixed("EN_")
             .from_env()
@@ -1356,6 +1410,7 @@ impl From<&ExternalNodeConfig> for InternalApiConfig {
                 l2_erc20_default_bridge: config.remote.l2_erc20_bridge_addr,
                 l1_shared_default_bridge: config.remote.l1_shared_bridge_proxy_addr,
                 l2_shared_default_bridge: config.remote.l2_shared_bridge_addr,
+                l2_legacy_shared_bridge: config.remote.l2_legacy_shared_bridge_addr,
                 l1_weth_bridge: config.remote.l1_weth_bridge_addr,
                 l2_weth_bridge: config.remote.l2_weth_bridge_addr,
             },
@@ -1370,6 +1425,7 @@ impl From<&ExternalNodeConfig> for InternalApiConfig {
             filters_disabled: config.optional.filters_disabled,
             dummy_verifier: config.remote.dummy_verifier,
             l1_batch_commit_data_generator_mode: config.remote.l1_batch_commit_data_generator_mode,
+            timestamp_asserter_address: config.remote.l2_timestamp_asserter_addr,
             via_network: config.remote.via_network,
         }
     }
@@ -1393,6 +1449,17 @@ impl From<&ExternalNodeConfig> for TxSenderConfig {
             chain_id: config.required.l2_chain_id,
             // Does not matter for EN.
             whitelisted_tokens_for_aa: Default::default(),
+            timestamp_asserter_params: config.remote.l2_timestamp_asserter_addr.map(|address| {
+                TimestampAsserterParams {
+                    address,
+                    min_time_till_end: Duration::from_secs(
+                        config
+                            .optional
+                            .timestamp_asserter_min_time_till_end_sec
+                            .into(),
+                    ),
+                }
+            }),
         }
     }
 }

@@ -70,15 +70,16 @@ pub enum ProtocolVersionId {
     Version25,
     Version26,
     Version27,
+    Version28,
 }
 
 impl ProtocolVersionId {
     pub const fn latest() -> Self {
-        Self::Version27
+        Self::Version28
     }
 
     pub const fn next() -> Self {
-        Self::Version27
+        Self::Version28
     }
 
     pub fn try_from_packed_semver(packed_semver: U256) -> Result<Self, String> {
@@ -122,8 +123,9 @@ impl ProtocolVersionId {
             ProtocolVersionId::Version23 => VmVersion::Vm1_5_0SmallBootloaderMemory,
             ProtocolVersionId::Version24 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
             ProtocolVersionId::Version25 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
-            ProtocolVersionId::Version26 => VmVersion::VmBitcoin1_0_0,
-            ProtocolVersionId::Version27 => VmVersion::VmBitcoin1_0_0,
+            ProtocolVersionId::Version26 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
+            ProtocolVersionId::Version27 => VmVersion::VmGateway,
+            ProtocolVersionId::Version28 => VmVersion::VmBitcoin1_0_0,
         }
     }
 
@@ -139,6 +141,11 @@ impl ProtocolVersionId {
 
     pub fn is_pre_shared_bridge(&self) -> bool {
         self <= &Self::Version22
+    }
+
+    pub fn is_pre_gateway(&self) -> bool {
+        // self <= &Self::Version26
+        true
     }
 
     pub fn is_1_4_0(&self) -> bool {
@@ -279,8 +286,9 @@ impl From<ProtocolVersionId> for VmVersion {
             ProtocolVersionId::Version23 => VmVersion::Vm1_5_0SmallBootloaderMemory,
             ProtocolVersionId::Version24 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
             ProtocolVersionId::Version25 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
-            ProtocolVersionId::Version26 => VmVersion::VmBitcoin1_0_0,
-            ProtocolVersionId::Version27 => VmVersion::VmBitcoin1_0_0,
+            ProtocolVersionId::Version26 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
+            ProtocolVersionId::Version27 => VmVersion::VmGateway,
+            ProtocolVersionId::Version28 => VmVersion::VmBitcoin1_0_0,
         }
     }
 }

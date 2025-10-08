@@ -15,7 +15,7 @@ _zkstack() {
 
     local context curcontext="$curcontext" state line
     _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -37,7 +37,7 @@ _arguments "${_arguments_options[@]}" : \
 '--generate=[The shell to generate the autocomplete script for]:GENERATOR:(bash elvish fish powershell zsh)' \
 '-o+[The out directory to write the autocomplete script to]:OUT:_files' \
 '--out=[The out directory to write the autocomplete script to]:OUT:_files' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -47,7 +47,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (ecosystem)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -65,11 +65,11 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (create)
 _arguments "${_arguments_options[@]}" : \
-'--ecosystem-name=[]:ECOSYSTEM_NAME: ' \
+'--ecosystem-name=[]:ECOSYSTEM_NAME:_default' \
 '--l1-network=[L1 Network]:L1_NETWORK:(localhost sepolia holesky mainnet)' \
 '--link-to-code=[Code link]:LINK_TO_CODE:_files -/' \
-'--chain-name=[]:CHAIN_NAME: ' \
-'--chain-id=[Chain ID]:CHAIN_ID: ' \
+'--chain-name=[]:CHAIN_NAME:_default' \
+'--chain-id=[Chain ID]:CHAIN_ID:_default' \
 '--prover-mode=[Prover options]:PROVER_MODE:(no-proofs gpu)' \
 '--wallet-creation=[Wallet options]:WALLET_CREATION:((localhost\:"Load wallets from localhost mnemonic, they are funded for localhost env"
 random\:"Generate random wallets"
@@ -77,12 +77,13 @@ empty\:"Generate placeholder wallets"
 in-file\:"Specify file with wallets"))' \
 '--wallet-path=[Wallet path]:WALLET_PATH:_files' \
 '--l1-batch-commit-data-generator-mode=[Commit data generation mode]:L1_BATCH_COMMIT_DATA_GENERATOR_MODE:(rollup validium)' \
-'--base-token-address=[Base token address]:BASE_TOKEN_ADDRESS: ' \
-'--base-token-price-nominator=[Base token nominator]:BASE_TOKEN_PRICE_NOMINATOR: ' \
-'--base-token-price-denominator=[Base token denominator]:BASE_TOKEN_PRICE_DENOMINATOR: ' \
+'--base-token-address=[Base token address]:BASE_TOKEN_ADDRESS:_default' \
+'--base-token-price-nominator=[Base token nominator]:BASE_TOKEN_PRICE_NOMINATOR:_default' \
+'--base-token-price-denominator=[Base token denominator]:BASE_TOKEN_PRICE_DENOMINATOR:_default' \
 '--set-as-default=[Set as default chain]' \
+'--evm-emulator=[Enable EVM emulator]' \
 '--start-containers=[Start reth and postgres containers after creation]' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--legacy-bridge[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -93,17 +94,17 @@ in-file\:"Specify file with wallets"))' \
 ;;
 (build-transactions)
 _arguments "${_arguments_options[@]}" : \
-'--sender=[Address of the transaction sender]:SENDER: ' \
-'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL: ' \
+'--sender=[Address of the transaction sender]:SENDER:_default' \
+'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL:_default' \
 '-o+[Output directory for the generated files]:OUT:_files' \
 '--out=[Output directory for the generated files]:OUT:_files' \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -117,26 +118,24 @@ _arguments "${_arguments_options[@]}" : \
 '--deploy-erc20=[Deploy ERC20 contracts]' \
 '--deploy-ecosystem=[Deploy ecosystem contracts]' \
 '--ecosystem-contracts-path=[Path to ecosystem contracts]:ECOSYSTEM_CONTRACTS_PATH:_files' \
-'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL: ' \
+'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL:_default' \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
 '--deploy-paymaster=[Deploy Paymaster contract]' \
-'--server-db-url=[Server database url without database name]:SERVER_DB_URL: ' \
-'--server-db-name=[Server database name]:SERVER_DB_NAME: ' \
+'--server-db-url=[Server database url without database name]:SERVER_DB_URL:_default' \
+'--server-db-name=[Server database name]:SERVER_DB_NAME:_default' \
 '-o+[Enable Grafana]' \
 '--observability=[Enable Grafana]' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
-'-u[Use default database urls and names]' \
-'--use-default[Use default database urls and names]' \
 '-d[]' \
 '--dont-drop[]' \
 '--ecosystem-only[Initialize ecosystem only and skip chain initialization (chain can be initialized later with \`chain init\` subcommand)]' \
-'--dev[Deploy ecosystem  using all defaults. Suitable for local development]' \
+'--dev[Use defaults for all options and flags. Suitable for local development]' \
 '--no-port-reallocation[Do not reallocate ports]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -147,18 +146,18 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (change-default-chain)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::name:' \
+'::name:_default' \
 && ret=0
 ;;
 (setup-observability)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -212,7 +211,7 @@ esac
 ;;
 (chain)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -230,8 +229,8 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (create)
 _arguments "${_arguments_options[@]}" : \
-'--chain-name=[]:CHAIN_NAME: ' \
-'--chain-id=[Chain ID]:CHAIN_ID: ' \
+'--chain-name=[]:CHAIN_NAME:_default' \
+'--chain-id=[Chain ID]:CHAIN_ID:_default' \
 '--prover-mode=[Prover options]:PROVER_MODE:(no-proofs gpu)' \
 '--wallet-creation=[Wallet options]:WALLET_CREATION:((localhost\:"Load wallets from localhost mnemonic, they are funded for localhost env"
 random\:"Generate random wallets"
@@ -239,11 +238,12 @@ empty\:"Generate placeholder wallets"
 in-file\:"Specify file with wallets"))' \
 '--wallet-path=[Wallet path]:WALLET_PATH:_files' \
 '--l1-batch-commit-data-generator-mode=[Commit data generation mode]:L1_BATCH_COMMIT_DATA_GENERATOR_MODE:(rollup validium)' \
-'--base-token-address=[Base token address]:BASE_TOKEN_ADDRESS: ' \
-'--base-token-price-nominator=[Base token nominator]:BASE_TOKEN_PRICE_NOMINATOR: ' \
-'--base-token-price-denominator=[Base token denominator]:BASE_TOKEN_PRICE_DENOMINATOR: ' \
+'--base-token-address=[Base token address]:BASE_TOKEN_ADDRESS:_default' \
+'--base-token-price-nominator=[Base token nominator]:BASE_TOKEN_PRICE_NOMINATOR:_default' \
+'--base-token-price-denominator=[Base token denominator]:BASE_TOKEN_PRICE_DENOMINATOR:_default' \
 '--set-as-default=[Set as default chain]' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--evm-emulator=[Enable EVM emulator]' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--legacy-bridge[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -258,12 +258,12 @@ _arguments "${_arguments_options[@]}" : \
 '--out=[Output directory for the generated files]:OUT:_files' \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -276,21 +276,20 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--server-db-url=[Server database url without database name]:SERVER_DB_URL: ' \
-'--server-db-name=[Server database name]:SERVER_DB_NAME: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--server-db-url=[Server database url without database name]:SERVER_DB_URL:_default' \
+'--server-db-name=[Server database name]:SERVER_DB_NAME:_default' \
 '--deploy-paymaster=[]' \
-'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
-'-u[Use default database urls and names]' \
-'--use-default[Use default database urls and names]' \
 '-d[]' \
 '--dont-drop[]' \
 '--no-port-reallocation[Do not reallocate ports]' \
+'--dev[Use defaults for all options and flags. Suitable for local development]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -308,12 +307,12 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (configs)
 _arguments "${_arguments_options[@]}" : \
-'--server-db-url=[Server database url without database name]:SERVER_DB_URL: ' \
-'--server-db-name=[Server database name]:SERVER_DB_NAME: ' \
-'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
-'-u[Use default database urls and names]' \
-'--use-default[Use default database urls and names]' \
+'--server-db-url=[Server database url without database name]:SERVER_DB_URL:_default' \
+'--server-db-name=[Server database name]:SERVER_DB_NAME:_default' \
+'--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
+'-d[Use default database urls and names]' \
+'--dev[Use default database urls and names]' \
 '-d[]' \
 '--dont-drop[]' \
 '--no-port-reallocation[Do not reallocate ports]' \
@@ -354,11 +353,11 @@ esac
 ;;
 (genesis)
 _arguments "${_arguments_options[@]}" : \
-'--server-db-url=[Server database url without database name]:SERVER_DB_URL: ' \
-'--server-db-name=[Server database name]:SERVER_DB_NAME: ' \
-'--chain=[Chain to use]:CHAIN: ' \
-'-u[Use default database urls and names]' \
-'--use-default[Use default database urls and names]' \
+'--server-db-url=[Server database url without database name]:SERVER_DB_URL:_default' \
+'--server-db-name=[Server database name]:SERVER_DB_NAME:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
+'-d[Use default database urls and names]' \
+'--dev[Use default database urls and names]' \
 '-d[]' \
 '--dont-drop[]' \
 '-v[Verbose mode]' \
@@ -378,11 +377,11 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (init-database)
 _arguments "${_arguments_options[@]}" : \
-'--server-db-url=[Server database url without database name]:SERVER_DB_URL: ' \
-'--server-db-name=[Server database name]:SERVER_DB_NAME: ' \
-'--chain=[Chain to use]:CHAIN: ' \
-'-u[Use default database urls and names]' \
-'--use-default[Use default database urls and names]' \
+'--server-db-url=[Server database url without database name]:SERVER_DB_URL:_default' \
+'--server-db-name=[Server database name]:SERVER_DB_NAME:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
+'-d[Use default database urls and names]' \
+'--dev[Use default database urls and names]' \
 '-d[]' \
 '--dont-drop[]' \
 '-v[Verbose mode]' \
@@ -394,7 +393,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (server)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -438,11 +437,11 @@ esac
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -455,11 +454,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -472,11 +471,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -489,11 +488,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -506,11 +505,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -523,11 +522,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -540,11 +539,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -557,11 +556,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -574,11 +573,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--verify=[Verify deployed contracts]' \
 '--verifier=[Verifier to use]:VERIFIER:(etherscan sourcify blockscout oklink)' \
-'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL: ' \
-'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY: ' \
-'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--verifier-url=[Verifier URL, if using a custom provider]:VERIFIER_URL:_default' \
+'--verifier-api-key=[Verifier API key]:VERIFIER_API_KEY:_default' \
+'*-a+[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[List of additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--resume[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -701,7 +700,7 @@ esac
 ;;
 (dev)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -719,7 +718,7 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (database)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -739,11 +738,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '-p+[Prover database]' \
 '--prover=[Prover database]' \
-'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL: ' \
+'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL:_default' \
 '-c+[Core database]' \
 '--core=[Core database]' \
-'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -755,11 +754,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '-p+[Prover database]' \
 '--prover=[Prover database]' \
-'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL: ' \
+'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL:_default' \
 '-c+[Core database]' \
 '--core=[Core database]' \
-'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -771,11 +770,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '-p+[Prover database]' \
 '--prover=[Prover database]' \
-'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL: ' \
+'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL:_default' \
 '-c+[Core database]' \
 '--core=[Core database]' \
-'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -786,8 +785,8 @@ _arguments "${_arguments_options[@]}" : \
 (new-migration)
 _arguments "${_arguments_options[@]}" : \
 '--database=[Database to create new migration for]:DATABASE:(prover core)' \
-'--name=[Migration name]:NAME: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--name=[Migration name]:NAME:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -799,11 +798,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '-p+[Prover database]' \
 '--prover=[Prover database]' \
-'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL: ' \
+'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL:_default' \
 '-c+[Core database]' \
 '--core=[Core database]' \
-'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -815,11 +814,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '-p+[Prover database]' \
 '--prover=[Prover database]' \
-'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL: ' \
+'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL:_default' \
 '-c+[Core database]' \
 '--core=[Core database]' \
-'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -831,11 +830,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '-p+[Prover database]' \
 '--prover=[Prover database]' \
-'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL: ' \
+'--prover-url=[URL of the Prover database. If not specified, it is used from the current chain'\''s secrets]:PROVER_URL:_default' \
 '-c+[Core database]' \
 '--core=[Core database]' \
-'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--core-url=[URL of the Core database. If not specified, it is used from the current chain'\''s secrets.]:CORE_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -897,7 +896,7 @@ esac
 ;;
 (test)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -915,9 +914,9 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (integration)
 _arguments "${_arguments_options[@]}" : \
-'-t+[Run just the tests matching a pattern. Same as the -t flag on jest.]:TEST_PATTERN: ' \
-'--test-pattern=[Run just the tests matching a pattern. Same as the -t flag on jest.]:TEST_PATTERN: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'-t+[Run just the tests matching a pattern. Same as the -t flag on jest.]:TEST_PATTERN:_default' \
+'--test-pattern=[Run just the tests matching a pattern. Same as the -t flag on jest.]:TEST_PATTERN:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-e[Run tests for external node]' \
 '--external-node[Run tests for external node]' \
 '-n[Do not install or build dependencies]' \
@@ -931,7 +930,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (fees)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-n[Do not install or build dependencies]' \
 '--no-deps[Do not install or build dependencies]' \
 '--no-kill[The test will not kill all the nodes during execution]' \
@@ -944,7 +943,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (revert)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--enable-consensus[Enable consensus]' \
 '-e[Run tests for external node]' \
 '--external-node[Run tests for external node]' \
@@ -960,7 +959,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (recovery)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-s[Run recovery from a snapshot instead of genesis]' \
 '--snapshot[Run recovery from a snapshot instead of genesis]' \
 '-n[Do not install or build dependencies]' \
@@ -975,7 +974,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (upgrade)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-n[Do not install or build dependencies]' \
 '--no-deps[Do not install or build dependencies]' \
 '-v[Verbose mode]' \
@@ -987,7 +986,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (build)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -997,8 +996,8 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (rust)
 _arguments "${_arguments_options[@]}" : \
-'--options=[Cargo test flags]:OPTIONS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--options=[Cargo test flags]:OPTIONS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1008,7 +1007,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (l1-contracts)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1018,7 +1017,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (prover)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1028,7 +1027,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (wallet)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1038,7 +1037,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (loadtest)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1116,7 +1115,7 @@ esac
 ;;
 (clean)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1134,7 +1133,7 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (all)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1144,7 +1143,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (containers)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1154,7 +1153,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (contracts-cache)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1200,7 +1199,7 @@ esac
 ;;
 (snapshot)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1218,7 +1217,7 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (create)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1258,7 +1257,7 @@ esac
 _arguments "${_arguments_options[@]}" : \
 '*-t+[]:TARGETS:(md sol js ts rs contracts autocompletion)' \
 '*--targets=[]:TARGETS:(md sol js ts rs contracts autocompletion)' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-c[]' \
 '--check[]' \
 '-v[Verbose mode]' \
@@ -1270,7 +1269,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (fmt)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-c[]' \
 '--check[]' \
 '-v[Verbose mode]' \
@@ -1290,7 +1289,7 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (rustfmt)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1300,7 +1299,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (contract)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1312,7 +1311,7 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '*-t+[]:TARGETS:(md sol js ts rs contracts autocompletion)' \
 '*--targets=[]:TARGETS:(md sol js ts rs contracts autocompletion)' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1358,7 +1357,7 @@ esac
 ;;
 (prover)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1376,7 +1375,7 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (info)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1386,9 +1385,9 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (insert-batch)
 _arguments "${_arguments_options[@]}" : \
-'--number=[]:NUMBER: ' \
-'--version=[]:VERSION: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--number=[]:NUMBER:_default' \
+'--version=[]:VERSION:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--default[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -1399,9 +1398,9 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (insert-version)
 _arguments "${_arguments_options[@]}" : \
-'--version=[]:VERSION: ' \
-'--snark-wrapper=[]:SNARK_WRAPPER: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--version=[]:VERSION:_default' \
+'--snark-wrapper=[]:SNARK_WRAPPER:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--default[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -1452,7 +1451,7 @@ _arguments "${_arguments_options[@]}" : \
 '--l2-contracts=[Build L2 contracts]' \
 '--system-contracts=[Build system contracts]' \
 '--test-contracts=[Build test contracts]' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1462,9 +1461,9 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (config-writer)
 _arguments "${_arguments_options[@]}" : \
-'-p+[Path to the config file to override]:PATH: ' \
-'--path=[Path to the config file to override]:PATH: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'-p+[Path to the config file to override]:PATH:_default' \
+'--path=[Path to the config file to override]:PATH:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1475,10 +1474,10 @@ _arguments "${_arguments_options[@]}" : \
 (send-transactions)
 _arguments "${_arguments_options[@]}" : \
 '--file=[]:FILE:_files' \
-'--private-key=[]:PRIVATE_KEY: ' \
-'--l1-rpc-url=[]:L1_RPC_URL: ' \
-'--confirmations=[]:CONFIRMATIONS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--private-key=[]:PRIVATE_KEY:_default' \
+'--l1-rpc-url=[]:L1_RPC_URL:_default' \
+'--confirmations=[]:CONFIRMATIONS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1488,9 +1487,9 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (status)
 _arguments "${_arguments_options[@]}" : \
-'-u+[URL of the health check endpoint]:URL: ' \
-'--url=[URL of the health check endpoint]:URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'-u+[URL of the health check endpoint]:URL:_default' \
+'--url=[URL of the health check endpoint]:URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1508,7 +1507,7 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (ports)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1546,7 +1545,7 @@ esac
 ;;
 (generate-genesis)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1828,7 +1827,7 @@ esac
 ;;
 (prover)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1846,35 +1845,35 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (init)
 _arguments "${_arguments_options[@]}" : \
-'--proof-store-dir=[]:PROOF_STORE_DIR: ' \
-'--bucket-base-url=[]:BUCKET_BASE_URL: ' \
-'--credentials-file=[]:CREDENTIALS_FILE: ' \
-'--bucket-name=[]:BUCKET_NAME: ' \
-'--location=[]:LOCATION: ' \
-'--project-id=[]:PROJECT_ID: ' \
+'--proof-store-dir=[]:PROOF_STORE_DIR:_default' \
+'--bucket-base-url=[]:BUCKET_BASE_URL:_default' \
+'--credentials-file=[]:CREDENTIALS_FILE:_default' \
+'--bucket-name=[]:BUCKET_NAME:_default' \
+'--location=[]:LOCATION:_default' \
+'--project-id=[]:PROJECT_ID:_default' \
 '--shall-save-to-public-bucket=[]:SHALL_SAVE_TO_PUBLIC_BUCKET:(true false)' \
-'--public-store-dir=[]:PUBLIC_STORE_DIR: ' \
-'--public-bucket-base-url=[]:PUBLIC_BUCKET_BASE_URL: ' \
-'--public-credentials-file=[]:PUBLIC_CREDENTIALS_FILE: ' \
-'--public-bucket-name=[]:PUBLIC_BUCKET_NAME: ' \
-'--public-location=[]:PUBLIC_LOCATION: ' \
-'--public-project-id=[]:PUBLIC_PROJECT_ID: ' \
-'(--clone)--bellman-cuda-dir=[]:BELLMAN_CUDA_DIR: ' \
+'--public-store-dir=[]:PUBLIC_STORE_DIR:_default' \
+'--public-bucket-base-url=[]:PUBLIC_BUCKET_BASE_URL:_default' \
+'--public-credentials-file=[]:PUBLIC_CREDENTIALS_FILE:_default' \
+'--public-bucket-name=[]:PUBLIC_BUCKET_NAME:_default' \
+'--public-location=[]:PUBLIC_LOCATION:_default' \
+'--public-project-id=[]:PUBLIC_PROJECT_ID:_default' \
+'(--clone)--bellman-cuda-dir=[]:BELLMAN_CUDA_DIR:_default' \
 '--bellman-cuda=[]' \
 '--setup-compressor-key=[]' \
-'--path=[]:PATH: ' \
+'--path=[]:PATH:_default' \
 '--region=[]:REGION:(us europe asia)' \
 '--mode=[]:MODE:(download generate)' \
 '--setup-keys=[]' \
 '--setup-database=[]:SETUP_DATABASE:(true false)' \
-'--prover-db-url=[Prover database url without database name]:PROVER_DB_URL: ' \
-'--prover-db-name=[Prover database name]:PROVER_DB_NAME: ' \
+'--prover-db-url=[Prover database url without database name]:PROVER_DB_URL:_default' \
+'--prover-db-name=[Prover database name]:PROVER_DB_NAME:_default' \
 '-u+[Use default database urls and names]:USE_DEFAULT:(true false)' \
 '--use-default=[Use default database urls and names]:USE_DEFAULT:(true false)' \
 '-d+[]:DONT_DROP:(true false)' \
 '--dont-drop=[]:DONT_DROP:(true false)' \
 '--cloud-type=[]:CLOUD_TYPE:(gcp local)' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--dev[]' \
 '(--bellman-cuda-dir)--clone[]' \
 '-v[Verbose mode]' \
@@ -1888,7 +1887,7 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--region=[]:REGION:(us europe asia)' \
 '--mode=[]:MODE:(download generate)' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1900,13 +1899,13 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--component=[]:COMPONENT:(gateway witness-generator witness-vector-generator prover circuit-prover compressor prover-job-monitor)' \
 '--round=[]:ROUND:(all-rounds basic-circuits leaf-aggregation node-aggregation recursion-tip scheduler)' \
-'--threads=[]:THREADS: ' \
-'--max-allocation=[Memory allocation limit in bytes (for prover component)]:MAX_ALLOCATION: ' \
-'--witness-vector-generator-count=[]:WITNESS_VECTOR_GENERATOR_COUNT: ' \
-'--max-allocation=[]:MAX_ALLOCATION: ' \
+'--threads=[]:THREADS:_default' \
+'--max-allocation=[Memory allocation limit in bytes (for prover component)]:MAX_ALLOCATION:_default' \
+'--witness-vector-generator-count=[]:WITNESS_VECTOR_GENERATOR_COUNT:_default' \
+'--max-allocation=[]:MAX_ALLOCATION:_default' \
 '--docker=[]:DOCKER:(true false)' \
-'--tag=[]:TAG: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--tag=[]:TAG:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1916,8 +1915,8 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (init-bellman-cuda)
 _arguments "${_arguments_options[@]}" : \
-'(--clone)--bellman-cuda-dir=[]:BELLMAN_CUDA_DIR: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'(--clone)--bellman-cuda-dir=[]:BELLMAN_CUDA_DIR:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '(--bellman-cuda-dir)--clone[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -1928,8 +1927,8 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (compressor-keys)
 _arguments "${_arguments_options[@]}" : \
-'--path=[]:PATH: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--path=[]:PATH:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -1983,10 +1982,10 @@ esac
 ;;
 (server)
 _arguments "${_arguments_options[@]}" : \
-'*--components=[Components of server to run]:COMPONENTS: ' \
-'*-a+[Additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[Additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'*--components=[Components of server to run]:COMPONENTS:_default' \
+'*-a+[Additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[Additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--genesis[Run server in genesis mode]' \
 '--build[Build server but don'\''t run it]' \
 '--uring[Enables uring support for RocksDB]' \
@@ -1999,7 +1998,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (external-node)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2017,10 +2016,10 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (configs)
 _arguments "${_arguments_options[@]}" : \
-'--db-url=[]:DB_URL: ' \
-'--db-name=[]:DB_NAME: ' \
-'--l1-rpc-url=[]:L1_RPC_URL: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--db-url=[]:DB_URL:_default' \
+'--db-name=[]:DB_NAME:_default' \
+'--l1-rpc-url=[]:L1_RPC_URL:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-u[Use default database urls and names]' \
 '--use-default[Use default database urls and names]' \
 '-v[Verbose mode]' \
@@ -2032,7 +2031,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (init)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2042,11 +2041,11 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (run)
 _arguments "${_arguments_options[@]}" : \
-'*--components=[Components of server to run]:COMPONENTS: ' \
+'*--components=[Components of server to run]:COMPONENTS:_default' \
 '--enable-consensus=[Enable consensus]' \
-'*-a+[Additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'*--additional-args=[Additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'*-a+[Additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'*--additional-args=[Additional arguments that can be passed through the CLI]:ADDITIONAL_ARGS:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--reinit[]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -2095,7 +2094,7 @@ esac
 _arguments "${_arguments_options[@]}" : \
 '-o+[Enable Grafana]' \
 '--observability=[Enable Grafana]' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2105,7 +2104,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (contract-verifier)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2123,7 +2122,7 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (run)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2133,12 +2132,12 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (init)
 _arguments "${_arguments_options[@]}" : \
-'--zksolc-version=[Version of zksolc to install]:ZKSOLC_VERSION: ' \
-'--zkvyper-version=[Version of zkvyper to install]:ZKVYPER_VERSION: ' \
-'--solc-version=[Version of solc to install]:SOLC_VERSION: ' \
-'--era-vm-solc-version=[Version of era vm solc to install]:ERA_VM_SOLC_VERSION: ' \
-'--vyper-version=[Version of vyper to install]:VYPER_VERSION: ' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--zksolc-version=[Version of zksolc to install]:ZKSOLC_VERSION:_default' \
+'--zkvyper-version=[Version of zkvyper to install]:ZKVYPER_VERSION:_default' \
+'--solc-version=[Version of solc to install]:SOLC_VERSION:_default' \
+'--era-vm-solc-version=[Version of era vm solc to install]:ERA_VM_SOLC_VERSION:_default' \
+'--vyper-version=[Version of vyper to install]:VYPER_VERSION:_default' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--only[Install only provided compilers]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -2181,7 +2180,7 @@ esac
 ;;
 (portal)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2191,7 +2190,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (explorer)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2209,7 +2208,7 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (init)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2219,7 +2218,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (run-backend)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2229,7 +2228,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (run)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2275,7 +2274,7 @@ esac
 ;;
 (consensus)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2294,7 +2293,7 @@ _arguments "${_arguments_options[@]}" : \
             (set-attester-committee)
 _arguments "${_arguments_options[@]}" : \
 '--from-file=[Sets the attester committee in the consensus registry contract to the committee in the yaml file. File format is definied in \`commands/consensus/proto/mod.proto\`]:FROM_FILE:_files' \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '--from-genesis[Sets the attester committee in the consensus registry contract to \`consensus.genesis_spec.attesters\` in general.yaml]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
@@ -2305,7 +2304,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (get-attester-committee)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
@@ -2347,7 +2346,7 @@ esac
 ;;
 (update)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-c[Update only the config files]' \
 '--only-config[Update only the config files]' \
 '-v[Verbose mode]' \
@@ -2359,7 +2358,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (markdown)
 _arguments "${_arguments_options[@]}" : \
-'--chain=[Chain to use]:CHAIN: ' \
+'--chain=[Chain to use]:CHAIN:_default' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \

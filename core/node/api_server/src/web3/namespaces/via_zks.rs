@@ -149,11 +149,16 @@ impl ZksNamespace {
         BridgeAddresses {
             l1_shared_default_bridge: None,
             l2_shared_default_bridge: None,
+            l2_legacy_shared_bridge: None,
             l1_erc20_default_bridge: None,
             l2_erc20_default_bridge: None,
             l1_weth_bridge: None,
             l2_weth_bridge: None,
         }
+    }
+
+    pub fn get_timestamp_asserter_impl(&self) -> Option<Address> {
+        self.state.api_config.timestamp_asserter_address
     }
 
     pub fn l1_chain_id_impl(&self) -> U64 {

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Context;
 use via_da_clients::wiring_layer::ViaDaClientWiringLayer;
 use zksync_config::{
@@ -7,7 +9,7 @@ use zksync_config::{
 use zksync_core_leftovers::ViaComponent;
 use zksync_metadata_calculator::MetadataCalculatorConfig;
 use zksync_node_api_server::{
-    tx_sender::TxSenderConfig,
+    tx_sender::{TimestampAsserterParams, TxSenderConfig},
     web3::{state::InternalApiConfig, Namespace},
 };
 use zksync_node_framework::{
@@ -248,6 +250,20 @@ impl ViaNodeBuilder {
     fn add_tx_sender_layer(mut self) -> anyhow::Result<Self> {
         let sk_config = try_load_config!(self.configs.state_keeper_config);
         let rpc_config = try_load_config!(self.configs.api_config).web3_json_rpc;
+
+        let timestamp_asserter_params = match self.contracts_config.l2_timestamp_asserter_addr {
+            Some(address) => {
+                let timestamp_asserter_config =
+                    try_load_config!(self.configs.timestamp_asserter_config);
+                Some(TimestampAsserterParams {
+                    address,
+                    min_time_till_end: Duration::from_secs(
+                        timestamp_asserter_config.min_time_till_end_sec.into(),
+                    ),
+                })
+            }
+            None => None,
+        };
         let postgres_storage_caches_config = PostgresStorageCachesConfig {
             factory_deps_cache_size: rpc_config.factory_deps_cache_size() as u64,
             initial_writes_cache_size: rpc_config.initial_writes_cache_size() as u64,
@@ -265,6 +281,7 @@ impl ViaNodeBuilder {
                     .fee_account
                     .address(),
                 self.genesis_config.l2_chain_id,
+                timestamp_asserter_params,
             ),
             postgres_storage_caches_config,
             rpc_config.vm_concurrency_limit(),
@@ -359,9 +376,7 @@ impl ViaNodeBuilder {
         let wallets = self.wallets.clone();
         let sk_config = try_load_config!(self.configs.state_keeper_config);
         let persistence_layer = OutputHandlerLayer::new(
-            self.contracts_config
-                .l2_shared_bridge_addr
-                .context("L2 shared bridge address")?,
+            self.contracts_config.l2_legacy_shared_bridge_addr,
             sk_config.l2_block_seal_queue_capacity,
         )
         .with_protective_reads_persistence_enabled(sk_config.protective_reads_persistence_enabled);
@@ -370,6 +385,8 @@ impl ViaNodeBuilder {
             sk_config.clone(),
             try_load_config!(self.configs.mempool_config),
             try_load_config!(wallets.state_keeper),
+            self.contracts_config.l2_da_validator_addr,
+            self.genesis_config.l1_batch_commit_data_generator_mode,
         );
         let db_config = try_load_config!(self.configs.db_config);
         let experimental_vm_config = self

@@ -9,7 +9,10 @@ use tokio::{
 use via_block_reverter::{NodeRole, ViaBlockReverter};
 use zksync_config::{
     configs::{
-        chain::{CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig},
+        chain::{
+            CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig,
+            TimestampAsserterConfig,
+        },
         fri_prover_group::FriProverGroupConfig,
         house_keeper::HouseKeeperConfig,
         BasicWitnessInputProducerConfig, DatabaseSecrets, ExperimentalVmConfig,
@@ -287,5 +290,6 @@ pub(crate) fn load_env_config() -> anyhow::Result<GeneralConfig> {
         experimental_vm_config: ExperimentalVmConfig::from_env().ok(),
         prover_job_monitor_config: ProverJobMonitorConfig::from_env().ok(),
         da_client_config: None,
+        timestamp_asserter_config: TimestampAsserterConfig::from_env().ok(),
     })
 }

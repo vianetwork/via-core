@@ -516,6 +516,13 @@ impl BaseSystemContracts {
         BaseSystemContracts::load_with_bootloader(bootloader_bytecode)
     }
 
+    pub fn playground_gateway() -> Self {
+        let bootloader_bytecode = read_zbin_bytecode(
+            "etc/multivm_bootloaders/vm_gateway/playground_batch.yul/playground_batch.yul.zbin",
+        );
+        BaseSystemContracts::load_with_bootloader(bootloader_bytecode)
+    }
+
     pub fn playground_bitcoin_1_0_0() -> Self {
         let bootloader_bytecode = read_zbin_bytecode(
             "etc/multivm_bootloaders/vm_bitcoin/playground_batch.yul/playground_batch.yul.zbin",
@@ -526,6 +533,13 @@ impl BaseSystemContracts {
     pub fn playground_bitcoin_1_0_1() -> Self {
         let bootloader_bytecode = read_zbin_bytecode(
             "etc/multivm_bootloaders/vm_bitcoin_1_0_1/playground_batch.yul/playground_batch.yul.zbin",
+        );
+        BaseSystemContracts::load_with_bootloader(bootloader_bytecode)
+    }
+
+    pub fn playground_bitcoin_gateway() -> Self {
+        let bootloader_bytecode = read_zbin_bytecode(
+            "etc/multivm_bootloaders/vm_bitcoin_gateway/playground_batch.yul/playground_batch.yul.zbin",
         );
         BaseSystemContracts::load_with_bootloader(bootloader_bytecode)
     }
@@ -600,6 +614,13 @@ impl BaseSystemContracts {
         BaseSystemContracts::load_with_bootloader(bootloader_bytecode)
     }
 
+    pub fn estimate_gas_gateway() -> Self {
+        let bootloader_bytecode = read_zbin_bytecode(
+            "etc/multivm_bootloaders/vm_gateway/fee_estimate.yul/fee_estimate.yul.zbin",
+        );
+        BaseSystemContracts::load_with_bootloader(bootloader_bytecode)
+    }
+
     pub fn estimate_gas_bitcoin_1_0_0() -> Self {
         let bootloader_bytecode = read_zbin_bytecode(
             "etc/multivm_bootloaders/vm_bitcoin/fee_estimate.yul/fee_estimate.yul.zbin",
@@ -610,6 +631,13 @@ impl BaseSystemContracts {
     pub fn estimate_gas_bitcoin_1_0_1() -> Self {
         let bootloader_bytecode = read_zbin_bytecode(
             "etc/multivm_bootloaders/vm_bitcoin_1_0_1/fee_estimate.yul/fee_estimate.yul.zbin",
+        );
+        BaseSystemContracts::load_with_bootloader(bootloader_bytecode)
+    }
+
+    pub fn estimate_gas_bitcoin_gateway() -> Self {
+        let bootloader_bytecode = read_zbin_bytecode(
+            "etc/multivm_bootloaders/vm_bitcoin_gateway/fee_estimate.yul/fee_estimate.yul.zbin",
         );
         BaseSystemContracts::load_with_bootloader(bootloader_bytecode)
     }
