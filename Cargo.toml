@@ -118,6 +118,7 @@ members = [
     "via_verifier/node/via_reorg_detector",
     "via_verifier/node/via_verifier_storage_init",
     "via_verifier/node/via_block_reverter",
+    "via_verifier/lib/via_state",
 
     # VIA Indexer
     "via_indexer/lib/via_indexer_dal",
@@ -127,9 +128,7 @@ members = [
 ]
 resolver = "2"
 
-exclude = [
-    "via-core-ext"
-]
+exclude = ["via-core-ext"]
 
 # for `perf` profiling
 [profile.perf]
@@ -389,6 +388,7 @@ via_verifier_btc_sender = { version = "0.1.0", path = "via_verifier/node/via_btc
 via_verifier_reorg_detector = { version = "0.1.0", path = "via_verifier/node/via_reorg_detector" }
 via_verifier_storage_init = { version = "0.1.0", path = "via_verifier/node/via_verifier_storage_init" }
 via_verifier_block_reverter = { version = "0.1.0", path = "via_verifier/node/via_block_reverter" }
+via_verifier_state = { version = "0.1.0", path = "via_verifier/lib/via_state" }
 
 # VIA indexer
 via_indexer = { version = "0.1.0", path = "via_indexer/node/indexer" }
