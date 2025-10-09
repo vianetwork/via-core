@@ -206,9 +206,9 @@ impl ViaNodeBuilder {
             .add_storage_initialization_layer()?
             .add_btc_sender_layer()?
             .add_btc_watcher_layer()?
+            .add_query_eth_client_layer()?
             .add_via_da_client_layer()?
-            .add_zkp_verification_layer()?
-            .add_query_eth_client_layer()?;
+            .add_zkp_verification_layer()?;
 
         if self.is_coordinator {
             self = self.add_verifier_coordinator_api_layer()?

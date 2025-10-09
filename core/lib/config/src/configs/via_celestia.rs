@@ -26,6 +26,14 @@ pub struct ViaCelestiaConfig {
 
     /// The mode in which proofs are sent.
     pub proof_sending_mode: ProofSendingMode,
+
+    /// Optional external node URL for fallback when Celestia data is not available
+    #[serde(default)]
+    pub fallback_external_node_url: Option<String>,
+
+    /// Whether to verify data consistency between Celestia and fallback
+    #[serde(default)]
+    pub verify_consistency: bool,
 }
 
 impl ViaCelestiaConfig {
@@ -36,6 +44,8 @@ impl ViaCelestiaConfig {
             blob_size_limit: 1973786,
             api_node_url: "".into(),
             proof_sending_mode: ProofSendingMode::SkipEveryProof,
+            fallback_external_node_url: None,
+            verify_consistency: false,
         }
     }
 }

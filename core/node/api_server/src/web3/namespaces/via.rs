@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use bitcoin::Network;
 use zksync_dal::{CoreDal, DalError};
 use zksync_types::via_wallet::SystemWallets;
-use zksync_web3_decl::error::Web3Error;
+use zksync_web3_decl::{error::Web3Error, namespaces::DaBlobData};
 
 use crate::web3::{backend_jsonrpsee::MethodTracer, RpcState};
 
@@ -43,5 +43,36 @@ impl ViaNamespace {
 
     pub fn get_bitcoin_network_impl(&self) -> Network {
         self.state.api_config.via_network
+    }
+
+    pub async fn get_da_blob_data_impl(
+        &self,
+        blob_id: String,
+    ) -> Result<Option<DaBlobData>, Web3Error> {
+        let mut conn = self
+            .state
+            .connection_pool
+            .connection()
+            .await
+            .map_err(DalError::generalize)?;
+
+        let blob = conn
+            .via_data_availability_dal()
+            .get_da_blob_by_blob_id(&blob_id)
+            .await
+            .map_err(DalError::generalize)?;
+
+        match blob {
+            Some(blob_data) => {
+                if let Some(inclusion_data) = blob_data.inclusion_data {
+                    Ok(Some(DaBlobData {
+                        data: hex::encode(inclusion_data),
+                    }))
+                } else {
+                    Ok(None)
+                }
+            }
+            None => Ok(None),
+        }
     }
 }
