@@ -492,4 +492,34 @@ impl ViaDataAvailabilityDal<'_, '_> {
 
         Ok(result.map(DataAvailabilityBlob::from))
     }
+
+    /// Returns the data availability blob by blob_id.
+    pub async fn get_da_blob_by_blob_id(
+        &mut self,
+        blob_id: &str,
+    ) -> DalResult<Option<DataAvailabilityBlob>> {
+        let result = sqlx::query_as!(
+            StorageDABlob,
+            r#"
+            SELECT
+                l1_batch_number,
+                blob_id,
+                inclusion_data,
+                sent_at
+            FROM
+                via_data_availability
+            WHERE
+                blob_id = $1
+                AND inclusion_data IS NOT NULL
+            LIMIT
+                1
+            "#,
+            blob_id
+        )
+        .instrument("get_da_blob_by_blob_id")
+        .fetch_optional(self.storage)
+        .await?;
+
+        Ok(result.map(DataAvailabilityBlob::from))
+    }
 }

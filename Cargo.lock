@@ -12277,6 +12277,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "base64 0.21.7",
+ "bitcoin",
  "celestia-rpc",
  "celestia-types 0.4.0",
  "hex",
@@ -12285,12 +12286,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
  "zksync_config",
  "zksync_da_client",
  "zksync_env_config",
  "zksync_node_framework",
  "zksync_object_store",
  "zksync_types",
+ "zksync_web3_decl",
 ]
 
 [[package]]

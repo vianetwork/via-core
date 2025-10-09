@@ -49,5 +49,6 @@
     "prettier-plugin-solidity": "=1.0.0-dev.22",
     "solhint": "^3.3.2",
     "sql-formatter": "^13.1.0"
-  }
+  },
+  "packageManager": "yarn@1.22.19"
 }
