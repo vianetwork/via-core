@@ -11606,6 +11606,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_watch_common",
  "via_test_utils",
  "vise",
  "zksync_config",
@@ -11613,6 +11614,20 @@ dependencies = [
  "zksync_dal",
  "zksync_node_fee_model",
  "zksync_shared_metrics",
+ "zksync_types",
+]
+
+[[package]]
+name = "via_btc_watch_common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "via_btc_client",
+ "zksync_config",
  "zksync_types",
 ]
 
@@ -12143,6 +12158,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_watch_common",
  "via_test_utils",
  "via_verifier_dal",
  "via_verifier_types",
