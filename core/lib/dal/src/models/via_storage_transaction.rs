@@ -1,10 +1,10 @@
 use sqlx::types::chrono::{DateTime, NaiveDateTime, Utc};
 use zksync_types::{
     api::{TransactionDetails, TransactionStatus},
+    bigdecimal_to_u256,
     via_utils::reverse_vec_to_h256,
     H160, U256,
 };
-use zksync_utils::bigdecimal_to_u256;
 
 use super::storage_btc_block::calculate_execution_hash;
 use crate::BigDecimal;

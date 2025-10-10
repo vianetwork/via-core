@@ -2,13 +2,13 @@ use std::str::FromStr;
 
 use zksync_basic_types::{Address, PriorityOpId, H160, U256};
 use zksync_system_constants::REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE;
-use zksync_utils::address_to_u256;
 
 use super::{
     priority_id::ViaPriorityOpId, L1Tx, L1TxCommonData, OpProcessingType, PriorityQueueType,
 };
 use crate::{
-    abi::L2CanonicalTransaction, helpers::unix_timestamp_ms, Execute, PRIORITY_OPERATION_L2_TX_TYPE,
+    abi::L2CanonicalTransaction, address_to_u256, helpers::unix_timestamp_ms, Execute,
+    PRIORITY_OPERATION_L2_TX_TYPE,
 };
 
 /// Eth 18 decimals - BTC 8 decimals

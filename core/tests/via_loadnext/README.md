@@ -1,4 +1,4 @@
-# Loadnext: loadtest for ZKsync
+# Loadnext: load test for ZKsync
 
 Loadnext is a utility for random stress-testing the ZKsync server. It is capable of simulating the behavior of many
 independent users of ZKsync network, who are sending quasi-random requests to the server.

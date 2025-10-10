@@ -7,13 +7,12 @@ use serde::Serialize;
 use tracing::instrument;
 use via_btc_client::traits::Serializable;
 use via_musig2::utils::verify_partial_signature;
-use zksync_utils::time::seconds_since_epoch;
 
 use super::{api_decl::RestApi, error::ApiError};
 use crate::{
     metrics::{MetricSessionType, VerifierErrorLabel, METRICS},
     types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse},
-    utils::{decode_signature, encode_signature},
+    utils::{decode_signature, encode_signature, seconds_since_epoch},
 };
 
 fn ok_json<T: Serialize>(data: T) -> Response<String> {

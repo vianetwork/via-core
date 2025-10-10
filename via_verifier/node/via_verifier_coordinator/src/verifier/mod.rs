@@ -1,10 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context};
 use bitcoin::{TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
@@ -23,8 +23,7 @@ use zksync_config::{
     },
     ViaBtcWatchConfig,
 };
-use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets};
-use zksync_utils::time::seconds_since_epoch;
+use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets, H256};
 
 use crate::{
     metrics::METRICS,
@@ -33,7 +32,7 @@ use crate::{
     types::{
         NoncePair, PartialSignaturePair, SessionOperation, SessionType, SigningSessionResponse,
     },
-    utils::{decode_nonce, decode_signature, encode_nonce, encode_signature},
+    utils::{decode_nonce, decode_signature, encode_nonce, encode_signature, seconds_since_epoch},
 };
 
 pub struct ViaWithdrawalVerifier {

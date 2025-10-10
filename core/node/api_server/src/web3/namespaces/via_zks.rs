@@ -7,6 +7,7 @@ use zksync_mini_merkle_tree::MiniMerkleTree;
 use zksync_multivm::interface::VmExecutionResultAndLogs;
 use zksync_system_constants::DEFAULT_L2_TX_GAS_PER_PUBDATA_BYTE;
 use zksync_types::{
+    address_to_h256,
     api::{
         state_override::StateOverride, BlockDetails, BridgeAddresses, GetLogsFilter,
         L1BatchDetails, L2ToL1LogProof, Proof, ProtocolVersion, StorageProof, TransactionDetails,
@@ -21,7 +22,6 @@ use zksync_types::{
     AccountTreeId, L1BatchNumber, L2BlockNumber, ProtocolVersionId, StorageKey, Transaction,
     L1_MESSENGER_ADDRESS, REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_BYTE, U256, U64,
 };
-use zksync_utils::address_to_h256;
 use zksync_web3_decl::{
     error::Web3Error,
     types::{Address, Token, H256},

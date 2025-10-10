@@ -1,7 +1,6 @@
 use sqlx::types::chrono::NaiveDateTime;
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
-use zksync_types::{l1::L1Tx, Address, L1BlockNumber, PriorityOpId, H256};
-use zksync_utils::u256_to_big_decimal;
+use zksync_types::{l1::L1Tx, u256_to_big_decimal, Address, L1BlockNumber, PriorityOpId, H256};
 
 use crate::Core;
 

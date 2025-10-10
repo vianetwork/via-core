@@ -9,13 +9,13 @@ use via_musig2::transaction_builder::TransactionBuilder;
 use via_verifier_dal::{ConnectionPool, Verifier};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::configs::via_verifier::ViaVerifierConfig;
-use zksync_utils::time::seconds_since_epoch;
 
 use crate::{
     coordinator::auth_middleware,
     sessions::{session_manager::SessionManager, withdrawal::WithdrawalSession},
     traits::ISession,
     types::{SessionType, SigningSession, ViaWithdrawalState},
+    utils::seconds_since_epoch,
 };
 
 pub struct RestApi {

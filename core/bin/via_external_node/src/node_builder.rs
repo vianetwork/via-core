@@ -31,7 +31,7 @@ use zksync_node_framework::{
             NodeStorageInitializerLayer,
         },
         pools_layer::PoolsLayerBuilder,
-        postgres_metrics::PostgresMetricsLayer,
+        postgres::PostgresLayer,
         prometheus_exporter::PrometheusExporterLayer,
         pruning::PruningLayer,
         sigint::SigintHandlerLayer,
@@ -132,8 +132,8 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
-    fn add_postgres_metrics_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(PostgresMetricsLayer);
+    fn add_postgres_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(PostgresLayer);
         Ok(self)
     }
 
@@ -361,6 +361,11 @@ impl ExternalNodeBuilder {
                     .context("should contain tree api port")?,
             };
             layer = layer.with_tree_api_config(merkle_tree_api_config);
+        }
+
+        // Add stale keys repair task if requested.
+        if self.config.optional.merkle_tree_repair_stale_keys {
+            layer = layer.with_stale_keys_repair();
         }
 
         // Add tree pruning if needed.
@@ -616,7 +621,7 @@ impl ExternalNodeBuilder {
             // so until we have a dedicated component for "auxiliary" tasks,
             // it's responsible for things like metrics.
             self = self
-                .add_postgres_metrics_layer()?
+                .add_postgres_layer()?
                 .add_external_node_metrics_layer()?;
             // We assign the storage initialization to the core, as it's considered to be
             // the "main" component.

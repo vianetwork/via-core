@@ -1,9 +1,9 @@
 [submodule "contracts"]
-path = contracts
-url = https://github.com/vianetwork/era-contracts.git
-branch = main
+    path = contracts
+    url = https://github.com/vianetwork/era-contracts.git
+    branch = chore/rebase-v25-4-0
 
 [submodule "via-core-ext"]
-path = via-core-ext
-url = git@github.com:vianetwork/via-core-ext.git
-branch = main
+	path = via-core-ext
+	url = git@github.com:vianetwork/via-core-ext.git
+	branch = main

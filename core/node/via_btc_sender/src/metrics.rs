@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::NaiveDateTime;
 use vise::{
@@ -10,7 +10,6 @@ use zksync_types::{
     aggregated_operations::AggregatedActionType,
     btc_inscription_operations::ViaBtcInscriptionRequestType, L1BatchNumber,
 };
-use zksync_utils::time::seconds_since_epoch;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EncodeLabelSet, EncodeLabelValue)]
 #[metrics(label = "block_number_variant", rename_all = "snake_case")]
@@ -131,3 +130,10 @@ impl ViaBtcSenderMetrics {
 
 #[vise::register]
 pub static METRICS: vise::Global<ViaBtcSenderMetrics> = vise::Global::new();
+
+fn seconds_since_epoch() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Incorrect system time")
+        .as_secs()
+}

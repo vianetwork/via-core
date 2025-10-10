@@ -5,9 +5,9 @@ use via_state_keeper::{
     seal_criteria::ConditionalSealer, AsyncRocksdbCache, OutputHandler, StateKeeperIO,
     ZkSyncStateKeeper,
 };
-use zksync_state::{AsyncCatchupTask, OwnedStorage, ReadStorageFactory};
+use zksync_health_check::ReactiveHealthCheck;
+use zksync_state::AsyncCatchupTask;
 use zksync_storage::RocksDB;
-use zksync_vm_executor::interface::BatchExecutorFactory;
 
 pub mod main_batch_executor;
 pub mod mempool_io;
@@ -18,6 +18,7 @@ pub use zksync_state::RocksdbStorageOptions;
 
 use crate::{
     implementations::resources::{
+        healthcheck::AppHealthCheckResource,
         pools::{MasterPool, PoolResource},
         via_state_keeper::{
             BatchExecutorResource, ConditionalSealerResource, OutputHandlerResource,
@@ -45,6 +46,8 @@ pub struct Input {
     pub output_handler: OutputHandlerResource,
     pub conditional_sealer: ConditionalSealerResource,
     pub master_pool: PoolResource<MasterPool>,
+    #[context(default)]
+    pub app_health: AppHealthCheckResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -100,13 +103,21 @@ impl WiringLayer for StateKeeperLayer {
             self.rocksdb_options,
         );
 
-        let state_keeper = StateKeeperTask {
+        let state_keeper = ZkSyncStateKeeper::new(
             io,
-            executor_factory: batch_executor_base,
+            batch_executor_base,
             output_handler,
             sealer,
-            storage_factory: Arc::new(storage_factory),
-        };
+            Arc::new(storage_factory),
+        );
+
+        let state_keeper = StateKeeperTask { state_keeper };
+
+        input
+            .app_health
+            .0
+            .insert_component(state_keeper.health_check())
+            .map_err(WiringError::internal)?;
 
         let rocksdb_termination_hook = ShutdownHook::new("rocksdb_terminaton", async {
             // Wait for all the instances of RocksDB to be destroyed.
@@ -124,11 +135,14 @@ impl WiringLayer for StateKeeperLayer {
 
 #[derive(Debug)]
 pub struct StateKeeperTask {
-    io: Box<dyn StateKeeperIO>,
-    executor_factory: Box<dyn BatchExecutorFactory<OwnedStorage>>,
-    output_handler: OutputHandler,
-    sealer: Arc<dyn ConditionalSealer>,
-    storage_factory: Arc<dyn ReadStorageFactory>,
+    state_keeper: ZkSyncStateKeeper,
+}
+
+impl StateKeeperTask {
+    /// Returns the health check for state keeper.
+    pub fn health_check(&self) -> ReactiveHealthCheck {
+        self.state_keeper.health_check()
+    }
 }
 
 #[async_trait::async_trait]
@@ -138,15 +152,7 @@ impl Task for StateKeeperTask {
     }
 
     async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
-        let state_keeper = ZkSyncStateKeeper::new(
-            stop_receiver.0,
-            self.io,
-            self.executor_factory,
-            self.output_handler,
-            self.sealer,
-            self.storage_factory,
-        );
-        state_keeper.run().await
+        self.state_keeper.run(stop_receiver.0).await
     }
 }
 

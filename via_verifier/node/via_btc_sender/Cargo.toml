@@ -17,7 +17,6 @@ via_da_dispatcher.workspace = true
 via_verifier_dal.workspace = true
 zksync_config.workspace = true
 zksync_object_store.workspace = true
-zksync_utils.workspace = true
 zksync_l1_contract_interface.workspace = true
 zksync_types.workspace = true
 zksync_contracts.workspace = true
