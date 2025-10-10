@@ -25,7 +25,7 @@ use zksync_node_framework::{
         },
         object_store::ObjectStoreLayer,
         pools_layer::PoolsLayerBuilder,
-        postgres_metrics::PostgresMetricsLayer,
+        postgres::PostgresLayer,
         prometheus_exporter::PrometheusExporterLayer,
         proof_data_handler::ProofDataHandlerLayer,
         query_eth_client::QueryEthClientLayer,
@@ -115,8 +115,8 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
-    fn add_postgres_metrics_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(PostgresMetricsLayer);
+    fn add_postgres_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(PostgresLayer);
         Ok(self)
     }
 
@@ -559,7 +559,7 @@ impl ViaNodeBuilder {
             .add_object_store_layer()?
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
-            .add_postgres_metrics_layer()?
+            .add_postgres_layer()?
             .add_query_eth_client_layer()?
             .add_prometheus_exporter_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?;
@@ -614,9 +614,7 @@ impl ViaNodeBuilder {
                     // Do nothing, will be handled by the `Tree` component.
                 }
                 ViaComponent::Housekeeper => {
-                    self = self
-                        .add_house_keeper_layer()?
-                        .add_postgres_metrics_layer()?;
+                    self = self.add_house_keeper_layer()?.add_postgres_layer()?;
                 }
                 ViaComponent::ProofDataHandler => {
                     self = self.add_proof_data_handler_layer()?;
