@@ -60,14 +60,8 @@ impl WiringLayer for VerifierBtcWatchLayer {
 
         let btc_indexer_resource = BtcIndexerResource::from(indexer.clone());
 
-        let btc_watch = VerifierBtcWatch::new(
-            self.via_btc_watch_config,
-            indexer,
-            client,
-            main_pool,
-            self.via_bridge_config.zk_agreement_threshold,
-        )
-        .await?;
+        let btc_watch =
+            VerifierBtcWatch::new(self.via_btc_watch_config, indexer, client, main_pool).await?;
 
         Ok(Output {
             system_wallets_resource,

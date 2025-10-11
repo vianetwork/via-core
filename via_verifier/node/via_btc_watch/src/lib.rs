@@ -35,7 +35,6 @@ impl VerifierBtcWatch {
         indexer: BitcoinInscriptionIndexer,
         btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Verifier>,
-        zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
 
@@ -44,7 +43,7 @@ impl VerifierBtcWatch {
             Box::new(L1ToL2MessageProcessor::new(
                 indexer.get_state().bridge.clone(),
             )),
-            Box::new(VerifierMessageProcessor::new(zk_agreement_threshold)),
+            Box::new(VerifierMessageProcessor::default()),
             Box::new(WithdrawalProcessor::new()),
         ];
 
