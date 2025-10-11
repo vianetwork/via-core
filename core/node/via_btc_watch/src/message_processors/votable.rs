@@ -1,21 +1,12 @@
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
+use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
 use zksync_dal::{Connection, Core, CoreDal};
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 use crate::metrics::{InscriptionStage, METRICS};
 
-#[derive(Debug)]
-pub struct VotableMessageProcessor {
-    zk_agreement_threshold: f64,
-}
-
-impl VotableMessageProcessor {
-    pub fn new(zk_agreement_threshold: f64) -> Self {
-        Self {
-            zk_agreement_threshold,
-        }
-    }
-}
+#[derive(Default, Debug)]
+pub struct VotableMessageProcessor {}
 
 #[async_trait::async_trait]
 impl MessageProcessor for VotableMessageProcessor {
@@ -82,7 +73,7 @@ impl MessageProcessor for VotableMessageProcessor {
                             .via_votes_dal()
                             .finalize_transaction_if_needed(
                                 l1_batch_number.0,
-                                self.zk_agreement_threshold,
+                                BATCH_FINALIZATION_THRESHOLD,
                                 indexer.get_number_of_verifiers(),
                             )
                             .await
