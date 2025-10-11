@@ -143,11 +143,6 @@ impl RemoteENConfig {
             .rpc_context("get_testnet_paymaster")
             .await?;
         let genesis = client.genesis_config().rpc_context("genesis").await.ok();
-        let ecosystem_contracts = client
-            .get_ecosystem_contracts()
-            .rpc_context("ecosystem_contracts")
-            .await
-            .ok();
         let l1_diamond_proxy_addr = client
             .get_main_contract()
             .rpc_context("get_main_contract")
