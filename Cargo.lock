@@ -12205,6 +12205,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_consensus",
  "via_test_utils",
  "vise",
  "zksync_config",
@@ -12213,6 +12214,17 @@ dependencies = [
  "zksync_node_fee_model",
  "zksync_shared_metrics",
  "zksync_types",
+]
+
+[[package]]
+name = "via_consensus"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "rand 0.8.5",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -12740,6 +12752,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_consensus",
  "via_test_utils",
  "via_verifier_dal",
  "via_verifier_types",
@@ -12914,6 +12927,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_consensus",
  "via_da_client",
  "via_verification",
  "via_verifier_dal",

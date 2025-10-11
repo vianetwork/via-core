@@ -100,23 +100,24 @@ members = [
   "core/lib/via_test_utils",
   "core/node/via_node_storage_init",
   "core/node/via_main_node_reorg_detector",
+  "core/lib/via_consensus",
 
-    # VIA Verifier
-    "via_verifier/bin/verifier_server",
-    "via_verifier/lib/via_withdrawal_client",
-    "via_verifier/lib/via_verification",
-    "via_verifier/lib/via_musig2",
-    "via_verifier/lib/verifier_dal",
-    "via_verifier/node/via_verifier_coordinator",
-    "via_verifier/node/via_zk_verifier",
-    "via_verifier/node/via_btc_watch",
-    "via_verifier/node/via_btc_sender",
-    "via_verifier/lib/via_da_client",
-    "via_verifier/lib/via_verifier_types",
-    "via_verifier/node/via_reorg_detector",
-    "via_verifier/node/via_verifier_storage_init",
-    "via_verifier/node/via_block_reverter",
-    "via_verifier/lib/via_state",
+  # VIA Verifier
+  "via_verifier/bin/verifier_server",
+  "via_verifier/lib/via_withdrawal_client",
+  "via_verifier/lib/via_verification",
+  "via_verifier/lib/via_musig2",
+  "via_verifier/lib/verifier_dal",
+  "via_verifier/node/via_verifier_coordinator",
+  "via_verifier/node/via_zk_verifier",
+  "via_verifier/node/via_btc_watch",
+  "via_verifier/node/via_btc_sender",
+  "via_verifier/lib/via_da_client",
+  "via_verifier/lib/via_verifier_types",
+  "via_verifier/node/via_reorg_detector",
+  "via_verifier/node/via_verifier_storage_init",
+  "via_verifier/node/via_block_reverter",
+  "via_verifier/lib/via_state",
 
   # VIA Indexer
   "via_indexer/lib/via_indexer_dal",
@@ -383,6 +384,7 @@ via_mempool = { version = "0.1.0", path = "core/lib/via_mempool" }
 via_test_utils = { version = "0.1.0", path = "core/lib/via_test_utils" }
 via_node_storage_init = { version = "0.1.0", path = "core/node/via_node_storage_init" }
 via_main_node_reorg_detector = { version = "0.1.0", path = "core/node/via_main_node_reorg_detector" }
+via_consensus = { version = "0.1.0", path = "core/lib/via_consensus" }
 
 # VIA Verifier
 via_withdrawal_client = { version = "0.1.0", path = "via_verifier/lib/via_withdrawal_client" }

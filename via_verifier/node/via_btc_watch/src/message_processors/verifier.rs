@@ -1,21 +1,12 @@
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
+use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
 use crate::metrics::{InscriptionStage, METRICS};
 
-#[derive(Debug)]
-pub struct VerifierMessageProcessor {
-    zk_agreement_threshold: f64,
-}
-
-impl VerifierMessageProcessor {
-    pub fn new(zk_agreement_threshold: f64) -> Self {
-        Self {
-            zk_agreement_threshold,
-        }
-    }
-}
+#[derive(Default, Debug)]
+pub struct VerifierMessageProcessor {}
 
 #[async_trait::async_trait]
 impl MessageProcessor for VerifierMessageProcessor {
@@ -219,7 +210,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 .via_votes_dal()
                                 .finalize_transaction_if_needed(
                                     votable_transaction_id,
-                                    self.zk_agreement_threshold,
+                                    BATCH_FINALIZATION_THRESHOLD,
                                     indexer.get_number_of_verifiers(),
                                 )
                                 .await?

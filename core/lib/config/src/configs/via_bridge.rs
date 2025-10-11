@@ -10,9 +10,6 @@ pub struct ViaBridgeConfig {
 
     /// The bridge address.
     pub bridge_address: String,
-
-    /// The agreement threshold required for the verifier to finalize an L1 batch.
-    pub zk_agreement_threshold: f64,
 }
 
 impl ViaBridgeConfig {

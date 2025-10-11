@@ -10,6 +10,7 @@ use via_btc_client::{
     types::{BitcoinTxid, FullInscriptionMessage, L1BatchDAReference, ProofDAReference},
     utils::bytes_to_txid,
 };
+use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
 use via_da_client::{pubdata::Pubdata, types::L2_BOOTLOADER_CONTRACT_ADDR};
 use via_verification::proof::{
     Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
@@ -49,7 +50,6 @@ pub struct ViaVerifier {
     da_client: Box<dyn DataAvailabilityClient>,
     indexer: BitcoinInscriptionIndexer,
     test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
-    zk_agreement_threshold: f64,
     state: ViaState,
 }
 
@@ -61,7 +61,6 @@ impl ViaVerifier {
         pool: ConnectionPool<Verifier>,
         da_client: Box<dyn DataAvailabilityClient>,
         btc_client: Arc<BitcoinClient>,
-        zk_agreement_threshold: f64,
         via_btc_watch_config: ViaBtcWatchConfig,
     ) -> anyhow::Result<Self> {
         let state = ViaState::new(pool.clone(), btc_client.clone(), via_btc_watch_config);
@@ -74,7 +73,6 @@ impl ViaVerifier {
             test_zk_proof_invalid_l1_batch_numbers: Arc::new(RwLock::new(
                 config.test_zk_proof_invalid_l1_batch_numbers,
             )),
-            zk_agreement_threshold,
             state,
         })
     }
@@ -215,7 +213,7 @@ impl ViaVerifier {
                 .via_votes_dal()
                 .finalize_transaction_if_needed(
                     votable_transaction_id,
-                    self.zk_agreement_threshold,
+                    BATCH_FINALIZATION_THRESHOLD,
                     self.indexer.get_number_of_verifiers(),
                 )
                 .await?;
