@@ -8,7 +8,7 @@ use zksync_types::ProtocolVersionId;
 use crate::seal_criteria::{SealCriterion, SealData, SealResolution, UnexecutableReason};
 
 // Collected vm execution metrics should fit into geometry limits.
-// Otherwise witness generation will fail and proof won't be generated.
+// Otherwise, witness generation will fail and proof won't be generated.
 
 /// Checks whether we should exclude the transaction because we don't have enough circuits for it.
 #[derive(Debug)]
@@ -20,6 +20,7 @@ impl SealCriterion for CircuitsCriterion {
         config: &StateKeeperConfig,
         _block_open_timestamp_ms: u128,
         _tx_count: usize,
+        _l1_tx_count: usize,
         block_data: &SealData,
         tx_data: &SealData,
         protocol_version: ProtocolVersionId,
@@ -35,7 +36,7 @@ impl SealCriterion for CircuitsCriterion {
         let batch_tip_circuit_overhead =
             circuit_statistics_bootloader_batch_tip_overhead(protocol_version.into());
 
-        // Double checking that it is possible to seal batches
+        // Double-checking that it is possible to seal batches
         assert!(
             batch_tip_circuit_overhead < config.max_circuits_per_batch,
             "Invalid circuit criteria"
@@ -94,6 +95,7 @@ mod tests {
             &config,
             Default::default(),
             0,
+            0,
             &SealData {
                 execution_metrics: block_execution_metrics,
                 ..SealData::default()
@@ -113,6 +115,7 @@ mod tests {
         let block_resolution = criterion.should_seal(
             &config,
             Default::default(),
+            0,
             0,
             &SealData {
                 execution_metrics: block_execution_metrics,
@@ -134,6 +137,7 @@ mod tests {
             &config,
             Default::default(),
             0,
+            0,
             &SealData {
                 execution_metrics: block_execution_metrics,
                 ..SealData::default()
@@ -153,6 +157,7 @@ mod tests {
         let block_resolution = criterion.should_seal(
             &config,
             Default::default(),
+            0,
             0,
             &SealData::default(),
             &SealData {
