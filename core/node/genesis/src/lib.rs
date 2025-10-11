@@ -258,7 +258,10 @@ pub async fn insert_genesis_batch_with_custom_state(
                     .collect(),
             ),
             None => (
-                get_storage_logs(&genesis_params.system_contracts),
+                get_storage_logs(
+                    genesis_params.config.l2_chain_id,
+                    &genesis_params.system_contracts,
+                ),
                 genesis_params
                     .system_contracts
                     .iter()
