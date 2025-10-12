@@ -1,7 +1,7 @@
 mod message_processors;
 mod metrics;
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use message_processors::{GovernanceUpgradesEventProcessor, WithdrawalProcessor};
 use tokio::sync::watch;
@@ -11,6 +11,7 @@ use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
+use zksync_types::via_wallet::SystemWallets;
 
 use self::message_processors::{MessageProcessor, MessageProcessorError};
 use crate::message_processors::{
@@ -148,6 +149,23 @@ impl VerifierBtcWatch {
 
         let from_block = last_processed_bitcoin_block + 1;
 
+        let system_wallets_map = match storage
+            .via_wallet_dal()
+            .get_system_wallets_raw(from_block as i64)
+            .await?
+        {
+            Some(map) => map,
+            None => HashMap::default(),
+        };
+
+        let system_wallets = SystemWallets::try_from(system_wallets_map)?;
+        self.indexer.update_system_wallets(
+            Some(system_wallets.sequencer),
+            Some(system_wallets.bridge),
+            Some(system_wallets.verifiers),
+            Some(system_wallets.governance),
+        );
+
         let mut messages = self
             .indexer
             .process_blocks(from_block, to_block)
@@ -156,12 +174,15 @@ impl VerifierBtcWatch {
 
         // Re-process blocks if system wallets were updated, since the new wallet state
         // may change how subsequent messages are interpreted.
-        if self
+        if let Some(block_number) = self
             .system_wallet_processor
             .process_messages(storage, messages.clone(), &mut self.indexer)
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?
         {
+            // Process the blocks until where the update wallets block.
+            to_block = block_number;
+
             messages = self
                 .indexer
                 .process_blocks(from_block, to_block)

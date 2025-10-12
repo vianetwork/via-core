@@ -39,7 +39,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
-    ) -> Result<bool, MessageProcessorError> {
+    ) -> Result<Option<u32>, MessageProcessorError> {
         let mut priority_ops = Vec::new();
 
         for msg in msgs {
@@ -76,7 +76,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         }
 
         if priority_ops.is_empty() {
-            return Ok(false);
+            return Ok(None);
         }
 
         for new_op in priority_ops {
@@ -95,7 +95,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                 .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
         }
 
-        Ok(true)
+        Ok(None)
     }
 }
 

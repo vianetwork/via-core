@@ -35,7 +35,7 @@ pub(super) trait MessageProcessor: 'static + std::fmt::Debug + Send + Sync {
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
-    ) -> Result<bool, MessageProcessorError>;
+    ) -> Result<Option<u32>, MessageProcessorError>;
 }
 
 pub(crate) fn convert_txid_to_h256(txid: BitcoinTxid) -> H256 {

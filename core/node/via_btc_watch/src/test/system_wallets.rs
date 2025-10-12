@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use std::{str::FromStr, sync::Arc};
+    use std::{i64, str::FromStr, sync::Arc};
 
     use via_btc_client::types::BitcoinAddress;
     use via_test_utils::utils::{
@@ -45,7 +45,7 @@ mod tests {
             .connection()
             .await?
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(i64::MAX)
             .await?
             .unwrap();
 
@@ -88,7 +88,7 @@ mod tests {
             .connection()
             .await?
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(i64::MAX)
             .await?
             .unwrap();
 
@@ -148,7 +148,7 @@ mod tests {
             .connection()
             .await?
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(i64::MAX)
             .await?
             .unwrap();
 
@@ -201,7 +201,7 @@ mod tests {
             .connection()
             .await?
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(i64::MAX)
             .await?
             .unwrap();
 
@@ -273,7 +273,7 @@ mod tests {
             .connection()
             .await?
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(i64::MAX)
             .await?
             .unwrap();
 

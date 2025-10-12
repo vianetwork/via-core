@@ -30,7 +30,7 @@ impl MessageProcessor for WithdrawalProcessor {
         storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
-    ) -> Result<bool, MessageProcessorError> {
+    ) -> Result<Option<u32>, MessageProcessorError> {
         for msg in msgs {
             if let FullInscriptionMessage::BridgeWithdrawal(withdrawal_msg) = msg {
                 tracing::info!("Processing withdrawal bridge transaction...");
@@ -81,6 +81,6 @@ impl MessageProcessor for WithdrawalProcessor {
             }
         }
 
-        Ok(true)
+        Ok(None)
     }
 }

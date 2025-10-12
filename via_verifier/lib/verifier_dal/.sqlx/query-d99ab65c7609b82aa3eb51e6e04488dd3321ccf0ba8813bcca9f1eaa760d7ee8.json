@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT\n            ON (ROLE)\n                ROLE,\n                ADDRESS\n            FROM\n                VIA_WALLETS\n            WHERE\n                l1_block_number <= $1\n            ORDER BY\n                ROLE,\n                CREATED_AT DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "address",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "d99ab65c7609b82aa3eb51e6e04488dd3321ccf0ba8813bcca9f1eaa760d7ee8"
+}

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, i64};
 
 use anyhow::{Context, Result};
 use bincode::serialize;
@@ -92,7 +92,16 @@ impl ViaBtcInscriptionManager {
 
         let mut report_blocked_l1_batch_inscription: Option<u32> = None;
 
-        let Some(wallets_map) = storage.via_wallet_dal().get_system_wallets_raw().await? else {
+        let last_processed_l1_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await?;
+
+        let Some(wallets_map) = storage
+            .via_wallet_dal()
+            .get_system_wallets_raw(last_processed_l1_block as i64)
+            .await?
+        else {
             anyhow::bail!("System wallets not found");
         };
 
