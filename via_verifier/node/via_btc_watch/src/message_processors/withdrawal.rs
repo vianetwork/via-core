@@ -14,14 +14,8 @@ use via_verifier_types::withdrawal::get_withdrawal_requests;
 use super::{MessageProcessor, MessageProcessorError};
 use crate::metrics::METRICS;
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct WithdrawalProcessor;
-
-impl WithdrawalProcessor {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 #[async_trait::async_trait]
 impl MessageProcessor for WithdrawalProcessor {

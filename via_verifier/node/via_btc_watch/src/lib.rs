@@ -1,7 +1,7 @@
 mod message_processors;
 mod metrics;
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use message_processors::{GovernanceUpgradesEventProcessor, WithdrawalProcessor};
 use tokio::sync::watch;
@@ -41,11 +41,9 @@ impl VerifierBtcWatch {
 
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(GovernanceUpgradesEventProcessor::new(btc_client)),
-            Box::new(L1ToL2MessageProcessor::new(
-                indexer.get_state().bridge.clone(),
-            )),
+            Box::new(L1ToL2MessageProcessor::default()),
             Box::new(VerifierMessageProcessor::default()),
-            Box::new(WithdrawalProcessor::new()),
+            Box::new(WithdrawalProcessor::default()),
         ];
 
         Ok(Self {
@@ -151,14 +149,19 @@ impl VerifierBtcWatch {
 
         let system_wallets_map = match storage
             .via_wallet_dal()
-            .get_system_wallets_raw(from_block as i64)
+            .get_system_wallets_raw(last_processed_bitcoin_block as i64)
             .await?
         {
             Some(map) => map,
-            None => HashMap::default(),
+            None => {
+                tracing::info!("Wait for storage init, block number {}", from_block);
+                return Ok(());
+            }
         };
 
         let system_wallets = SystemWallets::try_from(system_wallets_map)?;
+        tracing::info!("Wallets: {:?}", &system_wallets);
+
         self.indexer.update_system_wallets(
             Some(system_wallets.sequencer),
             Some(system_wallets.bridge),
@@ -183,6 +186,10 @@ impl VerifierBtcWatch {
             // Process the blocks until where the update wallets block.
             to_block = block_number;
 
+            println!(
+                "111111111111111222222222 {} ---- {}",
+                to_block, block_number
+            );
             messages = self
                 .indexer
                 .process_blocks(from_block, to_block)
@@ -204,8 +211,7 @@ impl VerifierBtcWatch {
             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
         tracing::info!(
-            "The btc_watch processed {} blocks, from {} to {}",
-            L1_BLOCKS_CHUNK,
+            "The btc_watch processed blocks, from {} to {}",
             from_block,
             to_block,
         );

@@ -209,8 +209,7 @@ impl BtcWatch {
             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
         tracing::info!(
-            "The btc_watch processed {} blocks, from {} to {}",
-            L1_BLOCKS_CHUNK,
+            "The btc_watch processed blocks, from {} to {}",
             from_block,
             to_block,
         );

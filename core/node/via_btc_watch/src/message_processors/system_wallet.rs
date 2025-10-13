@@ -33,38 +33,30 @@ impl MessageProcessor for SystemWalletProcessor {
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
-        let mut l1_block_number = None;
+        let mut l1_block_number: Option<u32> = None;
 
-        let msgs = FullInscriptionMessage::sort_messages(msgs);
-
-        for msg in msgs {
-            match msg {
-                FullInscriptionMessage::UpdateGovernance(msg) => {
-                    let l1_block_number_opt = self.handle_update_governance(storage, msg).await?;
-
-                    if l1_block_number_opt < l1_block_number {
-                        l1_block_number = l1_block_number_opt;
-                    }
+        for msg in FullInscriptionMessage::sort_messages(msgs) {
+            let l1_block_number_opt = match msg {
+                FullInscriptionMessage::UpdateGovernance(m) => {
+                    self.handle_update_governance(storage, m).await?
                 }
-                FullInscriptionMessage::UpdateSequencer(msg) => {
-                    let l1_block_number_opt = self.handle_update_sequencer(storage, msg).await?;
-
-                    if l1_block_number_opt < l1_block_number {
-                        l1_block_number = l1_block_number_opt;
-                    }
+                FullInscriptionMessage::UpdateSequencer(m) => {
+                    self.handle_update_sequencer(storage, m).await?
                 }
-                FullInscriptionMessage::UpdateBridge(msg) => {
-                    let l1_block_number_opt =
-                        self.handle_update_bridge_proposal(storage, msg).await?;
-
-                    if l1_block_number_opt < l1_block_number {
-                        l1_block_number = l1_block_number_opt;
-                    }
+                FullInscriptionMessage::UpdateBridge(m) => {
+                    self.handle_update_bridge_proposal(storage, m).await?
                 }
+                _ => None,
+            };
 
+            // Keep the smallest (earliest) block number
+            match (l1_block_number, l1_block_number_opt) {
+                (Some(current), Some(new)) if new < current => l1_block_number = Some(new),
+                (None, Some(new)) => l1_block_number = Some(new),
                 _ => {}
             }
         }
+
         Ok(l1_block_number)
     }
 }
