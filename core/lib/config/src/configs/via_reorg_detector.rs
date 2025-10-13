@@ -16,7 +16,7 @@ impl ViaReorgDetectorConfig {
 
     /// The number of blocks to process per iteration.
     pub fn block_limit(&self) -> i64 {
-        5
+        50
     }
 
     /// The number of blocks the reorg detector will jump back to quickly locate the block affected by the reorg.

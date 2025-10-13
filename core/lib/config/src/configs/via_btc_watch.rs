@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 /// Total L1 blocks to process at a time.
-pub const L1_BLOCKS_CHUNK: u32 = 10;
+pub const L1_BLOCKS_CHUNK: u32 = 50;
 
 /// Configuration for the Bitcoin watch crate.
 #[derive(Debug, Deserialize, Default, Serialize, Clone, PartialEq)]
