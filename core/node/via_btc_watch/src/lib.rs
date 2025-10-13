@@ -35,7 +35,6 @@ impl BtcWatch {
         indexer: BitcoinInscriptionIndexer,
         btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Core>,
-        zk_agreement_threshold: f64,
         is_main_node: bool,
     ) -> anyhow::Result<Self> {
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
@@ -43,7 +42,7 @@ impl BtcWatch {
         // Only build message processors that match the actor role:
         let mut message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(L1ToL2MessageProcessor::default()),
-            Box::new(VotableMessageProcessor::new(zk_agreement_threshold)),
+            Box::new(VotableMessageProcessor::default()),
         ];
 
         if is_main_node {

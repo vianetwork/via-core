@@ -157,7 +157,6 @@ impl ViaNodeBuilder {
     fn add_zkp_verification_layer(mut self) -> anyhow::Result<Self> {
         self.node.add_layer(ViaBtcProofVerificationLayer::new(
             self.configs.via_verifier_config.clone(),
-            self.configs.via_bridge_config.clone(),
             self.configs.via_btc_watch_config.clone(),
         ));
         Ok(self)
