@@ -5,11 +5,26 @@ use zksync_types::{
 };
 
 pub use self::deduplicator::{ModifiedSlot, StorageWritesDeduplicator};
-use crate::interface::L1BatchEnv;
+use crate::{
+    glue::{GlueFrom, GlueInto},
+    interface::L1BatchEnv,
+};
 
 pub(crate) mod bytecode;
 mod deduplicator;
 pub(crate) mod events;
+
+/// Allows to convert `LogQuery` between two different versions, even if they don't provide
+/// direct conversion between each other.
+/// It transforms the input query to the `LogQuery` from `zksync_types` (for which most of the
+/// `zk_evm` versions provide conversion) and then converts it to the target version.
+pub fn glue_log_query<L, R>(l: L) -> R
+where
+    L: GlueInto<zksync_types::zk_evm_types::LogQuery>,
+    R: GlueFrom<zksync_types::zk_evm_types::LogQuery>,
+{
+    R::glue_from(l.glue_into())
+}
 
 /// Calculates the base fee and gas per pubdata for the given L1 gas price.
 pub fn derive_base_fee_and_gas_per_pubdata(
@@ -248,19 +263,19 @@ pub fn get_bootloader_encoding_space(version: VmVersion) -> u32 {
         VmVersion::Vm1_4_2 => crate::vm_1_4_2::constants::BOOTLOADER_TX_ENCODING_SPACE,
         VmVersion::Vm1_5_0SmallBootloaderMemory => {
             crate::vm_latest::constants::get_bootloader_tx_encoding_space(
-                crate::vm_latest::MultiVMSubversion::SmallBootloaderMemory,
+                crate::vm_latest::MultiVmSubversion::SmallBootloaderMemory,
             )
         }
         VmVersion::Vm1_5_0IncreasedBootloaderMemory => {
             crate::vm_latest::constants::get_bootloader_tx_encoding_space(
-                crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+                crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
             )
         }
         VmVersion::VmGateway => crate::vm_latest::constants::get_bootloader_tx_encoding_space(
-            crate::vm_latest::MultiVMSubversion::Gateway,
+            crate::vm_latest::MultiVmSubversion::Gateway,
         ),
         VmVersion::VmBitcoin1_0_0 => crate::vm_latest::constants::get_bootloader_tx_encoding_space(
-            crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+            crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
         ),
     }
 }
@@ -415,19 +430,19 @@ pub fn get_used_bootloader_memory_bytes(version: VmVersion) -> usize {
         VmVersion::Vm1_4_2 => crate::vm_1_4_2::constants::USED_BOOTLOADER_MEMORY_BYTES,
         VmVersion::Vm1_5_0SmallBootloaderMemory => {
             crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-                crate::vm_latest::MultiVMSubversion::SmallBootloaderMemory,
+                crate::vm_latest::MultiVmSubversion::SmallBootloaderMemory,
             )
         }
         VmVersion::Vm1_5_0IncreasedBootloaderMemory => {
             crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-                crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+                crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
             )
         }
         VmVersion::VmGateway => crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-            crate::vm_latest::MultiVMSubversion::Gateway,
+            crate::vm_latest::MultiVmSubversion::Gateway,
         ),
         VmVersion::VmBitcoin1_0_0 => crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-            crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+            crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
         ),
     }
 }
@@ -454,19 +469,19 @@ pub fn get_used_bootloader_memory_words(version: VmVersion) -> usize {
         VmVersion::Vm1_4_2 => crate::vm_1_4_2::constants::USED_BOOTLOADER_MEMORY_WORDS,
         VmVersion::Vm1_5_0SmallBootloaderMemory => {
             crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-                crate::vm_latest::MultiVMSubversion::SmallBootloaderMemory,
+                crate::vm_latest::MultiVmSubversion::SmallBootloaderMemory,
             )
         }
         VmVersion::Vm1_5_0IncreasedBootloaderMemory => {
             crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-                crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+                crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
             )
         }
         VmVersion::VmGateway => crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-            crate::vm_latest::MultiVMSubversion::Gateway,
+            crate::vm_latest::MultiVmSubversion::Gateway,
         ),
         VmVersion::VmBitcoin1_0_0 => crate::vm_latest::constants::get_used_bootloader_memory_bytes(
-            crate::vm_latest::MultiVMSubversion::IncreasedBootloaderMemory,
+            crate::vm_latest::MultiVmSubversion::IncreasedBootloaderMemory,
         ),
     }
 }

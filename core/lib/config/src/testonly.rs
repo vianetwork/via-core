@@ -305,6 +305,7 @@ impl Distribution<configs::ExperimentalDBConfig> for EncodeDist {
             protective_reads_persistence_enabled: self.sample(rng),
             processing_delay_ms: self.sample(rng),
             include_indices_and_filters_in_block_cache: self.sample(rng),
+            merkle_tree_repair_stale_keys: self.sample(rng),
         }
     }
 }
@@ -398,7 +399,6 @@ impl Distribution<configs::eth_sender::ProofLoadingMode> for EncodeDist {
 impl Distribution<configs::eth_sender::SenderConfig> for EncodeDist {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> configs::eth_sender::SenderConfig {
         configs::eth_sender::SenderConfig {
-            aggregated_proof_sizes: self.sample_collect(rng),
             wait_confirmations: self.sample(rng),
             tx_poll_period: self.sample(rng),
             aggregate_tx_poll_period: self.sample(rng),
@@ -680,6 +680,7 @@ impl Distribution<configs::ProofDataHandlerConfig> for EncodeDist {
                 tee_support: self.sample(rng),
                 first_tee_processed_batch: L1BatchNumber(rng.gen()),
                 tee_proof_generation_timeout_in_secs: self.sample(rng),
+                tee_batch_permanently_ignored_timeout_in_hours: self.sample(rng),
             },
         }
     }
@@ -745,6 +746,7 @@ impl Distribution<configs::GenesisConfig> for EncodeDist {
                 0 => L1BatchCommitmentMode::Rollup,
                 _ => L1BatchCommitmentMode::Validium,
             },
+            custom_genesis_state_path: None,
         }
     }
 }
@@ -807,6 +809,7 @@ impl Distribution<configs::consensus::ConsensusConfig> for EncodeDist {
             server_addr: self.sample(rng),
             public_addr: Host(self.sample(rng)),
             max_payload_size: self.sample(rng),
+            view_timeout: self.sample(rng),
             max_batch_size: self.sample(rng),
             gossip_dynamic_inbound_limit: self.sample(rng),
             gossip_static_inbound: self
@@ -850,6 +853,7 @@ impl Distribution<configs::secrets::L1Secrets> for EncodeDist {
         use configs::secrets::L1Secrets;
         L1Secrets {
             l1_rpc_url: format!("localhost:{}", rng.gen::<u16>()).parse().unwrap(),
+            gateway_rpc_url: Some(format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
         }
     }
 }
@@ -938,8 +942,6 @@ impl Distribution<configs::en_config::ENConfig> for EncodeDist {
                 _ => L1BatchCommitmentMode::Validium,
             },
             main_node_rate_limit_rps: self.sample_opt(|| rng.gen()),
-            gateway_url: self
-                .sample_opt(|| format!("localhost:{}", rng.gen::<u16>()).parse().unwrap()),
             bridge_addresses_refresh_interval_sec: self.sample_opt(|| rng.gen()),
         }
     }

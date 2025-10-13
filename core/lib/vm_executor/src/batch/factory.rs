@@ -18,7 +18,7 @@ use zksync_multivm::{
     tracers::CallTracer,
     vm_fast,
     vm_latest::HistoryEnabled,
-    FastVmInstance, LegacyVmInstance, MultiVMTracer,
+    FastVmInstance, LegacyVmInstance, MultiVmTracer,
 };
 use zksync_types::{commitment::PubdataParams, vm::FastVmMode, Transaction};
 
@@ -37,7 +37,7 @@ pub trait BatchTracer: fmt::Debug + 'static + Send + Sealed {
     const TRACE_CALLS: bool;
     /// Tracer for the fast VM.
     #[doc(hidden)]
-    type Fast: vm_fast::interface::Tracer + Default + 'static;
+    type Fast: vm_fast::interface::Tracer + Default;
 }
 
 impl Sealed for () {}
@@ -228,7 +228,7 @@ impl<S: ReadStorage, Tr: BatchTracer> BatchVm<S, Tr> {
                 with_compression,
             ),
             Self::Fast(vm) => {
-                let mut tracer = (legacy_tracer.into(), <Tr::Fast>::default());
+                let mut tracer = (legacy_tracer.into(), Default::default());
                 vm.inspect_transaction_with_bytecode_compression(&mut tracer, tx, with_compression)
             }
         };

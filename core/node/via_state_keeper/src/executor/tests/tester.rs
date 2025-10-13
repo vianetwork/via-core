@@ -27,12 +27,12 @@ use zksync_types::{
     protocol_version::ProtocolSemanticVersion,
     snapshots::{SnapshotRecoveryStatus, SnapshotStorageLog},
     system_contracts::get_system_smart_contracts,
+    u256_to_h256,
     utils::storage_key_for_standard_token_balance,
     vm::FastVmMode,
     AccountTreeId, Address, Execute, L1BatchNumber, L2BlockNumber, L2ChainId, PriorityOpId,
     ProtocolVersionId, StorageLog, Transaction, H256, L2_BASE_TOKEN_ADDRESS, U256,
 };
-use zksync_utils::u256_to_h256;
 use zksync_vm_executor::batch::{MainBatchExecutorFactory, TraceCalls};
 
 use super::{read_storage_factory::RocksdbStorageFactory, StorageType};
@@ -331,7 +331,10 @@ pub trait AccountLoadNextExecutable {
     /// Returns a valid `execute` transaction.
     /// Automatically increments nonce of the account.
     fn execute(&mut self) -> Transaction;
-    fn loadnext_custom_writes_call(
+    /// Returns an `execute` transaction with custom factory deps (which aren't used in a transaction,
+    /// so they are mostly useful to test bytecode compression).
+    fn execute_with_factory_deps(&mut self, factory_deps: Vec<Vec<u8>>) -> Transaction;
+    fn loadnext_custom_initial_writes_call(
         &mut self,
         address: Address,
         writes: u32,
@@ -371,19 +374,31 @@ impl AccountLoadNextExecutable for Account {
         self.execute_with_gas_limit(1_000_000)
     }
 
+    fn execute_with_factory_deps(&mut self, factory_deps: Vec<Vec<u8>>) -> Transaction {
+        self.get_l2_tx_for_execute(
+            Execute {
+                contract_address: Some(Address::random()),
+                calldata: vec![],
+                value: Default::default(),
+                factory_deps,
+            },
+            Some(testonly::fee(30_000_000)),
+        )
+    }
+
     /// Returns a transaction to the loadnext contract with custom amount of write requests.
     /// Increments the account nonce.
-    fn loadnext_custom_writes_call(
+    fn loadnext_custom_initial_writes_call(
         &mut self,
         address: Address,
-        writes: u32,
+        initial_writes: u32,
         gas_limit: u32,
     ) -> Transaction {
         // For each iteration of the expensive contract, there are two slots that are updated:
         // the length of the vector and the new slot with the element itself.
         let minimal_fee = 2
             * testonly::DEFAULT_GAS_PER_PUBDATA
-            * writes
+            * initial_writes
             * INITIAL_STORAGE_WRITE_PUBDATA_BYTES as u32;
 
         let fee = testonly::fee(minimal_fee + gas_limit);
@@ -393,7 +408,8 @@ impl AccountLoadNextExecutable for Account {
                 contract_address: Some(address),
                 calldata: LoadnextContractExecutionParams {
                     reads: 100,
-                    writes: writes as usize,
+                    initial_writes: initial_writes as usize,
+                    repeated_writes: 100,
                     events: 100,
                     hashes: 100,
                     recursive_calls: 0,

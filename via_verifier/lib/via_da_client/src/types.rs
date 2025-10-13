@@ -2,8 +2,7 @@ use std::io::Read;
 
 use anyhow::Context;
 use byteorder::{BigEndian, ReadBytesExt};
-use zksync_types::{Address, H160, H256, U256};
-use zksync_utils::{u256_to_bytes_be, u256_to_h256};
+use zksync_types::{u256_to_bytes_be, u256_to_h256, Address, H160, H256, U256};
 
 /// The function selector used in L2 to compute the message.
 pub const WITHDRAW_FUNC_SIG: &str = "finalizeEthWithdrawal(uint256,uint256,uint16,bytes,bytes32[])";

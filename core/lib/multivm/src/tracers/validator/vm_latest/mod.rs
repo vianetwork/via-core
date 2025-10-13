@@ -1,10 +1,12 @@
 use zk_evm_1_5_0::{
     tracing::{BeforeExecutionData, VmLocalStateData},
-    zkevm_opcode_defs::{ContextOpcode, FarCallABI, LogOpcode, Opcode},
+    zkevm_opcode_defs::{ContextOpcode, FarCallABI, LogOpcode, Opcode, RetOpcode},
 };
 use zksync_system_constants::KECCAK256_PRECOMPILE_ADDRESS;
-use zksync_types::{get_code_key, AccountTreeId, StorageKey, H256, U256};
-use zksync_utils::{h256_to_account_address, u256_to_account_address, u256_to_h256};
+use zksync_types::{
+    get_code_key, h256_to_address, u256_to_address, u256_to_h256, AccountTreeId, StorageKey, H256,
+    U256,
+};
 
 use crate::{
     interface::{
@@ -48,7 +50,7 @@ impl<H: HistoryMode> ValidationTracer<H> {
                 let packed_abi = data.src0_value.value;
                 let call_destination_value = data.src1_value.value;
 
-                let called_address = u256_to_account_address(&call_destination_value);
+                let called_address = u256_to_address(&call_destination_value);
                 let far_call_abi = FarCallABI::from_u256(packed_abi);
 
                 if called_address == KECCAK256_PRECOMPILE_ADDRESS
@@ -114,8 +116,7 @@ impl<H: HistoryMode> ValidationTracer<H> {
                                 // using self.l1_batch_env.timestamp is ok here because the tracer is always
                                 // used in a oneshot execution mode
                                 if end
-                                    < self.l1_batch_env.timestamp
-                                        + params.min_time_till_end.as_secs()
+                                    < self.l1_batch_timestamp + params.min_time_till_end.as_secs()
                                 {
                                     return Err(
                                         ViolatedValidationRule::TimestampAssertionCloseToRangeEnd,
@@ -161,10 +162,17 @@ impl<H: HistoryMode> ValidationTracer<H> {
                     let value = storage.borrow_mut().read_value(&storage_key);
 
                     return Ok(NewTrustedValidationItems {
-                        new_trusted_addresses: vec![h256_to_account_address(&value)],
+                        new_trusted_addresses: vec![h256_to_address(&value)],
                         ..Default::default()
                     });
                 }
+            }
+
+            Opcode::Ret(RetOpcode::Panic)
+                if state.vm_local_state.callstack.current.ergs_remaining == 0 =>
+            {
+                // Actual gas limit was reached, not the validation gas limit.
+                return Err(ViolatedValidationRule::TookTooManyComputationalGas(0));
             }
             _ => {}
         }

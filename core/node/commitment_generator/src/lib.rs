@@ -12,10 +12,10 @@ use zksync_types::{
         AuxCommitments, BlobHash, CommitmentCommonInput, CommitmentInput, L1BatchAuxiliaryOutput,
         L1BatchCommitment, L1BatchCommitmentArtifacts, L1BatchCommitmentMode,
     },
+    h256_to_u256,
     writes::{InitialStorageWrite, RepeatedStorageWrite, StateDiffRecord},
     L1BatchNumber, ProtocolVersionId, StorageKey, H256, U256,
 };
-use zksync_utils::h256_to_u256;
 
 use crate::{
     metrics::{CommitmentStage, METRICS},
@@ -293,13 +293,13 @@ impl CommitmentGenerator {
             };
 
             let aggregation_root = if protocol_version.is_pre_gateway() {
+                H256::zero()
+            } else {
                 let mut connection = self
                     .connection_pool
                     .connection_tagged("commitment_generator")
                     .await?;
                 read_aggregation_root(&mut connection, l1_batch_number).await?
-            } else {
-                H256::zero()
             };
 
             CommitmentInput::PostBoojum {

@@ -24,7 +24,7 @@ use zksync_state_keeper::{
 use zksync_types::{
     api::state_override::StateOverride,
     fee_model::BatchFeeInput,
-    get_intrinsic_constants,
+    get_intrinsic_constants, h256_to_u256,
     l2::{error::TxCheckError::TxDuplication, L2Tx},
     transaction_request::CallOverrides,
     utils::storage_key_for_eth_balance,
@@ -32,9 +32,8 @@ use zksync_types::{
     AccountTreeId, Address, L2ChainId, Nonce, ProtocolVersionId, Transaction, H160, H256,
     MAX_NEW_FACTORY_DEPS, U256,
 };
-use zksync_utils::h256_to_u256;
 use zksync_vm_executor::oneshot::{
-    CallOrExecute, EstimateGas, MultiVMBaseSystemContracts, OneshotEnvParameters,
+    CallOrExecute, EstimateGas, MultiVmBaseSystemContracts, OneshotEnvParameters,
 };
 
 pub(super) use self::{gas_estimation::BinarySearchKind, result::SubmitTxError};
@@ -110,11 +109,11 @@ impl SandboxExecutorOptions {
         validation_computational_gas_limit: u32,
     ) -> anyhow::Result<Self> {
         let estimate_gas_contracts =
-            tokio::task::spawn_blocking(MultiVMBaseSystemContracts::load_estimate_gas_blocking)
+            tokio::task::spawn_blocking(MultiVmBaseSystemContracts::load_estimate_gas_blocking)
                 .await
                 .context("failed loading base contracts for gas estimation")?;
         let call_contracts =
-            tokio::task::spawn_blocking(MultiVMBaseSystemContracts::load_eth_call_blocking)
+            tokio::task::spawn_blocking(MultiVmBaseSystemContracts::load_eth_call_blocking)
                 .await
                 .context("failed loading base contracts for calls / tx execution")?;
 
@@ -589,7 +588,7 @@ impl TxSender {
     }
 
     // For now, both L1 gas price and pubdata price are scaled with the same coefficient
-    async fn scaled_batch_fee_input(&self) -> anyhow::Result<BatchFeeInput> {
+    pub(crate) async fn scaled_batch_fee_input(&self) -> anyhow::Result<BatchFeeInput> {
         self.0
             .batch_fee_input_provider
             .get_batch_fee_input_scaled(
@@ -672,7 +671,7 @@ impl TxSender {
         // but the API assumes we are post boojum. In this situation we will determine a tx as being executable but the StateKeeper will
         // still reject them as it's not.
         let protocol_version = ProtocolVersionId::latest();
-        let seal_data = SealData::for_transaction(transaction, tx_metrics, protocol_version);
+        let seal_data = SealData::for_transaction(transaction, tx_metrics);
         if let Some(reason) = self
             .0
             .sealer

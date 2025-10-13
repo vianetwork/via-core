@@ -6,7 +6,7 @@ use std::{
 
 use futures::{channel::mpsc, SinkExt};
 use tokio::sync::RwLock;
-use zksync_contracts::test_contracts::LoadnextContractExecutionParams;
+use zksync_test_contracts::LoadnextContractExecutionParams;
 use zksync_types::{api::TransactionReceipt, Address, Nonce, H256, U256, U64};
 use zksync_web3_decl::{
     client::{Client, L2},
