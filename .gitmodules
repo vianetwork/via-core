@@ -1,7 +1,7 @@
 [submodule "contracts"]
     path = contracts
     url = https://github.com/vianetwork/era-contracts.git
-    branch = chore/rebase-v25-4-0
+    branch = main
 
 [submodule "via-core-ext"]
 	path = via-core-ext
