@@ -453,8 +453,6 @@ pub(crate) struct OptionalENConfig {
     /// If set to 0, L1 batches will not be retained based on their timestamp. The default value is 7 days.
     #[serde(default = "OptionalENConfig::default_pruning_data_retention_sec")]
     pruning_data_retention_sec: u64,
-    /// Gateway RPC URL, needed for operating during migration.
-    pub gateway_url: Option<SensitiveUrl>,
     /// Minimum time between current block.timestamp and the end of the asserted range for TimestampAsserter
     #[serde(default = "OptionalENConfig::default_timestamp_asserter_min_time_till_end_sec")]
     pub timestamp_asserter_min_time_till_end_sec: u32,
@@ -464,7 +462,7 @@ impl OptionalENConfig {
     fn from_configs(
         general_config: &GeneralConfig,
         enconfig: &ENConfig,
-        secrets: &Secrets,
+        _secrets: &Secrets,
     ) -> anyhow::Result<Self> {
         let api_namespaces = load_config!(general_config.api_config, web3_json_rpc.api_namespaces)
             .map(|a: Vec<String>| a.iter().map(|a| a.parse()).collect::<Result<_, _>>())
@@ -697,10 +695,6 @@ impl OptionalENConfig {
                 .unwrap_or_else(Self::default_main_node_rate_limit_rps),
             api_namespaces,
             contracts_diamond_proxy_addr: None,
-            gateway_url: secrets
-                .l1
-                .as_ref()
-                .and_then(|l1| l1.gateway_rpc_url.clone()),
             timestamp_asserter_min_time_till_end_sec: general_config
                 .timestamp_asserter_config
                 .as_ref()
