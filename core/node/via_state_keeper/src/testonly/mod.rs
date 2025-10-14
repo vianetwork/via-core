@@ -13,10 +13,9 @@ use zksync_multivm::interface::{
 };
 use zksync_state::OwnedStorage;
 use zksync_types::{
-    commitment::PubdataParams, fee::Fee, u256_to_h256,
-    utils::storage_key_for_standard_token_balance, AccountTreeId, Address, L1BatchNumber,
-    L2BlockNumber, StorageLog, Transaction, L2_BASE_TOKEN_ADDRESS, SYSTEM_CONTEXT_MINIMAL_BASE_FEE,
-    U256,
+    commitment::PubdataParams, u256_to_h256, utils::storage_key_for_standard_token_balance,
+    AccountTreeId, Address, L1BatchNumber, L2BlockNumber, StorageLog, Transaction,
+    L2_BASE_TOKEN_ADDRESS, U256,
 };
 
 pub mod test_batch_executor;
@@ -110,13 +109,13 @@ pub async fn fund(pool: &ConnectionPool<Core>, addresses: &[Address]) {
     }
 }
 
-pub(crate) const DEFAULT_GAS_PER_PUBDATA: u32 = 10000;
-
-pub(crate) fn fee(gas_limit: u32) -> Fee {
-    Fee {
-        gas_limit: U256::from(gas_limit),
-        max_fee_per_gas: SYSTEM_CONTEXT_MINIMAL_BASE_FEE.into(),
-        max_priority_fee_per_gas: U256::zero(),
-        gas_per_pubdata_limit: U256::from(DEFAULT_GAS_PER_PUBDATA),
-    }
-}
+// pub(crate) const DEFAULT_GAS_PER_PUBDATA: u32 = 10000;
+//
+// pub(crate) fn fee(gas_limit: u32) -> Fee {
+//     Fee {
+//         gas_limit: U256::from(gas_limit),
+//         max_fee_per_gas: SYSTEM_CONTEXT_MINIMAL_BASE_FEE.into(),
+//         max_priority_fee_per_gas: U256::zero(),
+//         gas_per_pubdata_limit: U256::from(DEFAULT_GAS_PER_PUBDATA),
+//     }
+// }

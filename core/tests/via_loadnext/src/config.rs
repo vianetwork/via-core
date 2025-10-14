@@ -3,9 +3,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 use zksync_test_contracts::LoadnextContractExecutionParams;
-use zksync_types::{network::Network, Address, L2ChainId, H160};
-
-use crate::fs_utils::read_tokens;
+use zksync_types::L2ChainId;
 
 /// Configuration for the loadtest.
 ///

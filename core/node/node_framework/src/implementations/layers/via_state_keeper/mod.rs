@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use via_state_keeper::{
-    seal_criteria::ConditionalSealer, AsyncRocksdbCache, OutputHandler, StateKeeperIO,
-    ZkSyncStateKeeper,
-};
+use via_state_keeper::{AsyncRocksdbCache, ZkSyncStateKeeper};
 use zksync_health_check::ReactiveHealthCheck;
 use zksync_state::AsyncCatchupTask;
 use zksync_storage::RocksDB;

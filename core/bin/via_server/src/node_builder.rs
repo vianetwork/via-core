@@ -57,7 +57,6 @@ use zksync_node_framework::{
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
-use zksync_types::settlement::SettlementMode;
 use zksync_vlog::prometheus::PrometheusExporterConfig;
 
 /// Macro that looks into a path to fetch an optional config,
