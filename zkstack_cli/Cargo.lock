@@ -6905,10 +6905,12 @@ name = "zksync_basic_types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bigdecimal",
  "chrono",
  "const-decoder",
  "ethabi",
  "hex",
+ "num",
  "num_enum",
  "secrecy",
  "serde",
@@ -6950,6 +6952,7 @@ dependencies = [
  "rand",
  "secrecy",
  "serde",
+ "url",
  "zksync_basic_types",
  "zksync_concurrency",
  "zksync_consensus_utils",
