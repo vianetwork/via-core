@@ -68,6 +68,7 @@ pub enum ProtocolVersionId {
     Version23,
     Version24,
     Version25,
+    // Versions >=26 are reserved for Via protocol.
     Version26,
     Version27,
     Version28,
@@ -123,8 +124,8 @@ impl ProtocolVersionId {
             ProtocolVersionId::Version23 => VmVersion::Vm1_5_0SmallBootloaderMemory,
             ProtocolVersionId::Version24 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
             ProtocolVersionId::Version25 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
-            ProtocolVersionId::Version26 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
-            ProtocolVersionId::Version27 => VmVersion::VmGateway,
+            ProtocolVersionId::Version26 => VmVersion::VmBitcoin1_0_0,
+            ProtocolVersionId::Version27 => VmVersion::VmBitcoin1_0_0,
             ProtocolVersionId::Version28 => VmVersion::VmBitcoin1_0_0,
         }
     }
@@ -286,8 +287,8 @@ impl From<ProtocolVersionId> for VmVersion {
             ProtocolVersionId::Version23 => VmVersion::Vm1_5_0SmallBootloaderMemory,
             ProtocolVersionId::Version24 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
             ProtocolVersionId::Version25 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
-            ProtocolVersionId::Version26 => VmVersion::Vm1_5_0IncreasedBootloaderMemory,
-            ProtocolVersionId::Version27 => VmVersion::VmGateway,
+            ProtocolVersionId::Version26 => VmVersion::VmBitcoin1_0_0,
+            ProtocolVersionId::Version27 => VmVersion::VmBitcoin1_0_0,
             ProtocolVersionId::Version28 => VmVersion::VmBitcoin1_0_0,
         }
     }
