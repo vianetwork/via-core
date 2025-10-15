@@ -1,10 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use bitcoin::{TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
@@ -23,7 +23,7 @@ use zksync_config::{
     },
     ViaBtcWatchConfig,
 };
-use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets, H256};
+use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets};
 
 use crate::{
     metrics::METRICS,
