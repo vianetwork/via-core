@@ -183,7 +183,12 @@ contracts we are going to deploy. Wait the transactions to be processed on L2 an
 the next steps. 10. When all the l1_batches are processed execute the next cmd to send an upgrade inscription to the L1.
 
 ```sh
-yarn start l2-transaction upgrade-system-contracts --environment devnet-2 --private-key cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R
+yarn start l2-transaction upgrade-system-contracts \
+  --environment devnet-2 \
+  --private-key cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
+  --rpc-url <rpcUrl> \
+  --rpc-username <rpc-username> \
+  --rpc-password <rpc-password>
 ```
 
 11. Copy the `tx_id` of the proposal created in the previous step and follow this doc to create a multisig
