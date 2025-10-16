@@ -10,6 +10,7 @@ pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
+use zksync_types::via_wallet::SystemWallets;
 
 #[cfg(test)]
 mod test;
@@ -150,6 +151,26 @@ impl BtcWatch {
 
         let from_block = last_processed_bitcoin_block + 1;
 
+        let system_wallets_map = match storage
+            .via_wallet_dal()
+            .get_system_wallets_raw(last_processed_bitcoin_block as i64)
+            .await?
+        {
+            Some(map) => map,
+            None => {
+                tracing::info!("Wait for storage init, block number {}", from_block);
+                return Ok(());
+            }
+        };
+
+        let system_wallets = SystemWallets::try_from(system_wallets_map)?;
+        self.indexer.update_system_wallets(
+            Some(system_wallets.sequencer),
+            Some(system_wallets.bridge),
+            Some(system_wallets.verifiers),
+            Some(system_wallets.governance),
+        );
+
         let mut messages = self
             .indexer
             .process_blocks(from_block, to_block)
@@ -158,12 +179,15 @@ impl BtcWatch {
 
         // Re-process blocks if system wallets were updated, since the new wallet state
         // may change how subsequent messages are interpreted.
-        if self
+        if let Some(block_number) = self
             .system_wallet_processor
             .process_messages(storage, messages.clone(), &mut self.indexer)
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?
         {
+            // Process the blocks until where the update wallets block.
+            to_block = block_number;
+
             messages = self
                 .indexer
                 .process_blocks(from_block, to_block)
@@ -185,8 +209,7 @@ impl BtcWatch {
             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
         tracing::info!(
-            "The btc_watch processed {} blocks, from {} to {}",
-            L1_BLOCKS_CHUNK,
+            "The btc_watch processed blocks, from {} to {}",
             from_block,
             to_block,
         );

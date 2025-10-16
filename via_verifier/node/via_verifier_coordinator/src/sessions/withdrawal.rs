@@ -381,12 +381,15 @@ impl WithdrawalSession {
     }
 
     async fn get_system_wallets(&self) -> anyhow::Result<SystemWallets> {
-        let Some(system_wallets_map) = self
-            .master_connection_pool
-            .connection()
-            .await?
+        let mut storage = self.master_connection_pool.connection().await?;
+
+        let last_processed_l1_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await?;
+        let Some(system_wallets_map) = storage
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(last_processed_l1_block as i64)
             .await?
         else {
             anyhow::bail!("Error load system wallets");

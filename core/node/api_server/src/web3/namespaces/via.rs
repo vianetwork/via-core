@@ -28,7 +28,7 @@ impl ViaNamespace {
             .await
             .map_err(DalError::generalize)?
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(i64::MAX)
             .await
             .map_err(DalError::generalize)?
         {

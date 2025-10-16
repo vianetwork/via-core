@@ -14,14 +14,8 @@ use via_verifier_types::withdrawal::get_withdrawal_requests;
 use super::{MessageProcessor, MessageProcessorError};
 use crate::metrics::METRICS;
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct WithdrawalProcessor;
-
-impl WithdrawalProcessor {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 #[async_trait::async_trait]
 impl MessageProcessor for WithdrawalProcessor {
@@ -30,7 +24,7 @@ impl MessageProcessor for WithdrawalProcessor {
         storage: &mut Connection<'_, Verifier>,
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
-    ) -> Result<bool, MessageProcessorError> {
+    ) -> Result<Option<u32>, MessageProcessorError> {
         for msg in msgs {
             if let FullInscriptionMessage::BridgeWithdrawal(withdrawal_msg) = msg {
                 tracing::info!("Processing withdrawal bridge transaction...");
@@ -81,6 +75,6 @@ impl MessageProcessor for WithdrawalProcessor {
             }
         }
 
-        Ok(true)
+        Ok(None)
     }
 }

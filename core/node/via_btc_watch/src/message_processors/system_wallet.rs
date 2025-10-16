@@ -31,40 +31,33 @@ impl MessageProcessor for SystemWalletProcessor {
         &mut self,
         storage: &mut Connection<'_, Core>,
         msgs: Vec<FullInscriptionMessage>,
-        indexer: &mut BitcoinInscriptionIndexer,
-    ) -> Result<bool, MessageProcessorError> {
-        let mut wallets_updated = false;
+        _: &mut BitcoinInscriptionIndexer,
+    ) -> Result<Option<u32>, MessageProcessorError> {
+        let mut l1_block_number: Option<u32> = None;
 
-        let msgs = FullInscriptionMessage::sort_messages(msgs);
+        for msg in FullInscriptionMessage::sort_messages(msgs) {
+            let l1_block_number_opt = match msg {
+                FullInscriptionMessage::UpdateGovernance(m) => {
+                    self.handle_update_governance(storage, m).await?
+                }
+                FullInscriptionMessage::UpdateSequencer(m) => {
+                    self.handle_update_sequencer(storage, m).await?
+                }
+                FullInscriptionMessage::UpdateBridge(m) => {
+                    self.handle_update_bridge_proposal(storage, m).await?
+                }
+                _ => None,
+            };
 
-        for msg in msgs {
-            match msg {
-                FullInscriptionMessage::UpdateGovernance(msg) => {
-                    let updated = self.handle_update_governance(storage, msg, indexer).await?;
-                    // Make sure to not override the wallets_updated if "wallets_updated" it's already true.
-                    if updated {
-                        wallets_updated = updated;
-                    }
-                }
-                FullInscriptionMessage::UpdateSequencer(msg) => {
-                    let updated = self.handle_update_sequencer(storage, msg, indexer).await?;
-                    if updated {
-                        wallets_updated = updated;
-                    }
-                }
-                FullInscriptionMessage::UpdateBridge(msg) => {
-                    let updated = self
-                        .handle_update_bridge_proposal(storage, msg, indexer)
-                        .await?;
-                    if updated {
-                        wallets_updated = updated;
-                    }
-                }
-
+            // Keep the smallest (earliest) block number
+            match (l1_block_number, l1_block_number_opt) {
+                (Some(current), Some(new)) if new < current => l1_block_number = Some(new),
+                (None, Some(new)) => l1_block_number = Some(new),
                 _ => {}
             }
         }
-        Ok(wallets_updated)
+
+        Ok(l1_block_number)
     }
 }
 
@@ -73,8 +66,7 @@ impl SystemWalletProcessor {
         &self,
         storage: &mut Connection<'_, Core>,
         update_bridge_msg: UpdateBridge,
-        indexer: &mut BitcoinInscriptionIndexer,
-    ) -> Result<bool, MessageProcessorError> {
+    ) -> Result<Option<u32>, MessageProcessorError> {
         let proposal_tx_id = update_bridge_msg.input.proposal_tx_id;
 
         let proposal_tx = match self.btc_client.get_transaction(&proposal_tx_id).await {
@@ -85,7 +77,7 @@ impl SystemWalletProcessor {
                     proposal_tx_id,
                     err
                 );
-                return Ok(false);
+                return Ok(None);
             }
         };
 
@@ -100,11 +92,14 @@ impl SystemWalletProcessor {
         for message in messages {
             match message {
                 FullInscriptionMessage::UpdateBridgeProposal(update_bridge_msg) => {
-                    let system_wallets_map =
-                        match storage.via_wallet_dal().get_system_wallets_raw().await? {
-                            Some(map) => map,
-                            None => Default::default(),
-                        };
+                    let system_wallets_map = match storage
+                        .via_wallet_dal()
+                        .get_system_wallets_raw(update_bridge_msg.common.block_height as i64)
+                        .await?
+                    {
+                        Some(map) => map,
+                        None => Default::default(),
+                    };
 
                     let system_wallets = SystemWallets::try_from(system_wallets_map)?;
 
@@ -116,14 +111,14 @@ impl SystemWalletProcessor {
                         Ok(address) => address,
                         Err(err) => {
                             tracing::error!("Failed to parse bridge address: {}", err);
-                            return Ok(false);
+                            return Ok(None);
                         }
                     };
 
                     // Skip if bridge already registered
                     if system_wallets.bridge == new_bridge_address {
                         tracing::info!("Bridge wallet already exists, skipping");
-                        return Ok(false);
+                        return Ok(None);
                     }
 
                     let mut wallets_details = SystemWalletsDetails::default();
@@ -159,33 +154,25 @@ impl SystemWalletProcessor {
                         )
                         .await?;
 
-                    indexer.update_system_wallets(
-                        None,
-                        Some(new_bridge_address),
-                        Some(verifier_addresses),
-                        None,
-                    );
-
                     tracing::info!("New bridge address updated: {:?}", &wallets_details);
 
-                    return Ok(true);
+                    return Ok(Some(update_bridge_msg.common.block_height));
                 }
-                _ => return Ok(false),
+                _ => return Ok(None),
             }
         }
-        Ok(false)
+        Ok(None)
     }
 
     async fn handle_update_sequencer(
         &self,
         storage: &mut Connection<'_, Core>,
         update_sequencer_msg: UpdateSequencer,
-        indexer: &mut BitcoinInscriptionIndexer,
-    ) -> Result<bool, MessageProcessorError> {
+    ) -> Result<Option<u32>, MessageProcessorError> {
         tracing::info!("Received UpdateSequencer message");
         let system_wallets_map = match storage
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(update_sequencer_msg.common.block_height as i64)
             .await
             .unwrap()
         {
@@ -200,7 +187,7 @@ impl SystemWalletProcessor {
         // Skip if sequencer already registered
         if system_wallets.sequencer == new_sequencer_address {
             tracing::info!("Sequencer wallet already exists, skipping");
-            return Ok(false);
+            return Ok(None);
         }
 
         let mut wallets_details = SystemWalletsDetails::default();
@@ -221,24 +208,21 @@ impl SystemWalletProcessor {
             )
             .await?;
 
-        indexer.update_system_wallets(Some(new_sequencer_address), None, None, None);
-
         tracing::info!("New sequencer address updated: {:?}", &wallets_details);
 
-        Ok(true)
+        Ok(Some(update_sequencer_msg.common.block_height))
     }
 
     async fn handle_update_governance(
         &self,
         storage: &mut Connection<'_, Core>,
         update_governance_msg: UpdateGovernance,
-        indexer: &mut BitcoinInscriptionIndexer,
-    ) -> Result<bool, MessageProcessorError> {
+    ) -> Result<Option<u32>, MessageProcessorError> {
         tracing::info!("Received UpdateGovernance message");
 
         let system_wallets_map = match storage
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(update_governance_msg.common.block_height as i64)
             .await
             .unwrap()
         {
@@ -253,7 +237,7 @@ impl SystemWalletProcessor {
         // Skip if sequencer already registered
         if system_wallets.governance == new_governance_address {
             tracing::info!("Sequencer wallet already exists, skipping");
-            return Ok(false);
+            return Ok(None);
         }
 
         let mut wallets_details = SystemWalletsDetails::default();
@@ -274,10 +258,8 @@ impl SystemWalletProcessor {
             )
             .await?;
 
-        indexer.update_system_wallets(None, None, None, Some(new_governance_address));
-
         tracing::info!("New governance address updated: {:?}", &wallets_details);
 
-        Ok(true)
+        Ok(Some(update_governance_msg.common.block_height))
     }
 }

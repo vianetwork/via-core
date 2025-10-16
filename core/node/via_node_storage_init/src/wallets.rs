@@ -25,11 +25,18 @@ impl ViaWalletsInitializer {
     pub async fn fetch_indexer_wallets_from_db(
         pool: &ConnectionPool<Core>,
     ) -> anyhow::Result<Option<SystemWallets>> {
+        let last_processed_l1_block = pool
+            .connection()
+            .await?
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await?;
+
         let system_wallet_raw_opt = pool
             .connection()
             .await?
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(last_processed_l1_block as i64)
             .await?;
         let Some(system_wallet_raw) = system_wallet_raw_opt else {
             return Ok(None);

@@ -483,12 +483,16 @@ impl ViaVerifier {
 
     /// Check if the wallet is in the verifier set.
     async fn validate_verifier_address(&self) -> anyhow::Result<()> {
-        let Some(wallets_map) = self
-            .pool
-            .connection()
-            .await?
+        let mut storage = self.pool.connection().await?;
+
+        let last_processed_l1_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await?;
+
+        let Some(wallets_map) = storage
             .via_wallet_dal()
-            .get_system_wallets_raw()
+            .get_system_wallets_raw(last_processed_l1_block as i64)
             .await?
         else {
             anyhow::bail!("System wallets not found")

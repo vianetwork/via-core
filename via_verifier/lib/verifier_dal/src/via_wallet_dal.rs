@@ -51,7 +51,10 @@ impl ViaWalletDal<'_, '_> {
     }
 
     /// Fetch the latest system wallets from the DB (raw data).
-    pub async fn get_system_wallets_raw(&mut self) -> DalResult<Option<HashMap<String, String>>> {
+    pub async fn get_system_wallets_raw(
+        &mut self,
+        l1_block_number: i64,
+    ) -> DalResult<Option<HashMap<String, String>>> {
         let rows = sqlx::query!(
             r#"
             SELECT DISTINCT
@@ -60,10 +63,13 @@ impl ViaWalletDal<'_, '_> {
                 ADDRESS
             FROM
                 VIA_WALLETS
+            WHERE
+                l1_block_number <= $1
             ORDER BY
                 ROLE,
                 CREATED_AT DESC
-            "#
+            "#,
+            l1_block_number
         )
         .instrument("get_system_wallets_raw")
         .report_latency()
