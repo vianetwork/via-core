@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use zksync_types::web3::keccak256;
 
 use async_trait::async_trait;
 use zksync_da_client::{
@@ -12,7 +13,7 @@ use zksync_da_client::{
 #[derive(Clone)]
 pub struct FallbackDaClient {
     primary: Box<dyn DataAvailabilityClient>,
-    fallback: Box<dyn DataAvailabilityClient>,
+    fallback: Option<Box<dyn DataAvailabilityClient>>,
     /// If true, verifies that data from fallback matches data from primary when both are available
     verify_consistency: bool,
 }
@@ -20,7 +21,7 @@ pub struct FallbackDaClient {
 impl FallbackDaClient {
     pub fn new(
         primary: Box<dyn DataAvailabilityClient>,
-        fallback: Box<dyn DataAvailabilityClient>,
+        fallback: Option<Box<dyn DataAvailabilityClient>>,
         verify_consistency: bool,
     ) -> Self {
         Self {
@@ -50,11 +51,6 @@ impl FallbackDaClient {
     }
 }
 
-fn keccak256(data: &[u8]) -> [u8; 32] {
-    use zksync_types::web3::keccak256;
-    keccak256(data)
-}
-
 #[async_trait]
 impl DataAvailabilityClient for FallbackDaClient {
     /// Dispatches blob to the primary client only
@@ -78,47 +74,54 @@ impl DataAvailabilityClient for FallbackDaClient {
                         blob_id
                     );
 
-                    match self.fallback.get_inclusion_data(blob_id).await {
-                        Ok(Some(fallback_data)) => {
-                            if let Err(e) =
-                                self.verify_data_consistency(&primary_data, &fallback_data)
-                            {
-                                tracing::error!(
-                                    "Data consistency verification failed for blob_id {}: {}",
-                                    blob_id,
+                    // If fallback solution
+                    if let Some(fallback) = self.fallback.clone() {
+                        match fallback.get_inclusion_data(blob_id).await {
+                            Ok(Some(fallback_data)) => {
+                                if let Err(e) =
+                                    self.verify_data_consistency(&primary_data, &fallback_data)
+                                {
+                                    tracing::error!(
+                                        "Data consistency verification failed for blob_id {}: {}",
+                                        blob_id,
+                                        e.error
+                                    );
+                                    return Err(e);
+                                }
+                                tracing::info!(
+                                    "Data consistency verified successfully for blob_id: {}",
+                                    blob_id
+                                );
+                            }
+                            Ok(None) => {
+                                tracing::warn!(
+                                    "Fallback DA client has no data for blob_id: {} (primary has data)",
+                                    blob_id
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to fetch from fallback DA for verification: {}",
                                     e.error
                                 );
-                                return Err(e);
                             }
-                            tracing::info!(
-                                "Data consistency verified successfully for blob_id: {}",
-                                blob_id
-                            );
-                        }
-                        Ok(None) => {
-                            tracing::warn!(
-                                "Fallback DA client has no data for blob_id: {} (primary has data)",
-                                blob_id
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to fetch from fallback DA for verification: {}",
-                                e.error
-                            );
                         }
                     }
                 }
                 Ok(Some(primary_data))
             }
             Ok(None) => {
+                let Some(fallback) = self.fallback.clone() else {
+                    return Ok(None);
+                };
+
                 // Primary returned None, try fallback
                 tracing::info!(
                     "Primary DA client returned no data for blob_id: {}, trying fallback",
                     blob_id
                 );
 
-                match self.fallback.get_inclusion_data(blob_id).await {
+                match fallback.get_inclusion_data(blob_id).await {
                     Ok(Some(fallback_data)) => {
                         tracing::info!(
                             "Fallback DA client successfully retrieved data for blob_id: {}",
@@ -151,7 +154,11 @@ impl DataAvailabilityClient for FallbackDaClient {
                     primary_error.error
                 );
 
-                match self.fallback.get_inclusion_data(blob_id).await {
+                let Some(fallback) = self.fallback.clone() else {
+                    return Err(primary_error);
+                };
+
+                match fallback.get_inclusion_data(blob_id).await {
                     Ok(result) => {
                         if result.is_some() {
                             tracing::info!(

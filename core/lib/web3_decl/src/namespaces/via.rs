@@ -5,9 +5,11 @@ use jsonrpsee::proc_macros::rpc;
 
 use crate::client::{ForWeb3Network, L2};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DaBlobData {
-    pub data: String, // hex-encoded blob data
+    pub is_proof: bool,
+    pub pub_data: String,   // hex-encoded blob data
+    pub proof_data: String, // hex-encoded blob data
 }
 
 #[cfg_attr(

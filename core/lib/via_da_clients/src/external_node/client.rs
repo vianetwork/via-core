@@ -52,12 +52,20 @@ impl DataAvailabilityClient for ExternalNodeDaClient {
             })?;
 
         match result {
-            Some(blob_data) => {
-                let data = hex::decode(&blob_data.data).map_err(|e| DAError {
-                    error: e.into(),
-                    is_retriable: false,
-                })?;
-                Ok(Some(InclusionData { data }))
+            Some(blob) => {
+                if blob.is_proof {
+                    let data = hex::decode(&blob.proof_data).map_err(|e| DAError {
+                        error: e.into(),
+                        is_retriable: false,
+                    })?;
+                    Ok(Some(InclusionData { data }))
+                } else {
+                    let data = hex::decode(&blob.pub_data).map_err(|e| DAError {
+                        error: e.into(),
+                        is_retriable: false,
+                    })?;
+                    Ok(Some(InclusionData { data }))
+                }
             }
             None => Ok(None),
         }

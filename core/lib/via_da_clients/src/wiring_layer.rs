@@ -66,17 +66,12 @@ impl WiringLayer for ViaDaClientWiringLayer {
                     "Configuring DA client with fallback to external node (using QueryClient)"
                 );
 
-                // Ensure the L2 query client resource is available when fallback is configured
-                let query_client = input.query_client_l2.ok_or_else(|| {
-                    WiringError::Configuration(
-                        "L2 query client resource is required when fallback is configured. \
-                        Ensure ViaQueryEthClientLayer is added before ViaDaClientWiringLayer."
-                            .to_string(),
-                    )
-                })?;
-
-                // Use the QueryClient from the node framework instead of creating a new HTTP client
-                let fallback_client = Box::new(ExternalNodeDaClient::new(query_client.0));
+                let mut fallback_client = None;
+                if let Some(query_client_l2) = input.query_client_l2 {
+                    // Use the QueryClient from the node framework instead of creating a new HTTP client
+                    fallback_client = Some(Box::new(ExternalNodeDaClient::new(query_client_l2.0))
+                        as Box<dyn DataAvailabilityClient>);
+                }
 
                 Box::new(FallbackDaClient::new(
                     primary_client,
