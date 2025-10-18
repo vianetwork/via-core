@@ -101,6 +101,7 @@ members = [
   "core/node/via_node_storage_init",
   "core/node/via_main_node_reorg_detector",
   "core/lib/via_consensus",
+  "core/lib/via_da_dispatcher",
 
   # VIA Verifier
   "via_verifier/bin/verifier_server",
@@ -385,6 +386,7 @@ via_test_utils = { version = "0.1.0", path = "core/lib/via_test_utils" }
 via_node_storage_init = { version = "0.1.0", path = "core/node/via_node_storage_init" }
 via_main_node_reorg_detector = { version = "0.1.0", path = "core/node/via_main_node_reorg_detector" }
 via_consensus = { version = "0.1.0", path = "core/lib/via_consensus" }
+via_da_dispatcher_lib = { version = "0.1.0", path = "core/lib/via_da_dispatcher" }
 
 # VIA Verifier
 via_withdrawal_client = { version = "0.1.0", path = "via_verifier/lib/via_withdrawal_client" }
