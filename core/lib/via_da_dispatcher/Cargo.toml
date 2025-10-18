@@ -1,0 +1,17 @@
+[package]
+name = "via_da_dispatcher_lib"
+description = "VIA DA dispatcher lib"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+zksync_types.workspace = true
+zksync_prover_interface.workspace = true
+zksync_object_store.workspace = true
+tracing.workspace = true
