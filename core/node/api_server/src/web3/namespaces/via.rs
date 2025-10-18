@@ -56,23 +56,54 @@ impl ViaNamespace {
             .await
             .map_err(DalError::generalize)?;
 
-        let blob = conn
+        let Some(is_proof) = conn
             .via_data_availability_dal()
-            .get_da_blob_by_blob_id(&blob_id)
+            .get_blob_type(&blob_id)
             .await
-            .map_err(DalError::generalize)?;
+            .map_err(DalError::generalize)?
+        else {
+            return Ok(None);
+        };
 
-        match blob {
-            Some(blob_data) => {
-                if let Some(inclusion_data) = blob_data.inclusion_data {
-                    Ok(Some(DaBlobData {
-                        data: hex::encode(inclusion_data),
-                    }))
-                } else {
-                    Ok(None)
+        let mut blob_data = DaBlobData {
+            is_proof,
+            ..Default::default()
+        };
+
+        if is_proof {
+            let Some((mut prove_batch, _)) = conn
+                .via_data_availability_dal()
+                .get_proof_data_by_blob_id(&blob_id)
+                .await
+                .map_err(DalError::generalize)?
+            else {
+                return Ok(None);
+            };
+
+            prove_batch.should_verify = self.state.api_config.via_dispatch_real_proof;
+
+            let proof_data = match bincode::serialize(&prove_batch) {
+                Ok(data) => data,
+                Err(e) => {
+                    return Err(Web3Error::InternalError(anyhow::anyhow!(
+                        "Error serializing prove_batch: {e}"
+                    )));
                 }
-            }
-            None => Ok(None),
+            };
+
+            blob_data.proof_data = hex::encode(proof_data);
+        } else {
+            let Some((_, pub_data)) = conn
+                .via_data_availability_dal()
+                .get_da_blob_pub_data_by_blob_id(&blob_id)
+                .await
+                .map_err(DalError::generalize)?
+            else {
+                return Ok(None);
+            };
+            blob_data.pub_data = hex::encode(pub_data);
         }
+
+        Ok(Some(blob_data))
     }
 }
