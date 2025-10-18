@@ -4,6 +4,7 @@ use anyhow::Context;
 use chrono::Utc;
 use rand::Rng;
 use tokio::sync::watch::Receiver;
+use via_da_dispatcher_lib::blob::load_wrapped_fri_proofs_for_range;
 use zksync_config::DADispatcherConfig;
 use zksync_da_client::{
     types::{DAError, InclusionData},
@@ -11,9 +12,8 @@ use zksync_da_client::{
 };
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_l1_contract_interface::i_executor::methods::ProveBatches;
-use zksync_object_store::{ObjectStore, ObjectStoreError};
-use zksync_prover_interface::outputs::L1BatchProofForL1;
-use zksync_types::{protocol_version::ProtocolSemanticVersion, L1BatchNumber};
+use zksync_object_store::ObjectStore;
+use zksync_types::L1BatchNumber;
 
 use crate::metrics::METRICS;
 
@@ -275,66 +275,17 @@ impl ViaDataAvailabilityDispatcher {
     async fn load_real_proof_operation(&self, batch_to_prove: L1BatchNumber) -> Option<Vec<u8>> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
-        let previous_batch_number = batch_to_prove - 1;
-
-        let minor_version = match storage
-            .blocks_dal()
-            .get_batch_protocol_version_id(batch_to_prove)
-            .await
-        {
-            Ok(Some(version)) => version,
-            Ok(None) | Err(_) => {
-                tracing::error!(
-                    "Failed to retrieve protocol version for batch {}",
-                    batch_to_prove
-                );
-                return None;
-            }
-        };
-
-        let latest_semantic_version = match storage
-            .protocol_versions_dal()
-            .latest_semantic_version()
-            .await
-        {
-            Ok(Some(version)) => version,
-            Ok(None) | Err(_) => {
-                tracing::error!("Failed to retrieve the latest semantic version");
-                return None;
-            }
-        };
-
-        let l1_verifier_config = storage
-            .protocol_versions_dal()
-            .l1_verifier_config_for_version(latest_semantic_version)
+        let (mut prove_batches, allowed_versions) = storage
+            .via_data_availability_dal()
+            .get_proof_data(batch_to_prove)
             .await?;
 
-        let allowed_patch_versions = match storage
-            .protocol_versions_dal()
-            .get_patch_versions_for_vk(minor_version, l1_verifier_config.snark_wrapper_vk_hash)
-            .await
-        {
-            Ok(versions) if !versions.is_empty() => versions,
-            Ok(_) | Err(_) => {
-                tracing::warn!(
-                    "No patch version corresponds to the verification key on L1: {:?}",
-                    l1_verifier_config.snark_wrapper_vk_hash
-                );
-                return None;
-            }
-        };
-
-        let allowed_versions: Vec<_> = allowed_patch_versions
-            .into_iter()
-            .map(|patch| ProtocolSemanticVersion {
-                minor: minor_version,
-                patch,
-            })
-            .collect();
-
-        let proof = match self
-            .load_wrapped_fri_proofs_for_range(batch_to_prove, &allowed_versions)
-            .await
+        let proof = match load_wrapped_fri_proofs_for_range(
+            self.blob_store.clone(),
+            batch_to_prove,
+            &allowed_versions,
+        )
+        .await
         {
             Some(proof) => proof,
             None => {
@@ -343,60 +294,10 @@ impl ViaDataAvailabilityDispatcher {
             }
         };
 
-        let previous_proven_batch_metadata = match storage
-            .blocks_dal()
-            .get_l1_batch_metadata(previous_batch_number)
-            .await
-        {
-            Ok(Some(metadata)) => metadata,
-            Ok(None) => {
-                tracing::error!(
-                    "L1 batch #{} with submitted proof is not complete in the DB",
-                    previous_batch_number
-                );
-                return None;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to retrieve L1 batch #{} metadata: {}",
-                    previous_batch_number,
-                    e
-                );
-                return None;
-            }
-        };
+        prove_batches.proofs.push(proof);
+        prove_batches.should_verify = true;
 
-        let metadata_for_batch_being_proved = match storage
-            .blocks_dal()
-            .get_l1_batch_metadata(batch_to_prove)
-            .await
-        {
-            Ok(Some(metadata)) => metadata,
-            Ok(None) => {
-                tracing::error!(
-                    "L1 batch #{} with generated proof is not complete in the DB",
-                    batch_to_prove
-                );
-                return None;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to retrieve L1 batch #{} metadata: {}",
-                    batch_to_prove,
-                    e
-                );
-                return None;
-            }
-        };
-
-        let res = ProveBatches {
-            prev_l1_batch: previous_proven_batch_metadata,
-            l1_batches: vec![metadata_for_batch_being_proved],
-            proofs: vec![proof],
-            should_verify: true,
-        };
-
-        serialize_prove_batches(&res)
+        serialize_prove_batches(&prove_batches)
     }
 
     async fn prepare_dummy_proof_operation(
@@ -405,124 +306,13 @@ impl ViaDataAvailabilityDispatcher {
     ) -> Option<Vec<u8>> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
-        let previous_proven_batch_number =
-            match storage.blocks_dal().get_last_l1_batch_with_prove_tx().await {
-                Ok(batch_number) => batch_number,
-                Err(e) => {
-                    tracing::error!("Failed to retrieve the last L1 batch with proof tx: {}", e);
-                    return None;
-                }
-            };
+        let (mut prove_batches, _) = storage
+            .via_data_availability_dal()
+            .get_proof_data(batch_to_prove)
+            .await?;
+        prove_batches.should_verify = false;
 
-        let previous_proven_batch_metadata = match storage
-            .blocks_dal()
-            .get_l1_batch_metadata(previous_proven_batch_number)
-            .await
-        {
-            Ok(Some(metadata)) => metadata,
-            Ok(None) => {
-                tracing::error!(
-                    "L1 batch #{} with submitted proof is not complete in the DB",
-                    previous_proven_batch_number
-                );
-                return None;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to retrieve L1 batch #{} metadata: {}",
-                    previous_proven_batch_number,
-                    e
-                );
-                return None;
-            }
-        };
-
-        let metadata_for_batch_being_proved = match storage
-            .blocks_dal()
-            .get_l1_batch_metadata(batch_to_prove)
-            .await
-        {
-            Ok(Some(metadata)) => metadata,
-            Ok(None) => {
-                tracing::error!(
-                    "L1 batch #{} with generated proof is not complete in the DB",
-                    batch_to_prove
-                );
-                return None;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to retrieve L1 batch #{} metadata: {}",
-                    batch_to_prove,
-                    e
-                );
-                return None;
-            }
-        };
-
-        let res = ProveBatches {
-            prev_l1_batch: previous_proven_batch_metadata,
-            l1_batches: vec![metadata_for_batch_being_proved],
-            proofs: vec![],
-            should_verify: false,
-        };
-
-        serialize_prove_batches(&res)
-    }
-
-    /// Loads wrapped FRI proofs for a given L1 batch number and allowed protocol versions.
-    pub async fn load_wrapped_fri_proofs_for_range(
-        &self,
-        l1_batch_number: L1BatchNumber,
-        allowed_versions: &[ProtocolSemanticVersion],
-    ) -> Option<L1BatchProofForL1> {
-        for version in allowed_versions {
-            match self.blob_store.get((l1_batch_number, *version)).await {
-                Ok(proof) => {
-                    return Some(proof);
-                }
-                Err(ObjectStoreError::KeyNotFound(_)) => continue, // Proof is not ready yet.
-                Err(err) => {
-                    tracing::error!(
-                        "Failed to load proof for batch {} and version {:?}: {}",
-                        l1_batch_number.0,
-                        version,
-                        err
-                    );
-                    return None;
-                }
-            }
-        }
-
-        // Check for deprecated file naming if patch 0 is allowed.
-        let is_patch_0_present = allowed_versions.iter().any(|v| v.patch.0 == 0);
-        if is_patch_0_present {
-            match self
-                .blob_store
-                .get_by_encoded_key(format!("l1_batch_proof_{}.bin", l1_batch_number))
-                .await
-            {
-                Ok(proof) => {
-                    return Some(proof);
-                }
-                Err(ObjectStoreError::KeyNotFound(_)) => {
-                    tracing::error!(
-                        "KeyNotFound for loading proof for batch {}",
-                        l1_batch_number.0
-                    );
-                }
-                Err(err) => {
-                    tracing::error!(
-                        "Failed to load proof for batch {} from deprecated naming: {}",
-                        l1_batch_number.0,
-                        err
-                    );
-                    return None;
-                }
-            }
-        }
-
-        None
+        serialize_prove_batches(&prove_batches)
     }
 
     /// Polls the data availability layer for inclusion data, and saves it in the database.
@@ -589,6 +379,7 @@ impl ViaDataAvailabilityDispatcher {
         self.poll_for_inclusion_proof().await?;
         Ok(())
     }
+
     async fn poll_for_inclusion_proof(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 
