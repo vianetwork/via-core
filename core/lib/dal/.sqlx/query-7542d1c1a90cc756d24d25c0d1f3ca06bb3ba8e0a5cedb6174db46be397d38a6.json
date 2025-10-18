@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                l1_batch_number\n            FROM\n                l1_batches\n            LEFT JOIN\n                via_data_availability\n                ON via_data_availability.l1_batch_number = l1_batches.number\n            WHERE\n                blob_id = $1\n                AND inclusion_data IS NOT NULL\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7542d1c1a90cc756d24d25c0d1f3ca06bb3ba8e0a5cedb6174db46be397d38a6"
+}
