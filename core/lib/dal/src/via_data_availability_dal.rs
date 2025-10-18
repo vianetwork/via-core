@@ -3,11 +3,14 @@ use zksync_db_connection::{
     error::DalResult,
     instrument::{InstrumentExt, Instrumented},
 };
-use zksync_types::{pubdata_da::DataAvailabilityBlob, L1BatchNumber};
+use zksync_l1_contract_interface::i_executor::methods::ProveBatches;
+use zksync_types::{
+    protocol_version::ProtocolSemanticVersion, pubdata_da::DataAvailabilityBlob, L1BatchNumber,
+};
 
 use crate::{
     models::storage_data_availability::{L1BatchDA, ProofDA, StorageDABlob},
-    Core,
+    Core, CoreDal,
 };
 
 #[derive(Debug)]
@@ -494,20 +497,69 @@ impl ViaDataAvailabilityDal<'_, '_> {
     }
 
     /// Returns the data availability blob by blob_id.
-    pub async fn get_da_blob_by_blob_id(
+    pub async fn get_blob_type(&mut self, blob_id: &str) -> DalResult<Option<bool>> {
+        let result = sqlx::query!(
+            r#"
+            SELECT
+                is_proof
+            FROM
+                via_data_availability
+            WHERE
+                blob_id = $1
+                AND inclusion_data IS NOT NULL
+            LIMIT
+                1
+            "#,
+            blob_id
+        )
+        .instrument("get_blob_type")
+        .fetch_optional(self.storage)
+        .await?;
+
+        Ok(result.map(|row| (row.is_proof)))
+    }
+
+    /// Returns the L1 batch number blob by blob_id.
+    pub async fn get_da_batch_number(&mut self, blob_id: &str) -> DalResult<Option<i64>> {
+        let result = sqlx::query!(
+            r#"
+            SELECT
+                l1_batch_number
+            FROM
+                l1_batches
+            LEFT JOIN
+                via_data_availability
+                ON via_data_availability.l1_batch_number = l1_batches.number
+            WHERE
+                blob_id = $1
+                AND inclusion_data IS NOT NULL
+            LIMIT
+                1
+            "#,
+            blob_id
+        )
+        .instrument("get_da_batch_number")
+        .fetch_optional(self.storage)
+        .await?;
+
+        Ok(result.map(|row| (row.l1_batch_number)))
+    }
+
+    /// Returns the DA blob pubdata by blob_id.
+    pub async fn get_da_blob_pub_data_by_blob_id(
         &mut self,
         blob_id: &str,
-    ) -> DalResult<Option<DataAvailabilityBlob>> {
-        let result = sqlx::query_as!(
-            StorageDABlob,
+    ) -> DalResult<Option<(i64, Vec<u8>)>> {
+        let result = sqlx::query!(
             r#"
             SELECT
                 l1_batch_number,
-                blob_id,
-                inclusion_data,
-                sent_at
+                pubdata_input
             FROM
+                l1_batches
+            LEFT JOIN
                 via_data_availability
+                ON via_data_availability.l1_batch_number = l1_batches.number
             WHERE
                 blob_id = $1
                 AND inclusion_data IS NOT NULL
@@ -520,6 +572,143 @@ impl ViaDataAvailabilityDal<'_, '_> {
         .fetch_optional(self.storage)
         .await?;
 
-        Ok(result.map(DataAvailabilityBlob::from))
+        Ok(result.map(|row| (row.l1_batch_number, row.pubdata_input.unwrap())))
+    }
+
+    pub async fn get_proof_data_by_blob_id(
+        &mut self,
+        blob_id: &str,
+    ) -> DalResult<Option<(ProveBatches, Vec<ProtocolSemanticVersion>)>> {
+        let Some(l1_block_number) = self.get_da_batch_number(blob_id).await? else {
+            return Ok(None);
+        };
+
+        Ok(self
+            .get_proof_data(L1BatchNumber(l1_block_number as u32))
+            .await)
+    }
+
+    /// Get the real proof data for a given L1 batch number. The proof is not returned and should be query from the blob storage.
+    pub async fn get_proof_data(
+        &mut self,
+        batch_to_prove: L1BatchNumber,
+    ) -> Option<(ProveBatches, Vec<ProtocolSemanticVersion>)> {
+        let previous_batch_number = batch_to_prove - 1;
+
+        let minor_version = match self
+            .storage
+            .blocks_dal()
+            .get_batch_protocol_version_id(batch_to_prove)
+            .await
+        {
+            Ok(Some(version)) => version,
+            Ok(None) | Err(_) => {
+                tracing::error!(
+                    "Failed to retrieve protocol version for batch {}",
+                    batch_to_prove
+                );
+                return None;
+            }
+        };
+
+        let latest_semantic_version = match self
+            .storage
+            .protocol_versions_dal()
+            .latest_semantic_version()
+            .await
+        {
+            Ok(Some(version)) => version,
+            Ok(None) | Err(_) => {
+                tracing::error!("Failed to retrieve the latest semantic version");
+                return None;
+            }
+        };
+
+        let l1_verifier_config = self
+            .storage
+            .protocol_versions_dal()
+            .l1_verifier_config_for_version(latest_semantic_version)
+            .await?;
+
+        let allowed_patch_versions = match self
+            .storage
+            .protocol_versions_dal()
+            .get_patch_versions_for_vk(minor_version, l1_verifier_config.snark_wrapper_vk_hash)
+            .await
+        {
+            Ok(versions) if !versions.is_empty() => versions,
+            Ok(_) | Err(_) => {
+                tracing::warn!(
+                    "No patch version corresponds to the verification key on L1: {:?}",
+                    l1_verifier_config.snark_wrapper_vk_hash
+                );
+                return None;
+            }
+        };
+
+        let allowed_versions: Vec<_> = allowed_patch_versions
+            .into_iter()
+            .map(|patch| ProtocolSemanticVersion {
+                minor: minor_version,
+                patch,
+            })
+            .collect();
+
+        let previous_proven_batch_metadata = match self
+            .storage
+            .blocks_dal()
+            .get_l1_batch_metadata(previous_batch_number)
+            .await
+        {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                tracing::error!(
+                    "L1 batch #{} with submitted proof is not complete in the DB",
+                    previous_batch_number
+                );
+                return None;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to retrieve L1 batch #{} metadata: {}",
+                    previous_batch_number,
+                    e
+                );
+                return None;
+            }
+        };
+
+        let metadata_for_batch_being_proved = match self
+            .storage
+            .blocks_dal()
+            .get_l1_batch_metadata(batch_to_prove)
+            .await
+        {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                tracing::error!(
+                    "L1 batch #{} with generated proof is not complete in the DB",
+                    batch_to_prove
+                );
+                return None;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to retrieve L1 batch #{} metadata: {}",
+                    batch_to_prove,
+                    e
+                );
+                return None;
+            }
+        };
+
+        let res = ProveBatches {
+            prev_l1_batch: previous_proven_batch_metadata,
+            l1_batches: vec![metadata_for_batch_being_proved],
+            proofs: vec![],
+            should_verify: true,
+        };
+
+        Some((res, allowed_versions))
     }
 }
