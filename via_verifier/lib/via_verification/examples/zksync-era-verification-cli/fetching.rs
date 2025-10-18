@@ -1,9 +1,7 @@
 use std::str::FromStr;
 
-use circuit_definitions::{
-    circuit_definitions::aux_layer::ZkSyncSnarkWrapperCircuit,
-    snark_wrapper::franklin_crypto::bellman::bn256::Bn256,
-};
+use circuit_definitions::snark_wrapper::franklin_crypto::bellman::bn256::Bn256;
+use circuit_sequencer_api::proof::GenericCircuit;
 use ethers::{
     abi::{ethabi, ethereum_types, Abi, Function, Token},
     contract::BaseContract,
@@ -417,7 +415,7 @@ pub(crate) async fn fetch_proof_from_l1(
         return Err(VerificationError::FetchError(msg));
     }
 
-    let x: circuit_definitions::snark_wrapper::franklin_crypto::bellman::plonk::better_better_cs::proof::Proof<Bn256, ZkSyncSnarkWrapperCircuit> = deserialize_proof(proof);
+    let x: circuit_definitions::snark_wrapper::franklin_crypto::bellman::plonk::better_better_cs::proof::Proof<Bn256, GenericCircuit> = deserialize_proof(proof);
 
     Ok((ViaZKProof { proof: x }, l1_block_number))
 }

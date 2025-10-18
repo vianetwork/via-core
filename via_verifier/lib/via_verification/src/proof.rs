@@ -9,6 +9,7 @@ pub use circuit_definitions::{
         bn256::Bn256, plonk::better_better_cs::proof::Proof as ZkSyncProof,
     },
 };
+use circuit_sequencer_api::proof::GenericCircuit;
 
 use crate::{errors::VerificationError, types::Fr};
 
@@ -17,7 +18,7 @@ pub trait ProofTrait {
     /// Verifies the proof with the given verification key and public inputs.
     fn verify(
         &self,
-        verification_key: VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit>,
+        verification_key: VerificationKey<Bn256, GenericCircuit>,
     ) -> Result<bool, VerificationError>;
 
     /// Returns the public inputs of the proof.
@@ -25,15 +26,15 @@ pub trait ProofTrait {
 }
 
 /// A struct representing an L1 batch proof.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ViaZKProof {
-    pub proof: ZkSyncProof<Bn256, ZkSyncSnarkWrapperCircuit>,
+    pub proof: ZkSyncProof<Bn256, GenericCircuit>,
 }
 
 impl ProofTrait for ViaZKProof {
     fn verify(
         &self,
-        vk: VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit>,
+        vk: VerificationKey<Bn256, GenericCircuit>,
     ) -> Result<bool, VerificationError> {
         // Ensure the proof's 'n' matches the verification key's 'n'.
         let mut scheduler_proof = self.proof.clone();

@@ -160,7 +160,6 @@ impl VerifierBtcWatch {
         };
 
         let system_wallets = SystemWallets::try_from(system_wallets_map)?;
-        tracing::info!("Wallets: {:?}", &system_wallets);
 
         self.indexer.update_system_wallets(
             Some(system_wallets.sequencer),
@@ -186,10 +185,6 @@ impl VerifierBtcWatch {
             // Process the blocks until where the update wallets block.
             to_block = block_number;
 
-            println!(
-                "111111111111111222222222 {} ---- {}",
-                to_block, block_number
-            );
             messages = self
                 .indexer
                 .process_blocks(from_block, to_block)

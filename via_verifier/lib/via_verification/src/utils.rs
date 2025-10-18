@@ -1,9 +1,10 @@
 use std::{env, fs, path::PathBuf};
 
 use circuit_definitions::{
-    boojum::pairing::bn256::Bn256, circuit_definitions::aux_layer::ZkSyncSnarkWrapperCircuit,
+    boojum::pairing::bn256::Bn256,
     snark_wrapper::franklin_crypto::bellman::plonk::better_better_cs::cs::VerificationKey,
 };
+use circuit_sequencer_api::proof::GenericCircuit;
 use tracing::debug;
 use zksync_types::H256;
 
@@ -17,7 +18,7 @@ pub async fn load_verification_key<F: L1DataFetcher>(
     l1_data_fetcher: &F,
     batch_number: u64,
     l1_block_number: u64,
-) -> Result<VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit>, VerificationError> {
+) -> Result<VerificationKey<Bn256, GenericCircuit>, VerificationError> {
     let protocol_version = l1_data_fetcher.get_protocol_version(batch_number).await?;
 
     let file_path = format!(
@@ -36,7 +37,7 @@ pub async fn load_verification_key<F: L1DataFetcher>(
             file_path, e
         ))
     })?;
-    let vk_inner: VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit> =
+    let vk_inner: VerificationKey<Bn256, GenericCircuit> =
         serde_json::from_str(&verification_key_content).map_err(|e| {
             VerificationError::Other(format!("Failed to deserialize verification key: {}", e))
         })?;
@@ -68,7 +69,7 @@ pub async fn load_verification_key<F: L1DataFetcher>(
 /// Load the verification key for a given batch number.
 pub async fn load_verification_key_without_l1_check(
     protocol_version: String,
-) -> Result<VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit>, VerificationError> {
+) -> Result<VerificationKey<Bn256, GenericCircuit>, VerificationError> {
     let key_path = match env::var("VIA_VK_KEY_PATH") {
         Ok(path) => {
             let file_path = format!("protocol_version/{}/scheduler_key.json", protocol_version);
@@ -95,7 +96,7 @@ pub async fn load_verification_key_without_l1_check(
             key_path, e
         ))
     })?;
-    let vk_inner: VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit> =
+    let vk_inner: VerificationKey<Bn256, GenericCircuit> =
         serde_json::from_str(&verification_key_content).map_err(|e| {
             VerificationError::Other(format!("Failed to deserialize verification key: {}", e))
         })?;
@@ -107,7 +108,7 @@ pub async fn load_verification_key_without_l1_check(
 pub async fn load_verification_key_with_db_check(
     protocol_version: String,
     recursion_scheduler_level_vk_hash: H256,
-) -> Result<VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit>, VerificationError> {
+) -> Result<VerificationKey<Bn256, GenericCircuit>, VerificationError> {
     let key_path = match env::var("VIA_VK_KEY_PATH") {
         Ok(path) => {
             let file_path = format!("protocol_version/{}/scheduler_key.json", protocol_version);
@@ -134,7 +135,7 @@ pub async fn load_verification_key_with_db_check(
             key_path, e
         ))
     })?;
-    let vk_inner: VerificationKey<Bn256, ZkSyncSnarkWrapperCircuit> =
+    let vk_inner: VerificationKey<Bn256, GenericCircuit> =
         serde_json::from_str(&verification_key_content).map_err(|e| {
             VerificationError::Other(format!("Failed to deserialize verification key: {}", e))
         })?;

@@ -2,7 +2,6 @@ use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
 use metrics::METRICS;
-use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, RwLock};
 use via_btc_client::{
     client::BitcoinClient,
@@ -12,36 +11,21 @@ use via_btc_client::{
 };
 use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
 use via_da_client::{pubdata::Pubdata, types::L2_BOOTLOADER_CONTRACT_ADDR};
-use via_verification::proof::{
-    Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
-};
+use via_da_dispatcher_lib::blob::load_wrapped_fri_proofs_for_range;
+use via_verification::proof::{ProofTrait, ViaZKProof};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use via_verifier_state::sync::ViaState;
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
+use zksync_l1_contract_interface::i_executor::methods::ProveBatches;
+use zksync_object_store::ObjectStore;
 use zksync_types::{
-    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion,
-    via_wallet::SystemWallets, ProtocolVersionId, H160, H256,
+    protocol_version::ProtocolSemanticVersion, via_wallet::SystemWallets, L1BatchNumber,
+    ProtocolVersionId, H160, H256,
 };
 
 mod metrics;
-
-/// Copy of `zksync_l1_contract_interface::i_executor::methods::ProveBatches`
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProveBatches {
-    pub prev_l1_batch: L1BatchWithMetadata,
-    pub l1_batches: Vec<L1BatchWithMetadata>,
-    pub proofs: Vec<L1BatchProofForL1>,
-    pub should_verify: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct L1BatchProofForL1 {
-    pub aggregation_result_coords: [[u8; 32]; 4],
-    pub scheduler_proof: ZkSyncProof<Bn256, ZkSyncSnarkWrapperCircuit>,
-    pub protocol_version: ProtocolSemanticVersion,
-}
 
 #[derive(Debug)]
 pub struct ViaVerifier {
@@ -51,6 +35,7 @@ pub struct ViaVerifier {
     indexer: BitcoinInscriptionIndexer,
     test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
     state: ViaState,
+    blob_store: Arc<dyn ObjectStore>,
 }
 
 impl ViaVerifier {
@@ -62,6 +47,7 @@ impl ViaVerifier {
         da_client: Box<dyn DataAvailabilityClient>,
         btc_client: Arc<BitcoinClient>,
         via_btc_watch_config: ViaBtcWatchConfig,
+        blob_store: Arc<dyn ObjectStore>,
     ) -> anyhow::Result<Self> {
         let state = ViaState::new(pool.clone(), btc_client.clone(), via_btc_watch_config);
 
@@ -74,6 +60,7 @@ impl ViaVerifier {
                 config.test_zk_proof_invalid_l1_batch_numbers,
             )),
             state,
+            blob_store,
         })
     }
 
@@ -180,7 +167,27 @@ impl ViaVerifier {
             if is_verified {
                 tracing::info!("Successfuly verfied the op priority id");
 
-                let proof_data: ProveBatches = bincode::deserialize(&proof_blob.data)?;
+                let mut proof_data: ProveBatches = bincode::deserialize(&proof_blob.data)?;
+
+                if proof_data.should_verify && proof_data.proofs.is_empty() {
+                    let proof = match load_wrapped_fri_proofs_for_range(
+                        self.blob_store.clone(),
+                        L1BatchNumber(l1_batch_number as u32),
+                        &vec![ProtocolSemanticVersion::new(
+                            proof_data.l1_batches[0].header.protocol_version.unwrap(),
+                            0.into(),
+                        )],
+                    )
+                    .await
+                    {
+                        Some(proof) => proof,
+                        None => {
+                            anyhow::bail!("Failed to load proof for batch {}", l1_batch_number);
+                        }
+                    };
+
+                    proof_data.proofs.push(proof);
+                }
 
                 let protocol_version_id = proof_data.l1_batches[0]
                     .header
