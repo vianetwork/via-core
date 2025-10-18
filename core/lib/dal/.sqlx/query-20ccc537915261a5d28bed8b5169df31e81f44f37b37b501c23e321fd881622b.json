@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                l1_batch_number,\n                pubdata_input\n            FROM\n                l1_batches\n            LEFT JOIN\n                via_data_availability\n                ON via_data_availability.l1_batch_number = l1_batches.number\n            WHERE\n                blob_id = $1\n                AND inclusion_data IS NOT NULL\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "pubdata_input",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "20ccc537915261a5d28bed8b5169df31e81f44f37b37b501c23e321fd881622b"
+}

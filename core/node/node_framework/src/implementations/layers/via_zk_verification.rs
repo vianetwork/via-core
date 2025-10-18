@@ -5,6 +5,7 @@ use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use crate::{
     implementations::resources::{
         da_client::DAClientResource,
+        object_store::ObjectStoreResource,
         pools::{PoolResource, VerifierPool},
         via_btc_client::BtcClientResource,
         via_btc_indexer::BtcIndexerResource,
@@ -28,6 +29,7 @@ pub struct ProofVerificationInput {
     pub da_client: DAClientResource,
     pub btc_client_resource: BtcClientResource,
     pub btc_indexer_resource: BtcIndexerResource,
+    pub object_store: ObjectStoreResource,
 }
 
 #[derive(Debug, IntoContext)]
@@ -57,6 +59,7 @@ impl WiringLayer for ViaBtcProofVerificationLayer {
 
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
+        let blob_store = input.object_store.0;
 
         let btc_client = input.btc_client_resource.verifier.unwrap();
 
@@ -67,6 +70,7 @@ impl WiringLayer for ViaBtcProofVerificationLayer {
             input.da_client.0,
             btc_client,
             self.btc_watch_config,
+            blob_store,
         )
         .await
         .map_err(WiringError::internal)?;

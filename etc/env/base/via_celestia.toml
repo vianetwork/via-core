@@ -7,3 +7,7 @@ api_node_url = "http://0.0.0.0:3001"
 blob_size_limit = 1973786
 # The mode in which proofs are sent.
 proof_sending_mode = "SkipEveryProof"
+# Optional external node URL for fallback when Celestia data is not available
+fallback_external_node_url = "http://0.0.0.0:3050"
+# Whether to verify data consistency between Celestia and fallback
+verify_consistency = false
