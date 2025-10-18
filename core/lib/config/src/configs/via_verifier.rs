@@ -15,7 +15,8 @@ use crate::{
         via_reorg_detector::ViaReorgDetectorConfig, via_secrets::ViaSecrets,
         via_wallets::ViaWallets, ObservabilityConfig, PrometheusConfig,
     },
-    GenesisConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
+    GenesisConfig, ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig,
+    ViaCelestiaConfig,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -117,6 +118,7 @@ pub struct ViaGeneralVerifierConfig {
     pub prometheus_config: PrometheusConfig,
     pub postgres_config: PostgresConfig,
     pub circuit_breaker_config: CircuitBreakerConfig,
+    pub core_object_store: ObjectStoreConfig,
     pub secrets: ViaSecrets,
     pub wallets: ViaWallets,
 }
