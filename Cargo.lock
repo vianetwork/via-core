@@ -12671,6 +12671,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "via_da_clients",
+ "zksync_config",
  "zksync_da_client",
  "zksync_types",
 ]

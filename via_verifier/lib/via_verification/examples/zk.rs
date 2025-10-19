@@ -1,14 +1,20 @@
 use std::{
     fs::File,
-    io::{self, Read},
+    io::{self, Read, Write},
+    str::FromStr,
 };
 
 use serde::{Deserialize, Serialize};
+use via_da_clients::celestia::client::CelestiaClient;
 use via_verification::proof::{
     Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
 };
-use zksync_da_client::types::InclusionData;
-use zksync_types::{commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion};
+use zksync_config::configs::via_secrets::ViaDASecrets;
+use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
+use zksync_types::{
+    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion, url::SensitiveUrl,
+};
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProveBatches {
@@ -27,9 +33,25 @@ pub struct L1BatchProofForL1 {
 
 // Verify a proof from DA
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> anyhow::Result<()> {
     // Path to your .bin file
-    let path = "data_batch_10.bin";
+
+    let path = "data_batch_18_0_27_0.bin";
+
+    // let blob_id: &str =
+    //     "00000000008141e3ad2484e47a3343dc86eb48290ee33cbd645fce64d1fc508f3a0e7d6919d5cb18";
+
+    // let secrets = ViaDASecrets {
+    //     api_node_url: "https://celestia.stage0.viablockchain.dev:26658".parse::<SensitiveUrl>()?,
+    //     auth_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJwdWJsaWMiLCJyZWFkIiwid3JpdGUiLCJhZG1pbiJdfQ.Af2fn0SJfBYtcbGT4ufgvj9lAPT9oGuj1HmepAmktf4".into(),
+    // };
+    // let client: Box<dyn DataAvailabilityClient> =
+    //     Box::new(CelestiaClient::new(secrets, 1900000).await?);
+
+    // let data = client.get_inclusion_data(blob_id).await?;
+    // let mut file = File::create_new(path)?;
+
+    // file.write(&data.unwrap().data)?;
 
     // Open the file in read-only mode
     let mut file = File::open(path)?;

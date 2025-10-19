@@ -29,6 +29,8 @@ async-trait.workspace = true
 [dev-dependencies]
 zksync_da_client.workspace = true
 bincode.workspace = true
+via_da_clients.workspace = true
+zksync_config.workspace = true
 
 [[example]]
 name = "zk"
