@@ -20,7 +20,10 @@ use zksync_types::{
     protocol_version::ProtocolSemanticVersion, Address as EVMAddress, L1BatchNumber,
 };
 
-use crate::traits::Serializable;
+use crate::{
+    indexer::withdrawal::{L1Withdrawal, WithdrawalVersion},
+    traits::Serializable,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {
@@ -188,10 +191,10 @@ pub struct BridgeWithdrawal {
     pub input: BridgeWithdrawalInput,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BridgeWithdrawalInput {
-    /// The transaction index.
-    pub index_withdrawal: i64,
+    /// The withdrawal version.
+    pub version: WithdrawalVersion,
     /// The tx total size.
     pub total_size: i64,
     /// The transaction virtual size.
@@ -200,10 +203,8 @@ pub struct BridgeWithdrawalInput {
     pub inputs: Vec<OutPoint>,
     /// The total amount out.
     pub output_amount: u64,
-    /// The L1 batch proof reveal tx_id.
-    pub l1_batch_proof_reveal_tx_id: Vec<u8>,
     /// The list of withdrawals.
-    pub withdrawals: Vec<(String, i64)>,
+    pub withdrawals: Vec<L1Withdrawal>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

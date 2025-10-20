@@ -5,17 +5,20 @@ use metrics::METRICS;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, RwLock};
 use via_btc_client::{
+    client::BitcoinClient,
     indexer::BitcoinInscriptionIndexer,
     types::{BitcoinTxid, FullInscriptionMessage, L1BatchDAReference, ProofDAReference},
     utils::bytes_to_txid,
 };
+use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
 use via_da_client::{pubdata::Pubdata, types::L2_BOOTLOADER_CONTRACT_ADDR};
 use via_verification::proof::{
     Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
 };
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
+use via_verifier_state::sync::ViaState;
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
-use zksync_config::ViaVerifierConfig;
+use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_types::{
     commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion,
@@ -47,7 +50,7 @@ pub struct ViaVerifier {
     da_client: Box<dyn DataAvailabilityClient>,
     indexer: BitcoinInscriptionIndexer,
     test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
-    zk_agreement_threshold: f64,
+    state: ViaState,
 }
 
 impl ViaVerifier {
@@ -57,8 +60,11 @@ impl ViaVerifier {
         indexer: BitcoinInscriptionIndexer,
         pool: ConnectionPool<Verifier>,
         da_client: Box<dyn DataAvailabilityClient>,
-        zk_agreement_threshold: f64,
+        btc_client: Arc<BitcoinClient>,
+        via_btc_watch_config: ViaBtcWatchConfig,
     ) -> anyhow::Result<Self> {
+        let state = ViaState::new(pool.clone(), btc_client.clone(), via_btc_watch_config);
+
         Ok(Self {
             config: config.clone(),
             pool,
@@ -67,7 +73,7 @@ impl ViaVerifier {
             test_zk_proof_invalid_l1_batch_numbers: Arc::new(RwLock::new(
                 config.test_zk_proof_invalid_l1_batch_numbers,
             )),
-            zk_agreement_threshold,
+            state,
         })
     }
 
@@ -96,6 +102,14 @@ impl ViaVerifier {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
+        if self.state.is_reorg_in_progress().await? {
+            return Ok(());
+        }
+
+        if self.state.is_sync_in_progress().await? {
+            return Ok(());
+        }
+
         self.validate_verifier_address().await?;
 
         if let Some((l1_batch_number, mut raw_tx_id)) = storage
@@ -199,7 +213,7 @@ impl ViaVerifier {
                 .via_votes_dal()
                 .finalize_transaction_if_needed(
                     votable_transaction_id,
-                    self.zk_agreement_threshold,
+                    BATCH_FINALIZATION_THRESHOLD,
                     self.indexer.get_number_of_verifiers(),
                 )
                 .await?;
@@ -209,7 +223,7 @@ impl ViaVerifier {
                 for (hash, status) in deposits {
                     transaction
                         .via_transactions_dal()
-                        .update_transaction(&hash, status)
+                        .update_transaction(&hash, status, l1_batch_number)
                         .await?;
                 }
 
@@ -228,6 +242,16 @@ impl ViaVerifier {
                 METRICS.last_valid_l1_batch.set(l1_batch_number as usize);
             } else {
                 METRICS.last_invalid_l1_batch.set(l1_batch_number as usize);
+            }
+
+            // Before commit the verification make sure that no reorg was detected during he ZK verification.
+            if transaction
+                .via_l1_block_dal()
+                .has_reorg_in_progress()
+                .await?
+                .is_some()
+            {
+                return Ok(());
             }
 
             transaction.commit().await?;

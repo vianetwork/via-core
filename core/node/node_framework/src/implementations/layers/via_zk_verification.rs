@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use via_zk_verifier::ViaVerifier;
-use zksync_config::{configs::via_bridge::ViaBridgeConfig, ViaVerifierConfig};
+use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 
 use crate::{
     implementations::resources::{
         da_client::DAClientResource,
         pools::{PoolResource, VerifierPool},
+        via_btc_client::BtcClientResource,
         via_btc_indexer::BtcIndexerResource,
     },
     service::StopReceiver,
@@ -16,8 +17,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ViaBtcProofVerificationLayer {
-    via_bridge_config: ViaBridgeConfig,
     verifier_config: ViaVerifierConfig,
+    btc_watch_config: ViaBtcWatchConfig,
 }
 
 #[derive(Debug, FromContext)]
@@ -25,6 +26,7 @@ pub struct ViaBtcProofVerificationLayer {
 pub struct ProofVerificationInput {
     pub master_pool: PoolResource<VerifierPool>,
     pub da_client: DAClientResource,
+    pub btc_client_resource: BtcClientResource,
     pub btc_indexer_resource: BtcIndexerResource,
 }
 
@@ -36,10 +38,10 @@ pub struct ProofVerificationOutput {
 }
 
 impl ViaBtcProofVerificationLayer {
-    pub fn new(verifier_config: ViaVerifierConfig, via_bridge_config: ViaBridgeConfig) -> Self {
+    pub fn new(verifier_config: ViaVerifierConfig, btc_watch_config: ViaBtcWatchConfig) -> Self {
         Self {
             verifier_config,
-            via_bridge_config,
+            btc_watch_config,
         }
     }
 }
@@ -56,12 +58,15 @@ impl WiringLayer for ViaBtcProofVerificationLayer {
     async fn wire(self, input: Self::Input) -> Result<Self::Output, WiringError> {
         let main_pool = input.master_pool.get().await?;
 
+        let btc_client = input.btc_client_resource.verifier.unwrap();
+
         let via_proof_verification = ViaVerifier::new(
             self.verifier_config,
             input.btc_indexer_resource.0.as_ref().clone(),
             main_pool,
             input.da_client.0,
-            self.via_bridge_config.zk_agreement_threshold,
+            btc_client,
+            self.btc_watch_config,
         )
         .await
         .map_err(WiringError::internal)?;

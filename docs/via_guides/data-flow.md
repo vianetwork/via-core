@@ -569,7 +569,7 @@ The verifier also records the attestation and checks if enough votes have been r
 if votes_dal
     .finalize_transaction_if_needed(
         votable_transaction_id,
-        self.zk_agreement_threshold,
+        BATCH_FINALIZATION_THRESHOLD,
         indexer.get_number_of_verifiers(),
     )
     .await
@@ -588,8 +588,8 @@ if votes_dal
 Once a sufficient number of attestations are received from the verifier network, the batch can be considered finalized:
 
 - The system tracks attestation votes from all verifiers
-- When the number of positive attestations crosses a predetermined threshold (controlled by the `zk_agreement_threshold`
-  parameter)
+- When the number of positive attestations crosses a predetermined threshold (controlled by the
+  `BATCH_FINALIZATION_THRESHOLD` parameter)
 - The batch is marked as finalized in the system
 - This finalization status is recorded and becomes part of the protocol's state
 
@@ -598,8 +598,8 @@ verified, allowing the protocol to build upon it for future operations.
 
 **Threshold Calculation**:
 
-The `zk_agreement_threshold` parameter is crucial to the finalization process. The system calculates the required number
-of votes based on this threshold:
+The `BATCH_FINALIZATION_THRESHOLD` parameter is crucial to the finalization process. The system calculates the required
+number of votes based on this threshold:
 
 ```rust
 // In database code

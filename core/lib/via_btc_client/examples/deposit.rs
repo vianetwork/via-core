@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
     let rpc_username = args[6].clone();
     let rpc_password = args[7].clone();
     let bridge_musig2_address_str = args[8].clone();
+    let external_api = args[9].clone();
 
     let bridge_musig2_address =
         BitcoinAddress::from_str(&bridge_musig2_address_str)?.require_network(network)?;
@@ -62,8 +63,8 @@ async fn main() -> Result<()> {
     let auth = NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string());
     let config = ViaBtcClientConfig {
         network: network.to_string(),
-        external_apis: vec![],
-        fee_strategies: vec![],
+        external_apis: vec![external_api],
+        fee_strategies: vec!["fastestFee".into()],
         use_rpc_for_fee_rate: None,
     };
     let client = Arc::new(BitcoinClient::new(&rpc_url, auth, config)?);

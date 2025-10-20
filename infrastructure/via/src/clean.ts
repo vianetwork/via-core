@@ -16,6 +16,7 @@ export const command = new Command('clean')
     .option('--database')
     .option('--contracts')
     .option('--artifacts')
+    .option('--profile <profile>', 'The docker compose profile', '')
     .option('--all')
     .description('removes generated files')
     .action(async (cmd) => {
@@ -60,7 +61,7 @@ export const command = new Command('clean')
         }
 
         if (cmd.all) {
-            await down.down();
+            await down.down(cmd.profile);
             clean('volumes');
             clean('contracts/ethereum/.openzeppelin');
             clean('core/lib/via_btc_client/depositor_inscriber_context.json');

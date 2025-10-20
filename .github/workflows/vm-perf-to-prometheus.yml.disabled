@@ -28,16 +28,16 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> .env
           echo ZKSYNC_HOME=$(pwd) >> $GITHUB_ENV
           echo $(pwd)/bin >> $GITHUB_PATH
-          
-      - name: Install zkstack
-        run: |
-          ci_run ./zkstack_cli/zkstackup/install -g --path ./zkstack_cli/zkstackup/zkstackup || true
-          ci_run zkstackup -g --local
 
       - name: init
         run: |
           run_retried docker compose pull zk
           docker compose up -d zk
+
+      - name: Install zkstack
+        run: |
+          ci_run ./zkstack_cli/zkstackup/install -g --path ./zkstack_cli/zkstackup/zkstackup || true
+          ci_run zkstackup -g --local
 
       - name: build contracts
         run: |
@@ -48,5 +48,5 @@ jobs:
           ci_run cargo bench --package vm-benchmark --bench oneshot
           # Run only benches with 1,000 transactions per batch to not spend too much time
           ci_run cargo bench --package vm-benchmark --bench batch '/1000$'
-          ci_run cargo bench --package vm-benchmark --bench iai | tee iai-result
-          ci_run cargo run --package vm-benchmark --bin iai_results_to_prometheus --release < iai-result
+          ci_run cargo bench --package vm-benchmark --bench instructions -- --verbose
+          ci_run cargo bench --package vm-benchmark --bench instructions -- --print

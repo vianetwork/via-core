@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Context;
 use via_da_clients::wiring_layer::ViaDaClientWiringLayer;
 use zksync_config::{
@@ -7,7 +9,7 @@ use zksync_config::{
 use zksync_core_leftovers::ViaComponent;
 use zksync_metadata_calculator::MetadataCalculatorConfig;
 use zksync_node_api_server::{
-    tx_sender::TxSenderConfig,
+    tx_sender::{TimestampAsserterParams, TxSenderConfig},
     web3::{state::InternalApiConfig, Namespace},
 };
 use zksync_node_framework::{
@@ -23,7 +25,7 @@ use zksync_node_framework::{
         },
         object_store::ObjectStoreLayer,
         pools_layer::PoolsLayerBuilder,
-        postgres_metrics::PostgresMetricsLayer,
+        postgres::PostgresLayer,
         prometheus_exporter::PrometheusExporterLayer,
         proof_data_handler::ProofDataHandlerLayer,
         query_eth_client::QueryEthClientLayer,
@@ -36,6 +38,7 @@ use zksync_node_framework::{
         via_da_dispatcher::DataAvailabilityDispatcherLayer,
         via_gas_adjuster::ViaGasAdjusterLayer,
         via_l1_gas::ViaL1GasLayer,
+        via_main_node_reorg_detector::ViaNodeReorgDetectorLayer,
         via_node_storage_init::ViaNodeStorageInitializerLayer,
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
@@ -54,7 +57,6 @@ use zksync_node_framework::{
     },
     service::{ZkStackService, ZkStackServiceBuilder},
 };
-use zksync_types::settlement::SettlementMode;
 use zksync_vlog::prometheus::PrometheusExporterConfig;
 
 /// Macro that looks into a path to fetch an optional config,
@@ -112,8 +114,8 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
-    fn add_postgres_metrics_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(PostgresMetricsLayer);
+    fn add_postgres_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(PostgresLayer);
         Ok(self)
     }
 
@@ -151,11 +153,7 @@ impl ViaNodeBuilder {
         let query_eth_client_layer = QueryEthClientLayer::new(
             genesis.settlement_layer_id(),
             eth_config.l1_rpc_url,
-            self.configs
-                .eth
-                .as_ref()
-                .and_then(|x| Some(x.gas_adjuster?.settlement_mode))
-                .unwrap_or(SettlementMode::SettlesToL1),
+            eth_config.gateway_rpc_url,
         );
         self.node.add_layer(query_eth_client_layer);
         Ok(self)
@@ -239,7 +237,7 @@ impl ViaNodeBuilder {
 
     fn add_l1_gas_layer(mut self) -> anyhow::Result<Self> {
         let state_keeper_config = try_load_config!(self.configs.state_keeper_config);
-        let l1_gas_layer = ViaL1GasLayer::new(state_keeper_config);
+        let l1_gas_layer = ViaL1GasLayer::new(&state_keeper_config);
         self.node.add_layer(l1_gas_layer);
         Ok(self)
     }
@@ -247,10 +245,25 @@ impl ViaNodeBuilder {
     fn add_tx_sender_layer(mut self) -> anyhow::Result<Self> {
         let sk_config = try_load_config!(self.configs.state_keeper_config);
         let rpc_config = try_load_config!(self.configs.api_config).web3_json_rpc;
+
+        let timestamp_asserter_params = match self.contracts_config.l2_timestamp_asserter_addr {
+            Some(address) => {
+                let timestamp_asserter_config =
+                    try_load_config!(self.configs.timestamp_asserter_config);
+                Some(TimestampAsserterParams {
+                    address,
+                    min_time_till_end: Duration::from_secs(
+                        timestamp_asserter_config.min_time_till_end_sec.into(),
+                    ),
+                })
+            }
+            None => None,
+        };
         let postgres_storage_caches_config = PostgresStorageCachesConfig {
             factory_deps_cache_size: rpc_config.factory_deps_cache_size() as u64,
             initial_writes_cache_size: rpc_config.initial_writes_cache_size() as u64,
             latest_values_cache_size: rpc_config.latest_values_cache_size() as u64,
+            latest_values_max_block_lag: rpc_config.latest_values_max_block_lag(),
         };
 
         // On main node we always use master pool sink.
@@ -263,6 +276,7 @@ impl ViaNodeBuilder {
                     .fee_account
                     .address(),
                 self.genesis_config.l2_chain_id,
+                timestamp_asserter_params,
             ),
             postgres_storage_caches_config,
             rpc_config.vm_concurrency_limit(),
@@ -357,9 +371,7 @@ impl ViaNodeBuilder {
         let wallets = self.wallets.clone();
         let sk_config = try_load_config!(self.configs.state_keeper_config);
         let persistence_layer = OutputHandlerLayer::new(
-            self.contracts_config
-                .l2_shared_bridge_addr
-                .context("L2 shared bridge address")?,
+            self.contracts_config.l2_legacy_shared_bridge_addr,
             sk_config.l2_block_seal_queue_capacity,
         )
         .with_protective_reads_persistence_enabled(sk_config.protective_reads_persistence_enabled);
@@ -368,6 +380,8 @@ impl ViaNodeBuilder {
             sk_config.clone(),
             try_load_config!(self.configs.mempool_config),
             try_load_config!(wallets.state_keeper),
+            self.contracts_config.l2_da_validator_addr,
+            self.genesis_config.l1_batch_commit_data_generator_mode,
         );
         let db_config = try_load_config!(self.configs.db_config);
         let experimental_vm_config = self
@@ -463,6 +477,7 @@ impl ViaNodeBuilder {
         self.node.add_layer(ProofDataHandlerLayer::new(
             try_load_config!(self.configs.proof_data_handler_config),
             self.genesis_config.l1_batch_commit_data_generator_mode,
+            self.genesis_config.l2_chain_id,
         ));
         Ok(self)
     }
@@ -525,6 +540,13 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_init_node_reorg_detector_layer(mut self) -> anyhow::Result<Self> {
+        let config = try_load_config!(self.configs.via_reorg_detector_config);
+
+        self.node.add_layer(ViaNodeReorgDetectorLayer::new(config));
+        Ok(self)
+    }
+
     pub fn build(mut self, mut components: Vec<ViaComponent>) -> anyhow::Result<ZkStackService> {
         self = self
             .add_pools_layer()?
@@ -532,7 +554,7 @@ impl ViaNodeBuilder {
             .add_object_store_layer()?
             .add_healthcheck_layer()?
             .add_circuit_breaker_checker_layer()?
-            .add_postgres_metrics_layer()?
+            .add_postgres_layer()?
             .add_query_eth_client_layer()?
             .add_prometheus_exporter_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?;
@@ -587,9 +609,7 @@ impl ViaNodeBuilder {
                     // Do nothing, will be handled by the `Tree` component.
                 }
                 ViaComponent::Housekeeper => {
-                    self = self
-                        .add_house_keeper_layer()?
-                        .add_postgres_metrics_layer()?;
+                    self = self.add_house_keeper_layer()?.add_postgres_layer()?;
                 }
                 ViaComponent::ProofDataHandler => {
                     self = self.add_proof_data_handler_layer()?;
@@ -610,6 +630,7 @@ impl ViaNodeBuilder {
                     self = self
                         .add_btc_client_layer()?
                         .add_init_node_storage_layer()?
+                        .add_init_node_reorg_detector_layer()?
                         .add_gas_adjuster_layer()?
                         .add_btc_watcher_layer()?
                         .add_btc_sender_layer()?

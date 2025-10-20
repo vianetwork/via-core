@@ -35,7 +35,6 @@ impl VerifierBtcWatch {
         indexer: BitcoinInscriptionIndexer,
         btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Verifier>,
-        zk_agreement_threshold: f64,
     ) -> anyhow::Result<Self> {
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
 
@@ -44,7 +43,7 @@ impl VerifierBtcWatch {
             Box::new(L1ToL2MessageProcessor::new(
                 indexer.get_state().bridge.clone(),
             )),
-            Box::new(VerifierMessageProcessor::new(zk_agreement_threshold)),
+            Box::new(VerifierMessageProcessor::default()),
             Box::new(WithdrawalProcessor::new()),
         ];
 
@@ -90,6 +89,15 @@ impl VerifierBtcWatch {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> Result<(), MessageProcessorError> {
+        if storage
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+
         let last_processed_bitcoin_block = storage
             .via_indexer_dal()
             .get_last_processed_l1_block(VerifierBtcWatch::module_name())
@@ -121,9 +129,21 @@ impl VerifierBtcWatch {
             return Ok(());
         }
 
+        let Some((last_l1_block_number, _)) =
+            storage.via_l1_block_dal().get_last_l1_block().await?
+        else {
+            tracing::warn!("Reorg did not start yet");
+            return Ok(());
+        };
+
         let mut to_block = last_processed_bitcoin_block + L1_BLOCKS_CHUNK;
         if to_block > current_l1_block_number {
             to_block = current_l1_block_number;
+        }
+
+        // Clamp the to_batch to the last valid block number validated by the reorg detector
+        if to_block > last_l1_block_number as u32 {
+            to_block = last_l1_block_number as u32;
         }
 
         let from_block = last_processed_bitcoin_block + 1;

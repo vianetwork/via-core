@@ -25,6 +25,7 @@ mod via_btc_client;
 mod via_btc_sender;
 mod via_celestia;
 mod via_consensus;
+mod via_reorg_detector;
 mod via_wallets;
 
 mod via_verifier;
@@ -42,6 +43,7 @@ mod vm_runner;
 mod wallets;
 
 mod da_client;
+mod timestamp_asserter;
 
 pub trait FromEnv: Sized {
     fn from_env() -> anyhow::Result<Self>;

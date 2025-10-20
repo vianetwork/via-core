@@ -15,7 +15,7 @@ mod tests {
         let start = 1;
         let end = 1;
 
-        let mut processor = VerifierMessageProcessor::new(1.0);
+        let mut processor = VerifierMessageProcessor::default();
         let (msgs, _) = create_chained_inscriptions(start, end, None).await?;
 
         processor
@@ -49,7 +49,7 @@ mod tests {
         let start = 1;
         let end = 1;
 
-        let mut processor = VerifierMessageProcessor::new(1.0);
+        let mut processor = VerifierMessageProcessor::default();
         let (mut msgs, _) = create_chained_inscriptions(start, end, None).await?;
 
         // duplicate the first batch message
@@ -85,7 +85,7 @@ mod tests {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
         let mut indexer = test_create_indexer();
 
-        let mut processor = VerifierMessageProcessor::new(1.0);
+        let mut processor = VerifierMessageProcessor::default();
         let start = 1;
         let end = 3;
         let (msgs, _) = create_chained_inscriptions(start, end, None).await?;
@@ -121,7 +121,7 @@ mod tests {
     async fn test_should_fail_to_insert_batch_with_invalid_prev_batch_hash() -> anyhow::Result<()> {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
         let mut indexer = test_create_indexer();
-        let mut processor = VerifierMessageProcessor::new(1.0);
+        let mut processor = VerifierMessageProcessor::default();
         let start = 1;
         let end = 2;
         let (mut msgs, prev_l1_batch_hash) = create_chained_inscriptions(start, end, None).await?;
@@ -306,7 +306,7 @@ mod tests {
         let start = 0;
         let end = 0;
 
-        let mut processor = VerifierMessageProcessor::new(1.0);
+        let mut processor = VerifierMessageProcessor::default();
         let (msgs, _) = create_chained_inscriptions(start, end, None).await?;
 
         processor
@@ -332,7 +332,7 @@ mod tests {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
 
         let mut indexer = test_create_indexer();
-        let mut processor = VerifierMessageProcessor::new(1.0);
+        let mut processor = VerifierMessageProcessor::default();
         let start = 1;
         let end = 2;
         let (mut msgs, batch_2_hash) = create_chained_inscriptions(start, end, None).await?;

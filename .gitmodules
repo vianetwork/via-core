@@ -1,6 +1,7 @@
 [submodule "contracts"]
-path = contracts
-url = https://github.com/vianetwork/era-contracts.git
+    path = contracts
+    url = https://github.com/vianetwork/era-contracts.git
+    branch = main
 
 [submodule "via-core-ext"]
 	path = via-core-ext

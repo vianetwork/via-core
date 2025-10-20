@@ -14,6 +14,7 @@ impl ViaWalletDal<'_, '_> {
     pub async fn insert_wallets(
         &mut self,
         wallets_details: &SystemWalletsDetails,
+        l1_block_number: i64,
     ) -> DalResult<()> {
         let mut transaction = self.storage.start_transaction().await?;
 
@@ -29,14 +30,15 @@ impl ViaWalletDal<'_, '_> {
             sqlx::query!(
                 r#"
                 INSERT INTO
-                via_wallets (role, address, tx_hash)
+                via_wallets (role, address, tx_hash, l1_block_number)
                 VALUES
-                ($1, $2, $3)
+                ($1, $2, $3, $4)
                 ON CONFLICT (tx_hash, address, role) DO NOTHING
                 "#,
                 role.to_string(),
                 addresses_str,
                 role_info.txid.to_string(),
+                l1_block_number,
             )
             .instrument("insert_wallet")
             .report_latency()
@@ -79,5 +81,20 @@ impl ViaWalletDal<'_, '_> {
         }
 
         Ok(Some(wallets))
+    }
+
+    pub async fn delete_system_wallet(&mut self, l1_block_number: i64) -> DalResult<()> {
+        sqlx::query_scalar!(
+            r#"
+            DELETE FROM via_wallets 
+            WHERE l1_block_number > $1
+            "#,
+            l1_block_number
+        )
+        .instrument("delete_system_wallet")
+        .execute(&mut self.storage)
+        .await?;
+
+        Ok(())
     }
 }

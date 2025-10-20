@@ -11,14 +11,18 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+const-decoder.workspace = true
 ethabi.workspace = true
 hex.workspace = true
+sha2.workspace = true
 tiny-keccak.workspace = true
 thiserror.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 chrono.workspace = true
 strum = { workspace = true, features = ["derive"] }
+bigdecimal.workspace = true
+num.workspace = true
 num_enum.workspace = true
 anyhow.workspace = true
 url = { workspace = true, features = ["serde"] }

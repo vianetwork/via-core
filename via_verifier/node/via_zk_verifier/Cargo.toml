@@ -21,6 +21,7 @@ zksync_da_client.workspace = true
 zksync_prover_interface.workspace = true
 via_da_client.workspace = true
 via_verifier_types.workspace = true
+via_consensus.workspace = true
 
 tokio.workspace = true
 anyhow.workspace = true
@@ -33,5 +34,6 @@ serde.workspace = true
 
 via_verification.workspace = true
 via_verifier_dal.workspace = true
+via_verifier_state.workspace = true
 
 [dev-dependencies]

@@ -6,13 +6,14 @@ use zksync_config::{
         api::{HealthCheckConfig, MerkleTreeApiConfig, Web3JsonRpcConfig},
         chain::{
             CircuitBreakerConfig, MempoolConfig, NetworkConfig, OperationsManagerConfig,
-            StateKeeperConfig,
+            StateKeeperConfig, TimestampAsserterConfig,
         },
         fri_prover_group::FriProverGroupConfig,
         house_keeper::HouseKeeperConfig,
         via_bridge::ViaBridgeConfig,
         via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
+        via_reorg_detector::ViaReorgDetectorConfig,
         vm_runner::BasicWitnessInputProducerConfig,
         wallets::{AddressWallet, EthSender, StateKeeper, TokenMultiplierSetter, Wallet, Wallets},
         CommitmentGeneratorConfig, DatabaseSecrets, ExperimentalVmConfig,
@@ -85,6 +86,7 @@ pub struct TempConfigStore {
     pub external_proof_integration_api_config: Option<ExternalProofIntegrationApiConfig>,
     pub experimental_vm_config: Option<ExperimentalVmConfig>,
     pub prover_job_monitor_config: Option<ProverJobMonitorConfig>,
+    pub timestamp_asserter_config: Option<TimestampAsserterConfig>,
 }
 
 impl TempConfigStore {
@@ -126,6 +128,7 @@ impl TempConfigStore {
                 .clone(),
             experimental_vm_config: self.experimental_vm_config.clone(),
             prover_job_monitor_config: self.prover_job_monitor_config.clone(),
+            timestamp_asserter_config: self.timestamp_asserter_config.clone(),
         }
     }
 
@@ -207,6 +210,7 @@ fn load_env_config() -> anyhow::Result<TempConfigStore> {
         external_proof_integration_api_config: ExternalProofIntegrationApiConfig::from_env().ok(),
         experimental_vm_config: ExperimentalVmConfig::from_env().ok(),
         prover_job_monitor_config: ProverJobMonitorConfig::from_env().ok(),
+        timestamp_asserter_config: TimestampAsserterConfig::from_env().ok(),
     })
 }
 
@@ -231,6 +235,9 @@ impl ViaTempConfigStore {
             Some(ViaGenesisConfig::from_env().context("Failed to load genesis config")?);
         via_general_config.via_bridge_config =
             Some(ViaBridgeConfig::from_env().context("Failed to load bridge config")?);
+        via_general_config.via_reorg_detector_config = Some(
+            ViaReorgDetectorConfig::from_env().context("Failed to load reorg detector config")?,
+        );
         Ok(via_general_config)
     }
 }

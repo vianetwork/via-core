@@ -1,18 +1,21 @@
-use circuit_sequencer_api_1_4_1::sort_storage_access::sort_storage_access_queries;
+use std::rc::Rc;
+
+use circuit_sequencer_api::sort_storage_access::sort_storage_access_queries;
 use zksync_types::{
     l2_to_l1_log::{SystemL2ToL1Log, UserL2ToL1Log},
     Transaction,
 };
+use zksync_vm_interface::{pubdata::PubdataBuilder, InspectExecutionMode};
 
 use crate::{
     glue::GlueInto,
     interface::{
         storage::{StoragePtr, WriteStorage},
         BytecodeCompressionError, BytecodeCompressionResult, CurrentExecutionState,
-        FinishedL1Batch, L1BatchEnv, L2BlockEnv, SystemEnv, VmExecutionMode,
+        FinishedL1Batch, L1BatchEnv, L2BlockEnv, PushTransactionResult, SystemEnv, VmExecutionMode,
         VmExecutionResultAndLogs, VmFactory, VmInterface, VmInterfaceHistoryEnabled,
     },
-    utils::events::extract_l2tol1logs_from_l1_messenger,
+    utils::{events::extract_l2tol1logs_from_l1_messenger, glue_log_query},
     vm_1_4_1::{
         bootloader_state::BootloaderState,
         old_vm::events::merge_events,
@@ -57,8 +60,12 @@ impl<S: WriteStorage, H: HistoryMode> Vm<S, H> {
 
         let storage_log_queries = self.state.storage.get_final_log_queries();
 
-        let deduped_storage_log_queries =
-            sort_storage_access_queries(storage_log_queries.iter().map(|log| &log.log_query)).1;
+        let deduped_storage_log_queries = sort_storage_access_queries(
+            storage_log_queries
+                .iter()
+                .map(|log| glue_log_query(log.log_query)),
+        )
+        .1;
 
         CurrentExecutionState {
             events,
@@ -81,18 +88,23 @@ impl<S: WriteStorage, H: HistoryMode> Vm<S, H> {
 impl<S: WriteStorage, H: HistoryMode> VmInterface for Vm<S, H> {
     type TracerDispatcher = TracerDispatcher<S, H::Vm1_4_1>;
 
-    /// Push tx into memory for the future execution
-    fn push_transaction(&mut self, tx: Transaction) {
+    fn push_transaction(&mut self, tx: Transaction) -> PushTransactionResult<'_> {
         self.push_transaction_with_compression(tx, true);
+        PushTransactionResult {
+            compressed_bytecodes: self
+                .bootloader_state
+                .get_last_tx_compressed_bytecodes()
+                .into(),
+        }
     }
 
     /// Execute VM with custom tracers.
     fn inspect(
         &mut self,
         tracer: &mut Self::TracerDispatcher,
-        execution_mode: VmExecutionMode,
+        execution_mode: InspectExecutionMode,
     ) -> VmExecutionResultAndLogs {
-        self.inspect_inner(tracer, execution_mode, None)
+        self.inspect_inner(tracer, execution_mode.into(), None)
     }
 
     fn start_new_l2_block(&mut self, l2_block_env: L2BlockEnv) {
@@ -123,8 +135,12 @@ impl<S: WriteStorage, H: HistoryMode> VmInterface for Vm<S, H> {
         }
     }
 
-    fn finish_batch(&mut self) -> FinishedL1Batch {
-        let result = self.inspect(&mut TracerDispatcher::default(), VmExecutionMode::Batch);
+    fn finish_batch(&mut self, _pubdata_builder: Rc<dyn PubdataBuilder>) -> FinishedL1Batch {
+        let result = self.inspect_inner(
+            &mut TracerDispatcher::default(),
+            VmExecutionMode::Batch,
+            None,
+        );
         let execution_state = self.get_current_execution_state();
         let bootloader_memory = self.bootloader_state.bootloader_memory();
         FinishedL1Batch {

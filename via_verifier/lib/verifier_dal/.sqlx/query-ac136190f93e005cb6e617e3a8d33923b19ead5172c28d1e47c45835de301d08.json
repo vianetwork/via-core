@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n            via_l1_reorg (l1_block_number, l1_batch_number)\n            VALUES\n            ($1, $2)\n            ON CONFLICT (l1_block_number) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ac136190f93e005cb6e617e3a8d33923b19ead5172c28d1e47c45835de301d08"
+}

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                hash\n            FROM\n                via_l1_blocks\n            WHERE\n                number = $1\n            ORDER BY\n                number DESC\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "46831481a200e40e95ed47877761acaec64fd109eead4840e8e5aadb7e70b4eb"
+}

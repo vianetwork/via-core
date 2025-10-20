@@ -1,17 +1,17 @@
-genesis_root: '0xae467635b015107d0d5c054b72adf28dcdb8448bdaf7eba13e4173cfa656ba10'
+genesis_root: '0xe5130f36c084e419c99f8268d499b19e50622f4c41506439e334c2a38ac4a6f7'
 genesis_rollup_leaf_index: 54
-genesis_batch_commitment: '0x79cea1677fe1d82c0c0e6d41b6a89871b80e1ff79a884d4da373362ba8c2922e'
-genesis_protocol_semantic_version: '0.27.0'
+genesis_batch_commitment: '0x82b8670fcc6149d66ccb53705b408b66ca868b50b95cfc05a22bccef65563b6e'
+genesis_protocol_semantic_version: '0.28.0'
 # deprecated
-genesis_protocol_version: 27
-default_aa_hash: '0x0100056341ef0b54044394eb7f882870873d713d11b6431f0b50022a2c548e94'
-bootloader_hash: '0x010008e7ec4f3c5bff3f0c80c8cda2f08d7268b4f0652669e00713ef471ca186'
+genesis_protocol_version: 28
+default_aa_hash: '0x0100055d4fb8cb4bf017843c74ea924928235a8954b327a1e2a88a7568a04b10'
+bootloader_hash: '0x010008c3be57ae5800e077b6c2056d9d75ad1a7b4f0ce583407961cc6fe0b678'
 l1_chain_id: 9
 l2_chain_id: 270
 fee_account: '0x0000000000000000000000000000000000000001'
 prover:
-  recursion_scheduler_level_vk_hash: '0x14f97b81e54b35fe673d8708cc1a19e1ea5b5e348e12d31e39824ed4f42bbca2'
   dummy_verifier: true
+  snark_wrapper_vk_hash: '0x14f97b81e54b35fe673d8708cc1a19e1ea5b5e348e12d31e39824ed4f42bbca2'
 l1_batch_commit_data_generator_mode: Rollup
-# Uncomment to enable EVM emulation (requires to run genesis)
+# TODO: uncomment once EVM emulator is present in the `contracts` submodule
 # evm_emulator_hash: 0x01000e53aa35d9d19fa99341c2e2901cf93b3668f01569dd5c6ca409c7696b91

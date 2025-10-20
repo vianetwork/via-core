@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                MAX(l1_batch_number) AS \"min_l1_batch_number\"\n            FROM\n                via_transactions\n            WHERE\n                l1_batch_number IS NOT NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "min_l1_batch_number",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5fc6785c7eb0aad2b91b94321ab633c36703951c6d57b116f5ed66dfa56ef675"
+}

@@ -75,14 +75,17 @@ impl From<ViaStorageL1BatchDetails> for L1BatchDetails {
             committed_at: details
                 .committed_at
                 .map(|committed_at| DateTime::<Utc>::from_naive_utc_and_offset(committed_at, Utc)),
+            commit_chain_id: None,
             prove_tx_hash: details.prove_tx_hash.map(|hash| reverse_vec_to_h256(hash)),
             proven_at: details
                 .proven_at
                 .map(|proven_at| DateTime::<Utc>::from_naive_utc_and_offset(proven_at, Utc)),
+            prove_chain_id: None,
             execute_tx_hash: calculate_execution_hash(details.is_finalized),
             executed_at: details
                 .executed_at
                 .map(|executed_at| DateTime::<Utc>::from_naive_utc_and_offset(executed_at, Utc)),
+            execute_chain_id: None,
             l1_gas_price: details.l1_gas_price as u64,
             l2_fair_gas_price: details.l2_fair_gas_price as u64,
             fair_pubdata_price: details.fair_pubdata_price.map(|x| x as u64),
@@ -151,14 +154,17 @@ impl From<ViaStorageBlockDetails> for BlockDetails {
             committed_at: details
                 .committed_at
                 .map(|committed_at| DateTime::from_naive_utc_and_offset(committed_at, Utc)),
+            commit_chain_id: None,
             prove_tx_hash: details.prove_tx_hash.map(|hash| reverse_vec_to_h256(hash)),
             proven_at: details
                 .proven_at
                 .map(|proven_at| DateTime::<Utc>::from_naive_utc_and_offset(proven_at, Utc)),
+            prove_chain_id: None,
             execute_tx_hash: calculate_execution_hash(details.is_finalized),
             executed_at: details
                 .executed_at
                 .map(|executed_at| DateTime::<Utc>::from_naive_utc_and_offset(executed_at, Utc)),
+            execute_chain_id: None,
             l1_gas_price: details.l1_gas_price as u64,
             l2_fair_gas_price: details.l2_fair_gas_price as u64,
             fair_pubdata_price: details.fair_pubdata_price.map(|x| x as u64),

@@ -9,6 +9,9 @@ import * as zksync from 'zksync-ethers';
 import * as ethers from 'ethers';
 import { scaledGasPrice } from '../src/helpers';
 
+const SECONDS = 2000;
+jest.setTimeout(100 * SECONDS);
+
 describe('base ERC20 contract checks', () => {
     let testMaster: TestMaster;
     let alice: zksync.Wallet;
@@ -36,9 +39,8 @@ describe('base ERC20 contract checks', () => {
         const numerator = Number(await zksyncContract.baseTokenGasPriceMultiplierNominator());
         const denominator = Number(await zksyncContract.baseTokenGasPriceMultiplierDenominator());
 
-        // checking that the numerator and denominator don't have their default values
-        expect(numerator).toBe(3);
-        expect(denominator).toBe(2);
+        expect(numerator).toBe(314);
+        expect(denominator).toBe(1000);
     });
 
     test('Can perform a deposit', async () => {

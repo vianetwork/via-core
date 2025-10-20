@@ -2,7 +2,10 @@ use super::{via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig}
 use crate::{
     configs::{
         base_token_adjuster::BaseTokenAdjusterConfig,
-        chain::{CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig},
+        chain::{
+            CircuitBreakerConfig, MempoolConfig, OperationsManagerConfig, StateKeeperConfig,
+            TimestampAsserterConfig,
+        },
         consensus::ConsensusConfig,
         da_dispatcher::DADispatcherConfig,
         fri_prover_group::FriProverGroupConfig,
@@ -11,6 +14,7 @@ use crate::{
         pruning::PruningConfig,
         snapshot_recovery::SnapshotRecoveryConfig,
         via_bridge::ViaBridgeConfig,
+        via_reorg_detector::ViaReorgDetectorConfig,
         vm_runner::{BasicWitnessInputProducerConfig, ProtectiveReadsWriterConfig},
         CommitmentGeneratorConfig, ExperimentalVmConfig, ExternalPriceApiClientConfig,
         FriProofCompressorConfig, FriProverConfig, FriProverGatewayConfig,
@@ -57,6 +61,7 @@ pub struct ViaGeneralConfig {
     pub external_proof_integration_api_config: Option<ExternalProofIntegrationApiConfig>,
     pub experimental_vm_config: Option<ExperimentalVmConfig>,
     pub prover_job_monitor_config: Option<ProverJobMonitorConfig>,
+    pub timestamp_asserter_config: Option<TimestampAsserterConfig>,
     // VIA specific configs
     pub via_btc_client_config: Option<ViaBtcClientConfig>,
     pub via_btc_sender_config: Option<ViaBtcSenderConfig>,
@@ -65,6 +70,7 @@ pub struct ViaGeneralConfig {
     pub via_verifier_config: Option<ViaVerifierConfig>,
     pub via_genesis_config: Option<ViaGenesisConfig>,
     pub via_bridge_config: Option<ViaBridgeConfig>,
+    pub via_reorg_detector_config: Option<ViaReorgDetectorConfig>,
 }
 
 impl From<GeneralConfig> for ViaGeneralConfig {
@@ -103,6 +109,7 @@ impl From<GeneralConfig> for ViaGeneralConfig {
             external_proof_integration_api_config: value.external_proof_integration_api_config,
             experimental_vm_config: value.experimental_vm_config,
             prover_job_monitor_config: value.prover_job_monitor_config,
+            timestamp_asserter_config: value.timestamp_asserter_config,
             // VIA specific configs
             via_btc_sender_config: None,
             via_btc_watch_config: None,
@@ -111,6 +118,7 @@ impl From<GeneralConfig> for ViaGeneralConfig {
             via_btc_client_config: None,
             via_genesis_config: None,
             via_bridge_config: None,
+            via_reorg_detector_config: None,
         }
     }
 }

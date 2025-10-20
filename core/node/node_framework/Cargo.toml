@@ -45,7 +45,6 @@ zksync_node_sync.workspace = true
 zksync_node_api_server.workspace = true
 zksync_node_consensus.workspace = true
 zksync_contract_verification_server.workspace = true
-zksync_tee_verifier_input_producer.workspace = true
 zksync_queued_job_processor.workspace = true
 zksync_reorg_detector.workspace = true
 zksync_vm_runner.workspace = true
@@ -55,6 +54,7 @@ zksync_node_storage_init.workspace = true
 zksync_external_price_api.workspace = true
 zksync_external_proof_integration_api.workspace = true
 zksync_logs_bloom_backfill.workspace = true
+zksync_shared_metrics.workspace = true
 
 # Via dependencies
 via_btc_watch.workspace = true
@@ -64,6 +64,7 @@ via_consistency_checker.workspace = true
 via_fee_model.workspace = true
 via_da_dispatcher.workspace = true
 via_state_keeper.workspace = true
+via_main_node_reorg_detector.workspace = true
 via_verifier_coordinator.workspace = true
 via_withdrawal_client.workspace = true
 via_verifier_dal.workspace = true
@@ -72,6 +73,8 @@ via_verifier_btc_watch.workspace = true
 via_verifier_btc_sender.workspace = true
 via_musig2.workspace = true
 via_verifier_storage_init.workspace = true
+via_verifier_block_reverter.workspace = true
+via_verifier_reorg_detector.workspace = true
 via_node_storage_init.workspace = true
 via_indexer_storage_init.workspace = true
 
@@ -84,6 +87,7 @@ thiserror.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 anyhow.workspace = true
+serde.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 ctrlc.workspace = true
 semver.workspace = true

@@ -65,7 +65,7 @@ compute_overhead_part = 0.0
 # If it is 1, the pubdata limit per batch will have to cover the entire cost of closing the batch.
 pubdata_overhead_part = 1.0
 
-# The constant L1 gas unit in vbyte required to finilize the L1 Batch. This cost includes the Pubdata, proof and verification inscriptions.
+# The constant amount of L1 gas that is used as the overhead for the batch. It includes the price for batch verification, etc.
 batch_overhead_l1_gas = 5000
 
 # The maximum amount of gas that can be used by the batch. This value is derived from the circuits limitation per batch.
@@ -90,8 +90,8 @@ fee_model_version = "V2"
 validation_computational_gas_limit = 300000
 save_call_traces = true
 
-bootloader_hash = "0x010008e7ec4f3c5bff3f0c80c8cda2f08d7268b4f0652669e00713ef471ca186"
-default_aa_hash = "0x0100056341ef0b54044394eb7f882870873d713d11b6431f0b50022a2c548e94"
+default_aa_hash = "0x0100055d4fb8cb4bf017843c74ea924928235a8954b327a1e2a88a7568a04b10"
+bootloader_hash = "0x010008c3be57ae5800e077b6c2056d9d75ad1a7b4f0ce583407961cc6fe0b678"
 
 protective_reads_persistence_enabled = false
 

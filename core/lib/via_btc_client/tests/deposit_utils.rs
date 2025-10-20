@@ -24,7 +24,7 @@ pub mod config {
 
     pub const TEST_PRIVATE_KEY: &str = "cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc";
     pub const BRIDGE_MUSIG2_ADDRESS: &str =
-        "bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg";
+        "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq";
     pub const ALICE_WALLET_ADDRESS: &str = "bcrt1qg9ly0933msv97jpgrlqwn0h6743y0u6zrvh020";
     pub const TEST_RECEIVER_L2_ADDRESS: &str = "0x1234567890123456789012345678901234567890";
 
@@ -338,7 +338,7 @@ impl DepositTestUtils {
         amount_sats: Option<u64>,
         private_key: &str,
     ) -> Result<()> {
-        Self::perform_deposit_test_with_key_and_l2_check(amount_sats, private_key, false).await
+        Self::perform_deposit_test_with_key_and_l2_check(amount_sats, private_key, true).await
     }
 
     pub async fn perform_deposit_test_with_key_and_l2_check(

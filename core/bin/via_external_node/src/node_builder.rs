@@ -12,7 +12,9 @@ use zksync_config::{
     },
     PostgresConfig,
 };
-use zksync_metadata_calculator::{MetadataCalculatorConfig, MetadataCalculatorRecoveryConfig};
+use zksync_metadata_calculator::{
+    MerkleTreeReaderConfig, MetadataCalculatorConfig, MetadataCalculatorRecoveryConfig,
+};
 use zksync_node_api_server::web3::Namespace;
 use zksync_node_framework::{
     implementations::layers::{
@@ -23,13 +25,13 @@ use zksync_node_framework::{
         healtcheck_server::HealthCheckLayer,
         logs_bloom_backfill::LogsBloomBackfillLayer,
         main_node_client::MainNodeClientLayer,
-        metadata_calculator::MetadataCalculatorLayer,
+        metadata_calculator::{MetadataCalculatorLayer, TreeApiServerLayer},
         node_storage_init::{
             external_node_strategy::{ExternalNodeInitStrategyLayer, SnapshotRecoveryConfig},
             NodeStorageInitializerLayer,
         },
         pools_layer::PoolsLayerBuilder,
-        postgres_metrics::PostgresMetricsLayer,
+        postgres::PostgresLayer,
         prometheus_exporter::PrometheusExporterLayer,
         pruning::PruningLayer,
         sigint::SigintHandlerLayer,
@@ -56,6 +58,7 @@ use zksync_node_framework::{
     service::{ZkStackService, ZkStackServiceBuilder},
 };
 use zksync_state::RocksdbStorageOptions;
+use zksync_types::L2_ASSET_ROUTER_ADDRESS;
 
 use crate::{
     config::{self, ExternalNodeConfig},
@@ -129,8 +132,8 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
-    fn add_postgres_metrics_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(PostgresMetricsLayer);
+    fn add_postgres_layer(mut self) -> anyhow::Result<Self> {
+        self.node.add_layer(PostgresLayer);
         Ok(self)
     }
 
@@ -188,11 +191,21 @@ impl ExternalNodeBuilder {
         // compression.
         const OPTIONAL_BYTECODE_COMPRESSION: bool = true;
 
+        let l2_shared_bridge_addr = self
+            .config
+            .remote
+            .l2_shared_bridge_addr
+            .context("Missing `l2_shared_bridge_addr`")?;
+        let l2_legacy_shared_bridge_addr = if l2_shared_bridge_addr == L2_ASSET_ROUTER_ADDRESS {
+            // System has migrated to `L2_ASSET_ROUTER_ADDRESS`, use legacy shared bridge address from main node.
+            self.config.remote.l2_legacy_shared_bridge_addr
+        } else {
+            // System hasn't migrated on `L2_ASSET_ROUTER_ADDRESS`, we can safely use `l2_shared_bridge_addr`.
+            Some(l2_shared_bridge_addr)
+        };
+
         let persistence_layer = OutputHandlerLayer::new(
-            self.config
-                .remote
-                .l2_shared_bridge_addr
-                .expect("L2 shared bridge address is not set"),
+            l2_legacy_shared_bridge_addr,
             self.config.optional.l2_block_seal_queue_capacity,
         )
         .with_pre_insert_txs(true) // EN requires txs to be pre-inserted.
@@ -295,7 +308,10 @@ impl ExternalNodeBuilder {
     }
 
     fn add_tree_data_fetcher_layer(mut self) -> anyhow::Result<Self> {
-        let layer = TreeDataFetcherLayer::new(self.config.diamond_proxy_address());
+        let layer = TreeDataFetcherLayer::new(
+            self.config.l1_diamond_proxy_address(),
+            self.config.required.l2_chain_id,
+        );
         self.node.add_layer(layer);
         Ok(self)
     }
@@ -349,6 +365,11 @@ impl ExternalNodeBuilder {
             layer = layer.with_tree_api_config(merkle_tree_api_config);
         }
 
+        // Add stale keys repair task if requested.
+        if self.config.optional.merkle_tree_repair_stale_keys {
+            layer = layer.with_stale_keys_repair();
+        }
+
         // Add tree pruning if needed.
         if self.config.optional.pruning_enabled {
             layer = layer.with_pruning_config(self.config.optional.pruning_removal_delay());
@@ -358,11 +379,35 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
+    fn add_isolated_tree_api_layer(mut self) -> anyhow::Result<Self> {
+        let reader_config = MerkleTreeReaderConfig {
+            db_path: self.config.required.merkle_tree_path.clone(),
+            max_open_files: self.config.optional.merkle_tree_max_open_files,
+            multi_get_chunk_size: self.config.optional.merkle_tree_multi_get_chunk_size,
+            block_cache_capacity: self.config.optional.merkle_tree_block_cache_size(),
+            include_indices_and_filters_in_block_cache: self
+                .config
+                .optional
+                .merkle_tree_include_indices_and_filters_in_block_cache,
+        };
+        let api_config = MerkleTreeApiConfig {
+            port: self
+                .config
+                .tree_component
+                .api_port
+                .context("should contain tree api port")?,
+        };
+        self.node
+            .add_layer(TreeApiServerLayer::new(reader_config, api_config));
+        Ok(self)
+    }
+
     fn add_tx_sender_layer(mut self) -> anyhow::Result<Self> {
         let postgres_storage_config = PostgresStorageCachesConfig {
             factory_deps_cache_size: self.config.optional.factory_deps_cache_size() as u64,
             initial_writes_cache_size: self.config.optional.initial_writes_cache_size() as u64,
             latest_values_cache_size: self.config.optional.latest_values_cache_size() as u64,
+            latest_values_max_block_lag: 20, // reasonable default
         };
         let max_vm_concurrency = self.config.optional.vm_concurrency_limit;
         let tx_sender_layer = TxSenderLayer::new(
@@ -557,7 +602,7 @@ impl ExternalNodeBuilder {
         self.node.add_layer(BtcWatchLayer {
             via_bridge_config,
             via_btc_watch_config,
-            is_main_node: true,
+            is_main_node: false,
         });
 
         Ok(self)
@@ -578,7 +623,7 @@ impl ExternalNodeBuilder {
             // so until we have a dedicated component for "auxiliary" tasks,
             // it's responsible for things like metrics.
             self = self
-                .add_postgres_metrics_layer()?
+                .add_postgres_layer()?
                 .add_external_node_metrics_layer()?;
             // We assign the storage initialization to the core, as it's considered to be
             // the "main" component.
@@ -633,11 +678,11 @@ impl ExternalNodeBuilder {
                     self = self.add_metadata_calculator_layer(with_tree_api)?;
                 }
                 Component::TreeApi => {
-                    anyhow::ensure!(
-                        components.contains(&Component::Tree),
-                        "Merkle tree API cannot be started without a tree component"
-                    );
-                    // Do nothing, will be handled by the `Tree` component.
+                    if components.contains(&Component::Tree) {
+                        // Do nothing, will be handled by the `Tree` component.
+                    } else {
+                        self = self.add_isolated_tree_api_layer()?;
+                    }
                 }
                 Component::TreeFetcher => {
                     self = self.add_tree_data_fetcher_layer()?;

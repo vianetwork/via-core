@@ -1,6 +1,7 @@
 use std::{
     env,
     ffi::OsString,
+    future::Future,
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     path::PathBuf,
     time::Duration,
@@ -17,7 +18,7 @@ use zksync_config::{
         via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
         via_secrets::ViaL1Secrets,
-        GeneralConfig,
+        GeneralConfig, Secrets,
     },
     ObjectStoreConfig, ViaBtcWatchConfig,
 };
@@ -29,7 +30,7 @@ use zksync_dal::{ConnectionPool, Core};
 use zksync_env_config::FromEnv;
 use zksync_metadata_calculator::MetadataCalculatorRecoveryConfig;
 use zksync_node_api_server::{
-    tx_sender::TxSenderConfig,
+    tx_sender::{TimestampAsserterParams, TxSenderConfig},
     web3::{state::InternalApiConfig, Namespace},
 };
 use zksync_protobuf_config::proto;
@@ -41,6 +42,7 @@ use zksync_types::{
 use zksync_web3_decl::{
     client::{DynClient, L2},
     error::ClientRpcContext,
+    jsonrpsee::{core::ClientError, types::error::ErrorCode},
     namespaces::{EnNamespaceClient, ViaNamespaceClient, ZksNamespaceClient},
 };
 
@@ -105,21 +107,31 @@ impl ConfigurationSource for Environment {
 /// This part of the external node config is fetched directly from the main node.
 #[derive(Debug, Deserialize)]
 pub(crate) struct RemoteENConfig {
-    pub bridgehub_proxy_addr: Option<Address>,
-    pub state_transition_proxy_addr: Option<Address>,
-    pub transparent_proxy_admin_addr: Option<Address>,
-    /// Should not be accessed directly. Use [`ExternalNodeConfig::diamond_proxy_address`] instead.
-    diamond_proxy_addr: Address,
+    #[serde(alias = "bridgehub_proxy_addr")]
+    pub l1_bridgehub_proxy_addr: Option<Address>,
+    #[serde(alias = "state_transition_proxy_addr")]
+    pub l1_state_transition_proxy_addr: Option<Address>,
+    #[serde(alias = "transparent_proxy_admin_addr")]
+    pub l1_transparent_proxy_admin_addr: Option<Address>,
+    /// Should not be accessed directly. Use [`ExternalNodeConfig::l1_diamond_proxy_address`] instead.
+    #[serde(alias = "diamond_proxy_addr")]
+    l1_diamond_proxy_addr: Address,
     // While on L1 shared bridge and legacy bridge are different contracts with different addresses,
     // the `l2_erc20_bridge_addr` and `l2_shared_bridge_addr` are basically the same contract, but with
     // a different name, with names adapted only for consistency.
     pub l1_shared_bridge_proxy_addr: Option<Address>,
+    /// Contract address that serves as a shared bridge on L2.
+    /// It is expected that `L2SharedBridge` is used before gateway upgrade, and `L2AssetRouter` is used after.
     pub l2_shared_bridge_addr: Option<Address>,
+    /// Address of `L2SharedBridge` that was used before gateway upgrade.
+    /// `None` if chain genesis used post-gateway protocol version.
+    pub l2_legacy_shared_bridge_addr: Option<Address>,
     pub l1_erc20_bridge_proxy_addr: Option<Address>,
     pub l2_erc20_bridge_addr: Option<Address>,
     pub l1_weth_bridge_addr: Option<Address>,
     pub l2_weth_bridge_addr: Option<Address>,
     pub l2_testnet_paymaster_addr: Option<Address>,
+    pub l2_timestamp_asserter_addr: Option<Address>,
     pub base_token_addr: Address,
     pub l1_batch_commit_data_generator_mode: L1BatchCommitmentMode,
     pub dummy_verifier: bool,
@@ -137,17 +149,24 @@ impl RemoteENConfig {
             .get_bitcoin_network()
             .rpc_context("get_bitcoin_network")
             .await?;
+        let timestamp_asserter_address = handle_rpc_response_with_fallback(
+            client.get_timestamp_asserter(),
+            None,
+            "Failed to fetch timestamp asserter address".to_string(),
+        )
+        .await?;
 
         Ok(Self {
-            bridgehub_proxy_addr: None,
-            state_transition_proxy_addr: None,
-            transparent_proxy_admin_addr: None,
-            diamond_proxy_addr: Address::repeat_byte(1),
+            l1_bridgehub_proxy_addr: None,
+            l1_state_transition_proxy_addr: None,
+            l1_transparent_proxy_admin_addr: None,
+            l1_diamond_proxy_addr: Address::repeat_byte(1),
             l2_testnet_paymaster_addr,
             l1_erc20_bridge_proxy_addr: None,
             l2_erc20_bridge_addr: None,
             l1_shared_bridge_proxy_addr: None,
             l2_shared_bridge_addr: Some(Address::repeat_byte(1)), // required in state keeper constructor
+            l2_legacy_shared_bridge_addr: None,
             l1_weth_bridge_addr: None,
             l2_weth_bridge_addr: None,
             base_token_addr: ETHEREUM_ADDRESS,
@@ -159,6 +178,7 @@ impl RemoteENConfig {
                 .as_ref()
                 .map(|a| a.dummy_verifier)
                 .unwrap_or_default(),
+            l2_timestamp_asserter_addr: timestamp_asserter_address,
             via_network,
         })
     }
@@ -166,10 +186,10 @@ impl RemoteENConfig {
     #[cfg(test)]
     fn mock() -> Self {
         Self {
-            bridgehub_proxy_addr: None,
-            state_transition_proxy_addr: None,
-            transparent_proxy_admin_addr: None,
-            diamond_proxy_addr: Address::repeat_byte(1),
+            l1_bridgehub_proxy_addr: None,
+            l1_state_transition_proxy_addr: None,
+            l1_transparent_proxy_admin_addr: None,
+            l1_diamond_proxy_addr: Address::repeat_byte(1),
             l1_erc20_bridge_proxy_addr: Some(Address::repeat_byte(2)),
             l2_erc20_bridge_addr: Some(Address::repeat_byte(3)),
             l2_weth_bridge_addr: None,
@@ -178,10 +198,37 @@ impl RemoteENConfig {
             l1_shared_bridge_proxy_addr: Some(Address::repeat_byte(5)),
             l1_weth_bridge_addr: None,
             l2_shared_bridge_addr: Some(Address::repeat_byte(6)),
+            l2_legacy_shared_bridge_addr: Some(Address::repeat_byte(7)),
             l1_batch_commit_data_generator_mode: L1BatchCommitmentMode::Rollup,
             dummy_verifier: true,
+            l2_timestamp_asserter_addr: None,
             via_network: BitcoinNetwork::Regtest,
         }
+    }
+}
+
+async fn handle_rpc_response_with_fallback<T, F>(
+    rpc_call: F,
+    fallback: T,
+    context: String,
+) -> anyhow::Result<T>
+where
+    F: Future<Output = Result<T, ClientError>>,
+    T: Clone,
+{
+    match rpc_call.await {
+        Err(ClientError::Call(err))
+            if [
+                ErrorCode::MethodNotFound.code(),
+                // This what `Web3Error::NotImplemented` gets
+                // `casted` into in the `api` server.
+                ErrorCode::InternalError.code(),
+            ]
+            .contains(&(err.code())) =>
+        {
+            Ok(fallback)
+        }
+        response => response.context(context),
     }
 }
 
@@ -336,6 +383,9 @@ pub(crate) struct OptionalENConfig {
     /// Timeout to wait for the Merkle tree database to run compaction on stalled writes.
     #[serde(default = "OptionalENConfig::default_merkle_tree_stalled_writes_timeout_sec")]
     merkle_tree_stalled_writes_timeout_sec: u64,
+    /// Enables the stale keys repair task for the Merkle tree.
+    #[serde(default)]
+    pub merkle_tree_repair_stale_keys: bool,
 
     // Postgres config (new parameters)
     /// Threshold in milliseconds for the DB connection lifetime to denote it as long-living and log its details.
@@ -403,13 +453,17 @@ pub(crate) struct OptionalENConfig {
     /// If set to 0, L1 batches will not be retained based on their timestamp. The default value is 7 days.
     #[serde(default = "OptionalENConfig::default_pruning_data_retention_sec")]
     pruning_data_retention_sec: u64,
-    /// Gateway RPC URL, needed for operating during migration.
-    #[allow(dead_code)]
-    pub gateway_url: Option<SensitiveUrl>,
+    /// Minimum time between current block.timestamp and the end of the asserted range for TimestampAsserter
+    #[serde(default = "OptionalENConfig::default_timestamp_asserter_min_time_till_end_sec")]
+    pub timestamp_asserter_min_time_till_end_sec: u32,
 }
 
 impl OptionalENConfig {
-    fn from_configs(general_config: &GeneralConfig, enconfig: &ENConfig) -> anyhow::Result<Self> {
+    fn from_configs(
+        general_config: &GeneralConfig,
+        enconfig: &ENConfig,
+        _secrets: &Secrets,
+    ) -> anyhow::Result<Self> {
         let api_namespaces = load_config!(general_config.api_config, web3_json_rpc.api_namespaces)
             .map(|a: Vec<String>| a.iter().map(|a| a.parse()).collect::<Result<_, _>>())
             .transpose()?;
@@ -562,6 +616,12 @@ impl OptionalENConfig {
                 merkle_tree.stalled_writes_timeout_sec,
                 default_merkle_tree_stalled_writes_timeout_sec
             ),
+            merkle_tree_repair_stale_keys: general_config
+                .db_config
+                .as_ref()
+                .map_or(false, |config| {
+                    config.experimental.merkle_tree_repair_stale_keys
+                }),
             database_long_connection_threshold_ms: load_config!(
                 general_config.postgres_config,
                 long_connection_threshold_ms
@@ -635,7 +695,11 @@ impl OptionalENConfig {
                 .unwrap_or_else(Self::default_main_node_rate_limit_rps),
             api_namespaces,
             contracts_diamond_proxy_addr: None,
-            gateway_url: enconfig.gateway_url.clone(),
+            timestamp_asserter_min_time_till_end_sec: general_config
+                .timestamp_asserter_config
+                .as_ref()
+                .map(|x| x.min_time_till_end_sec)
+                .unwrap_or_else(Self::default_timestamp_asserter_min_time_till_end_sec),
         })
     }
 
@@ -770,6 +834,9 @@ impl OptionalENConfig {
         3_600 * 24 * 7 // 7 days
     }
 
+    const fn default_timestamp_asserter_min_time_till_end_sec() -> u32 {
+        60
+    }
     fn from_env() -> anyhow::Result<Self> {
         let mut result: OptionalENConfig = envy::prefixed("EN_")
             .from_env()
@@ -1239,7 +1306,11 @@ impl ExternalNodeConfig<()> {
             .context("failed decoding consensus YAML config")?;
 
         let required = RequiredENConfig::from_configs(&general_config, &external_node_config)?;
-        let optional = OptionalENConfig::from_configs(&general_config, &external_node_config)?;
+        let optional = OptionalENConfig::from_configs(
+            &general_config,
+            &external_node_config,
+            &secrets_config,
+        )?;
         let postgres = PostgresConfig {
             database_url: secrets_config
                 .database
@@ -1329,14 +1400,14 @@ impl ExternalNodeConfig {
         }
     }
 
-    /// Returns a verified diamond proxy address.
+    /// Returns verified L1 diamond proxy address.
     /// If local configuration contains the address, it will be checked against the one returned by the main node.
     /// Otherwise, the remote value will be used. However, using remote value has trust implications for the main
     /// node so relying on it solely is not recommended.
-    pub fn diamond_proxy_address(&self) -> Address {
+    pub fn l1_diamond_proxy_address(&self) -> Address {
         self.optional
             .contracts_diamond_proxy_addr
-            .unwrap_or(self.remote.diamond_proxy_addr)
+            .unwrap_or(self.remote.l1_diamond_proxy_addr)
     }
 }
 
@@ -1356,13 +1427,14 @@ impl From<&ExternalNodeConfig> for InternalApiConfig {
                 l2_erc20_default_bridge: config.remote.l2_erc20_bridge_addr,
                 l1_shared_default_bridge: config.remote.l1_shared_bridge_proxy_addr,
                 l2_shared_default_bridge: config.remote.l2_shared_bridge_addr,
+                l2_legacy_shared_bridge: config.remote.l2_legacy_shared_bridge_addr,
                 l1_weth_bridge: config.remote.l1_weth_bridge_addr,
                 l2_weth_bridge: config.remote.l2_weth_bridge_addr,
             },
-            bridgehub_proxy_addr: config.remote.bridgehub_proxy_addr,
-            state_transition_proxy_addr: config.remote.state_transition_proxy_addr,
-            transparent_proxy_admin_addr: config.remote.transparent_proxy_admin_addr,
-            diamond_proxy_addr: config.remote.diamond_proxy_addr,
+            l1_bridgehub_proxy_addr: config.remote.l1_bridgehub_proxy_addr,
+            l1_state_transition_proxy_addr: config.remote.l1_state_transition_proxy_addr,
+            l1_transparent_proxy_admin_addr: config.remote.l1_transparent_proxy_admin_addr,
+            l1_diamond_proxy_addr: config.remote.l1_diamond_proxy_addr,
             l2_testnet_paymaster_addr: config.remote.l2_testnet_paymaster_addr,
             req_entities_limit: config.optional.req_entities_limit,
             fee_history_limit: config.optional.fee_history_limit,
@@ -1370,6 +1442,7 @@ impl From<&ExternalNodeConfig> for InternalApiConfig {
             filters_disabled: config.optional.filters_disabled,
             dummy_verifier: config.remote.dummy_verifier,
             l1_batch_commit_data_generator_mode: config.remote.l1_batch_commit_data_generator_mode,
+            timestamp_asserter_address: config.remote.l2_timestamp_asserter_addr,
             via_network: config.remote.via_network,
         }
     }
@@ -1393,6 +1466,17 @@ impl From<&ExternalNodeConfig> for TxSenderConfig {
             chain_id: config.required.l2_chain_id,
             // Does not matter for EN.
             whitelisted_tokens_for_aa: Default::default(),
+            timestamp_asserter_params: config.remote.l2_timestamp_asserter_addr.map(|address| {
+                TimestampAsserterParams {
+                    address,
+                    min_time_till_end: Duration::from_secs(
+                        config
+                            .optional
+                            .timestamp_asserter_min_time_till_end_sec
+                            .into(),
+                    ),
+                }
+            }),
         }
     }
 }

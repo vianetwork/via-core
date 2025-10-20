@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use common::{
-    cmd::Cmd,
+    contracts::build_l2_contracts,
     forge::{Forge, ForgeScriptArgs},
     spinner::Spinner,
 };
@@ -12,7 +12,7 @@ use config::{
             input::DeployL2ContractsInput,
             output::{
                 ConsensusRegistryOutput, DefaultL2UpgradeOutput, InitializeBridgeOutput,
-                Multicall3Output,
+                Multicall3Output, TimestampAsserterOutput,
             },
         },
         script_params::DEPLOY_L2_CONTRACTS_SCRIPT_PARAMS,
@@ -20,14 +20,14 @@ use config::{
     traits::{ReadConfig, SaveConfig, SaveConfigWithBasePath},
     ChainConfig, ContractsConfig, EcosystemConfig,
 };
-use xshell::{cmd, Shell};
+use xshell::Shell;
 
 use crate::{
     messages::{
         MSG_CHAIN_NOT_INITIALIZED, MSG_DEPLOYING_L2_CONTRACT_SPINNER,
         MSG_L1_SECRETS_MUST_BE_PRESENTED,
     },
-    utils::forge::{check_the_balance, fill_forge_private_key},
+    utils::forge::{check_the_balance, fill_forge_private_key, WalletOwner},
 };
 
 pub enum Deploy2ContractsOption {
@@ -36,6 +36,7 @@ pub enum Deploy2ContractsOption {
     InitiailizeBridges,
     ConsensusRegistry,
     Multicall3,
+    TimestampAsserter,
 }
 
 pub async fn run(
@@ -93,6 +94,16 @@ pub async fn run(
             )
             .await?;
         }
+        Deploy2ContractsOption::TimestampAsserter => {
+            deploy_timestamp_asserter(
+                shell,
+                &chain_config,
+                &ecosystem_config,
+                &mut contracts,
+                args,
+            )
+            .await?;
+        }
         Deploy2ContractsOption::InitiailizeBridges => {
             initialize_bridges(
                 shell,
@@ -121,7 +132,7 @@ async fn build_and_deploy(
     signature: Option<&str>,
     mut update_config: impl FnMut(&Shell, &Path) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    build_l2_contracts(shell, &ecosystem_config.link_to_code)?;
+    build_l2_contracts(shell.clone(), ecosystem_config.link_to_code.clone())?;
     call_forge(shell, chain_config, ecosystem_config, forge_args, signature).await?;
     update_config(
         shell,
@@ -213,6 +224,27 @@ pub async fn deploy_multicall3(
     .await
 }
 
+pub async fn deploy_timestamp_asserter(
+    shell: &Shell,
+    chain_config: &ChainConfig,
+    ecosystem_config: &EcosystemConfig,
+    contracts_config: &mut ContractsConfig,
+    forge_args: ForgeScriptArgs,
+) -> anyhow::Result<()> {
+    build_and_deploy(
+        shell,
+        chain_config,
+        ecosystem_config,
+        forge_args,
+        Some("runDeployTimestampAsserter"),
+        |shell, out| {
+            contracts_config
+                .set_timestamp_asserter_addr(&TimestampAsserterOutput::read(shell, out)?)
+        },
+    )
+    .await
+}
+
 pub async fn deploy_l2_contracts(
     shell: &Shell,
     chain_config: &ChainConfig,
@@ -236,6 +268,8 @@ pub async fn deploy_l2_contracts(
             contracts_config.set_default_l2_upgrade(&DefaultL2UpgradeOutput::read(shell, out)?)?;
             contracts_config.set_consensus_registry(&ConsensusRegistryOutput::read(shell, out)?)?;
             contracts_config.set_multicall3(&Multicall3Output::read(shell, out)?)?;
+            contracts_config
+                .set_timestamp_asserter_addr(&TimestampAsserterOutput::read(shell, out)?)?;
             Ok(())
         },
     )
@@ -277,14 +311,13 @@ async fn call_forge(
         forge = forge.with_signature(signature);
     }
 
-    forge = fill_forge_private_key(forge, Some(&ecosystem_config.get_wallets()?.governor))?;
+    forge = fill_forge_private_key(
+        forge,
+        Some(&ecosystem_config.get_wallets()?.governor),
+        WalletOwner::Governor,
+    )?;
 
     check_the_balance(&forge).await?;
     forge.run(shell)?;
     Ok(())
-}
-
-fn build_l2_contracts(shell: &Shell, link_to_code: &Path) -> anyhow::Result<()> {
-    let _dir_guard = shell.push_dir(link_to_code.join("contracts"));
-    Ok(Cmd::new(cmd!(shell, "yarn l2 build")).run()?)
 }
