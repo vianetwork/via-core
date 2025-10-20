@@ -19,8 +19,7 @@ on:
         options:
           - all
           - witness-generator
-          - prover-gpu-fri
-          - witness-vector-generator
+          - circuit-prover-gpu
           - prover-fri-gateway
           - prover-job-monitor
           - proof-fri-gpu-compressor
@@ -33,7 +32,7 @@ jobs:
     steps:
       - id: set-components
         run: |
-          ALL='["witness-generator","prover-gpu-fri","witness-vector-generator","prover-fri-gateway","prover-job-monitor","proof-fri-gpu-compressor"]'
+          ALL='["witness-generator","circuit-prover-gpu","prover-fri-gateway","prover-job-monitor","proof-fri-gpu-compressor"]'
           
           if [ "${{ github.event.inputs.component }}" = "all" ]; then
             echo "components=$ALL" >> $GITHUB_OUTPUT
