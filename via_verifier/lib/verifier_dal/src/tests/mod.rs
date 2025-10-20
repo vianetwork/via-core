@@ -4,6 +4,8 @@ use zksync_types::H256;
 
 use crate::{Verifier, VerifierDal};
 
+mod withdrawal_duplicate_prevention_tests;
+
 // Helper functions for testing
 async fn create_test_connection() -> Connection<'static, Verifier> {
     let connection_pool = ConnectionPool::<Verifier>::test_pool().await;
