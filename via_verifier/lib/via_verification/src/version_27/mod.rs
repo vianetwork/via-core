@@ -18,11 +18,11 @@ pub mod types;
 pub mod utils;
 pub mod verification;
 
-pub async fn verify_proof(data: &[u8]) -> anyhow::Result<bool> {
+pub async fn verify_proof(proof_data: ProveBatches) -> anyhow::Result<bool> {
     let recursion_scheduler_level_vk_hash: H256 =
         H256::from_str("14f97b81e54b35fe673d8708cc1a19e1ea5b5e348e12d31e39824ed4f42bbca2")?;
 
-    let proof_data: ProveBatches = bincode::deserialize(data)?;
+    // let proof_data: ProveBatches = bincode::deserialize(data)?;
 
     let protocol_version_id = proof_data.l1_batches[0]
         .header

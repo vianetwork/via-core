@@ -12323,6 +12323,7 @@ dependencies = [
 name = "via_da_dispatcher_lib"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "tracing",
  "zksync_object_store",
  "zksync_prover_interface",
@@ -12672,7 +12673,6 @@ dependencies = [
  "async-trait",
  "bincode",
  "circuit_definitions",
- "circuit_sequencer_api",
  "clap 4.5.23",
  "ethers 1.0.2",
  "hex",
@@ -12689,7 +12689,7 @@ dependencies = [
  "via_da_clients",
  "zksync_config",
  "zksync_da_client",
- "zksync_l1_contract_interface",
+ "zksync_object_store",
  "zksync_types",
 ]
 

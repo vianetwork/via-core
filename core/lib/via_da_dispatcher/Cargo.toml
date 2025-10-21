@@ -15,3 +15,4 @@ zksync_types.workspace = true
 zksync_prover_interface.workspace = true
 zksync_object_store.workspace = true
 tracing.workspace = true
+serde.workspace = true

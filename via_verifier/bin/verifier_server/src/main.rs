@@ -13,8 +13,8 @@ use zksync_config::{
         via_wallets::ViaWallets,
         DatabaseSecrets, L1Secrets, ObservabilityConfig, PrometheusConfig, Secrets,
     },
-    GenesisConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
-    ViaVerifierConfig,
+    GenesisConfig, ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig,
+    ViaCelestiaConfig, ViaVerifierConfig,
 };
 use zksync_core_leftovers::temp_config_store::read_yaml_repr;
 use zksync_env_config::FromEnv;
@@ -85,6 +85,7 @@ fn main() -> anyhow::Result<()> {
         via_reorg_detector_config: ViaReorgDetectorConfig::from_env()?,
         observability_config: ObservabilityConfig::from_env()?,
         circuit_breaker_config: CircuitBreakerConfig::from_env()?,
+        core_object_store: ObjectStoreConfig::from_env()?,
         secrets,
         wallets,
     };

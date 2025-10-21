@@ -26,6 +26,7 @@ tracing-subscriber.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
+zksync_object_store.workspace = true
 
 [dev-dependencies]
 zksync_da_client.workspace = true

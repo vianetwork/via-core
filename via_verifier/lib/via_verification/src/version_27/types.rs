@@ -6,6 +6,7 @@ use circuit_definitions::{
     },
 };
 use serde::{Deserialize, Serialize};
+use zksync_object_store::{serialize_using_bincode, Bucket, StoredObject};
 use zksync_types::{
     commitment::L1BatchMetaParameters,
     l2_to_l1_log::{SystemL2ToL1Log, UserL2ToL1Log},
@@ -119,4 +120,17 @@ pub struct L1BatchProofForL1 {
     pub aggregation_result_coords: [[u8; 32]; 4],
     pub scheduler_proof: ZkSyncProof<Bn256, ZkSyncSnarkWrapperCircuit>,
     pub protocol_version: ProtocolSemanticVersion,
+}
+
+impl StoredObject for L1BatchProofForL1 {
+    const BUCKET: Bucket = Bucket::ProofsFri;
+    type Key<'a> = (L1BatchNumber, ProtocolSemanticVersion);
+
+    fn encode_key(key: Self::Key<'_>) -> String {
+        let (l1_batch_number, protocol_version) = key;
+        let semver_suffix = protocol_version.to_string().replace('.', "_");
+        format!("l1_batch_proof_{l1_batch_number}_{semver_suffix}.bin")
+    }
+
+    serialize_using_bincode!();
 }
