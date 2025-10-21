@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use primitive_types::H256;
 
-use crate::{errors::VerificationError, proof::ViaZKProof};
+use crate::version_27::{errors::VerificationError, proof::ViaZKProof};
 
 /// Trait for fetching data from L1 necessary for verification.
 #[async_trait]

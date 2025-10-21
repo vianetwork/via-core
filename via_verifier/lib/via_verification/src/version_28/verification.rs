@@ -1,4 +1,4 @@
-use crate::{
+use crate::version_28::{
     errors::VerificationError, l1_data_fetcher::L1DataFetcher, proof::ProofTrait, types::Fr,
     utils::load_verification_key,
 };
