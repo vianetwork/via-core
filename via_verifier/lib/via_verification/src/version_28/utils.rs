@@ -7,7 +7,7 @@ use circuit_definitions::{
 use tracing::debug;
 use zksync_types::H256;
 
-use crate::{
+use crate::version_28::{
     crypto::calculate_verification_key_hash, errors::VerificationError,
     l1_data_fetcher::L1DataFetcher,
 };

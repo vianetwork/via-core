@@ -5,7 +5,7 @@ use ethers::types::U256;
 use primitive_types::H256;
 use sha3::{Digest, Keccak256};
 
-use crate::utils::to_fixed_bytes;
+use crate::version_28::utils::to_fixed_bytes;
 
 /// Computes the public inputs for a given batch commiements.
 /// Public inputs require us to fetch multiple data from L1 (like state hash etc).

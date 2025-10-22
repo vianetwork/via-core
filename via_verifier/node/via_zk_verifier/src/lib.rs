@@ -2,8 +2,7 @@ use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
 use metrics::METRICS;
-use serde::{Deserialize, Serialize};
-use tokio::sync::{watch, RwLock};
+use tokio::sync::watch;
 use via_btc_client::{
     client::BitcoinClient,
     indexer::BitcoinInscriptionIndexer,
@@ -12,36 +11,15 @@ use via_btc_client::{
 };
 use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
 use via_da_client::{pubdata::Pubdata, types::L2_BOOTLOADER_CONTRACT_ADDR};
-use via_verification::proof::{
-    Bn256, ProofTrait, ViaZKProof, ZkSyncProof, ZkSyncSnarkWrapperCircuit,
-};
+use via_verification::verify_proof;
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use via_verifier_state::sync::ViaState;
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
-use zksync_types::{
-    commitment::L1BatchWithMetadata, protocol_version::ProtocolSemanticVersion,
-    via_wallet::SystemWallets, ProtocolVersionId, H160, H256,
-};
+use zksync_types::{via_wallet::SystemWallets, H160, H256};
 
 mod metrics;
-
-/// Copy of `zksync_l1_contract_interface::i_executor::methods::ProveBatches`
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProveBatches {
-    pub prev_l1_batch: L1BatchWithMetadata,
-    pub l1_batches: Vec<L1BatchWithMetadata>,
-    pub proofs: Vec<L1BatchProofForL1>,
-    pub should_verify: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct L1BatchProofForL1 {
-    pub aggregation_result_coords: [[u8; 32]; 4],
-    pub scheduler_proof: ZkSyncProof<Bn256, ZkSyncSnarkWrapperCircuit>,
-    pub protocol_version: ProtocolSemanticVersion,
-}
 
 #[derive(Debug)]
 pub struct ViaVerifier {
@@ -49,7 +27,6 @@ pub struct ViaVerifier {
     pool: ConnectionPool<Verifier>,
     da_client: Box<dyn DataAvailabilityClient>,
     indexer: BitcoinInscriptionIndexer,
-    test_zk_proof_invalid_l1_batch_numbers: Arc<RwLock<Vec<i64>>>,
     state: ViaState,
 }
 
@@ -70,9 +47,6 @@ impl ViaVerifier {
             pool,
             da_client,
             indexer,
-            test_zk_proof_invalid_l1_batch_numbers: Arc::new(RwLock::new(
-                config.test_zk_proof_invalid_l1_batch_numbers,
-            )),
             state,
         })
     }
@@ -119,7 +93,7 @@ impl ViaVerifier {
         {
             let latency = METRICS.verification_time.start();
             let db_raw_tx_id = H256::from_slice(&raw_tx_id);
-            tracing::info!("New non executed block ready to be processed");
+            tracing::info!("New non executed l1_batch {l1_batch_number}, ready to be processed");
 
             raw_tx_id.reverse();
             let proof_txid = bytes_to_txid(&raw_tx_id).with_context(|| "Failed to parse tx_id")?;
@@ -153,24 +127,24 @@ impl ViaVerifier {
                 batch_da.input.blob_id
             );
 
-            let (batch_blob, batch_hash) = self.process_batch_da_reference(batch_da).await?;
+            let (batch_blob, _) = self.process_batch_da_reference(batch_da).await?;
             let mut pubdata = Pubdata::decode_pubdata(batch_blob.data.clone().to_vec())?;
 
             let upgrade_tx_hash_opt = self.verify_upgrade_tx_hash(storage, &pubdata).await?;
+
+            let protocol_version = storage
+                .via_protocol_versions_dal()
+                .latest_protocol_semantic_version()
+                .await
+                .expect("Failed to load the latest protocol semantic version")
+                .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
 
             if upgrade_tx_hash_opt.is_some() {
                 // Discard the first log since it related to protocol upgrade.
                 pubdata.user_logs.remove(0);
 
                 // Check if the new protocol version is supported by the verifier node.
-                let last_protocol_version = storage
-                    .via_protocol_versions_dal()
-                    .latest_protocol_semantic_version()
-                    .await
-                    .expect("Failed to load the latest protocol semantic version")
-                    .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
-
-                check_if_supported_sequencer_version(last_protocol_version)?;
+                check_if_supported_sequencer_version(protocol_version)?;
             }
 
             let (mut is_verified, deposits) = self
@@ -178,29 +152,8 @@ impl ViaVerifier {
                 .await?;
 
             if is_verified {
-                tracing::info!("Successfuly verfied the op priority id");
-
-                let proof_data: ProveBatches = bincode::deserialize(&proof_blob.data)?;
-
-                let protocol_version_id = proof_data.l1_batches[0]
-                    .header
-                    .protocol_version
-                    .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
-
-                let recursion_scheduler_level_vk_hash = storage
-                    .via_protocol_versions_dal()
-                    .get_recursion_scheduler_level_vk_hash(protocol_version_id)
-                    .await?;
-
-                is_verified = self
-                    .verify_proof(
-                        l1_batch_number,
-                        batch_hash,
-                        proof_data,
-                        recursion_scheduler_level_vk_hash,
-                        protocol_version_id,
-                    )
-                    .await?;
+                tracing::info!("Successfully verified the op priority id");
+                is_verified = verify_proof(protocol_version.minor, &proof_blob.data).await?;
             }
             let mut transaction = storage.start_transaction().await?;
 
@@ -391,96 +344,6 @@ impl ViaVerifier {
 
         Ok((blob, hash))
     }
-
-    async fn verify_proof(
-        &self,
-        l1_batch_number: i64,
-        batch_hash: H256,
-        proof_data: ProveBatches,
-        recursion_scheduler_level_vk_hash: H256,
-        protocol_version_id: ProtocolVersionId,
-    ) -> anyhow::Result<bool> {
-        tracing::info!(
-            "Batch_hash {}, recursion_scheduler_level_vk_hash {}, protocol_version_id {}",
-            batch_hash,
-            recursion_scheduler_level_vk_hash,
-            protocol_version_id
-        );
-
-        if proof_data.l1_batches.len() != 1 {
-            tracing::error!(
-                "Expected exactly one L1Batch and one proof, got {} and {}",
-                proof_data.l1_batches.len(),
-                proof_data.proofs.len()
-            );
-            return Ok(false);
-        }
-
-        let vk_inner = via_verification::utils::load_verification_key_with_db_check(
-            protocol_version_id.to_string(),
-            recursion_scheduler_level_vk_hash,
-        )
-        .await?;
-
-        tracing::info!(
-            "Found valid recursion_scheduler_level_vk_hash {}",
-            recursion_scheduler_level_vk_hash,
-        );
-
-        if !proof_data.should_verify {
-            tracing::info!(
-                "Proof verification is disabled for proof with batch number : {:?}",
-                proof_data.l1_batches[0].header.number
-            );
-
-            tracing::info!("Skipping verification");
-            self.verification_invalid_l1_batch_numbers(l1_batch_number)
-                .await
-        } else {
-            if proof_data.proofs.len() != 1 {
-                tracing::error!(
-                    "Expected exactly one proof, got {}",
-                    proof_data.proofs.len()
-                );
-                return Ok(false);
-            }
-
-            let (prev_commitment, curr_commitment) = (
-                proof_data.prev_l1_batch.metadata.commitment,
-                proof_data.l1_batches[0].metadata.commitment,
-            );
-            let mut proof = proof_data.proofs[0].scheduler_proof.clone();
-
-            // Put correct inputs
-            proof.inputs = via_verification::public_inputs::generate_inputs(
-                &prev_commitment,
-                &curr_commitment,
-            );
-
-            // Verify the proof
-            let via_proof = ViaZKProof { proof };
-
-            let is_valid = via_proof.verify(vk_inner)?;
-
-            tracing::info!("Proof verification result: {}", is_valid);
-
-            Ok(is_valid)
-        }
-    }
-
-    // This code is triggred only when dev.
-    async fn verification_invalid_l1_batch_numbers(
-        &self,
-        l1_batch_number: i64,
-    ) -> anyhow::Result<bool> {
-        let mut l1_batches = self.test_zk_proof_invalid_l1_batch_numbers.write().await;
-        if let Some(pos) = l1_batches.iter().position(|&x| x == l1_batch_number) {
-            l1_batches.remove(pos);
-            return Ok(false);
-        }
-        Ok(true)
-    }
-
     /// Check if the wallet is in the verifier set.
     async fn validate_verifier_address(&self) -> anyhow::Result<()> {
         let mut storage = self.pool.connection().await?;

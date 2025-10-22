@@ -160,7 +160,6 @@ impl VerifierBtcWatch {
         };
 
         let system_wallets = SystemWallets::try_from(system_wallets_map)?;
-        tracing::info!("Wallets: {:?}", &system_wallets);
 
         self.indexer.update_system_wallets(
             Some(system_wallets.sequencer),

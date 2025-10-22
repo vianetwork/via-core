@@ -10,7 +10,7 @@ pub use circuit_definitions::{
     },
 };
 
-use crate::{errors::VerificationError, types::Fr};
+use crate::version_27::{errors::VerificationError, types::Fr};
 
 /// Trait for a proof that can be verified.
 pub trait ProofTrait {

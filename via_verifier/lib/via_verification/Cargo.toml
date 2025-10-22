@@ -25,11 +25,18 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
+bincode.workspace = true
 
 [dev-dependencies]
 zksync_da_client.workspace = true
 bincode.workspace = true
+via_da_clients.workspace = true
+zksync_config.workspace = true
 
 [[example]]
-name = "zk"
-path = "examples/zk.rs"
+name = "zk_28"
+path = "examples/zk_v28.rs"
+
+[[example]]
+name = "zk_27"
+path = "examples/zk_v27.rs"
