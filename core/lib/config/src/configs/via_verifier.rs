@@ -36,9 +36,6 @@ pub struct ViaVerifierConfig {
     /// Verifier Request Timeout (in seconds)
     pub verifier_request_timeout: u8,
 
-    /// (TEST ONLY) returns the proof verification result.
-    pub test_zk_proof_invalid_l1_batch_numbers: Vec<i64>,
-
     /// The verifier btc wallet address.
     pub wallet_address: String,
 
@@ -83,7 +80,6 @@ impl ViaVerifierConfig {
             coordinator_http_url: "http://localhost:3000".into(),
             coordinator_port: 3000,
             verifier_request_timeout: 10,
-            test_zk_proof_invalid_l1_batch_numbers: vec![],
             wallet_address: "".into(),
             session_timeout: 30,
             max_tx_weight: None,
