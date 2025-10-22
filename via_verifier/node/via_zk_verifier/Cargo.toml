@@ -22,6 +22,10 @@ zksync_prover_interface.workspace = true
 via_da_client.workspace = true
 via_verifier_types.workspace = true
 via_consensus.workspace = true
+via_da_dispatcher_lib.workspace = true
+zksync_object_store.workspace = true
+zksync_l1_contract_interface.workspace = true
+circuit_sequencer_api.workspace = true
 
 tokio.workspace = true
 anyhow.workspace = true

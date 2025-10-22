@@ -15,7 +15,8 @@ use crate::{
         via_reorg_detector::ViaReorgDetectorConfig, via_secrets::ViaSecrets,
         via_wallets::ViaWallets, ObservabilityConfig, PrometheusConfig,
     },
-    GenesisConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
+    GenesisConfig, ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig,
+    ViaCelestiaConfig,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -34,9 +35,6 @@ pub struct ViaVerifierConfig {
 
     /// Verifier Request Timeout (in seconds)
     pub verifier_request_timeout: u8,
-
-    /// (TEST ONLY) returns the proof verification result.
-    pub test_zk_proof_invalid_l1_batch_numbers: Vec<i64>,
 
     /// The verifier btc wallet address.
     pub wallet_address: String,
@@ -82,7 +80,6 @@ impl ViaVerifierConfig {
             coordinator_http_url: "http://localhost:3000".into(),
             coordinator_port: 3000,
             verifier_request_timeout: 10,
-            test_zk_proof_invalid_l1_batch_numbers: vec![],
             wallet_address: "".into(),
             session_timeout: 30,
             max_tx_weight: None,
@@ -117,6 +114,7 @@ pub struct ViaGeneralVerifierConfig {
     pub prometheus_config: PrometheusConfig,
     pub postgres_config: PostgresConfig,
     pub circuit_breaker_config: CircuitBreakerConfig,
+    pub core_object_store: ObjectStoreConfig,
     pub secrets: ViaSecrets,
     pub wallets: ViaWallets,
 }

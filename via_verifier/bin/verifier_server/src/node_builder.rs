@@ -5,6 +5,7 @@ use zksync_node_framework::{
     implementations::layers::{
         circuit_breaker_checker::CircuitBreakerCheckerLayer,
         healtcheck_server::HealthCheckLayer,
+        object_store::ObjectStoreLayer,
         pools_layer::PoolsLayerBuilder,
         prometheus_exporter::PrometheusExporterLayer,
         sigint::SigintHandlerLayer,
@@ -193,6 +194,13 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
+    fn add_object_store_layer(mut self) -> anyhow::Result<Self> {
+        let object_store_config = self.configs.core_object_store.clone();
+        self.node
+            .add_layer(ObjectStoreLayer::new(object_store_config));
+        Ok(self)
+    }
+
     pub fn build(mut self) -> anyhow::Result<ZkStackService> {
         self = self
             .add_sigint_handler_layer()?
@@ -206,9 +214,10 @@ impl ViaNodeBuilder {
             .add_storage_initialization_layer()?
             .add_btc_sender_layer()?
             .add_btc_watcher_layer()?
+            .add_query_eth_client_layer()?
             .add_via_da_client_layer()?
-            .add_zkp_verification_layer()?
-            .add_query_eth_client_layer()?;
+            .add_object_store_layer()?
+            .add_zkp_verification_layer()?;
 
         if self.is_coordinator {
             self = self.add_verifier_coordinator_api_layer()?

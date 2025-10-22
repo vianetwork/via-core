@@ -1,7 +1,12 @@
 pub use self::{
-    debug::DebugNamespaceClient, en::EnNamespaceClient, eth::EthNamespaceClient,
-    net::NetNamespaceClient, snapshots::SnapshotsNamespaceClient,
-    unstable::UnstableNamespaceClient, via::ViaNamespaceClient, web3::Web3NamespaceClient,
+    debug::DebugNamespaceClient,
+    en::EnNamespaceClient,
+    eth::EthNamespaceClient,
+    net::NetNamespaceClient,
+    snapshots::SnapshotsNamespaceClient,
+    unstable::UnstableNamespaceClient,
+    via::{DaBlobData, ViaNamespaceClient},
+    web3::Web3NamespaceClient,
     zks::ZksNamespaceClient,
 };
 #[cfg(feature = "server")]

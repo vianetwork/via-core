@@ -327,6 +327,7 @@ impl ViaNodeBuilder {
             ..Default::default()
         };
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
+        let via_celestia_config = try_load_config!(self.configs.via_celestia_config);
 
         self.node.add_layer(Web3ServerLayer::http(
             rpc_config.http_port,
@@ -335,6 +336,7 @@ impl ViaNodeBuilder {
                 &self.contracts_config,
                 &self.genesis_config,
                 Some(via_btc_client_config.network()),
+                via_celestia_config.proof_sending_mode == ProofSendingMode::OnlyRealProofs,
             ),
             optional_config,
         ));
@@ -525,6 +527,7 @@ impl ViaNodeBuilder {
             ..Default::default()
         };
         let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
+        let via_celestia_config = try_load_config!(self.configs.via_celestia_config);
 
         self.node.add_layer(Web3ServerLayer::ws(
             rpc_config.ws_port,
@@ -533,6 +536,7 @@ impl ViaNodeBuilder {
                 &self.contracts_config,
                 &self.genesis_config,
                 Some(via_btc_client_config.network()),
+                via_celestia_config.proof_sending_mode == ProofSendingMode::OnlyRealProofs,
             ),
             optional_config,
         ));

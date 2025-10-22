@@ -6,6 +6,7 @@ use circuit_definitions::{
     },
 };
 use serde::{Deserialize, Serialize};
+use zksync_object_store::{serialize_using_bincode, Bucket, StoredObject};
 use zksync_types::{
     protocol_version::ProtocolSemanticVersion, Address, Bloom, L1BatchNumber, ProtocolVersionId,
     H256, U256,
@@ -153,4 +154,17 @@ pub struct L1BatchMetaParameters {
     pub default_aa_code_hash: H256,
     pub evm_emulator_code_hash: Option<H256>,
     pub protocol_version: Option<ProtocolVersionId>,
+}
+
+impl StoredObject for L1BatchProofForL1 {
+    const BUCKET: Bucket = Bucket::ProofsFri;
+    type Key<'a> = (L1BatchNumber, ProtocolSemanticVersion);
+
+    fn encode_key(key: Self::Key<'_>) -> String {
+        let (l1_batch_number, protocol_version) = key;
+        let semver_suffix = protocol_version.to_string().replace('.', "_");
+        format!("l1_batch_proof_{l1_batch_number}_{semver_suffix}.bin")
+    }
+
+    serialize_using_bincode!();
 }

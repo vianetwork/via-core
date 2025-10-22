@@ -118,6 +118,7 @@ pub struct InternalApiConfig {
     pub timestamp_asserter_address: Option<Address>,
 
     pub via_network: Network,
+    pub via_dispatch_real_proof: bool,
 }
 
 impl InternalApiConfig {
@@ -126,9 +127,11 @@ impl InternalApiConfig {
         contracts_config: &ContractsConfig,
         genesis_config: &GenesisConfig,
         via_network: Option<Network>,
+        via_dispatch_real_proof: bool,
     ) -> Self {
         Self {
             via_network: via_network.unwrap_or(Network::Regtest),
+            via_dispatch_real_proof,
             l1_chain_id: genesis_config.l1_chain_id,
             l2_chain_id: genesis_config.l2_chain_id,
             max_tx_size: web3_config.max_tx_size,

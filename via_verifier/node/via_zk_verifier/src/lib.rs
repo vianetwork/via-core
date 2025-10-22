@@ -11,13 +11,14 @@ use via_btc_client::{
 };
 use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
 use via_da_client::{pubdata::Pubdata, types::L2_BOOTLOADER_CONTRACT_ADDR};
-use via_verification::verify_proof;
+use via_verification::{decode_prove_batch_data, verify_proof, ProveBatchData};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use via_verifier_state::sync::ViaState;
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
-use zksync_types::{via_wallet::SystemWallets, H160, H256};
+use zksync_object_store::ObjectStore;
+use zksync_types::{via_wallet::SystemWallets, L1BatchNumber, H160, H256};
 
 mod metrics;
 
@@ -28,6 +29,7 @@ pub struct ViaVerifier {
     da_client: Box<dyn DataAvailabilityClient>,
     indexer: BitcoinInscriptionIndexer,
     state: ViaState,
+    blob_store: Arc<dyn ObjectStore>,
 }
 
 impl ViaVerifier {
@@ -39,6 +41,7 @@ impl ViaVerifier {
         da_client: Box<dyn DataAvailabilityClient>,
         btc_client: Arc<BitcoinClient>,
         via_btc_watch_config: ViaBtcWatchConfig,
+        blob_store: Arc<dyn ObjectStore>,
     ) -> anyhow::Result<Self> {
         let state = ViaState::new(pool.clone(), btc_client.clone(), via_btc_watch_config);
 
@@ -48,6 +51,7 @@ impl ViaVerifier {
             da_client,
             indexer,
             state,
+            blob_store,
         })
     }
 
@@ -132,7 +136,7 @@ impl ViaVerifier {
 
             let upgrade_tx_hash_opt = self.verify_upgrade_tx_hash(storage, &pubdata).await?;
 
-            let protocol_version = storage
+            let mut protocol_version = storage
                 .via_protocol_versions_dal()
                 .latest_protocol_semantic_version()
                 .await
@@ -142,6 +146,13 @@ impl ViaVerifier {
             if upgrade_tx_hash_opt.is_some() {
                 // Discard the first log since it related to protocol upgrade.
                 pubdata.user_logs.remove(0);
+
+                protocol_version = storage
+                    .via_protocol_versions_dal()
+                    .latest_semantic_version()
+                    .await
+                    .expect("Failed to load the latest protocol semantic version")
+                    .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
 
                 // Check if the new protocol version is supported by the verifier node.
                 check_if_supported_sequencer_version(protocol_version)?;
@@ -153,7 +164,41 @@ impl ViaVerifier {
 
             if is_verified {
                 tracing::info!("Successfully verified the op priority id");
-                is_verified = verify_proof(protocol_version.minor, &proof_blob.data).await?;
+
+                let mut prover_batch_data =
+                    decode_prove_batch_data(protocol_version.minor, &proof_blob.data)?;
+
+                // Check if proofs vector is empty
+                let should_fetch_proof = match &prover_batch_data {
+                    ProveBatchData::V27(data) => data.proofs.is_empty() && data.should_verify,
+                    ProveBatchData::V28(data) => data.proofs.is_empty() && data.should_verify,
+                };
+
+                // Fetch the proof from DA in the case of using EN as DA provider.
+                if should_fetch_proof {
+                    match &mut prover_batch_data {
+                        ProveBatchData::V27(data) => {
+                            let proof = self
+                                .blob_store
+                                .get((L1BatchNumber(l1_batch_number as u32), protocol_version))
+                                .await
+                                .map_err(|e| anyhow::anyhow!("Error fetching the proof: {e}"))?;
+
+                            data.proofs.push(proof)
+                        }
+                        ProveBatchData::V28(data) => {
+                            let proof = self
+                                .blob_store
+                                .get((L1BatchNumber(l1_batch_number as u32), protocol_version))
+                                .await
+                                .map_err(|e| anyhow::anyhow!("Error fetching the proof: {e}"))?;
+
+                            data.proofs.push(proof)
+                        }
+                    };
+                }
+
+                is_verified = verify_proof(prover_batch_data).await?;
             }
             let mut transaction = storage.start_transaction().await?;
 

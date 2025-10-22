@@ -12300,6 +12300,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "base64 0.21.7",
+ "bitcoin",
  "celestia-rpc",
  "celestia-types 0.4.0",
  "hex",
@@ -12308,12 +12309,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
  "zksync_config",
  "zksync_da_client",
  "zksync_env_config",
  "zksync_node_framework",
  "zksync_object_store",
  "zksync_types",
+ "zksync_web3_decl",
 ]
 
 [[package]]
@@ -12327,6 +12330,7 @@ dependencies = [
  "rand 0.8.5",
  "tokio",
  "tracing",
+ "via_da_dispatcher_lib",
  "vise",
  "zksync_config",
  "zksync_da_client",
@@ -12336,6 +12340,17 @@ dependencies = [
  "zksync_prover_interface",
  "zksync_types",
  "zksync_utils",
+]
+
+[[package]]
+name = "via_da_dispatcher_lib"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tracing",
+ "zksync_object_store",
+ "zksync_prover_interface",
+ "zksync_types",
 ]
 
 [[package]]
@@ -12697,6 +12712,7 @@ dependencies = [
  "via_da_clients",
  "zksync_config",
  "zksync_da_client",
+ "zksync_object_store",
  "zksync_types",
 ]
 
@@ -12946,6 +12962,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bincode",
+ "circuit_sequencer_api",
  "serde",
  "sqlx",
  "thiserror 1.0.69",
@@ -12954,6 +12971,7 @@ dependencies = [
  "via_btc_client",
  "via_consensus",
  "via_da_client",
+ "via_da_dispatcher_lib",
  "via_verification",
  "via_verifier_dal",
  "via_verifier_state",
@@ -12962,6 +12980,8 @@ dependencies = [
  "zksync_config",
  "zksync_da_client",
  "zksync_dal",
+ "zksync_l1_contract_interface",
+ "zksync_object_store",
  "zksync_prover_interface",
  "zksync_shared_metrics",
  "zksync_types",
@@ -15039,6 +15059,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "axum 0.7.9",
+ "bincode",
  "bitcoin",
  "chrono",
  "futures 0.3.31",
