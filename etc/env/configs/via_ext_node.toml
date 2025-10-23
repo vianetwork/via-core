@@ -9,7 +9,7 @@ zksync_action = "dont_ask"
 
 [en]
 main_node_url = "https://sepolia.era.zksync.dev"
-pruning_data_retention_hours = 1
+pruning_data_retention_hours = "forever"
 snapshots_recovery_enabled = false
 http_port = 3060
 ws_port = 3061
@@ -99,6 +99,9 @@ start_l1_block_number = 1
 # When set to true, the btc_watch starts indexing L1 blocks from the "start_l1_block_number".
 restart_indexing = false
 
+[via_reorg_detector]
+poll_interval_ms = 5000
+
 [rust]
 # `RUST_LOG` environment variable for `env_logger`
 # Here we use TOML multiline strings: newlines will be trimmed.
@@ -132,6 +135,7 @@ loadnext=info,\
 vm=info,\
 zksync_external_node=info,\
 zksync_snapshots_applier=debug,\
+via_main_node_reorg_detector=info,\
 """
 
 # `RUST_BACKTRACE` variable
