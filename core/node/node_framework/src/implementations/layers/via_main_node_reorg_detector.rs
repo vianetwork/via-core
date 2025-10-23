@@ -13,6 +13,7 @@ use crate::{
 #[derive(Debug)]
 pub struct ViaNodeReorgDetectorLayer {
     config: ViaReorgDetectorConfig,
+    is_main_node: bool,
 }
 
 #[derive(Debug, FromContext)]
@@ -30,8 +31,11 @@ pub struct Output {
 }
 
 impl ViaNodeReorgDetectorLayer {
-    pub fn new(config: ViaReorgDetectorConfig) -> Self {
-        Self { config }
+    pub fn new(config: ViaReorgDetectorConfig, is_main_node: bool) -> Self {
+        Self {
+            config,
+            is_main_node,
+        }
     }
 }
 
@@ -48,7 +52,8 @@ impl WiringLayer for ViaNodeReorgDetectorLayer {
         let client = input.btc_client_resource.default;
         let pool = input.master_pool.get().await?;
 
-        let reorg_detector = ViaMainNodeReorgDetector::new(self.config, pool, client.clone());
+        let reorg_detector =
+            ViaMainNodeReorgDetector::new(self.config, pool, client.clone(), self.is_main_node);
 
         Ok(Output { reorg_detector })
     }

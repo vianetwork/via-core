@@ -547,7 +547,8 @@ impl ViaNodeBuilder {
     fn add_init_node_reorg_detector_layer(mut self) -> anyhow::Result<Self> {
         let config = try_load_config!(self.configs.via_reorg_detector_config);
 
-        self.node.add_layer(ViaNodeReorgDetectorLayer::new(config));
+        self.node
+            .add_layer(ViaNodeReorgDetectorLayer::new(config, true));
         Ok(self)
     }
 
