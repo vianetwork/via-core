@@ -42,8 +42,6 @@ For **L2 transactions**, the process is simpler:
 - The sequencer reprocesses them in upcoming batches. Some L2 transactions may fail during reprocessing. This typically
   happens if the transaction depends on a deposit that has not yet been reindexed (e.g., insufficient funds).
 
----
-
 # Verifier
 
 The verifier has two main layers responsible for detecting and handling reorgs:
