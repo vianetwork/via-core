@@ -45,6 +45,7 @@ use zksync_node_framework::{
         via_btc_watch::BtcWatchLayer,
         via_consistency_checker::ViaConsistencyCheckerLayer,
         via_main_node_fee_params_fetcher::ViaMainNodeFeeParamsFetcherLayer,
+        via_main_node_reorg_detector::ViaNodeReorgDetectorLayer,
         via_node_storage_init::ViaNodeStorageInitializerLayer,
         via_validate_chain_ids::ViaValidateChainIdsLayer,
         web3_api::{
@@ -608,6 +609,18 @@ impl ExternalNodeBuilder {
         Ok(self)
     }
 
+    fn add_init_node_reorg_detector_layer(mut self) -> anyhow::Result<Self> {
+        let config = self
+            .config
+            .via_reorg_detector_config
+            .clone()
+            .ok_or_else(|| anyhow!("via_reorg_detector_config is required"))?;
+
+        self.node
+            .add_layer(ViaNodeReorgDetectorLayer::new(config, false));
+        Ok(self)
+    }
+
     pub fn build(mut self, mut components: Vec<Component>) -> anyhow::Result<ZkStackService> {
         // Add "base" layers
         self = self
@@ -635,6 +648,7 @@ impl ExternalNodeBuilder {
         // Add preconditions for all the components.
         self = self
             .add_btc_client_layer()?
+            .add_init_node_reorg_detector_layer()?
             .add_validate_chain_ids_layer()?
             .add_storage_initialization_layer(LayerKind::Precondition)?;
 

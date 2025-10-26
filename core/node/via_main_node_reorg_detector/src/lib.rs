@@ -13,6 +13,7 @@ pub struct ViaMainNodeReorgDetector {
     config: ViaReorgDetectorConfig,
     pool: ConnectionPool<Core>,
     btc_client: Arc<BitcoinClient>,
+    is_main_node: bool,
 }
 
 impl ViaMainNodeReorgDetector {
@@ -20,11 +21,13 @@ impl ViaMainNodeReorgDetector {
         config: ViaReorgDetectorConfig,
         pool: ConnectionPool<Core>,
         btc_client: Arc<BitcoinClient>,
+        is_main_node: bool,
     ) -> Self {
         Self {
             config,
             pool,
             btc_client,
+            is_main_node,
         }
     }
 
@@ -251,11 +254,12 @@ impl ViaMainNodeReorgDetector {
             anyhow::bail!("Reorg start block height not found");
         };
 
-        let Some(l1_batch_number) = storage
+        let l1_batch_number_opt = storage
             .via_l1_block_dal()
             .list_l1_batches_with_priority_txs(reorg_start_block_height as i32)
-            .await?
-        else {
+            .await?;
+
+        if l1_batch_number_opt.is_none() || !self.is_main_node {
             tracing::info!("There is no l1 batch affected by the reorg, no action is required");
             // Reset the indexing because it's possible that verifier transactions are affected.
             let mut transaction = storage.start_transaction().await?;
@@ -281,19 +285,28 @@ impl ViaMainNodeReorgDetector {
             // Delete the reorg
             transaction.via_l1_block_dal().delete_l1_reorg(0).await?;
 
+            // Delete the affected l1 blocks
+            transaction
+                .via_l1_block_dal()
+                .delete_l1_blocks(reorg_start_block_height - 1)
+                .await?;
+
             transaction.commit().await?;
 
             return Ok(());
         };
 
-        tracing::info!(
-            "Reorg detected and affect the VIA network from l1_batch_number {l1_batch_number}"
-        );
+        if self.is_main_node {
+            let l1_batch_number = l1_batch_number_opt.unwrap();
+            tracing::info!(
+                "Reorg detected and affect the VIA network from l1_batch_number {l1_batch_number}"
+            );
 
-        storage
-            .via_l1_block_dal()
-            .insert_reorg_metadata(reorg_start_block_height, l1_batch_number)
-            .await?;
+            storage
+                .via_l1_block_dal()
+                .insert_reorg_metadata(reorg_start_block_height, l1_batch_number)
+                .await?;
+        }
 
         Ok(())
     }
