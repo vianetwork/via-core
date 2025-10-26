@@ -4,6 +4,10 @@ use via_verifier_dal::{Verifier, VerifierDal};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
 use zksync_dal::{Connection, ConnectionPool};
 
+use crate::metrics::METRICS;
+
+mod metrics;
+
 #[derive(Debug)]
 pub struct ViaVerifierBlockReverter {
     config: ViaReorgDetectorConfig,
@@ -12,6 +16,8 @@ pub struct ViaVerifierBlockReverter {
 
 impl ViaVerifierBlockReverter {
     pub fn new(pool: ConnectionPool<Verifier>, config: ViaReorgDetectorConfig) -> Self {
+        METRICS.revert.inc_by(0);
+
         Self { config, pool }
     }
 
@@ -34,6 +40,7 @@ impl ViaVerifierBlockReverter {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(err) => {
+                    METRICS.errors.inc();
                     tracing::error!("Verifier block reverter failed: {err}");
                 }
             }

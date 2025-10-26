@@ -131,6 +131,9 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 .await?;
 
                             transaction.commit().await?;
+
+                            METRICS.inscriptions_processed[&InscriptionStage::Reorg]
+                                .set(from_l1_batch_number as usize);
                         } else {
                             if last_batch_in_canonical_chain.1
                                 != l1_batch_da_ref_inscription.input.prev_l1_batch_hash.0
@@ -215,9 +218,9 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 )
                                 .await?
                             {
-                                METRICS
-                                    .last_finalized_l1_batch
+                                METRICS.inscriptions_processed[&InscriptionStage::Finalized]
                                     .set(l1_batch_number.0 as usize);
+
                                 tracing::info!(
                                         "Finalizing transaction with tx_id: {:?} and block number: {:?}",
                                         tx_id,

@@ -9,6 +9,8 @@ use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_types::via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType;
 
+use crate::metrics::METRICS;
+
 #[derive(Debug)]
 pub struct ViaVoteInscription {
     pool: ConnectionPool<Verifier>,
@@ -40,6 +42,7 @@ impl ViaVoteInscription {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => {}
                 Err(err) => {
+                    METRICS.errors.inc();
                     tracing::error!("Failed to process Verifier btc_sender_inscription: {err}");
                 }
             }
