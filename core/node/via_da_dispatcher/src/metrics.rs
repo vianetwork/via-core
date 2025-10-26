@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use vise::{Buckets, Gauge, Histogram, Metrics, Unit};
+use vise::{Buckets, Counter, Gauge, Histogram, Metrics, Unit};
 
 /// Buckets for `blob_dispatch_latency` (from 0.1 to 120 seconds).
 const DISPATCH_LATENCIES: Buckets =
@@ -34,6 +34,8 @@ pub(super) struct DataAvailabilityDispatcherMetrics {
     pub last_included_l1_batch: Gauge<usize>,
     /// Last Proof batch that has its inclusion finalized by DA layer.
     pub last_included_proof_batch: Gauge<usize>,
+    /// Counter to store the layer errors.
+    pub errors: Counter,
 }
 
 #[vise::register]

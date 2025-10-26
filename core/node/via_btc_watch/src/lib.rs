@@ -18,7 +18,7 @@ mod test;
 use self::message_processors::{
     L1ToL2MessageProcessor, MessageProcessor, MessageProcessorError, VotableMessageProcessor,
 };
-use crate::message_processors::SystemWalletProcessor;
+use crate::{message_processors::SystemWalletProcessor, metrics::METRICS};
 
 #[derive(Debug)]
 pub struct BtcWatch {
@@ -84,11 +84,8 @@ impl BtcWatch {
             let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
-                Err(MessageProcessorError::Internal(err)) => {
-                    tracing::error!("Internal error processing new blocks: {err:?}");
-                    return Err(err);
-                }
                 Err(err) => {
+                    METRICS.errors.inc();
                     tracing::error!("Failed to process new blocks: {err}");
                 }
             }

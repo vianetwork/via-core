@@ -53,16 +53,19 @@ impl ViaDataAvailabilityDispatcher {
             let subtasks = futures::future::join3(
                 async {
                     if let Err(err) = self.dispatch().await {
+                        METRICS.errors.inc();
                         tracing::error!("dispatch error {err:?}");
                     }
                 },
                 async {
                     if let Err(err) = self.poll_for_inclusion().await {
+                        METRICS.errors.inc();
                         tracing::error!("poll_for_inclusion error {err:?}");
                     }
                 },
                 async {
                     if let Err(err) = self.dispatch_proofs().await {
+                        METRICS.errors.inc();
                         tracing::error!("dispatch_proofs error {err:?}");
                     }
                 },

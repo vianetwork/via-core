@@ -8,6 +8,10 @@ use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 
+use crate::metrics::{ReorgType, METRICS};
+
+mod metrics;
+
 #[derive(Debug)]
 pub struct ViaMainNodeReorgDetector {
     config: ViaReorgDetectorConfig,
@@ -52,6 +56,7 @@ impl ViaMainNodeReorgDetector {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(err) => {
+                    METRICS.errors.inc();
                     tracing::error!("Reorg detector failed to fetch new blocks: {err}");
                 }
             }
@@ -108,6 +113,10 @@ impl ViaMainNodeReorgDetector {
                     .await?;
             }
         };
+
+        METRICS.errors.inc_by(0);
+        METRICS.reorg_type[&ReorgType::Hard].inc_by(0);
+        METRICS.reorg_type[&ReorgType::Soft].inc_by(0);
 
         Ok(())
     }
@@ -254,6 +263,9 @@ impl ViaMainNodeReorgDetector {
             anyhow::bail!("Reorg start block height not found");
         };
 
+        METRICS.reorg_type[&ReorgType::Soft]
+            .set((block_height - reorg_start_block_height) as usize);
+
         let l1_batch_number_opt = storage
             .via_l1_block_dal()
             .list_l1_batches_with_priority_txs(reorg_start_block_height as i32)
@@ -283,7 +295,10 @@ impl ViaMainNodeReorgDetector {
                 .await?;
 
             // Delete the reorg
-            transaction.via_l1_block_dal().delete_l1_reorg(0).await?;
+            transaction
+                .via_l1_block_dal()
+                .delete_l1_reorg(reorg_start_block_height)
+                .await?;
 
             // Delete the affected l1 blocks
             transaction
@@ -292,6 +307,8 @@ impl ViaMainNodeReorgDetector {
                 .await?;
 
             transaction.commit().await?;
+
+            METRICS.reorg_type[&ReorgType::Soft].set(reorg_start_block_height as usize);
 
             return Ok(());
         };
@@ -307,6 +324,8 @@ impl ViaMainNodeReorgDetector {
                 .insert_reorg_metadata(reorg_start_block_height, l1_batch_number)
                 .await?;
         }
+
+        METRICS.reorg_type[&ReorgType::Hard].set(reorg_start_block_height as usize);
 
         Ok(())
     }

@@ -50,6 +50,12 @@ pub struct ViaBtcSenderMetrics {
     /// Error when broadcast a transaction.
     pub l1_transient_errors: Counter,
 
+    /// Aggregator errors.
+    pub aggregator_errors: Counter,
+
+    /// Manager errors.
+    pub manager_errors: Counter,
+
     /// Last L1 block observed by the Ethereum sender.
     pub last_known_l1_block: Family<BlockNumberVariant, Gauge<usize>>,
 
