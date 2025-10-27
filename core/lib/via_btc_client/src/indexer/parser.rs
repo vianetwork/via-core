@@ -19,9 +19,8 @@ use crate::{
     types::{
         self, BridgeWithdrawal, BridgeWithdrawalInput, CommonFields, FullInscriptionMessage,
         L1BatchDAReference, L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput,
-        ProofDAReference, ProofDAReferenceInput, ProposeSequencer, ProposeSequencerInput,
-        SystemBootstrapping, SystemBootstrappingInput, SystemContractUpgrade,
-        SystemContractUpgradeInput, SystemContractUpgradeProposal,
+        ProofDAReference, ProofDAReferenceInput, SystemBootstrapping, SystemBootstrappingInput,
+        SystemContractUpgrade, SystemContractUpgradeInput, SystemContractUpgradeProposal,
         SystemContractUpgradeProposalInput, TransactionWithMetadata, UpdateBridge,
         UpdateBridgeInput, UpdateBridgeProposal, UpdateBridgeProposalInput, UpdateGovernance,
         UpdateGovernanceInput, UpdateSequencer, UpdateSequencerInput, ValidatorAttestation,
@@ -37,8 +36,7 @@ const OP_RETURN_UPDATE_GOVERNANCE_PREFIX: &[u8] = b"VIA_PROTOCOL:GOV";
 
 // Using constants to define the minimum number of instructions can help to make parsing more quick
 const MIN_WITNESS_LENGTH: usize = 3;
-const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 8;
-const MIN_PROPOSE_SEQUENCER_INSTRUCTIONS: usize = 3;
+const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 11;
 const MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS: usize = 4;
 const MIN_L1_BATCH_DA_REFERENCE_INSTRUCTIONS: usize = 7;
 const MIN_PROOF_DA_REFERENCE_INSTRUCTIONS: usize = 5;
@@ -252,12 +250,6 @@ impl MessageParser {
                 self.parse_system_bootstrapping(instructions, common_fields)
             }
             Instruction::PushBytes(bytes)
-                if bytes.as_bytes() == types::PROPOSE_SEQUENCER_MSG.as_bytes() =>
-            {
-                debug!("Parsing propose sequencer message");
-                self.parse_propose_sequencer(instructions, common_fields)
-            }
-            Instruction::PushBytes(bytes)
                 if bytes.as_bytes() == types::VALIDATOR_ATTESTATION_MSG.as_bytes() =>
             {
                 debug!("Parsing validator attestation message");
@@ -329,11 +321,62 @@ impl MessageParser {
                 .try_into()
                 .ok()?,
         );
-
         debug!("Parsed start block height: {}", start_block_height);
 
+        let protocol_version = ProtocolSemanticVersion::try_from_packed(U256::from_big_endian(
+            instructions.get(3)?.push_bytes()?.as_bytes(),
+        ))
+        .ok()?;
+        debug!("Parsed protocol version");
+
+        let bootloader_hash = H256::from_slice(instructions.get(4)?.push_bytes()?.as_bytes());
+        debug!("Parsed bootloader hash");
+
+        let abstract_account_hash = H256::from_slice(instructions.get(5)?.push_bytes()?.as_bytes());
+        debug!("Parsed abstract account hash");
+
+        let snark_wrapper_vk_hash = H256::from_slice(instructions.get(6)?.push_bytes()?.as_bytes());
+
+        let evm_emulator_hash = H256::from_slice(instructions.get(7)?.push_bytes()?.as_bytes());
+
+        let network_unchecked_governance_address = instructions.get(8).and_then(|instr| {
+            if let Instruction::PushBytes(bytes) = instr {
+                std::str::from_utf8(bytes.as_bytes())
+                    .ok()
+                    .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
+            } else {
+                None
+            }
+        })?;
+
+        debug!("Parsed governance address");
+
+        let network_unchecked_sequencer_address = instructions.get(9).and_then(|instr| {
+            if let Instruction::PushBytes(bytes) = instr {
+                std::str::from_utf8(bytes.as_bytes())
+                    .ok()
+                    .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
+            } else {
+                None
+            }
+        })?;
+
+        debug!("Parsed sequencer address");
+
+        let network_unchecked_bridge_address = instructions.get(10).and_then(|instr| {
+            if let Instruction::PushBytes(bytes) = instr {
+                std::str::from_utf8(bytes.as_bytes())
+                    .ok()
+                    .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
+            } else {
+                None
+            }
+        })?;
+
+        debug!("Parsed bridge address");
+
         // network unchecked is required to enable serde serialization and deserialization on the library structs
-        let network_unchecked_verifier_addresses = instructions[3..instructions.len() - 5]
+        let network_unchecked_verifier_addresses = instructions[11..]
             .iter()
             .filter_map(|instr| {
                 if let Instruction::PushBytes(bytes) = instr {
@@ -351,100 +394,23 @@ impl MessageParser {
             network_unchecked_verifier_addresses.len()
         );
 
-        let network_unchecked_bridge_address =
-            instructions.get(instructions.len() - 5).and_then(|instr| {
-                if let Instruction::PushBytes(bytes) = instr {
-                    std::str::from_utf8(bytes.as_bytes())
-                        .ok()
-                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
-                } else {
-                    None
-                }
-            })?;
-
-        debug!("Parsed bridge address");
-
-        let bootloader_hash = H256::from_slice(
-            instructions
-                .get(instructions.len() - 4)?
-                .push_bytes()?
-                .as_bytes(),
-        );
-
-        debug!("Parsed bootloader hash");
-
-        let abstract_account_hash = H256::from_slice(
-            instructions
-                .get(instructions.len() - 3)?
-                .push_bytes()?
-                .as_bytes(),
-        );
-
-        debug!("Parsed abstract account hash");
-
-        let network_unchecked_governance_address =
-            instructions.get(instructions.len() - 2).and_then(|instr| {
-                if let Instruction::PushBytes(bytes) = instr {
-                    std::str::from_utf8(bytes.as_bytes())
-                        .ok()
-                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
-                } else {
-                    None
-                }
-            })?;
-
-        debug!("Parsed governance address");
-
         Some(FullInscriptionMessage::SystemBootstrapping(
             SystemBootstrapping {
                 common: common_fields.clone(),
                 input: SystemBootstrappingInput {
                     start_block_height,
-                    bridge_musig2_address: network_unchecked_bridge_address,
-                    verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
+                    protocol_version,
                     bootloader_hash,
                     abstract_account_hash,
+                    snark_wrapper_vk_hash,
+                    evm_emulator_hash,
                     governance_address: network_unchecked_governance_address,
+                    sequencer_address: network_unchecked_sequencer_address,
+                    bridge_musig2_address: network_unchecked_bridge_address,
+                    verifier_p2wpkh_addresses: network_unchecked_verifier_addresses,
                 },
             },
         ))
-    }
-
-    #[instrument(
-        skip(self, instructions, common_fields),
-        target = "bitcoin_indexer::parser"
-    )]
-    fn parse_propose_sequencer(
-        &self,
-        instructions: &[Instruction],
-        common_fields: &CommonFields,
-    ) -> Option<FullInscriptionMessage> {
-        if instructions.len() < MIN_PROPOSE_SEQUENCER_INSTRUCTIONS {
-            warn!("Insufficient instructions for propose sequencer");
-            return None;
-        }
-
-        let sequencer_address = instructions.get(2).and_then(|instr| {
-            if let Instruction::PushBytes(bytes) = instr {
-                std::str::from_utf8(bytes.as_bytes()).ok().and_then(|s| {
-                    s.parse::<Address<NetworkUnchecked>>()
-                        .ok()?
-                        .require_network(self.network)
-                        .ok()
-                })
-            } else {
-                None
-            }
-        })?;
-
-        debug!("Parsed sequencer address");
-
-        Some(FullInscriptionMessage::ProposeSequencer(ProposeSequencer {
-            common: common_fields.clone(),
-            input: ProposeSequencerInput {
-                sequencer_new_p2wpkh_address: sequencer_address.as_unchecked().clone(),
-            },
-        }))
     }
 
     #[instrument(

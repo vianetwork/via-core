@@ -1,23 +1,23 @@
-use via_btc_client::bootstrap::ViaBootstrap;
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcWatchConfig;
+use zksync_types::via_bootstrap::BootstrapState;
 
 #[derive(Debug, Clone)]
 pub struct ViaIndexerInitializer {
     pool: ConnectionPool<Verifier>,
-    bootstrap: ViaBootstrap,
+    bootstrap_state: BootstrapState,
     btc_watch_config: ViaBtcWatchConfig,
 }
 
 impl ViaIndexerInitializer {
     pub fn new(
         pool: ConnectionPool<Verifier>,
-        bootstrap: ViaBootstrap,
+        bootstrap_state: BootstrapState,
         btc_watch_config: ViaBtcWatchConfig,
     ) -> Self {
         Self {
             pool,
-            bootstrap,
+            bootstrap_state,
             btc_watch_config,
         }
     }
@@ -40,12 +40,11 @@ impl ViaIndexerInitializer {
         let is_initialized = self.is_initialized().await?;
 
         if !is_initialized {
-            let state = self.bootstrap.process_bootstrap_messages().await?;
             self.pool
                 .connection()
                 .await?
                 .via_indexer_dal()
-                .init_indexer_metadata("via_btc_watch", state.starting_block_number)
+                .init_indexer_metadata("via_btc_watch", self.bootstrap_state.starting_block_number)
                 .await?;
         } else if is_initialized && self.btc_watch_config.restart_indexing {
             self.pool

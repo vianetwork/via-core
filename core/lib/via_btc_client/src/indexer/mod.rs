@@ -298,11 +298,6 @@ impl BitcoinInscriptionIndexer {
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_system_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
-            FullInscriptionMessage::ProposeSequencer(m) => m
-                .common
-                .p2wpkh_address
-                .as_ref()
-                .map_or(false, |addr| self.wallets.verifiers.contains(addr)),
             FullInscriptionMessage::ValidatorAttestation(m) => m
                 .common
                 .p2wpkh_address
@@ -446,7 +441,10 @@ mod tests {
     };
     use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
-    use zksync_types::H256;
+    use zksync_types::{
+        protocol_version::{ProtocolSemanticVersion, VersionPatch},
+        ProtocolVersionId, H256,
+    };
 
     use super::*;
     use crate::types::{self, BitcoinClientResult, CommonFields, Vote};
@@ -578,19 +576,6 @@ mod tests {
     async fn test_is_valid_message() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
-        let propose_sequencer = FullInscriptionMessage::ProposeSequencer(types::ProposeSequencer {
-            common: get_test_common_fields(),
-            input: types::ProposeSequencerInput {
-                sequencer_new_p2wpkh_address: indexer
-                    .wallets
-                    .sequencer
-                    .clone()
-                    .as_unchecked()
-                    .to_owned(),
-            },
-        });
-        assert!(!indexer.is_valid_system_message(&propose_sequencer));
-
         let validator_attestation =
             FullInscriptionMessage::ValidatorAttestation(types::ValidatorAttestation {
                 common: get_test_common_fields(),
@@ -653,6 +638,13 @@ mod tests {
                         .clone()
                         .as_unchecked()
                         .to_owned(),
+                    protocol_version: ProtocolSemanticVersion::new(
+                        ProtocolVersionId::Version28,
+                        VersionPatch(0),
+                    ),
+                    snark_wrapper_vk_hash: H256::zero(),
+                    sequencer_address: indexer.wallets.sequencer.clone().as_unchecked().to_owned(),
+                    evm_emulator_hash: H256::zero(),
                 },
             });
         assert!(indexer.is_valid_system_message(&system_bootstrapping));

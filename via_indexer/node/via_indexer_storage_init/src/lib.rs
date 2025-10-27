@@ -42,10 +42,7 @@ impl ViaIndexerStorageInitializer {
             .insert_wallets(&indexer_wallets_details)
             .await?;
 
-        let wallets = state
-            .wallets
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Wallets missing when init_indexer_wallets"))?;
+        let wallets = state.wallets;
 
         tracing::info!("Loaded the indexer wallets from bootstrap inscriptions");
 

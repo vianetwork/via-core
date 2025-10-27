@@ -1,5 +1,5 @@
 use via_verifier_storage_init::ViaVerifierStorageInitializer;
-use zksync_config::{configs::via_consensus::ViaGenesisConfig, GenesisConfig, ViaBtcWatchConfig};
+use zksync_config::{configs::via_consensus::ViaGenesisConfig, ViaBtcWatchConfig};
 
 use crate::{
     implementations::resources::{
@@ -15,7 +15,6 @@ use crate::{
 pub struct ViaVerifierInitLayer {
     pub via_genesis_config: ViaGenesisConfig,
     pub via_btc_watch_config: ViaBtcWatchConfig,
-    pub genesis: GenesisConfig,
 }
 
 #[derive(Debug, FromContext)]
@@ -46,7 +45,6 @@ impl WiringLayer for ViaVerifierInitLayer {
             pool,
             client,
             self.via_genesis_config,
-            self.genesis,
             self.via_btc_watch_config,
         )
         .await?;

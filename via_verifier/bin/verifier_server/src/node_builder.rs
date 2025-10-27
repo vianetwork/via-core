@@ -172,7 +172,6 @@ impl ViaNodeBuilder {
 
     fn add_storage_initialization_layer(mut self) -> anyhow::Result<Self> {
         let layer = ViaVerifierInitLayer {
-            genesis: self.configs.genesis_config.clone(),
             via_genesis_config: self.configs.via_genesis_config.clone(),
             via_btc_watch_config: self.configs.via_btc_watch_config.clone(),
         };
