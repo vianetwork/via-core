@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use genesis::VerifierGenesis;
 use via_btc_client::{bootstrap::ViaBootstrap, client::BitcoinClient};
-use via_verifier_dal::{ConnectionPool, Verifier};
+use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use wallets::ViaWalletsInitializer;
 use zksync_config::{configs::via_consensus::ViaGenesisConfig, ViaBtcWatchConfig};
 
@@ -22,6 +22,19 @@ impl ViaVerifierStorageInitializer {
         via_genesis_config: ViaGenesisConfig,
         btc_watch_config: ViaBtcWatchConfig,
     ) -> anyhow::Result<Self> {
+        // Check if already initialized
+        if pool
+            .connection()
+            .await?
+            .via_protocol_versions_dal()
+            .latest_protocol_semantic_version()
+            .await?
+            .is_some()
+        {
+            tracing::info!("Verifier storage already initialized");
+            return Ok(Self {});
+        }
+
         let bootstrap = ViaBootstrap::new(client, via_genesis_config);
         let bootstrap_state = bootstrap.process_bootstrap_messages().await?;
 
