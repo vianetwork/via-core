@@ -10,7 +10,7 @@ use zksync_types::{
 
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
-    metrics::{InscriptionStage, METRICS},
+    metrics::METRICS,
 };
 
 #[derive(Debug, Default)]
@@ -57,8 +57,8 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         }
 
         for (new_op, txid) in priority_ops {
-            METRICS.inscriptions_processed[&InscriptionStage::Deposit]
-                .set(new_op.common_data.serial_id.0 as usize);
+            METRICS.deposit.inc();
+
             storage
                 .via_transactions_dal()
                 .insert_transaction_l1(&new_op, new_op.eth_block(), txid)

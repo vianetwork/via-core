@@ -45,6 +45,9 @@ pub struct ViaBtcSenderMetrics {
 
     /// The BTC balance of the account used to created inscriptions.
     pub btc_sender_account_balance: Gauge<usize>,
+
+    /// Errors
+    pub errors: Counter,
 }
 
 impl ViaBtcSenderMetrics {

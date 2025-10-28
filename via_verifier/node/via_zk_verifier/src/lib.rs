@@ -68,7 +68,10 @@ impl ViaVerifier {
             let mut storage = pool.connection_tagged("via_zk_verifier").await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => {}
-                Err(err) => tracing::error!("Failed to process via_zk_verifier: {err}"),
+                Err(err) => {
+                    METRICS.errors.inc();
+                    tracing::error!("Failed to process via_zk_verifier: {err}")
+                }
             }
         }
 
@@ -336,7 +339,7 @@ impl ViaVerifier {
         }
 
         tracing::info!(
-            "Priority_id verified successfuly for l1 batch {}",
+            "Priority_id verified successfully for l1 batch {}",
             l1_batch_number
         );
 

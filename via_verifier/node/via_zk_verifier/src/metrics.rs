@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use vise::{Buckets, Gauge, Histogram, Metrics, Unit};
+use vise::{Buckets, Counter, Gauge, Histogram, Metrics, Unit};
 
 #[derive(Debug, Metrics)]
 #[metrics(prefix = "via_verifier_zk")]
@@ -13,6 +13,9 @@ pub struct ViaZKVerifierMetrics {
 
     /// Last invalid l1 batch number.
     pub last_invalid_l1_batch: Gauge<usize>,
+
+    /// Errors
+    pub errors: Counter,
 }
 
 #[vise::register]

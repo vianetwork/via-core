@@ -10,7 +10,7 @@ use via_musig2::utils::verify_partial_signature;
 
 use super::{api_decl::RestApi, error::ApiError};
 use crate::{
-    metrics::{MetricSessionType, VerifierErrorLabel, METRICS},
+    metrics::{VerifierErrorLabel, METRICS},
     types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse},
     utils::{decode_signature, encode_signature, seconds_since_epoch},
 };
@@ -57,8 +57,6 @@ impl RestApi {
                 "Create new {} signing session",
                 &session_op.get_session_type()
             );
-
-            METRICS.session_new[&MetricSessionType::from(session_op.get_session_type())].inc();
 
             let new_session = SigningSession {
                 session_op: Some(session_op),

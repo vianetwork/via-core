@@ -11,7 +11,10 @@ use via_btc_client::{
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
 use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails, WalletInfo, WalletRole};
 
-use crate::message_processors::{MessageProcessor, MessageProcessorError};
+use crate::{
+    message_processors::{MessageProcessor, MessageProcessorError},
+    metrics::METRICS,
+};
 
 #[derive(Debug)]
 pub struct SystemWalletProcessor {
@@ -156,6 +159,12 @@ impl SystemWalletProcessor {
 
                     tracing::info!("New bridge address updated: {:?}", &wallets_details);
 
+                    METRICS.system_wallets[&(
+                        WalletRole::Bridge.to_string().into(),
+                        new_bridge_address.to_string().into(),
+                    )]
+                        .inc();
+
                     return Ok(Some(update_bridge_msg.common.block_height));
                 }
                 _ => return Ok(None),
@@ -211,6 +220,12 @@ impl SystemWalletProcessor {
 
         tracing::info!("New sequencer address updated: {:?}", &wallets_details);
 
+        METRICS.system_wallets[&(
+            WalletRole::Sequencer.to_string().into(),
+            new_sequencer_address.to_string().into(),
+        )]
+            .inc();
+
         Ok(Some(update_sequencer_msg.common.block_height))
     }
 
@@ -260,6 +275,12 @@ impl SystemWalletProcessor {
             .await?;
 
         tracing::info!("New governance address updated: {:?}", &wallets_details);
+
+        METRICS.system_wallets[&(
+            WalletRole::Gov.to_string().into(),
+            new_governance_address.to_string().into(),
+        )]
+            .inc();
 
         Ok(Some(update_governance_msg.common.block_height))
     }

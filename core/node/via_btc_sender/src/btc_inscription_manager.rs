@@ -50,6 +50,7 @@ impl ViaBtcInscriptionManager {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => {}
                 Err(err) => {
+                    METRICS.manager_errors.inc();
                     tracing::error!("Failed to process btc_sender_inscription_manager: {err}");
                 }
             }
@@ -106,6 +107,7 @@ impl ViaBtcInscriptionManager {
         };
 
         self.validate_inscriber_address(wallets_map)?;
+        METRICS.track_block_numbers(storage).await;
 
         for inscription_id in inflight_inscriptions_ids {
             if let Some(last_inscription_history) = storage
@@ -122,8 +124,6 @@ impl ViaBtcInscriptionManager {
                         self.config.block_confirmations,
                     )
                     .await?;
-
-                METRICS.track_block_numbers(storage).await;
 
                 if is_confirmed {
                     let inscription = storage
@@ -177,7 +177,7 @@ impl ViaBtcInscriptionManager {
 
                         report_blocked_l1_batch_inscription = Some(l1_batch_number);
 
-                        tracing::warn!(
+                        tracing::debug!(
                             "Inscription {} stuck for more than {} block.",
                             last_inscription_history.reveal_tx_id,
                             self.config.stuck_inscription_block_number()
@@ -267,9 +267,8 @@ impl ViaBtcInscriptionManager {
             + inscribe_info.commit_tx_output_info.commit_tx_fee;
 
         tracing::info!(
-            "New inscription created {commit_tx} {reveal_tx}",
-            commit_tx = inscribe_info.final_commit_tx.txid,
-            reveal_tx = inscribe_info.final_reveal_tx.txid,
+            "New inscription created {}",
+            inscribe_info.final_reveal_tx.txid,
         );
 
         storage

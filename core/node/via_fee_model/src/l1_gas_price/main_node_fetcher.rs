@@ -13,7 +13,8 @@ use zksync_web3_decl::{
 };
 
 use crate::{
-    clip_batch_fee_model_input, compute_batch_fee_model_input, BatchFeeModelInputProvider,
+    clip_batch_fee_model_input, compute_batch_fee_model_input, metrics::METRICS,
+    BatchFeeModelInputProvider,
 };
 
 const SLEEP_INTERVAL: Duration = Duration::from_secs(5);
@@ -49,6 +50,7 @@ impl ViaMainNodeFeeParamsFetcher {
                 Ok(price) => price,
                 Err(err) => {
                     tracing::warn!("Unable to get the gas price: {}", err);
+                    METRICS.errors.inc();
                     // A delay to avoid spamming the main node with requests.
                     if tokio::time::timeout(SLEEP_INTERVAL, stop_receiver.changed())
                         .await

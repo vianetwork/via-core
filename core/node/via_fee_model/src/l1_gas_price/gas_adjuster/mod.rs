@@ -9,6 +9,8 @@ use tokio::sync::watch;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use zksync_config::GasAdjusterConfig;
 
+use crate::metrics::METRICS;
+
 /// This component keeps track of the median `base_fee` from the last `max_base_fee_samples` blocks
 /// and of the median `blob_base_fee` from the last `max_blob_base_fee_sample` blocks.
 /// It is used to adjust the base_fee of transactions sent to L1.
@@ -64,6 +66,7 @@ impl ViaGasAdjuster {
                 .await?;
 
             self.base_fee_statistics.add_samples(fee_history);
+            METRICS.l1_gas_price.set(self.base_fee_statistics.median() as usize);
         }
         Ok(())
     }
@@ -88,6 +91,7 @@ impl ViaGasAdjuster {
             }
 
             if let Err(err) = self.keep_updated().await {
+                METRICS.errors.inc();
                 tracing::warn!("Cannot add the base fee to gas statistics: {}", err);
             }
 

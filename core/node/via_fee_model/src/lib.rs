@@ -11,6 +11,7 @@ use zksync_types::fee_model::{
 };
 
 pub mod l1_gas_price;
+mod metrics;
 
 #[async_trait]
 pub trait ViaBaseTokenRatioProvider: Debug + Send + Sync + 'static {

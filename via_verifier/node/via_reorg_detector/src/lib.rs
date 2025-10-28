@@ -9,6 +9,10 @@ use via_verifier_dal::{Verifier, VerifierDal};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
 use zksync_dal::{Connection, ConnectionPool};
 
+use crate::metrics::{ReorgInfo, METRICS};
+
+mod metrics;
+
 #[derive(Debug)]
 pub struct ViaVerifierReorgDetector {
     config: ViaReorgDetectorConfig,
@@ -50,6 +54,7 @@ impl ViaVerifierReorgDetector {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(err) => {
+                    METRICS.errors.inc();
                     tracing::error!("Reorg detector failed to fetch new blocks: {err}");
                 }
             }
@@ -96,6 +101,11 @@ impl ViaVerifierReorgDetector {
                     .await?;
             }
         };
+
+        METRICS.reorg_data[&ReorgInfo::StartBlock].set(0);
+        METRICS.reorg_data[&ReorgInfo::EndBlock].set(0);
+        METRICS.soft_reorg.inc_by(0);
+        METRICS.hard_reorg.inc_by(0);
 
         Ok(())
     }
@@ -268,6 +278,9 @@ impl ViaVerifierReorgDetector {
             .get_not_finalized_transactions(reorg_start_block_height)
             .await?;
 
+        METRICS.reorg_data[&ReorgInfo::StartBlock].set(reorg_start_block_height as usize);
+        METRICS.reorg_data[&ReorgInfo::EndBlock].set(block_height as usize);
+
         if l1_batch_number_opt.is_none() && transactions_count == 0 {
             tracing::info!("There is no transactions affected by the reorg, no action is required");
 
@@ -297,17 +310,19 @@ impl ViaVerifierReorgDetector {
 
             transaction.commit().await?;
 
+            METRICS.soft_reorg.inc();
+
             return Ok(false);
         };
 
+        let l1_batch_number = l1_batch_number_opt.unwrap_or_default();
+
         storage
             .via_l1_block_dal()
-            .insert_reorg_metadata(
-                reorg_start_block_height,
-                l1_batch_number_opt.unwrap_or_default(),
-            )
+            .insert_reorg_metadata(reorg_start_block_height, l1_batch_number)
             .await?;
 
+        METRICS.hard_reorg.inc();
         Ok(true)
     }
 

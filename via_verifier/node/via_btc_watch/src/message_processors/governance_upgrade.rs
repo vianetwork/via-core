@@ -36,6 +36,7 @@ impl GovernanceUpgradesEventProcessor {
         }
     }
 }
+
 #[async_trait::async_trait]
 impl MessageProcessor for GovernanceUpgradesEventProcessor {
     async fn process_messages(

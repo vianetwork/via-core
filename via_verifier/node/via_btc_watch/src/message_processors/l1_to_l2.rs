@@ -7,7 +7,7 @@ use zksync_types::{ethabi::Address, l1::via_l1::ViaL1Deposit, H256};
 
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
-    metrics::{InscriptionStage, METRICS},
+    metrics::METRICS,
 };
 
 #[derive(Debug)]
@@ -113,8 +113,7 @@ impl L1ToL2MessageProcessor {
                 l1_tx.common_data.canonical_tx_hash,
             );
 
-            METRICS.inscriptions_processed[&InscriptionStage::Deposit]
-                .set(deposit.priority_id().0 as usize);
+            METRICS.deposit.inc();
 
             return Ok(Some(L1ToL2Transaction {
                 priority_id: deposit.priority_id().0 as i64,

@@ -71,7 +71,7 @@ impl MessageProcessor for WithdrawalProcessor {
                     tx_id.to_hex_string(Case::Lower)
                 );
 
-                METRICS.number_withdrawals_processed.set(withdrawals.len());
+                METRICS.withdrawal_confirmed.inc();
             }
         }
 

@@ -5,7 +5,7 @@ pub mod bootstrap;
 pub mod client;
 pub mod indexer;
 pub mod inscriber;
-pub mod metrics;
+mod metrics;
 #[cfg(feature = "regtest")]
 pub mod regtest;
 pub(crate) mod signer;

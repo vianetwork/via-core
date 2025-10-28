@@ -14,8 +14,9 @@ use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_types::via_wallet::SystemWallets;
 
 use self::message_processors::{MessageProcessor, MessageProcessorError};
-use crate::message_processors::{
-    L1ToL2MessageProcessor, SystemWalletProcessor, VerifierMessageProcessor,
+use crate::{
+    message_processors::{L1ToL2MessageProcessor, SystemWalletProcessor, VerifierMessageProcessor},
+    metrics::METRICS,
 };
 
 #[cfg(test)]
@@ -70,12 +71,9 @@ impl VerifierBtcWatch {
                 .await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
-                Err(MessageProcessorError::Internal(err)) => {
-                    tracing::error!("Internal error processing new blocks: {err:?}");
-                    return Err(err);
-                }
                 Err(err) => {
-                    tracing::error!("Failed to process new blocks: {err}");
+                    METRICS.errors.inc();
+                    tracing::error!("Error processing new blocks: {err:?}");
                 }
             }
         }

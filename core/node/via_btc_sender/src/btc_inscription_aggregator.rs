@@ -48,6 +48,7 @@ impl ViaBtcInscriptionAggregator {
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => {}
                 Err(err) => {
+                    METRICS.aggregator_errors.inc();
                     tracing::error!("Failed to process btc_sender_inscription_aggregator: {err}");
                 }
             }

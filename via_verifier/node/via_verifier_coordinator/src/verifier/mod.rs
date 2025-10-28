@@ -1,7 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
-    time::Duration,
 };
 
 use anyhow::Context;
@@ -106,6 +105,7 @@ impl ViaWithdrawalVerifier {
             match self.loop_iteration().await {
                 Ok(()) => {}
                 Err(err) => {
+                    METRICS.errors.inc();
                     tracing::error!("Failed to process verifier withdrawal task: {err}");
                 }
             }
@@ -217,7 +217,6 @@ impl ViaWithdrawalVerifier {
         let received_nonces = session_nonces.get(&input_index).map_or(0, |map| map.len());
         if received_nonces < session_info.required_signers {
             if !self.session_manager.verify_message(&session_op).await? {
-                METRICS.session_invalid_message.inc();
                 anyhow::bail!("Invalid session message");
             }
 
@@ -230,8 +229,6 @@ impl ViaWithdrawalVerifier {
             }
 
             self.submit_partial_signature(session_nonces).await?;
-
-            METRICS.session_valid_session.inc();
         }
 
         Ok(())
@@ -703,9 +700,9 @@ impl ViaWithdrawalVerifier {
                 .after_broadcast_final_transaction(txid, session_op)
                 .await?;
 
-            METRICS.session_time.observe(Duration::from_secs(
-                seconds_since_epoch() - session_info.created_at,
-            ));
+            METRICS
+                .session_time
+                .set((seconds_since_epoch() - session_info.created_at) as usize);
 
             self.clear_signers();
 
