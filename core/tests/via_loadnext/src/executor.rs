@@ -106,11 +106,15 @@ impl Executor {
         )?;
 
         let btc_balance = btc_client.get_balance(&master_wallet.btc_address).await?;
-        if btc_balance < bitcoin::Amount::from_btc(1.0).unwrap().to_sat().into() {
+        let min_balance = bitcoin::Amount::from_btc(self.config.accounts_amount as f64 * 0.1 + 1.0)
+            .unwrap()
+            .to_sat();
+        if btc_balance < min_balance.into() {
             anyhow::bail!(
-                "BTC balance on {} is too low to safely perform the loadtest: {} - at least 600 BTC is required",
+                "BTC balance on {} is too low to safely perform the loadtest: {} - at least {} BTC is required",
                 master_wallet.btc_address,
-                btc_balance
+                btc_balance,
+                min_balance,
             );
         }
         tracing::info!(
@@ -130,8 +134,12 @@ impl Executor {
     async fn deposit_btc_to_master(&mut self) -> anyhow::Result<()> {
         tracing::info!("Master Account: Depositing BTC");
         let master_wallet = &mut self.pool.btc_master_wallet;
-
-        let deposit_amount = bitcoin::Amount::from_btc(10.0).unwrap().to_sat();
+        let deposit_amount = bitcoin::Amount::from_btc(
+            // +1.0 is for paymaster
+            self.config.accounts_amount as f64 * 0.1 + 1.0,
+        )
+        .unwrap()
+        .to_sat();
 
         let deposit_response = btc_deposit::deposit(
             deposit_amount,
@@ -144,7 +152,7 @@ impl Executor {
         )
         .await;
 
-        // sleep for 20 seconds to wait for the deposit to be confirmed on L2
+        // sleep for 10 seconds to wait for the deposit to be confirmed on L2
         tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         tracing::info!("Master Account: Waiting for the deposit to be confirmed on L2");
 
