@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { parse } from 'yaml';
+import { readFileSync } from 'fs';
 
 const DEFAULT_NETWORK = 'regtest';
 const DEFAULT_RPC_URL = 'http://0.0.0.0:18443';
@@ -58,27 +59,6 @@ export async function updateBootstrapTxidsEnv(network: string) {
     console.log(`Updated VIA_GENESIS_BOOTSTRAP_TXIDS with: ${genesisTxIds}`);
 }
 
-export async function attestProposedSequencer(
-    network: string,
-    rpcUrl: string,
-    rpcUsername: string,
-    rpcPassword: string,
-    privateKey: string,
-    proposeSequencerFile: string
-) {
-    process.chdir(`${process.env.VIA_HOME}`);
-
-    if (!proposeSequencerFile) {
-        proposeSequencerFile = `etc/env/via/genesis/${network}/SystemBootstrapping.json`;
-    }
-    const proposeSequencer = JSON.parse(await fs.readFile(proposeSequencerFile, 'utf-8'));
-
-    let cmd = `cargo run --example bootstrap ${network} ${rpcUrl} ${rpcUsername} ${rpcPassword} Attest ${privateKey} `;
-    cmd += `${proposeSequencer['propose_sequencer_tx_id']}`;
-
-    await utils.spawn(cmd);
-}
-
 export async function systemBootstrapping(
     network: string,
     rpcUrl: string,
@@ -87,8 +67,8 @@ export async function systemBootstrapping(
     privateKey: string,
     startBlock: string,
     verifiersPubKeys: string,
+    bridgeWalletPath: string,
     governanceAddress: string,
-    bridgeAddress: string,
     sequencerAddress: string
 ) {
     process.chdir(`${process.env.VIA_HOME}`);
@@ -97,11 +77,22 @@ export async function systemBootstrapping(
     const file = await fs.readFile(genesisPath, 'utf-8');
     const genesisData = parse(file);
 
+    const bridgeWallet = JSON.parse(readFileSync(bridgeWalletPath, "utf-8"))
+
+    const merkleRoot = bridgeWallet['merkle_root']
+    const bridgeAddress = bridgeWallet['taproot_address']
+    const bridgeVerifiersPubKeys = bridgeWallet['public_keys'].join(',')
+
+
     const default_aa_hash = genesisData['default_aa_hash'];
     const bootloader_hash = genesisData['bootloader_hash'];
+    const snark_wrapper_vk_hash = genesisData['prover']['snark_wrapper_vk_hash'];
+    const evm_emulator_hash = '0x0000000000000000000000000000000000000000000000000000000000000000';
+    const protocolVersion = genesisData['genesis_protocol_semantic_version']
 
     let cmd = `cargo run --example bootstrap ${network} ${rpcUrl} ${rpcUsername} ${rpcPassword} SystemBootstrapping ${privateKey} `;
-    cmd += `${startBlock} ${verifiersPubKeys} ${default_aa_hash} ${bootloader_hash} ${governanceAddress} ${bridgeAddress} ${sequencerAddress}`;
+    cmd += `${startBlock} ${protocolVersion} ${bootloader_hash} ${default_aa_hash} ${snark_wrapper_vk_hash} ${evm_emulator_hash} `;
+    cmd += `${governanceAddress} ${sequencerAddress} ${bridgeAddress} ${merkleRoot} ${bridgeVerifiersPubKeys} ${verifiersPubKeys}`;
 
     await utils.spawn(cmd);
 }
@@ -117,9 +108,9 @@ command
     .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
     .requiredOption('--start-block <startBlock>', 'Start block')
     .requiredOption('--private-key <privateKey>', 'The inscriber private key')
+    .requiredOption('--bridge-wallet-path <bridgeWalletPath>', 'The musig2 bridge address file path')
     .requiredOption('--verifiers-pub-keys <verifiersPubKeys>', 'verifiers public keys')
     .requiredOption('--governance-address <governanceAddress>', 'The governance address')
-    .requiredOption('--bridge-address <bridgeAddress>', 'The bridge address')
     .requiredOption('--sequencer-address <sequencerAddress>', 'The sequencer address')
     .action((cmd: Command) =>
         systemBootstrapping(
@@ -130,29 +121,9 @@ command
             cmd.privateKey,
             cmd.startBlock,
             cmd.verifiersPubKeys,
+            cmd.bridgeWalletPath,
             cmd.governanceAddress,
-            cmd.bridgeAddress,
             cmd.sequencerAddress
-        )
-    );
-
-command
-    .command('attest-sequencer-proposal')
-    .description('Verifier attestation sequencer proposal')
-    .option('--network <network>', 'network', DEFAULT_NETWORK)
-    .option('--rpc-url <rpcUrl>', 'RPC URL', DEFAULT_RPC_URL)
-    .option('--rpc-username <rpcUsername>', 'RPC username', DEFAULT_RPC_USERNAME)
-    .option('--rpc-password <rpcPassword>', 'RPC password', DEFAULT_RPC_PASSWORD)
-    .option('--propose-sequencer-file <proposeSequencerFile>', 'The sequencer proposal bitcoin file')
-    .requiredOption('--private-key <privateKey>', 'The inscriber private key')
-    .action((cmd: Command) =>
-        attestProposedSequencer(
-            cmd.network,
-            cmd.rpcUrl,
-            cmd.rpcUsername,
-            cmd.rpcPassword,
-            cmd.privateKey,
-            cmd.proposeSequencerFile
         )
     );
 

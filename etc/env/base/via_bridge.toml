@@ -1,6 +1,6 @@
 [via_bridge]
 # The bridge address
-bridge_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
+bridge_address = "bcrt1pnsuff8wtl0e9qkmy0h6ve0l9wkkgdpfgefy9nn8y7jdde9lpa9sqej29cs"
 # The verifiers public keys
 verifiers_pub_keys = [
     "03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b",

@@ -211,12 +211,8 @@ bootstrap-dev:
 		--start-block 1 \
 		--verifiers-pub-keys 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b,02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662 \
 		--governance-address bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm \
-		--bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq \
+		--bridge-wallet-path etc/test_config/via/new_bridge_address.json \
 		--sequencer-address bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
-
-	@echo "$(YELLOW)Sending attestations...$(RESET)"
-	@$(CLI_TOOL) bootstrap attest-sequencer-proposal --private-key cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm
-	@$(CLI_TOOL) bootstrap attest-sequencer-proposal --private-key cQ4UHjdsGWFMcQ8zXcaSr7m4Kxq9x7g9EKqguTaFH7fA34mZAnqW
 
 	@echo "$(YELLOW)Update ENVs...$(RESET)"
 	@$(CLI_TOOL) bootstrap update-bootstrap-tx

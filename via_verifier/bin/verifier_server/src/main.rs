@@ -13,8 +13,8 @@ use zksync_config::{
         via_wallets::ViaWallets,
         DatabaseSecrets, L1Secrets, ObservabilityConfig, PrometheusConfig, Secrets,
     },
-    GenesisConfig, ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig,
-    ViaCelestiaConfig, ViaVerifierConfig,
+    ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
+    ViaVerifierConfig,
 };
 use zksync_core_leftovers::temp_config_store::read_yaml_repr;
 use zksync_env_config::FromEnv;
@@ -71,7 +71,6 @@ fn main() -> anyhow::Result<()> {
     };
 
     let via_general_verifier_config = ViaGeneralVerifierConfig {
-        genesis_config: GenesisConfig::from_env()?,
         health_check: HealthCheckConfig::from_env()?,
         postgres_config: PostgresConfig::from_env()?,
         prometheus_config: PrometheusConfig::from_env()?,

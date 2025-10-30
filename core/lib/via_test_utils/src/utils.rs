@@ -28,7 +28,10 @@ use via_btc_client::{
 };
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 use zksync_types::{
-    via_bootstrap::BootstrapState, via_wallet::SystemWallets, BitcoinNetwork, L1BatchNumber, H256,
+    protocol_version::{ProtocolSemanticVersion, VersionPatch},
+    via_bootstrap::BootstrapState,
+    via_wallet::SystemWallets,
+    BitcoinNetwork, L1BatchNumber, ProtocolVersionId, H256,
 };
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
@@ -116,13 +119,17 @@ pub fn bootstrap_state_mock() -> BootstrapState {
     sequencer_votes.insert(test_verifier_add_2(), true);
 
     BootstrapState {
-        wallets: Some(test_wallets()),
-        sequencer_proposal_tx_id: Some(BitcoinTxid::all_zeros()),
-        bootstrap_tx_id: Some(BitcoinTxid::all_zeros()),
-        sequencer_votes,
+        wallets: test_wallets(),
+        bootstrap_tx_id: BitcoinTxid::all_zeros(),
         starting_block_number: 1,
-        bootloader_hash: Some(H256::zero()),
-        abstract_account_hash: Some(H256::zero()),
+        bootloader_hash: H256::zero(),
+        abstract_account_hash: H256::zero(),
+        evm_emulator_hash: H256::zero(),
+        snark_wrapper_vk_hash: H256::zero(),
+        protocol_version: ProtocolSemanticVersion::new(
+            ProtocolVersionId::Version28,
+            VersionPatch(0),
+        ),
     }
 }
 

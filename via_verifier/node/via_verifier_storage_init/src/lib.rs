@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use genesis::VerifierGenesis;
 use via_btc_client::{bootstrap::ViaBootstrap, client::BitcoinClient};
-use via_verifier_dal::{ConnectionPool, Verifier};
+use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use wallets::ViaWalletsInitializer;
-use zksync_config::{configs::via_consensus::ViaGenesisConfig, GenesisConfig, ViaBtcWatchConfig};
+use zksync_config::{configs::via_consensus::ViaGenesisConfig, ViaBtcWatchConfig};
 
 use crate::indexer::ViaIndexerInitializer;
 
@@ -20,17 +20,32 @@ impl ViaVerifierStorageInitializer {
         pool: ConnectionPool<Verifier>,
         client: Arc<BitcoinClient>,
         via_genesis_config: ViaGenesisConfig,
-        genesis_config: GenesisConfig,
         btc_watch_config: ViaBtcWatchConfig,
     ) -> anyhow::Result<Self> {
+        // Check if already initialized
+        if pool
+            .connection()
+            .await?
+            .via_protocol_versions_dal()
+            .latest_protocol_semantic_version()
+            .await?
+            .is_some()
+        {
+            tracing::info!("Verifier storage already initialized");
+            return Ok(Self {});
+        }
+
+        let bootstrap = ViaBootstrap::new(client, via_genesis_config);
+        let bootstrap_state = bootstrap.process_bootstrap_messages().await?;
+
         let genesis = Arc::new(VerifierGenesis {
-            genesis_config,
+            bootstrap: bootstrap_state.clone(),
             pool: pool.clone(),
         });
 
-        let bootstrap = ViaBootstrap::new(client, via_genesis_config);
-        let indexer = ViaIndexerInitializer::new(pool.clone(), bootstrap.clone(), btc_watch_config);
-        let wallets = ViaWalletsInitializer::new(pool, bootstrap);
+        let indexer =
+            ViaIndexerInitializer::new(pool.clone(), bootstrap_state.clone(), btc_watch_config);
+        let wallets = ViaWalletsInitializer::new(pool, bootstrap_state);
 
         genesis.initialize_storage().await?;
         wallets.initialize_storage().await?;

@@ -89,6 +89,14 @@ Votable : No
 |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
 |      OP_PUSHBYTES_32  b"Str('SystemBootstrappingMessage')"  |
 |      OP_PUSHBYTES_32  b"start_block_height"                 |
+|      OP_PUSHBYTES_32  b"protocol_version"                   |
+|      OP_PUSHBYTES_32  b"Str('bootloader_hash')"             |
+|      OP_PUSHBYTES_32  b"Str('abstract_account_hash')"       |
+|      OP_PUSHBYTES_32  b"Str('snark_wrapper_vk_hash')"       |
+|      OP_PUSHBYTES_32  b"Str('evm_emulator_hash')"           |
+|      OP_PUSHBYTES_32  b"Str('governance_address')"          |
+|      OP_PUSHBYTES_32  b"Str('sequencer_address')"           |
+|      OP_PUSHBYTES_32  b"bridge_musig2_address"              |
 |      OP_PUSHBYTES_32  b"verifier_1_p2wpkh_address"          |
 |      OP_PUSHBYTES_32  b"verifier_2_p2wpkh_address"          |
 |      OP_PUSHBYTES_32  b"verifier_3_p2wpkh_address"          |
@@ -96,33 +104,11 @@ Votable : No
 |      OP_PUSHBYTES_32  b"verifier_5_p2wpkh_address"          |
 |      OP_PUSHBYTES_32  b"verifier_6_p2wpkh_address"          |
 |      OP_PUSHBYTES_32  b"verifier_7_p2wpkh_address"          |
-|      OP_PUSHBYTES_32  b"bridge_musig2_address"              |
-|      OP_PUSHBYTES_32  b"Str('bootloader_hash')"             |
-|      OP_PUSHBYTES_32  b"Str('abstract_account_hash')"       |
-|      OP_PUSHBYTES_32  b"Str('governance_p2wpkh_address')"   |
 |      OP_ENDIF                                               |
 |-------------------------------------------------------------|
 
 
 (2)
-Propose Sequencer
-verifier should sent attestation to network to validate this message
-Sender Validation: one of the verifiers
-Votable: Yes
-|-------------------------------------------------------------|
-|      Schnorr Signature                                      |
-|      Encoded Verifier Public Key                            |
-|      OP_CHECKSIG                                            |
-|      OP_FALSE                                               |
-|      OP_IF                                                  |
-|      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
-|      OP_PUSHBYTES_32  b"Str('ProposeSequencerMessage')"     |
-|      OP_PUSHBYTES_32  b"proposer_p2wpkh_address"            |
-|      OP_ENDIF                                               |
-|-------------------------------------------------------------|
-
-
-(3)
 OP_1 means ok or valid
 OP_0 means not ok ok or invalid
 reference_txid could be the proof_reveal_txid or other administrative inscription txid
@@ -143,7 +129,7 @@ Votable: No
 |-------------------------------------------------------------|
 
 
-(4)
+(3)
 L1BatchDAReference
 Votable: No
 Sender Validation: only valid sequencer
@@ -162,7 +148,7 @@ Sender Validation: only valid sequencer
 |      OP_ENDIF                                            |
 |----------------------------------------------------------|
 
-(5)
+(4)
 ProofDAReferenceMessage
 Votable: Yes
 Sender Validation: only valid sequencer
@@ -181,7 +167,7 @@ Sender Validation: only valid sequencer
 |----------------------------------------------------------|
 
 
-(6)
+(5)
 L1ToL2Message
 Votable: No
 Sender Validation: anyone
@@ -204,7 +190,7 @@ Sender Validation: anyone
  !!! in future we can implement kinda enforcement withdrawal with using l1->l2 message (reference in notion) !!!
  !!! also we should support op_return only for bridging in future of the inscription indexer !!!
 
-(7)
+(6)
 SystemContractUpgrade
 Votable: No
 Sender Validation: governance

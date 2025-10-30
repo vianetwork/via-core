@@ -489,7 +489,9 @@ impl ViaNodeBuilder {
         self = self
             .add_pools_layer()?
             .add_query_eth_client_layer()?
-            .add_storage_initialization_layer(LayerKind::Task)?;
+            .add_btc_client_layer()?
+            .add_storage_initialization_layer(LayerKind::Task)?
+            .add_init_node_storage_layer()?;
 
         Ok(self.node.build())
     }
@@ -634,7 +636,6 @@ impl ViaNodeBuilder {
                 ViaComponent::Btc => {
                     self = self
                         .add_btc_client_layer()?
-                        .add_init_node_storage_layer()?
                         .add_init_node_reorg_detector_layer()?
                         .add_gas_adjuster_layer()?
                         .add_btc_watcher_layer()?

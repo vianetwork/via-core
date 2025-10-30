@@ -1,16 +1,21 @@
-use via_btc_client::bootstrap::ViaBootstrap;
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
-use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails};
+use zksync_types::{
+    via_bootstrap::BootstrapState,
+    via_wallet::{SystemWallets, SystemWalletsDetails},
+};
 
 #[derive(Debug, Clone)]
 pub struct ViaWalletsInitializer {
     pool: ConnectionPool<Verifier>,
-    bootstrap: ViaBootstrap,
+    bootstrap_state: BootstrapState,
 }
 
 impl ViaWalletsInitializer {
-    pub fn new(pool: ConnectionPool<Verifier>, bootstrap: ViaBootstrap) -> Self {
-        Self { pool, bootstrap }
+    pub fn new(pool: ConnectionPool<Verifier>, bootstrap_state: BootstrapState) -> Self {
+        Self {
+            pool,
+            bootstrap_state,
+        }
     }
 
     pub async fn load_system_wallets(
@@ -60,15 +65,16 @@ impl ViaWalletsInitializer {
 
     pub async fn initialize_storage(&self) -> anyhow::Result<()> {
         if !self.is_initialized().await? {
-            let state = self.bootstrap.process_bootstrap_messages().await?;
-
-            let indexer_wallets_details = SystemWalletsDetails::try_from(&state)?;
+            let indexer_wallets_details = SystemWalletsDetails::try_from(&self.bootstrap_state)?;
 
             self.pool
                 .connection()
                 .await?
                 .via_wallet_dal()
-                .insert_wallets(&indexer_wallets_details, state.starting_block_number as i64)
+                .insert_wallets(
+                    &indexer_wallets_details,
+                    self.bootstrap_state.starting_block_number as i64,
+                )
                 .await?;
 
             tracing::info!("System wallets initialized");

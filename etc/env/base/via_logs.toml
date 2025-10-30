@@ -44,4 +44,5 @@ via_indexer=info,\
 via_main_node_reorg_detector=info,\
 via_verifier_reorg_detector=info,\
 via_verifier_block_reverter=info,\
+via_verifier_storage_init=info,\
 """

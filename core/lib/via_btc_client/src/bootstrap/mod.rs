@@ -1,14 +1,12 @@
 use std::{str::FromStr, sync::Arc};
 
-use bitcoin::{Address, Txid};
+use bitcoin::Txid;
 use zksync_config::configs::via_consensus::ViaGenesisConfig;
 use zksync_types::{via_bootstrap::BootstrapState, via_wallet::SystemWallets};
 
 use crate::{
-    client::BitcoinClient,
-    indexer::MessageParser,
-    traits::BitcoinOps,
-    types::{FullInscriptionMessage, Vote},
+    client::BitcoinClient, indexer::MessageParser, traits::BitcoinOps,
+    types::FullInscriptionMessage,
 };
 
 #[derive(Debug, Clone)]
@@ -25,95 +23,65 @@ impl ViaBootstrap {
     pub async fn process_bootstrap_messages(&self) -> anyhow::Result<BootstrapState> {
         let network = self.client.get_network();
         let mut parser = MessageParser::new(network);
-        let mut state = BootstrapState::default();
 
-        let mut sequencer: Option<Address> = None;
-        let mut bridge: Option<Address> = None;
-        let mut governance: Option<Address> = None;
-        let mut verifiers: Vec<Address> = vec![];
+        let bootstrap_txid = self
+            .config
+            .bootstrap_txids
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("Bootstrap transaction not found"))?;
 
-        for txid_str in self.config.bootstrap_txids.clone() {
-            let txid = Txid::from_str(&txid_str)?;
-            let tx = self.client.get_transaction(&txid).await?;
-            let messages = parser.parse_system_transaction(&tx, 0, None);
+        let txid = Txid::from_str(&bootstrap_txid)?;
+        let tx = self.client.get_transaction(&txid).await?;
+        let block_height = self.client.fetch_block_height().await? as u32;
+        let messages = parser.parse_system_transaction(&tx, block_height, None);
 
-            for message in messages {
-                match message {
-                    FullInscriptionMessage::SystemBootstrapping(sb) => {
-                        tracing::debug!("Processing SystemBootstrapping message");
+        let message = messages
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("Bootstrap message not found"))?;
 
-                        let verifier_addresses = sb
-                            .input
-                            .verifier_p2wpkh_addresses
-                            .iter()
-                            .map(|addr| addr.clone().require_network(network).unwrap())
-                            .collect::<Vec<_>>();
-                        verifiers.extend(verifier_addresses);
+        let state = match message {
+            FullInscriptionMessage::SystemBootstrapping(sb) => sb.clone(),
+            _ => anyhow::bail!("Invalid Bootstrap message"),
+        };
 
-                        bridge = Some(
-                            sb.input
-                                .bridge_musig2_address
-                                .require_network(network)
-                                .unwrap(),
-                        );
-                        governance = Some(
-                            sb.input
-                                .governance_address
-                                .require_network(network)
-                                .unwrap(),
-                        );
+        let verifiers = state
+            .input
+            .verifier_p2wpkh_addresses
+            .iter()
+            .map(|addr| addr.clone().require_network(network).unwrap())
+            .collect::<Vec<_>>();
 
-                        state.starting_block_number = sb.input.start_block_height;
-                        state.bootloader_hash = Some(sb.input.bootloader_hash);
-                        state.abstract_account_hash = Some(sb.input.abstract_account_hash);
-
-                        state.bootstrap_tx_id = Some(txid);
-                    }
-                    FullInscriptionMessage::ProposeSequencer(ps) => {
-                        tracing::debug!("Processing ProposeSequencer message");
-                        let sequencer_address = ps
-                            .input
-                            .sequencer_new_p2wpkh_address
-                            .require_network(network)
-                            .unwrap();
-                        sequencer = Some(sequencer_address);
-                        state.sequencer_proposal_tx_id = Some(txid);
-                    }
-                    FullInscriptionMessage::ValidatorAttestation(va) => {
-                        let p2wpkh_address = va
-                            .common
-                            .p2wpkh_address
-                            .as_ref()
-                            .expect("ValidatorAttestation must have a p2wpkh address");
-
-                        if verifiers.contains(p2wpkh_address)
-                            && va.input.reference_txid == state.sequencer_proposal_tx_id.unwrap()
-                        {
-                            state
-                                .sequencer_votes
-                                .insert(p2wpkh_address.clone(), va.input.attestation == Vote::Ok);
-                        }
-                    }
-                    _ => {
-                        tracing::debug!("Ignoring non-bootstrap message during bootstrap process");
-                    }
-                }
-            }
-        }
-
-        // Construct SystemWallets and put them into state
-        if let (Some(seq), Some(br), Some(gov)) = (sequencer, bridge, governance) {
-            state.wallets = Some(SystemWallets {
-                sequencer: seq,
-                bridge: br,
-                governance: gov,
+        let bootstrap_state = BootstrapState {
+            wallets: SystemWallets {
+                sequencer: state
+                    .input
+                    .sequencer_address
+                    .require_network(network)
+                    .unwrap(),
+                bridge: state
+                    .input
+                    .bridge_musig2_address
+                    .require_network(network)
+                    .unwrap(),
+                governance: state
+                    .input
+                    .governance_address
+                    .require_network(network)
+                    .unwrap(),
                 verifiers,
-            });
-        }
+            },
+            bootstrap_tx_id: state.common.tx_id,
+            starting_block_number: state.input.start_block_height,
+            bootloader_hash: state.input.bootloader_hash,
+            abstract_account_hash: state.input.abstract_account_hash,
+            snark_wrapper_vk_hash: state.input.snark_wrapper_vk_hash,
+            evm_emulator_hash: state.input.evm_emulator_hash,
+            protocol_version: state.input.protocol_version,
+        };
 
         // Validate the final state
-        state.validate()?;
+        bootstrap_state.validate()?;
 
-        Ok(state)
+        Ok(bootstrap_state)
     }
 }

@@ -14,4 +14,4 @@ session_timeout = 30
 # The transaction weight limit
 max_tx_weight = 380000
 # The bridge address merkle root.
-bridge_address_merkle_root = ""
+bridge_address_merkle_root = "0e45879bc42970c9b60ddeafa369472405ab87293380e79c4af3dad99623c5ad"

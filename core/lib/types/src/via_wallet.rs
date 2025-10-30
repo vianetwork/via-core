@@ -135,46 +135,40 @@ impl TryFrom<&BootstrapState> for SystemWalletsDetails {
     fn try_from(state: &BootstrapState) -> Result<Self, Self::Error> {
         let mut map = HashMap::new();
 
-        let wallets = state
-            .wallets
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Wallets missing"))?;
+        let wallets = state.wallets.clone();
+        let txid = state.bootstrap_tx_id.clone();
 
-        if let Some(txid) = &state.sequencer_proposal_tx_id {
-            map.insert(
-                WalletRole::Sequencer,
-                WalletInfo {
-                    addresses: vec![wallets.sequencer.clone()],
-                    txid: *txid,
-                },
-            );
-        }
+        map.insert(
+            WalletRole::Sequencer,
+            WalletInfo {
+                addresses: vec![wallets.sequencer.clone()],
+                txid,
+            },
+        );
 
-        if let Some(txid) = &state.bootstrap_tx_id {
-            map.insert(
-                WalletRole::Bridge,
-                WalletInfo {
-                    addresses: vec![wallets.bridge.clone()],
-                    txid: *txid,
-                },
-            );
+        map.insert(
+            WalletRole::Bridge,
+            WalletInfo {
+                addresses: vec![wallets.bridge.clone()],
+                txid,
+            },
+        );
 
-            map.insert(
-                WalletRole::Gov,
-                WalletInfo {
-                    addresses: vec![wallets.governance.clone()],
-                    txid: *txid,
-                },
-            );
+        map.insert(
+            WalletRole::Gov,
+            WalletInfo {
+                addresses: vec![wallets.governance.clone()],
+                txid,
+            },
+        );
 
-            map.insert(
-                WalletRole::Verifier,
-                WalletInfo {
-                    addresses: wallets.verifiers.clone(),
-                    txid: *txid,
-                },
-            );
-        }
+        map.insert(
+            WalletRole::Verifier,
+            WalletInfo {
+                addresses: wallets.verifiers.clone(),
+                txid,
+            },
+        );
 
         Ok(SystemWalletsDetails(map))
     }
