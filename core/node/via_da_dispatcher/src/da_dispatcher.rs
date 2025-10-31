@@ -17,6 +17,9 @@ use zksync_types::L1BatchNumber;
 
 use crate::metrics::METRICS;
 
+/// The max blob size posted to DA layer.
+const BLOB_CHUNK_SIZE: usize = 500;
+
 #[derive(Debug)]
 pub struct ViaDataAvailabilityDispatcher {
     client: Box<dyn DataAvailabilityClient>,
@@ -104,43 +107,74 @@ impl ViaDataAvailabilityDispatcher {
         drop(conn);
 
         for batch in batches {
-            let dispatch_latency = METRICS.blob_dispatch_latency.start();
+            let chunks: Vec<Vec<u8>> = batch
+                .pubdata
+                .clone()
+                .chunks(BLOB_CHUNK_SIZE)
+                .map(|chunk| chunk.to_vec())
+                .collect();
 
-            let dispatch_response = retry(self.config.max_retries(), batch.l1_batch_number, || {
-                self.client
-                    .dispatch_blob(batch.l1_batch_number.0, batch.pubdata.clone())
-            })
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to dispatch a blob with batch_number: {}, pubdata_len: {}",
+            let mut blobs: Vec<String> = vec![];
+            let mut index = 0;
+
+            loop {
+                let data = if index == chunks.len() && chunks.len() != 1 {
+                    via_da_dispatcher_lib::utils::serialize(&blobs)?
+                } else if index >= chunks.len() {
+                    break;
+                } else {
+                    chunks[index].clone()
+                };
+
+                let dispatch_latency = METRICS.blob_dispatch_latency.start();
+                let dispatch_response =
+                    retry(self.config.max_retries(), batch.l1_batch_number, || {
+                        self.client
+                            .dispatch_blob(batch.l1_batch_number.0, data.clone())
+                    })
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to dispatch a blob with batch_number: {}, pubdata_len: {}",
+                            batch.l1_batch_number,
+                            data.len()
+                        )
+                    })?;
+
+                let dispatch_latency_duration = dispatch_latency.observe();
+
+                tracing::info!(
+                    "Dispatched a DA for batch_number: {}, pubdata_size: {}, dispatch_latency: {:?}, index {}/{}",
                     batch.l1_batch_number,
-                    batch.pubdata.len()
-                )
-            })?;
-            let dispatch_latency_duration = dispatch_latency.observe();
+                    data.len(),
+                    dispatch_latency_duration,
+                    index + 1,
+                    chunks.len()
+                );
+
+                blobs.push(dispatch_response.blob_id);
+
+                index += 1;
+            }
 
             let sent_at = Utc::now().naive_utc();
 
-            let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
-            conn.via_data_availability_dal()
-                .insert_l1_batch_da(
-                    batch.l1_batch_number,
-                    dispatch_response.blob_id.as_str(),
-                    sent_at,
-                )
-                .await?;
-            drop(conn);
+            let mut storage = self.pool.connection_tagged("da_dispatcher").await?;
+            let mut transaction = storage.start_transaction().await?;
+
+            for (i, blob_id) in blobs.iter().enumerate() {
+                transaction
+                    .via_data_availability_dal()
+                    .insert_l1_batch_da(batch.l1_batch_number, blob_id.as_str(), sent_at, i as i32)
+                    .await?;
+            }
+
+            transaction.commit().await?;
 
             METRICS
                 .last_dispatched_l1_batch
                 .set(batch.l1_batch_number.0 as usize);
             METRICS.blob_size.observe(batch.pubdata.len());
-            tracing::info!(
-                "Dispatched a DA for batch_number: {}, pubdata_size: {}, dispatch_latency: {dispatch_latency_duration:?}",
-                batch.l1_batch_number,
-                batch.pubdata.len(),
-            );
         }
 
         Ok(())
@@ -170,8 +204,6 @@ impl ViaDataAvailabilityDispatcher {
         drop(conn);
 
         for batch in batches {
-            let dispatch_latency = METRICS.blob_dispatch_latency.start();
-
             let dummy_proof = self
                 .prepare_dummy_proof_operation(batch)
                 .await
@@ -182,27 +214,79 @@ impl ViaDataAvailabilityDispatcher {
                     )
                 })?;
 
-            let dispatch_response = retry(self.config.max_retries(), batch, || {
-                self.client.dispatch_blob(batch.0, dummy_proof.clone())
-            })
-            .await?;
+            println!(
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA {:?}",
+                dummy_proof.len()
+            );
 
-            let dispatch_latency_duration = dispatch_latency.observe();
+            let chunks: Vec<Vec<u8>> = dummy_proof
+                .chunks(BLOB_CHUNK_SIZE)
+                .map(|chunk| chunk.to_vec())
+                .collect();
+
+            let mut blobs: Vec<String> = vec![];
+            let mut index = 0;
+
+            loop {
+                let data = if index == chunks.len() && chunks.len() != 1 {
+                    via_da_dispatcher_lib::utils::serialize(&blobs)?
+                } else if index >= chunks.len() {
+                    break;
+                } else {
+                    chunks[index].clone()
+                };
+
+                let dispatch_latency = METRICS.proof_dispatch_latency.start();
+
+                let dispatch_response =
+                    retry(self.config.max_retries(), batch, || {
+                        self.client
+                            .dispatch_blob(batch.0, data.clone())
+                    })
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to dispatch a proof with batch_number: {}, proof_len: {}, index: {}",
+                            batch,
+                            data.len(),
+                            index
+                        )
+                    })?;
+
+                let dispatch_latency_duration = dispatch_latency.observe();
+                blobs.push(dispatch_response.blob_id);
+
+                tracing::info!(
+                    "Dispatched a dummy proof for batch_number: {}, pubdata_size: {}, dispatch_latency: {:?}, index {}/{}",
+                    batch,
+                    data.len(),
+                    dispatch_latency_duration,
+                    index,
+                    chunks.len()
+                );
+
+                index += 1;
+            }
 
             let sent_at = Utc::now().naive_utc();
 
-            let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
-            conn.via_data_availability_dal()
-                .insert_proof_da(batch, dispatch_response.blob_id.as_str(), sent_at)
+            let mut storage = self
+                .pool
+                .connection_tagged("dummy_proof_dispatcher")
                 .await?;
+            let mut transaction = storage.start_transaction().await?;
+
+            for (i, blob_id) in blobs.iter().enumerate() {
+                transaction
+                    .via_data_availability_dal()
+                    .insert_proof_da(batch, blob_id.as_str(), sent_at, i as i32)
+                    .await?;
+            }
+
+            transaction.commit().await?;
 
             METRICS.last_dispatched_proof_batch.set(batch.0 as usize);
             METRICS.blob_size.observe(dummy_proof.len());
-            tracing::info!(
-                "Dispatched a dummy proof for batch_number: {}, proof_size: {}, dispatch_latency: {dispatch_latency_duration:?}",
-                batch,
-                dummy_proof.len(),
-            );
         }
 
         Ok(())
@@ -232,44 +316,73 @@ impl ViaDataAvailabilityDispatcher {
                 }
             };
 
-            let dispatch_latency = METRICS.proof_dispatch_latency.start();
+            let chunks: Vec<Vec<u8>> = final_proof
+                .chunks(BLOB_CHUNK_SIZE)
+                .map(|chunk| chunk.to_vec())
+                .collect();
 
-            let dispatch_response = retry(self.config.max_retries(), proof.l1_batch_number, || {
-                self.client
-                    .dispatch_blob(proof.l1_batch_number.0, final_proof.clone())
-            })
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to dispatch a proof with batch_number: {}, proof_len: {}",
+            let mut blobs: Vec<String> = vec![];
+            let mut index = 0;
+
+            loop {
+                let data = if index == chunks.len() && chunks.len() != 1 {
+                    via_da_dispatcher_lib::utils::serialize(&blobs)?
+                } else if index >= chunks.len() {
+                    break;
+                } else {
+                    chunks[index].clone()
+                };
+
+                let dispatch_latency = METRICS.proof_dispatch_latency.start();
+
+                let dispatch_response =
+                    retry(self.config.max_retries(), proof.l1_batch_number, || {
+                        self.client
+                            .dispatch_blob(proof.l1_batch_number.0, data.clone())
+                    })
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to dispatch a proof with batch_number: {}, proof_len: {}, index: {}",
+                            proof.l1_batch_number,
+                            data.len(),
+                            index
+                        )
+                    })?;
+
+                let dispatch_latency_duration = dispatch_latency.observe();
+                blobs.push(dispatch_response.blob_id);
+
+                tracing::info!(
+                    "Dispatched a real proof for batch_number: {}, pubdata_size: {}, dispatch_latency: {:?}, index {}/{}",
                     proof.l1_batch_number,
-                    final_proof.len()
-                )
-            })?;
+                    data.len(),
+                    dispatch_latency_duration,
+                    index,
+                    chunks.len()
+                );
 
-            let dispatch_latency_duration = dispatch_latency.observe();
+                index += 1;
+            }
 
             let sent_at = Utc::now().naive_utc();
 
-            let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
-            conn.via_data_availability_dal()
-                .insert_proof_da(
-                    proof.l1_batch_number,
-                    dispatch_response.blob_id.as_str(),
-                    sent_at,
-                )
-                .await?;
-            drop(conn);
+            let mut storage = self.pool.connection_tagged("real_proof_dispatcher").await?;
+            let mut transaction = storage.start_transaction().await?;
+
+            for (i, blob_id) in blobs.iter().enumerate() {
+                transaction
+                    .via_data_availability_dal()
+                    .insert_proof_da(proof.l1_batch_number, blob_id.as_str(), sent_at, i as i32)
+                    .await?;
+            }
+
+            transaction.commit().await?;
 
             METRICS
                 .last_dispatched_proof_batch
                 .set(proof.l1_batch_number.0 as usize);
             METRICS.blob_size.observe(final_proof.len());
-            tracing::info!(
-                "Dispatched a proof for batch_number: {}, proof_size: {}, dispatch_latency: {dispatch_latency_duration:?}",
-                proof.l1_batch_number,
-                final_proof.len(),
-            );
         }
         Ok(())
     }
@@ -356,6 +469,7 @@ impl ViaDataAvailabilityDispatcher {
             .save_l1_batch_inclusion_data(
                 L1BatchNumber(blob_info.l1_batch_number.0),
                 inclusion_data.data.as_slice(),
+                blob_info.index,
             )
             .await?;
         drop(conn);
@@ -421,6 +535,7 @@ impl ViaDataAvailabilityDispatcher {
             .save_proof_inclusion_data(
                 L1BatchNumber(proof_info.l1_batch_number.0),
                 inclusion_data.data.as_slice(),
+                proof_info.index,
             )
             .await?;
 

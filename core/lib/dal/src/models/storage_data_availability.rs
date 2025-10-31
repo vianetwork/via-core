@@ -17,6 +17,29 @@ impl From<StorageDABlob> for DataAvailabilityBlob {
             blob_id: blob.blob_id,
             inclusion_data: blob.inclusion_data,
             sent_at: blob.sent_at.and_utc(),
+            index: 0,
+        }
+    }
+}
+
+/// Represents a blob in the data availability layer.
+#[derive(Debug, Clone)]
+pub(crate) struct ViaStorageDABlob {
+    pub l1_batch_number: i64,
+    pub blob_id: String,
+    pub inclusion_data: Option<Vec<u8>>,
+    pub sent_at: NaiveDateTime,
+    pub index: i32,
+}
+
+impl From<ViaStorageDABlob> for DataAvailabilityBlob {
+    fn from(blob: ViaStorageDABlob) -> DataAvailabilityBlob {
+        DataAvailabilityBlob {
+            l1_batch_number: L1BatchNumber(blob.l1_batch_number as u32),
+            blob_id: blob.blob_id,
+            inclusion_data: blob.inclusion_data,
+            sent_at: blob.sent_at.and_utc(),
+            index: blob.index,
         }
     }
 }

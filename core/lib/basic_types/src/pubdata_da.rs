@@ -28,4 +28,5 @@ pub struct DataAvailabilityBlob {
     pub blob_id: String,
     pub inclusion_data: Option<Vec<u8>>,
     pub sent_at: DateTime<Utc>,
+    pub index: i32,
 }

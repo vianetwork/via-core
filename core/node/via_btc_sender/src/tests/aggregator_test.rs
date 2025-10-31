@@ -308,7 +308,6 @@ mod tests {
             .storage
             .via_blocks_dal()
             .get_ready_for_commit_l1_batches(
-                5,
                 &aggregator_test
                     .protocol_version
                     .base_system_contracts_hashes

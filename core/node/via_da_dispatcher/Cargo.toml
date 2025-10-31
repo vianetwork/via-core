@@ -30,3 +30,4 @@ tracing.workspace = true
 chrono.workspace = true
 rand.workspace = true
 futures.workspace = true
+hex.workspace = true

@@ -12327,6 +12327,7 @@ dependencies = [
  "bincode",
  "chrono",
  "futures 0.3.31",
+ "hex",
  "rand 0.8.5",
  "tokio",
  "tracing",
@@ -12346,6 +12347,8 @@ dependencies = [
 name = "via_da_dispatcher_lib"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "hex",
  "serde",
  "tracing",
  "zksync_object_store",

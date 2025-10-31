@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    inclusion_data\n                FROM\n                    via_data_availability\n                WHERE\n                    l1_batch_number = $1\n                    AND index = $2\n                    AND is_proof = FALSE\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "inclusion_data",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "76eb6311df4e4b40da2a6948e8b3f6c57a7395548ea56f344a67a9a80de0881c"
+}
