@@ -67,24 +67,44 @@ function getTestDals(opts: DbOpts): Map<DalPath, string> {
     return dals;
 }
 
-async function resetTestDal(dalPath: DalPath, dbUrl: string) {
-    console.log('recreating postgres container for unit tests');
-    await utils.spawn('docker compose -f docker-compose-unit-tests.yml down');
-    await utils.spawn('docker compose -f docker-compose-unit-tests.yml up -d');
+async function resetTestDal(
+    dalPath: DalPath,
+    dbUrl: string,
+    freeze: boolean = true,
+    recreateContainer: boolean = true
+) {
+    if (recreateContainer) {
+        console.log('recreating postgres container for unit tests');
+        await utils.spawn('docker compose -f docker-compose-unit-tests.yml down');
+        await utils.spawn('docker compose -f docker-compose-unit-tests.yml up -d');
+    }
     await waitForDal(dbUrl, 100);
     console.log('setting up a database template');
     await setupForDal(dalPath, dbUrl, false);
-    console.log('disallowing connections to the template');
-    await utils.spawn(
-        `psql "${dbUrl}" -c "update pg_database set datallowconn = false where datname = current_database()"`
-    );
+    if (freeze) {
+        console.log('disallowing connections to the template');
+        await utils.spawn(
+            `psql "${dbUrl}" -c "update pg_database set datallowconn = false where datname = current_database()"`
+        );
+    } else {
+        console.log('keeping database accessible for direct test connections');
+    }
 }
 
 export async function resetTest(opts: DbOpts) {
     await utils.confirmAction();
     let dals = getTestDals(opts);
+
+    // Recreate container only once at the beginning
+    console.log('recreating postgres container for unit tests');
+    await utils.spawn('docker compose -f docker-compose-unit-tests.yml down');
+    await utils.spawn('docker compose -f docker-compose-unit-tests.yml up -d');
+
     for (const [dalPath, dbUrl] of dals.entries()) {
-        await resetTestDal(dalPath, dbUrl);
+        // Don't freeze verifier database so tests can connect directly to it
+        const freeze = dalPath !== DalPath.ViaVerifierDal;
+        console.log(`Processing DAL: ${dalPath}, freeze: ${freeze}`);
+        await resetTestDal(dalPath, dbUrl, freeze, false); // false = don't recreate container
     }
 }
 
