@@ -23,6 +23,7 @@ on:
           - prover-fri-gateway
           - prover-job-monitor
           - proof-fri-gpu-compressor
+          - prover-autoscaler
 
 jobs:
   setup-components:
