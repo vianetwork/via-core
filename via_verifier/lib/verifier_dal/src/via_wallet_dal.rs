@@ -64,7 +64,7 @@ impl ViaWalletDal<'_, '_> {
             FROM
                 VIA_WALLETS
             WHERE
-                l1_block_number <= $1
+                L1_BLOCK_NUMBER <= $1
             ORDER BY
                 ROLE,
                 CREATED_AT DESC
