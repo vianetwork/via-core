@@ -1,10 +1,9 @@
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal as _};
-use zksync_config::GenesisConfig;
-use zksync_types::H256;
+use zksync_types::{via_bootstrap::BootstrapState, H256};
 
 #[derive(Debug)]
 pub struct VerifierGenesis {
-    pub genesis_config: GenesisConfig,
+    pub bootstrap: BootstrapState,
     pub pool: ConnectionPool<Verifier>,
 }
 
@@ -20,19 +19,11 @@ impl VerifierGenesis {
         transaction
             .via_protocol_versions_dal()
             .save_protocol_version(
-                self.genesis_config
-                    .protocol_version
-                    .ok_or_else(|| anyhow::anyhow!("protocol_version is not set"))?,
-                self.genesis_config
-                    .bootloader_hash
-                    .ok_or_else(|| anyhow::anyhow!("bootloader_hash is not set"))?
-                    .as_bytes(),
-                self.genesis_config
-                    .default_aa_hash
-                    .ok_or_else(|| anyhow::anyhow!("default_aa_hash is not set"))?
-                    .as_bytes(),
+                self.bootstrap.protocol_version,
+                self.bootstrap.bootloader_hash.as_bytes(),
+                self.bootstrap.abstract_account_hash.as_bytes(),
                 H256::zero().as_bytes(),
-                self.genesis_config.snark_wrapper_vk_hash.as_bytes(),
+                self.bootstrap.snark_wrapper_vk_hash.as_bytes(),
             )
             .await?;
 

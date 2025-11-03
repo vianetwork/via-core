@@ -131,9 +131,6 @@ impl InscriptionData {
             types::InscriptionMessage::SystemBootstrapping(input) => {
                 Self::build_system_bootstrapping_script(basic_script, input, network)?
             }
-            types::InscriptionMessage::ProposeSequencer(input) => {
-                Self::build_propose_sequencer_script(basic_script, input, network)?
-            }
             types::InscriptionMessage::L1ToL2Message(input) => {
                 Self::build_l1_to_l2_message_script(basic_script, input)
             }
@@ -233,8 +230,43 @@ impl InscriptionData {
         let start_block_height_encoded =
             Self::encode_push_bytes(&input.start_block_height.to_be_bytes());
 
+        let bridge_address = input
+            .bridge_musig2_address
+            .clone()
+            .require_network(network)?;
+        let bridge_address_encoded = Self::encode_push_bytes(bridge_address.to_string().as_bytes());
+
+        let sequencer_address = input.sequencer_address.clone().require_network(network)?;
+
+        let sequencer_address_encoded =
+            Self::encode_push_bytes(sequencer_address.to_string().as_bytes());
+
+        let bootloader_hash = Self::encode_push_bytes(input.bootloader_hash.as_bytes());
+
+        let abstract_account_hash = Self::encode_push_bytes(input.abstract_account_hash.as_bytes());
+
+        let governance_address = input.governance_address.clone().require_network(network)?;
+        let governance_address_encoded =
+            Self::encode_push_bytes(governance_address.to_string().as_bytes());
+
+        let protocol_version =
+            Self::encode_push_bytes(H256::from_uint(&input.protocol_version.pack()).as_bytes());
+
+        let snark_wrapper_vk_hash = Self::encode_push_bytes(input.snark_wrapper_vk_hash.as_bytes());
+
+        let evm_emulator_hash = Self::encode_push_bytes(input.evm_emulator_hash.as_bytes());
+
         let mut script = basic_script.push_slice(&*types::SYSTEM_BOOTSTRAPPING_MSG);
-        script = script.push_slice(start_block_height_encoded);
+        script = script
+            .push_slice(start_block_height_encoded)
+            .push_slice(protocol_version)
+            .push_slice(bootloader_hash)
+            .push_slice(abstract_account_hash)
+            .push_slice(snark_wrapper_vk_hash)
+            .push_slice(evm_emulator_hash)
+            .push_slice(governance_address_encoded)
+            .push_slice(sequencer_address_encoded)
+            .push_slice(bridge_address_encoded);
 
         for verifier_p2wpkh_address in &input.verifier_p2wpkh_addresses {
             let network_checked_address =
@@ -244,47 +276,7 @@ impl InscriptionData {
             script = script.push_slice(address_encoded);
         }
 
-        let bridge_address = input
-            .bridge_musig2_address
-            .clone()
-            .require_network(network)?;
-        let bridge_address_encoded = Self::encode_push_bytes(bridge_address.to_string().as_bytes());
-
-        let boostloader_hash = Self::encode_push_bytes(input.bootloader_hash.as_bytes());
-
-        let abstract_account_hash = Self::encode_push_bytes(input.abstract_account_hash.as_bytes());
-
-        let governance_address = input.governance_address.clone().require_network(network)?;
-        let governance_address_ecoded =
-            Self::encode_push_bytes(governance_address.to_string().as_bytes());
-
-        Ok(script
-            .push_slice(bridge_address_encoded)
-            .push_slice(boostloader_hash)
-            .push_slice(abstract_account_hash)
-            .push_slice(governance_address_ecoded))
-    }
-
-    #[instrument(
-        skip(basic_script, input),
-        target = "bitcoin_inscriber::script_builder"
-    )]
-    fn build_propose_sequencer_script(
-        basic_script: ScriptBuilder,
-        input: &types::ProposeSequencerInput,
-        network: Network,
-    ) -> Result<ScriptBuilder> {
-        debug!("Building ProposeSequencer script");
-
-        let address = input
-            .sequencer_new_p2wpkh_address
-            .clone()
-            .require_network(network)?;
-        let address_encoded = Self::encode_push_bytes(address.to_string().as_bytes());
-
-        Ok(basic_script
-            .push_slice(&*types::PROPOSE_SEQUENCER_MSG)
-            .push_slice(address_encoded))
+        Ok(script)
     }
 
     #[instrument(

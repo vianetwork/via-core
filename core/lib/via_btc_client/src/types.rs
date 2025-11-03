@@ -85,11 +85,15 @@ pub struct CommonFields {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SystemBootstrappingInput {
     pub start_block_height: u32,
-    pub verifier_p2wpkh_addresses: Vec<BitcoinAddress<NetworkUnchecked>>,
-    pub bridge_musig2_address: BitcoinAddress<NetworkUnchecked>,
+    pub protocol_version: ProtocolSemanticVersion,
     pub bootloader_hash: H256,
     pub abstract_account_hash: H256,
+    pub snark_wrapper_vk_hash: H256,
+    pub evm_emulator_hash: H256,
     pub governance_address: BitcoinAddress<NetworkUnchecked>,
+    pub sequencer_address: BitcoinAddress<NetworkUnchecked>,
+    pub bridge_musig2_address: BitcoinAddress<NetworkUnchecked>,
+    pub verifier_p2wpkh_addresses: Vec<BitcoinAddress<NetworkUnchecked>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -208,17 +212,6 @@ pub struct BridgeWithdrawalInput {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ProposeSequencerInput {
-    pub sequencer_new_p2wpkh_address: BitcoinAddress<NetworkUnchecked>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProposeSequencer {
-    pub common: CommonFields,
-    pub input: ProposeSequencerInput,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct L1ToL2MessageInput {
     pub receiver_l2_address: EVMAddress,
     pub l2_contract_address: EVMAddress,
@@ -239,7 +232,6 @@ pub enum InscriptionMessage {
     ProofDAReference(ProofDAReferenceInput),
     ValidatorAttestation(ValidatorAttestationInput),
     SystemBootstrapping(SystemBootstrappingInput),
-    ProposeSequencer(ProposeSequencerInput),
     L1ToL2Message(L1ToL2MessageInput),
     SystemContractUpgradeProposal(SystemContractUpgradeProposalInput),
     UpdateBridgeProposal(UpdateBridgeProposalInput),
@@ -276,7 +268,6 @@ pub enum FullInscriptionMessage {
     ProofDAReference(ProofDAReference),
     ValidatorAttestation(ValidatorAttestation),
     SystemBootstrapping(SystemBootstrapping),
-    ProposeSequencer(ProposeSequencer),
     L1ToL2Message(L1ToL2Message),
     SystemContractUpgradeProposal(SystemContractUpgradeProposal),
     BridgeWithdrawal(BridgeWithdrawal),
@@ -295,17 +286,16 @@ impl FullInscriptionMessage {
             FullInscriptionMessage::ProofDAReference(_) => 1,
             FullInscriptionMessage::ValidatorAttestation(_) => 2,
             FullInscriptionMessage::SystemBootstrapping(_) => 3,
-            FullInscriptionMessage::ProposeSequencer(_) => 4,
-            FullInscriptionMessage::L1ToL2Message(_) => 5,
-            FullInscriptionMessage::SystemContractUpgradeProposal(_) => 6,
-            FullInscriptionMessage::BridgeWithdrawal(_) => 7,
-            FullInscriptionMessage::UpdateBridgeProposal(_) => 8,
+            FullInscriptionMessage::L1ToL2Message(_) => 4,
+            FullInscriptionMessage::SystemContractUpgradeProposal(_) => 5,
+            FullInscriptionMessage::BridgeWithdrawal(_) => 6,
+            FullInscriptionMessage::UpdateBridgeProposal(_) => 7,
 
             // System inscriptions must be ordered to ensure the indexer always uses the latest wallet state.
-            FullInscriptionMessage::UpdateGovernance(_) => 9,
-            FullInscriptionMessage::UpdateSequencer(_) => 10,
-            FullInscriptionMessage::SystemContractUpgrade(_) => 11,
-            FullInscriptionMessage::UpdateBridge(_) => 12,
+            FullInscriptionMessage::UpdateGovernance(_) => 8,
+            FullInscriptionMessage::UpdateSequencer(_) => 9,
+            FullInscriptionMessage::SystemContractUpgrade(_) => 10,
+            FullInscriptionMessage::UpdateBridge(_) => 11,
         }
     }
 

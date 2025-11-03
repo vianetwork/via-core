@@ -1,0 +1,14 @@
+{
+  "public_keys": [
+    "03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b",
+    "02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662"
+  ],
+  "aggregated_internal_key": "c937d2c7cb36445ce6819d38222d563fb12dce83585b2c4f41de939478e9c805",
+  "governance_script_hex": "20d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8bac20043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662ba529c",
+  "taproot_output_key": "9c38949dcbfbf2505b647df4ccbfe575ac868528ca4859cce4f49adc97e1e960",
+  "merkle_root": "0e45879bc42970c9b60ddeafa369472405ab87293380e79c4af3dad99623c5ad",
+  "taproot_address": "bcrt1pnsuff8wtl0e9qkmy0h6ve0l9wkkgdpfgefy9nn8y7jdde9lpa9sqej29cs",
+  "control_block": "c0c937d2c7cb36445ce6819d38222d563fb12dce83585b2c4f41de939478e9c805",
+  "threshold": 2,
+  "total_governance_keys": 2
+}
