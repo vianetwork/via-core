@@ -11,6 +11,11 @@ on:
         description: "Optional suffix to override tag name generation"
         type: string
         required: false
+      CUDA_ARCH:
+        description: "CUDA Arch to build"
+        type: string
+        default: "75;80;89"
+        required: false
       component:
         description: "Which component to build (choose one or 'all')"
         type: choice
@@ -23,6 +28,7 @@ on:
           - prover-fri-gateway
           - prover-job-monitor
           - proof-fri-gpu-compressor
+          - prover-autoscaler
 
 jobs:
   setup-components:
@@ -44,6 +50,8 @@ jobs:
     needs: setup-components
     name: Build and Push Docker Images
     runs-on: [self-hosted, cpu]
+    env:
+      CUDA_ARCH: ${{ inputs.CUDA_ARCH }}
     strategy:
       matrix:
         component: ${{ fromJSON(needs.setup-components.outputs.components) }}
@@ -87,9 +95,15 @@ jobs:
 
       - name: Build image
         run: |
+          if [[ "${{ matrix.component }}" == "circuit-prover-gpu" ]]; then
+            EXTRA_BUILD_ARGS="--build-arg CUDA_ARCH=${{ env.CUDA_ARCH }}"
+          fi
+
           docker buildx build \
             -t ${{ matrix.component }}:${{ env.DOCKER_TAG }} \
-            -f docker/${{ matrix.component }}/Dockerfile .
+            -f docker/${{ matrix.component }}/Dockerfile \
+            $EXTRA_BUILD_ARGS \
+            .
 
       - name: Publish image to registry
         run: |
