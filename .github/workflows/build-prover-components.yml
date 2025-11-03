@@ -38,7 +38,7 @@ jobs:
     steps:
       - id: set-components
         run: |
-          ALL='["witness-generator","circuit-prover-gpu","prover-fri-gateway","prover-job-monitor","proof-fri-gpu-compressor"]'
+          ALL='["witness-generator","circuit-prover-gpu","prover-fri-gateway","prover-job-monitor","proof-fri-gpu-compressor", "prover-autoscaler"]'
           
           if [ "${{ github.event.inputs.component }}" = "all" ]; then
             echo "components=$ALL" >> $GITHUB_OUTPUT
