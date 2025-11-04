@@ -15,7 +15,7 @@ use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::{
-    block::{BlockGasCount, L1BatchHeader, L1BatchTreeData, L2BlockHasher, L2BlockHeader},
+    block::{L1BatchHeader, L1BatchTreeData, L2BlockHasher, L2BlockHeader, UnsealedL1BatchHeader},
     btc_block::ViaBtcL1BlockDetails,
     btc_inscription_operations::ViaBtcInscriptionRequestType,
     commitment::{L1BatchCommitmentArtifacts, L1BatchMetaParameters, L1BatchMetadata},
@@ -53,6 +53,7 @@ pub fn create_l1_batch(number: u32) -> L1BatchHeader {
         BaseSystemContractsHashes {
             bootloader: H256::from_str(BOOTLOADER_CODE_HASH_TEST).unwrap(),
             default_aa: H256::from_str(DEFAULT_AA_CODE_HASH_TEST).unwrap(),
+            evm_emulator: None,
         },
         ProtocolVersionId::latest(),
     );
@@ -85,6 +86,7 @@ pub fn default_l1_batch_metadata() -> L1BatchMetadata {
             bootloader_code_hash: H256::from_str(BOOTLOADER_CODE_HASH_TEST).unwrap(),
             default_aa_code_hash: H256::from_str(DEFAULT_AA_CODE_HASH_TEST).unwrap(),
             protocol_version: Some(ProtocolVersionId::latest()),
+            evm_emulator_code_hash: None,
         },
         aux_data_hash: H256::default(),
         meta_parameters_hash: H256::default(),
@@ -92,6 +94,10 @@ pub fn default_l1_batch_metadata() -> L1BatchMetadata {
         events_queue_commitment: Some(H256::zero()),
         bootloader_initial_content_commitment: Some(H256::zero()),
         state_diffs_compressed: vec![],
+        state_diff_hash: Some(H256::default()),
+        aggregation_root: None,
+        da_inclusion_data: None,
+        local_root: None,
     }
 }
 
@@ -157,7 +163,7 @@ impl ViaAggregatorTest {
         let timestamp = Utc::now().timestamp() as u64;
         let protocol_version = zksync_types::ProtocolVersion {
             l1_verifier_config: L1VerifierConfig {
-                recursion_scheduler_level_vk_hash: H256::random(),
+                snark_wrapper_vk_hash: H256::random(),
             },
             base_system_contracts_hashes,
             timestamp,
@@ -221,7 +227,7 @@ impl ViaAggregatorTest {
 
         self.storage
             .via_data_availability_dal()
-            .insert_l1_batch_da(header.number, "blob_id", time)
+            .insert_l1_batch_da(header.number, "blob_id", time, 0)
             .await
             .expect("insert_l1_batch_da");
 
@@ -229,7 +235,7 @@ impl ViaAggregatorTest {
 
         self.storage
             .via_data_availability_dal()
-            .save_l1_batch_inclusion_data(header.number, random_slice)
+            .save_l1_batch_inclusion_data(header.number, random_slice, 0)
             .await
             .expect("save_l1_batch_inclusion_data");
     }
@@ -296,7 +302,7 @@ impl ViaAggregatorTest {
         let _ = self
             .storage
             .via_data_availability_dal()
-            .insert_proof_da(batch.number, "blob_id", sent_at)
+            .insert_proof_da(batch.number, "blob_id", sent_at, 0)
             .await;
 
         (inscription_id, inscription_request_history_id as i64)
@@ -331,12 +337,13 @@ impl ViaAggregatorTest {
     }
 
     pub async fn create_genesis_l1_batch(&mut self) -> anyhow::Result<()> {
-        let genesis_l1_batch_header = L1BatchHeader::new(
-            L1BatchNumber(0),
-            0,
-            self.protocol_version.base_system_contracts_hashes,
-            self.protocol_version.version.minor,
-        );
+        let genesis_l1_batch_header = UnsealedL1BatchHeader {
+            number: L1BatchNumber(0),
+            timestamp: 0,
+            protocol_version: Some(self.protocol_version.version.minor),
+            fee_address: Default::default(),
+            fee_input: BatchFeeInput::l1_pegged(0, 0),
+        };
 
         let genesis_l2_block_header = L2BlockHeader {
             number: L2BlockNumber(0),
@@ -353,6 +360,7 @@ impl ViaAggregatorTest {
             virtual_blocks: 0,
             gas_limit: 0,
             logs_bloom: Bloom::zero(),
+            pubdata_params: Default::default(),
         };
 
         let mut transaction = self.storage.start_transaction().await?;
@@ -363,14 +371,7 @@ impl ViaAggregatorTest {
             .await?;
         transaction
             .blocks_dal()
-            .insert_l1_batch(
-                &genesis_l1_batch_header,
-                &[],
-                BlockGasCount::default(),
-                &[],
-                &[],
-                Default::default(),
-            )
+            .insert_l1_batch(genesis_l1_batch_header)
             .await?;
         transaction
             .blocks_dal()
