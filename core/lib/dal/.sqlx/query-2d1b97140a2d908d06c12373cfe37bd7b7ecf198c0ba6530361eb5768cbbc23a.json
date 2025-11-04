@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                1 AS cnt\n            FROM\n                via_data_availability\n            WHERE\n                l1_batch_number = $1\n                AND is_proof = $2\n                AND inclusion_data IS NULL\n            LIMIT\n            1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cnt",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2d1b97140a2d908d06c12373cfe37bd7b7ecf198c0ba6530361eb5768cbbc23a"
+}

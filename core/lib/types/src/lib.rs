@@ -60,6 +60,7 @@ pub mod transaction_request;
 pub mod utils;
 pub mod via_bootstrap;
 pub mod via_btc_sender;
+pub mod via_da_dispatcher;
 pub mod via_protocol_upgrade;
 pub mod via_utils;
 pub mod via_verifier_btc_inscription_operations;

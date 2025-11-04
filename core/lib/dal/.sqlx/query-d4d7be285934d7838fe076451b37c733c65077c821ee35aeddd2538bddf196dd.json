@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                l1_batch_number,\n                blob_id,\n                inclusion_data,\n                sent_at\n            FROM\n                via_data_availability\n            WHERE\n                inclusion_data IS NOT NULL\n                AND is_proof = FALSE\n                AND l1_batch_number = $1\n            LIMIT\n                1\n            ",
+  "query": "\n            SELECT\n                l1_batch_number,\n                blob_id,\n                inclusion_data,\n                sent_at,\n                index\n            FROM\n                via_data_availability\n            WHERE\n                inclusion_data IS NOT NULL\n                AND is_proof = FALSE\n                AND l1_batch_number = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "sent_at",
         "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 4,
+        "name": "index",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -33,8 +38,9 @@
       false,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "2108acea7492e6704849a80b866e380dd27b78499c7cef2a267147c7328263fb"
+  "hash": "d4d7be285934d7838fe076451b37c733c65077c821ee35aeddd2538bddf196dd"
 }

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT ON (l1_batch_number)\n                l1_batch_number,\n                proof_blob_url\n            FROM (\n                SELECT\n                    pgd.l1_batch_number,\n                    pgd.proof_blob_url,\n                    COALESCE(\n                        (SELECT MAX(vda.index)\n                        FROM via_data_availability vda\n                        WHERE vda.l1_batch_number = pgd.l1_batch_number\n                        AND vda.is_proof = FALSE\n                        AND vda.blob_id IS NOT NULL),\n                        0\n                    ) AS max_index\n                FROM\n                    proof_generation_details pgd\n                WHERE\n                    pgd.status = 'generated'\n                    AND pgd.proof_blob_url IS NOT NULL\n                    AND EXISTS (\n                        SELECT 1\n                        FROM via_data_availability\n                        WHERE l1_batch_number = pgd.l1_batch_number\n                        AND is_proof = FALSE\n                        AND blob_id IS NOT NULL\n                    )\n                    AND NOT EXISTS (\n                        SELECT 1\n                        FROM via_data_availability\n                        WHERE l1_batch_number = pgd.l1_batch_number\n                        AND is_proof = TRUE\n                        AND blob_id IS NOT NULL\n                    )\n            ) subquery\n            ORDER BY\n                l1_batch_number ASC,\n                max_index DESC\n            LIMIT $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "proof_blob_url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "6d5941f780fdcb0ce6f4e2aa100bdffaadcf917bb46e3bad6772fa2de30bd2d1"
+}

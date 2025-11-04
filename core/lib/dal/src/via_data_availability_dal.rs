@@ -9,7 +9,7 @@ use zksync_types::{
 };
 
 use crate::{
-    models::storage_data_availability::{L1BatchDA, ProofDA, StorageDABlob},
+    models::storage_data_availability::{L1BatchDA, ProofDA, ViaStorageDABlob},
     Core, CoreDal,
 };
 
@@ -28,18 +28,20 @@ impl ViaDataAvailabilityDal<'_, '_> {
         number: L1BatchNumber,
         blob_id: &str,
         sent_at: chrono::NaiveDateTime,
+        index: i32,
     ) -> DalResult<()> {
         let update_result = sqlx::query!(
             r#"
             INSERT INTO
             via_data_availability (
-                l1_batch_number, is_proof, blob_id, sent_at, created_at, updated_at
+                l1_batch_number, is_proof, index, blob_id, sent_at, created_at, updated_at
             )
             VALUES
-            ($1, FALSE, $2, $3, NOW(), NOW())
+            ($1, FALSE, $2, $3, $4, NOW(), NOW())
             ON CONFLICT DO NOTHING
             "#,
             i64::from(number.0),
+            index,
             blob_id,
             sent_at,
         )
@@ -97,18 +99,20 @@ impl ViaDataAvailabilityDal<'_, '_> {
         number: L1BatchNumber,
         blob_id: &str,
         sent_at: chrono::NaiveDateTime,
+        index: i32,
     ) -> DalResult<()> {
         sqlx::query!(
             r#"
             INSERT INTO
             via_data_availability (
-                l1_batch_number, is_proof, blob_id, sent_at, created_at, updated_at
+                l1_batch_number, is_proof, index, blob_id, sent_at, created_at, updated_at
             )
             VALUES
-            ($1, TRUE, $2, $3, NOW(), NOW())
+            ($1, TRUE, $2, $3, $4, NOW(), NOW())
             ON CONFLICT DO NOTHING
             "#,
             i64::from(number.0),
+            index,
             blob_id,
             sent_at,
         )
@@ -130,6 +134,7 @@ impl ViaDataAvailabilityDal<'_, '_> {
         &mut self,
         number: L1BatchNumber,
         da_inclusion_data: &[u8],
+        index: i32,
     ) -> DalResult<()> {
         let update_result = sqlx::query!(
             r#"
@@ -140,10 +145,12 @@ impl ViaDataAvailabilityDal<'_, '_> {
             WHERE
                 l1_batch_number = $2
                 AND is_proof = FALSE
+                AND index = $3
                 AND inclusion_data IS NULL
             "#,
             da_inclusion_data,
             i64::from(number.0),
+            index,
         )
         .instrument("save_l1_batch_inclusion_data")
         .with_arg("number", &number)
@@ -166,9 +173,11 @@ impl ViaDataAvailabilityDal<'_, '_> {
                     via_data_availability
                 WHERE
                     l1_batch_number = $1
+                    AND index = $2
                     AND is_proof = FALSE
                 "#,
                 i64::from(number.0),
+                index,
             );
 
             let matched: Option<Vec<u8>> = instrumentation
@@ -196,6 +205,7 @@ impl ViaDataAvailabilityDal<'_, '_> {
         &mut self,
         number: L1BatchNumber,
         proof_inclusion_data: &[u8],
+        index: i32,
     ) -> DalResult<()> {
         let update_result = sqlx::query!(
             r#"
@@ -206,10 +216,12 @@ impl ViaDataAvailabilityDal<'_, '_> {
             WHERE
                 l1_batch_number = $2
                 AND is_proof = TRUE
+                AND index = $3
                 AND inclusion_data IS NULL
             "#,
             proof_inclusion_data,
             i64::from(number.0),
+            index,
         )
         .instrument("save_proof_inclusion_data")
         .with_arg("number", &number)
@@ -235,8 +247,10 @@ impl ViaDataAvailabilityDal<'_, '_> {
                 WHERE
                     l1_batch_number = $1
                     AND is_proof = TRUE
+                    AND index = $2
                 "#,
                 i64::from(number.0),
+                index,
             );
 
             let matched: Option<Vec<u8>> = instrumentation
@@ -263,20 +277,22 @@ impl ViaDataAvailabilityDal<'_, '_> {
         &mut self,
     ) -> DalResult<Option<DataAvailabilityBlob>> {
         let result = sqlx::query_as!(
-            StorageDABlob,
+            ViaStorageDABlob,
             r#"
             SELECT
                 l1_batch_number,
                 blob_id,
                 inclusion_data,
-                sent_at
+                sent_at,
+                index
             FROM
                 via_data_availability
             WHERE
                 inclusion_data IS NULL
                 AND is_proof = FALSE
             ORDER BY
-                l1_batch_number ASC
+                l1_batch_number ASC,
+                index ASC
             LIMIT
                 1
             "#,
@@ -294,20 +310,22 @@ impl ViaDataAvailabilityDal<'_, '_> {
         &mut self,
     ) -> DalResult<Option<DataAvailabilityBlob>> {
         Ok(sqlx::query_as!(
-            StorageDABlob,
+            ViaStorageDABlob,
             r#"
             SELECT
                 l1_batch_number,
                 blob_id,
                 inclusion_data,
-                sent_at
+                sent_at,
+                index
             FROM
                 via_data_availability
             WHERE
                 inclusion_data IS NULL
                 AND is_proof = TRUE
             ORDER BY
-                l1_batch_number
+                l1_batch_number ASC,
+                index ASC
             LIMIT
                 1
             "#,
@@ -326,7 +344,7 @@ impl ViaDataAvailabilityDal<'_, '_> {
     ) -> DalResult<Vec<L1BatchDA>> {
         let rows = sqlx::query!(
             r#"
-            SELECT
+            SELECT DISTINCT ON (l1_batches.number)
                 number,
                 pubdata_input
             FROM
@@ -344,7 +362,8 @@ impl ViaDataAvailabilityDal<'_, '_> {
                 AND via_data_availability.blob_id IS NULL
                 AND pubdata_input IS NOT NULL
             ORDER BY
-                number
+                number ASC,
+                via_data_availability.index DESC
             LIMIT
                 $1
             "#,
@@ -365,44 +384,79 @@ impl ViaDataAvailabilityDal<'_, '_> {
             .collect())
     }
 
+    pub async fn is_batch_inclusion_done(
+        &mut self,
+        l1_batch_number: i64,
+        is_proof: bool,
+    ) -> DalResult<bool> {
+        let result = sqlx::query!(
+            r#"
+            SELECT
+                1 AS cnt
+            FROM
+                via_data_availability
+            WHERE
+                l1_batch_number = $1
+                AND is_proof = $2
+                AND inclusion_data IS NULL
+            LIMIT
+            1
+        "#,
+            l1_batch_number,
+            is_proof
+        )
+        .instrument("is_batch_inclusion_done")
+        .fetch_optional(self.storage)
+        .await?;
+
+        Ok(result.is_none())
+    }
+
     pub async fn get_ready_for_da_dispatch_proofs(
         &mut self,
         limit: usize,
     ) -> DalResult<Vec<ProofDA>> {
         let rows = sqlx::query!(
             r#"
-            SELECT
-                proof_generation_details.l1_batch_number,
-                proof_generation_details.proof_blob_url
-            FROM
-                proof_generation_details
-            WHERE
-                proof_generation_details.status = 'generated'
-                AND proof_generation_details.proof_blob_url IS NOT NULL
-                AND EXISTS (
-                    SELECT
-                        1
-                    FROM
-                        via_data_availability
-                    WHERE
-                        l1_batch_number = proof_generation_details.l1_batch_number
+            SELECT DISTINCT ON (l1_batch_number)
+                l1_batch_number,
+                proof_blob_url
+            FROM (
+                SELECT
+                    pgd.l1_batch_number,
+                    pgd.proof_blob_url,
+                    COALESCE(
+                        (SELECT MAX(vda.index)
+                        FROM via_data_availability vda
+                        WHERE vda.l1_batch_number = pgd.l1_batch_number
+                        AND vda.is_proof = FALSE
+                        AND vda.blob_id IS NOT NULL),
+                        0
+                    ) AS max_index
+                FROM
+                    proof_generation_details pgd
+                WHERE
+                    pgd.status = 'generated'
+                    AND pgd.proof_blob_url IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM via_data_availability
+                        WHERE l1_batch_number = pgd.l1_batch_number
                         AND is_proof = FALSE
                         AND blob_id IS NOT NULL
-                )
-                AND NOT EXISTS (
-                    SELECT
-                        1
-                    FROM
-                        via_data_availability
-                    WHERE
-                        l1_batch_number = proof_generation_details.l1_batch_number
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM via_data_availability
+                        WHERE l1_batch_number = pgd.l1_batch_number
                         AND is_proof = TRUE
                         AND blob_id IS NOT NULL
-                )
+                    )
+            ) subquery
             ORDER BY
-                proof_generation_details.l1_batch_number
-            LIMIT
-                $1
+                l1_batch_number ASC,
+                max_index DESC
+            LIMIT $1
             "#,
             limit as i64,
         )
@@ -426,7 +480,7 @@ impl ViaDataAvailabilityDal<'_, '_> {
     ) -> DalResult<Vec<L1BatchNumber>> {
         let rows = sqlx::query!(
             r#"
-            SELECT
+            SELECT DISTINCT ON (vda.l1_batch_number)
                 vda.l1_batch_number
             FROM
                 via_data_availability vda
@@ -445,6 +499,9 @@ impl ViaDataAvailabilityDal<'_, '_> {
                         AND vda2.blob_id IS NOT NULL
                         AND vda2.l1_batch_number = vda.l1_batch_number
                 )
+            ORDER BY
+                vda.l1_batch_number,
+                vda.index DESC
             LIMIT
                 $1
             "#,
@@ -469,31 +526,29 @@ impl ViaDataAvailabilityDal<'_, '_> {
     pub async fn get_da_blob(
         &mut self,
         l1_batch_number: L1BatchNumber,
-    ) -> DalResult<Option<DataAvailabilityBlob>> {
-        let result = sqlx::query_as!(
-            StorageDABlob,
+    ) -> DalResult<Vec<DataAvailabilityBlob>> {
+        let rows = sqlx::query_as!(
+            ViaStorageDABlob,
             r#"
             SELECT
                 l1_batch_number,
                 blob_id,
                 inclusion_data,
-                sent_at
+                sent_at,
+                index
             FROM
                 via_data_availability
             WHERE
                 inclusion_data IS NOT NULL
                 AND is_proof = FALSE
                 AND l1_batch_number = $1
-            LIMIT
-                1
             "#,
             i64::from(l1_batch_number.0)
         )
         .instrument("get_da_blob")
-        .fetch_optional(self.storage)
+        .fetch_all(self.storage)
         .await?;
-
-        Ok(result.map(DataAvailabilityBlob::from))
+        Ok(rows.into_iter().map(DataAvailabilityBlob::from).collect())
     }
 
     /// Returns the data availability blob by blob_id.
