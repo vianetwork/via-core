@@ -1,11 +1,11 @@
 use std::fmt::Debug;
-use zksync_types::web3::keccak256;
 
 use async_trait::async_trait;
 use zksync_da_client::{
     types::{DAError, DispatchResponse, InclusionData},
     DataAvailabilityClient,
 };
+use zksync_types::web3::keccak256;
 
 /// A fallback DA client that tries the primary client first (typically Celestia),
 /// and falls back to a secondary client (typically External Node) if the primary fails.

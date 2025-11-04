@@ -66,7 +66,9 @@ impl ViaGasAdjuster {
                 .await?;
 
             self.base_fee_statistics.add_samples(fee_history);
-            METRICS.l1_gas_price.set(self.base_fee_statistics.median() as usize);
+            METRICS
+                .l1_gas_price
+                .set(self.base_fee_statistics.median() as usize);
         }
         Ok(())
     }
