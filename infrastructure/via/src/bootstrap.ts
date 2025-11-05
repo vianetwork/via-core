@@ -77,18 +77,17 @@ export async function systemBootstrapping(
     const file = await fs.readFile(genesisPath, 'utf-8');
     const genesisData = parse(file);
 
-    const bridgeWallet = JSON.parse(readFileSync(bridgeWalletPath, "utf-8"))
+    const bridgeWallet = JSON.parse(readFileSync(bridgeWalletPath, 'utf-8'));
 
-    const merkleRoot = bridgeWallet['merkle_root']
-    const bridgeAddress = bridgeWallet['taproot_address']
-    const bridgeVerifiersPubKeys = bridgeWallet['public_keys'].join(',')
-
+    const merkleRoot = bridgeWallet['merkle_root'];
+    const bridgeAddress = bridgeWallet['taproot_address'];
+    const bridgeVerifiersPubKeys = bridgeWallet['public_keys'].join(',');
 
     const default_aa_hash = genesisData['default_aa_hash'];
     const bootloader_hash = genesisData['bootloader_hash'];
     const snark_wrapper_vk_hash = genesisData['prover']['snark_wrapper_vk_hash'];
     const evm_emulator_hash = '0x0000000000000000000000000000000000000000000000000000000000000000';
-    const protocolVersion = genesisData['genesis_protocol_semantic_version']
+    const protocolVersion = genesisData['genesis_protocol_semantic_version'];
 
     let cmd = `cargo run --example bootstrap ${network} ${rpcUrl} ${rpcUsername} ${rpcPassword} SystemBootstrapping ${privateKey} `;
     cmd += `${startBlock} ${protocolVersion} ${bootloader_hash} ${default_aa_hash} ${snark_wrapper_vk_hash} ${evm_emulator_hash} `;

@@ -400,8 +400,8 @@ impl ViaDataAvailabilityDal<'_, '_> {
                 AND is_proof = $2
                 AND inclusion_data IS NULL
             LIMIT
-            1
-        "#,
+                1
+            "#,
             l1_batch_number,
             is_proof
         )
@@ -426,11 +426,14 @@ impl ViaDataAvailabilityDal<'_, '_> {
                     pgd.l1_batch_number,
                     pgd.proof_blob_url,
                     COALESCE(
-                        (SELECT MAX(vda.index)
-                        FROM via_data_availability vda
-                        WHERE vda.l1_batch_number = pgd.l1_batch_number
-                        AND vda.is_proof = FALSE
-                        AND vda.blob_id IS NOT NULL),
+                        (
+                            SELECT MAX(vda.index)
+                            FROM via_data_availability vda
+                            WHERE
+                                vda.l1_batch_number = pgd.l1_batch_number
+                                AND vda.is_proof = FALSE
+                                AND vda.blob_id IS NOT NULL
+                        ),
                         0
                     ) AS max_index
                 FROM
@@ -441,16 +444,18 @@ impl ViaDataAvailabilityDal<'_, '_> {
                     AND EXISTS (
                         SELECT 1
                         FROM via_data_availability
-                        WHERE l1_batch_number = pgd.l1_batch_number
-                        AND is_proof = FALSE
-                        AND blob_id IS NOT NULL
+                        WHERE
+                            l1_batch_number = pgd.l1_batch_number
+                            AND is_proof = FALSE
+                            AND blob_id IS NOT NULL
                     )
                     AND NOT EXISTS (
                         SELECT 1
                         FROM via_data_availability
-                        WHERE l1_batch_number = pgd.l1_batch_number
-                        AND is_proof = TRUE
-                        AND blob_id IS NOT NULL
+                        WHERE
+                            l1_batch_number = pgd.l1_batch_number
+                            AND is_proof = TRUE
+                            AND blob_id IS NOT NULL
                     )
             ) subquery
             ORDER BY
