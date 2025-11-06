@@ -95,7 +95,7 @@ jobs:
 
       - name: Build image
         run: |
-          if [[ "${{ matrix.component }}" == "circuit-prover-gpu" ]]; then
+          if [[ "${{ matrix.component }}" == "circuit-prover-gpu" || "${{ matrix.component }}" == "proof-fri-gpu-compressor" ]]; then
             EXTRA_BUILD_ARGS="--build-arg CUDA_ARCH=${{ env.CUDA_ARCH }}"
           fi
 
