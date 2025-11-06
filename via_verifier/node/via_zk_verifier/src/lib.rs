@@ -169,7 +169,12 @@ impl ViaVerifier {
                 tracing::info!("Successfully verified the op priority id");
 
                 let mut prover_batch_data =
-                    decode_prove_batch_data(protocol_version.minor, &proof_blob.data)?;
+                    decode_prove_batch_data(protocol_version.minor, &proof_blob.data)
+                        .with_context(|| {
+                            format!(
+                                "Failed to decode prove batch data for l1 batch {l1_batch_number}"
+                            )
+                        })?;
 
                 // Check if proofs vector is empty
                 let should_fetch_proof = match &prover_batch_data {
@@ -179,6 +184,8 @@ impl ViaVerifier {
 
                 // Fetch the proof from DA in the case of using EN as DA provider.
                 if should_fetch_proof {
+                    tracing::info!("Proof missing from DA, fetching from blob store");
+
                     match &mut prover_batch_data {
                         ProveBatchData::V27(data) => {
                             let proof = self
@@ -202,6 +209,12 @@ impl ViaVerifier {
                 }
 
                 is_verified = verify_proof(prover_batch_data).await?;
+
+                tracing::info!(
+                    "Proof verification result for l1 batch {}: {}",
+                    l1_batch_number,
+                    is_verified
+                );
             }
             let mut transaction = storage.start_transaction().await?;
 
@@ -258,6 +271,8 @@ impl ViaVerifier {
             transaction.commit().await?;
 
             latency.observe();
+
+            tracing::info!("Zk verification finished");
         }
 
         Ok(())
