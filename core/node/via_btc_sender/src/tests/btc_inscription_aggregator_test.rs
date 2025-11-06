@@ -64,13 +64,13 @@ mod tests {
             let _ = aggregator_test
                 .storage
                 .via_data_availability_dal()
-                .insert_l1_batch_da(header.number, "blob_id", sent_at)
+                .insert_l1_batch_da(header.number, "blob_id", sent_at, 0)
                 .await;
 
             let _ = aggregator_test
                 .storage
                 .via_data_availability_dal()
-                .insert_proof_da(header.number, "blob_id", sent_at)
+                .insert_proof_da(header.number, "blob_id", sent_at, 0)
                 .await;
         }
 
@@ -244,6 +244,7 @@ mod tests {
         header.base_system_contracts_hashes = BaseSystemContractsHashes {
             bootloader: H256::from_str(BOOTLOADER_CODE_HASH_TEST).unwrap(),
             default_aa: H256::from_str(DEFAULT_AA_CODE_HASH_TEST).unwrap(),
+            evm_emulator: None,
         };
         header.protocol_version = Some(ProtocolVersionId::latest());
 

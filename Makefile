@@ -190,7 +190,7 @@ da-proxy:
 	@echo "------------------------------------------------------------------------------------"
 	@echo "$(YELLOW)Start da-proxy...$(RESET)"
 	@echo "------------------------------------------------------------------------------------"
-	docker compose -f docker-compose-via.yml up -d da-proxy
+	docker compose -f docker-compose-via.yml up -d da-proxy --build
 
 # Run 'via btc-explorer'
 .PHONY: btc-explorer

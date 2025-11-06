@@ -107,7 +107,7 @@ impl ViaBlocksDal<'_, '_> {
         let batches = sqlx::query_as!(
             ViaBtcStorageL1BlockDetails,
             r#"
-            SELECT
+            SELECT DISTINCT ON (l1_batches.number)
                 l1_batches.number,
                 l1_batches.timestamp,
                 l1_batches.hash,
@@ -143,7 +143,7 @@ impl ViaBlocksDal<'_, '_> {
                 AND bootloader_initial_content_commitment IS NOT NULL
                 AND via_data_availability.inclusion_data IS NOT NULL
             ORDER BY
-                number
+                number, via_data_availability.index DESC
             LIMIT
                 $4
             "#,
@@ -186,7 +186,7 @@ impl ViaBlocksDal<'_, '_> {
                     via_btc_inscriptions_request_history
             )
             
-            SELECT
+            SELECT DISTINCT ON (l1_batches.number)
                 l1_batches.number,
                 l1_batches.timestamp,
                 l1_batches.hash,
@@ -224,7 +224,7 @@ impl ViaBlocksDal<'_, '_> {
                 AND via_btc_inscriptions_request.confirmed_inscriptions_request_history_id IS NOT NULL
                 AND via_data_availability.is_proof = TRUE
             ORDER BY
-                number
+                number, via_data_availability.index DESC
             LIMIT
                 $1
             "#,

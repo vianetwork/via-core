@@ -12327,6 +12327,7 @@ dependencies = [
  "bincode",
  "chrono",
  "futures 0.3.31",
+ "hex",
  "rand 0.8.5",
  "tokio",
  "tracing",

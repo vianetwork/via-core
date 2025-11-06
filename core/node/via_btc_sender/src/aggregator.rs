@@ -67,14 +67,24 @@ impl ViaAggregator {
 
         let ready_for_commit_l1_batches = self.get_ready_for_commit_l1_batches(storage).await?;
 
-        if !ready_for_commit_l1_batches.is_empty() {
-            tracing::debug!(
-                "Found {} l1 batches ready for commit",
-                ready_for_commit_l1_batches.len()
-            );
+        if ready_for_commit_l1_batches.is_empty() {
+            tracing::debug!("There is no batch ready to commit");
+            return Ok(None);
         }
 
         validate_l1_batch_sequence(last_committed_l1_batch, &ready_for_commit_l1_batches)?;
+
+        if !storage
+            .via_data_availability_dal()
+            .is_batch_inclusion_done(ready_for_commit_l1_batches[0].number.0 as i64, false)
+            .await?
+        {
+            tracing::info!(
+                "Pub data batch {} is not included yet, waiting for inclusion",
+                ready_for_commit_l1_batches[0].number.0
+            );
+            return Ok(None);
+        }
 
         if let Some(l1_batches) = extract_ready_subrange(
             &mut self.commit_l1_block_criteria,
@@ -106,7 +116,24 @@ impl ViaAggregator {
             )
             .await?;
 
+        if ready_for_commit_proof_l1_batches.is_empty() {
+            tracing::debug!("There is no batch ready to prove");
+            return Ok(None);
+        }
+
         validate_l1_batch_sequence(last_committed_proof, &ready_for_commit_proof_l1_batches)?;
+
+        if !storage
+            .via_data_availability_dal()
+            .is_batch_inclusion_done(ready_for_commit_proof_l1_batches[0].number.0 as i64, true)
+            .await?
+        {
+            tracing::info!(
+                "Proof batch {} is not included yet, waiting for inclusion",
+                ready_for_commit_proof_l1_batches[0].number.0
+            );
+            return Ok(None);
+        }
 
         if let Some(l1_batches) = extract_ready_subrange(
             &mut self.commit_proof_criteria,

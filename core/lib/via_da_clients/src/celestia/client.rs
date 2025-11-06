@@ -11,7 +11,10 @@ use hex;
 use zksync_config::configs::via_secrets::ViaDASecrets;
 pub use zksync_config::ViaCelestiaConfig;
 pub use zksync_da_client::{types, DataAvailabilityClient};
-use zksync_types::url::SensitiveUrl;
+use zksync_types::{
+    url::SensitiveUrl,
+    via_da_dispatcher::{deserialize_blob_ids, ViaDaBlob},
+};
 
 /// If no value is provided for GasPrice, then this will be serialized to `-1.0` which means the node that
 /// receives the request will calculate the GasPrice for given blob.
@@ -49,6 +52,31 @@ impl CelestiaClient {
             namespace,
         })
     }
+
+    fn parse_blob_id(&self, blob_id: &str) -> anyhow::Result<(Commitment, u64)> {
+        // [8]byte block height ++ [32]byte commitment
+        let blob_id_bytes = hex::decode(blob_id).map_err(|error| types::DAError {
+            error: error.into(),
+            is_retriable: false,
+        })?;
+
+        let block_height =
+            u64::from_be_bytes(blob_id_bytes[..8].try_into().map_err(|_| types::DAError {
+                error: anyhow!("Failed to convert block height"),
+                is_retriable: false,
+            })?);
+
+        let commitment_data: [u8; 32] =
+            blob_id_bytes[8..40]
+                .try_into()
+                .map_err(|_| types::DAError {
+                    error: anyhow!("Failed to convert commitment"),
+                    is_retriable: false,
+                })?;
+        let commitment = Commitment(commitment_data);
+
+        Ok((commitment, block_height))
+    }
 }
 
 #[async_trait]
@@ -82,7 +110,7 @@ impl DataAvailabilityClient for CelestiaClient {
             ..Default::default()
         };
 
-        let block_hight = self
+        let block_height = self
             .inner
             .blob_submit(&[blob], tx_config)
             .await
@@ -93,7 +121,7 @@ impl DataAvailabilityClient for CelestiaClient {
 
         // [8]byte block height ++ [32]byte commitment
         let mut blob_id = Vec::with_capacity(8 + 32);
-        blob_id.extend_from_slice(&block_hight.to_be_bytes());
+        blob_id.extend_from_slice(&block_height.to_be_bytes());
         blob_id.extend_from_slice(&commitment_result.0);
 
         // Convert blob_id to a hex string
@@ -108,26 +136,12 @@ impl DataAvailabilityClient for CelestiaClient {
         &self,
         blob_id: &str,
     ) -> Result<Option<types::InclusionData>, types::DAError> {
-        // [8]byte block height ++ [32]byte commitment
-        let blob_id_bytes = hex::decode(blob_id).map_err(|error| types::DAError {
-            error: error.into(),
-            is_retriable: false,
-        })?;
-
-        let block_height =
-            u64::from_be_bytes(blob_id_bytes[..8].try_into().map_err(|_| types::DAError {
-                error: anyhow!("Failed to convert block height"),
-                is_retriable: false,
-            })?);
-
-        let commitment_data: [u8; 32] =
-            blob_id_bytes[8..40]
-                .try_into()
-                .map_err(|_| types::DAError {
-                    error: anyhow!("Failed to convert commitment"),
-                    is_retriable: false,
+        let (commitment, block_height) =
+            self.parse_blob_id(&blob_id)
+                .map_err(|error| types::DAError {
+                    error: error.into(),
+                    is_retriable: true,
                 })?;
-        let commitment = Commitment(commitment_data);
 
         let blob = self
             .inner
@@ -138,7 +152,56 @@ impl DataAvailabilityClient for CelestiaClient {
                 is_retriable: true,
             })?;
 
-        let inclusion_data = types::InclusionData { data: blob.data };
+        let data = match ViaDaBlob::from_bytes(&blob.data) {
+            Some(blob) => {
+                if blob.chunks == 1 {
+                    blob.data
+                } else {
+                    let blob_ids: Vec<String> =
+                        deserialize_blob_ids(&blob.data).map_err(|_| types::DAError {
+                            error: anyhow!("Failed to deserialize blob ids"),
+                            is_retriable: false,
+                        })?;
+                    if blob_ids.len() != blob.chunks {
+                        return Err(types::DAError {
+                            error: anyhow!(
+                                "Mismatch, blob ids len [{}] != chunk size [{}]",
+                                blob_ids.len(),
+                                blob.chunks
+                            ),
+                            is_retriable: false,
+                        });
+                    }
+
+                    let mut batch_blob = vec![];
+
+                    for blob_id in blob_ids {
+                        let (commitment, block_height) =
+                            self.parse_blob_id(&blob_id)
+                                .map_err(|error| types::DAError {
+                                    error: error.into(),
+                                    is_retriable: true,
+                                })?;
+
+                        let blob = self
+                            .inner
+                            .blob_get(block_height, self.namespace, commitment)
+                            .await
+                            .map_err(|error| types::DAError {
+                                error: error.into(),
+                                is_retriable: true,
+                            })?;
+
+                        batch_blob.extend_from_slice(&blob.data);
+                    }
+
+                    batch_blob
+                }
+            }
+            None => blob.data,
+        };
+
+        let inclusion_data = types::InclusionData { data };
 
         Ok(Some(inclusion_data))
     }

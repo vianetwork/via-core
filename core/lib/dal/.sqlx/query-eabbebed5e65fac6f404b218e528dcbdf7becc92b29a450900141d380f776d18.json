@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n            via_data_availability (\n                l1_batch_number, is_proof, index, blob_id, sent_at, created_at, updated_at\n            )\n            VALUES\n            ($1, TRUE, $2, $3, $4, NOW(), NOW())\n            ON CONFLICT DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eabbebed5e65fac6f404b218e528dcbdf7becc92b29a450900141d380f776d18"
+}
