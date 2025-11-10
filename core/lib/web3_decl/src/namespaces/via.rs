@@ -21,8 +21,8 @@ pub struct DaBlobData {
     rpc(client, namespace = "via", client_bounds(Self: ForWeb3Network<Net = L2>))
 )]
 pub trait ViaNamespace {
-    #[method(name = "getBridgeAddress")]
-    async fn get_bridge_address(&self) -> RpcResult<String>;
+    // #[method(name = "getBridgeAddress")]
+    // async fn get_bridge_address(&self) -> RpcResult<String>;
 
     #[method(name = "getBitcoinNetwork")]
     async fn get_bitcoin_network(&self) -> RpcResult<Network>;
