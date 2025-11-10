@@ -289,6 +289,7 @@ async fn test_http_server(test: impl HttpTest) {
         &contracts_config,
         &genesis,
         Some(bitcoin::Network::Regtest),
+        false,
     );
     api_config.filters_disabled = test.filters_disabled();
     let mut server_builder = TestServerBuilder::new(pool.clone(), api_config)

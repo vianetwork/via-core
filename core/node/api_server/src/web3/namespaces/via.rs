@@ -1,7 +1,5 @@
-use anyhow::anyhow;
 use bitcoin::Network;
 use zksync_dal::{CoreDal, DalError};
-use zksync_types::via_wallet::SystemWallets;
 use zksync_web3_decl::{error::Web3Error, namespaces::DaBlobData};
 
 use crate::web3::{backend_jsonrpsee::MethodTracer, RpcState};
