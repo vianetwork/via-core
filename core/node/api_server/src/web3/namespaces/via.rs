@@ -20,26 +20,26 @@ impl ViaNamespace {
         &self.state.current_method
     }
 
-    pub async fn get_bridge_address_impl(&self) -> Result<String, Web3Error> {
-        if let Some(system_wallets_raw) = self
-            .state
-            .connection_pool
-            .connection()
-            .await
-            .map_err(DalError::generalize)?
-            .via_wallet_dal()
-            .get_system_wallets_raw(i64::MAX)
-            .await
-            .map_err(DalError::generalize)?
-        {
-            let system_wallets = SystemWallets::try_from(system_wallets_raw)?;
-            return Ok(system_wallets.bridge.to_string());
-        }
+    // pub async fn get_bridge_address_impl(&self) -> Result<String, Web3Error> {
+    //     if let Some(system_wallets_raw) = self
+    //         .state
+    //         .connection_pool
+    //         .connection()
+    //         .await
+    //         .map_err(DalError::generalize)?
+    //         .via_wallet_dal()
+    //         .get_system_wallets_raw(i64::MAX)
+    //         .await
+    //         .map_err(DalError::generalize)?
+    //     {
+    //         let system_wallets = SystemWallets::try_from(system_wallets_raw)?;
+    //         return Ok(system_wallets.bridge.to_string());
+    //     }
 
-        Err(Web3Error::InternalError(anyhow!(
-            "Bridge address not found"
-        )))
-    }
+    //     Err(Web3Error::InternalError(anyhow!(
+    //         "Bridge address not found"
+    //     )))
+    // }
 
     pub fn get_bitcoin_network_impl(&self) -> Network {
         self.state.api_config.via_network
