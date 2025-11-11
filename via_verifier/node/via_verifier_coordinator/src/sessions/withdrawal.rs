@@ -60,7 +60,8 @@ impl ISession for WithdrawalSession {
             .connection_tagged("verifier task")
             .await?;
 
-        let min_value = 0;
+        // Set the minimum amount to withdraw + fee = 660 sats.
+        let min_value = 660;
 
         let no_processed_withdrawals = storage
             .via_withdrawal_dal()
