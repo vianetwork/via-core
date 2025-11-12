@@ -590,6 +590,7 @@ impl ViaNodeBuilder {
                 }
                 ViaComponent::HttpApi => {
                     self = self
+                        .add_gas_adjuster_layer()?
                         .add_l1_gas_layer()?
                         .add_tx_sender_layer()?
                         .add_tree_api_client_layer()?
@@ -598,6 +599,7 @@ impl ViaNodeBuilder {
                 }
                 ViaComponent::WsApi => {
                     self = self
+                        .add_gas_adjuster_layer()?
                         .add_l1_gas_layer()?
                         .add_tx_sender_layer()?
                         .add_tree_api_client_layer()?
