@@ -1,0 +1,193 @@
+{
+  "systemContracts": [
+    {
+      "name": "EmptyContract",
+      "bytecodeHashes": [
+        "0x010000078f32964c38fbd138a0369f4723f07ac6f4919c45ef738c18bf874ccd"
+      ],
+      "address": "0x0000000000000000000000000000000000000000"
+    },
+    {
+      "name": "Ecrecover",
+      "bytecodeHashes": [
+        "0x010000113d6b03e34605f26aa1fc6fb8953561eb55bb5ea192a5a38f7de3053b"
+      ],
+      "address": "0x0000000000000000000000000000000000000001"
+    },
+    {
+      "name": "SHA256",
+      "bytecodeHashes": [
+        "0x010000171e4e61b14feacd43cb555bffa5f194d38117132957708dcef83ac15a"
+      ],
+      "address": "0x0000000000000000000000000000000000000002"
+    },
+    {
+      "name": "EcAdd",
+      "bytecodeHashes": [
+        "0x01000087be6181fcb16bebb0567c58b658eec345822aec1d42d471e84f758b85"
+      ],
+      "address": "0x0000000000000000000000000000000000000006"
+    },
+    {
+      "name": "EcMul",
+      "bytecodeHashes": [
+        "0x010000bd553a916fcda3726f7b6b3ccfc17887166982915ced63abc78ba43b66"
+      ],
+      "address": "0x0000000000000000000000000000000000000007"
+    },
+    {
+      "name": "EcPairing",
+      "bytecodeHashes": [
+        "0x01000f1b5f8dd50a00b502d2663746a49a81a01857b6ee1e1b38c9959142b299"
+      ],
+      "address": "0x0000000000000000000000000000000000000008"
+    },
+    {
+      "name": "EmptyContract",
+      "bytecodeHashes": [
+        "0x010000078f32964c38fbd138a0369f4723f07ac6f4919c45ef738c18bf874ccd"
+      ],
+      "address": "0x0000000000000000000000000000000000008001"
+    },
+    {
+      "name": "AccountCodeStorage",
+      "bytecodeHashes": [
+        "0x0100005d902c8516ab70a71d85c9a9e9a0da506f03a228ff562cd494e496a84f"
+      ],
+      "address": "0x0000000000000000000000000000000000008002"
+    },
+    {
+      "name": "NonceHolder",
+      "bytecodeHashes": [
+        "0x010000d97dafc2bfa52b662e3faad85ade11cc2f051bc4b5f4df4179642140c1"
+      ],
+      "address": "0x0000000000000000000000000000000000008003"
+    },
+    {
+      "name": "KnownCodesStorage",
+      "bytecodeHashes": [
+        "0x0100006f13b5eaac1ee7f13c4516ff7eb2d8d2b2099172ff6598d6770b029f5d"
+      ],
+      "address": "0x0000000000000000000000000000000000008004"
+    },
+    {
+      "name": "ImmutableSimulator",
+      "bytecodeHashes": [
+        "0x010000393ee0cbe8ed21e2d669ff2367c0d49f3c8f2284384da3a399b122106a"
+      ],
+      "address": "0x0000000000000000000000000000000000008005"
+    },
+    {
+      "name": "ContractDeployer",
+      "bytecodeHashes": [
+        "0x010004e5f95fa6656633e8a1164ec25a5012fbd99c3570e49ae192b58491f141"
+      ],
+      "address": "0x0000000000000000000000000000000000008006"
+    },
+    {
+      "name": "L1Messenger",
+      "bytecodeHashes": [
+        "0x010002956d67f45e57abb83fbfbb14018ae69409144417fa09cbf623284bceb6"
+      ],
+      "address": "0x0000000000000000000000000000000000008008"
+    },
+    {
+      "name": "MsgValueSimulator",
+      "bytecodeHashes": [
+        "0x0100005d1c40130f7c5efed6439e08f49e48a517deb60ea61cd848f02f1347a8"
+      ],
+      "address": "0x0000000000000000000000000000000000008009"
+    },
+    {
+      "name": "L2BaseToken",
+      "bytecodeHashes": [
+        "0x010000d17069f2721d1c1bde26e50b5e999a26ef7ed5a6c976457e8e0720e14f"
+      ],
+      "address": "0x000000000000000000000000000000000000800a"
+    },
+    {
+      "name": "SystemContext",
+      "bytecodeHashes": [
+        "0x010001a5fbe9607949646ade074021b147a07542c8c44f61aa92e48ee05f0467"
+      ],
+      "address": "0x000000000000000000000000000000000000800b"
+    },
+    {
+      "name": "BootloaderUtilities",
+      "bytecodeHashes": [
+        "0x010007c7f57391023f962f6a6265048d3db468a010e79e621cc327bbc61fa342"
+      ],
+      "address": "0x000000000000000000000000000000000000800c"
+    },
+    {
+      "name": "EventWriter",
+      "bytecodeHashes": [
+        "0x010000159b30cba9e2096353695b63ca5cbf566416a545a6bcb2ff2e4e672f98"
+      ],
+      "address": "0x000000000000000000000000000000000000800d"
+    },
+    {
+      "name": "Compressor",
+      "bytecodeHashes": [
+        "0x0100014ff0b5ffc81b18aee0ca0603b365e105cabed1ad9bc2979e16b733bcf1"
+      ],
+      "address": "0x000000000000000000000000000000000000800e"
+    },
+    {
+      "name": "ComplexUpgrader",
+      "bytecodeHashes": [
+        "0x0100004dd78729afaa38dbaec6b9e8ddb5393134de8da7f1f9b29fc8a80f6c3a"
+      ],
+      "address": "0x000000000000000000000000000000000000800f"
+    },
+    {
+      "name": "Keccak256",
+      "bytecodeHashes": [
+        "0x0100000ff991d5847f1e9c10c5969d0f03b34a25411ad86d5cb3e0d9c3931e0b"
+      ],
+      "address": "0x0000000000000000000000000000000000008010"
+    },
+    {
+      "name": "CodeOracle",
+      "bytecodeHashes": [
+        "0x01000023d652655672eafbb0adc385bd423a4a59f752a28f3dde16e74fa205e3"
+      ],
+      "address": "0x0000000000000000000000000000000000008012"
+    },
+    {
+      "name": "P256Verify",
+      "bytecodeHashes": [
+        "0x010000116595cfcc96291f95d47ede2ce630f25ccbd7428f00dc7f8135fb565a"
+      ],
+      "address": "0x0000000000000000000000000000000000000100"
+    },
+    {
+      "name": "PubdataChunkPublisher",
+      "bytecodeHashes": [
+        "0x010000474491f4a3b6d8f75667567e1ce86dfe944526fbbd1db49f8593fd26fe"
+      ],
+      "address": "0x0000000000000000000000000000000000008011"
+    },
+    {
+      "name": "Create2Factory",
+      "bytecodeHashes": [
+        "0x01000049355027316a32ad954d838d751f6f754fa8197c78271b1fb5f16aa13f"
+      ],
+      "address": "0x0000000000000000000000000000000000010000"
+    }
+  ],
+  "defaultAA": {
+    "name": "DefaultAccount",
+    "bytecodeHashes": [
+      "0x0100055d4fb8cb4bf017843c74ea924928235a8954b327a1e2a88a7568a04b10"
+    ]
+  },
+  "bootloader": {
+    "name": "Bootloader",
+    "bytecodeHashes": [
+      "0x010008c3be57ae5800e077b6c2056d9d75ad1a7b4f0ce583407961cc6fe0b678"
+    ]
+  },
+  "version": "0.28.0",
+  "recursionSchedulerLevelVkHash": "0x14f97b81e54b35fe673d8708cc1a19e1ea5b5e348e12d31e39824ed4f42bbca2"
+}
