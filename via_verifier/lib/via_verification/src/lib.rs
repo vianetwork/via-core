@@ -14,21 +14,26 @@ pub enum ProveBatchData {
     V28(ProveBatchesV28),
 }
 
+/// Decodes the proof data into the appropriate version. It's possible that the data serialization format changes even within the same version.
 pub fn decode_prove_batch_data(
     protocol_version_id: ProtocolVersionId,
     proof_data: &[u8],
 ) -> anyhow::Result<ProveBatchData> {
-    match protocol_version_id {
-        ProtocolVersionId::Version26 | ProtocolVersionId::Version27 => {
-            let prove_batch: ProveBatchesV27 = bincode::deserialize(proof_data)?;
-            Ok(ProveBatchData::V27(prove_batch))
+    if protocol_version_id <= ProtocolVersionId::Version27 {
+        if let Ok(prove_batch) = bincode::deserialize::<ProveBatchesV27>(proof_data) {
+            tracing::info!("Decode proof data with V27");
+            return Ok(ProveBatchData::V27(prove_batch));
         }
-        ProtocolVersionId::Version28 => {
-            let prove_batch: ProveBatchesV28 = bincode::deserialize(proof_data)?;
-            Ok(ProveBatchData::V28(prove_batch))
-        }
-        _ => anyhow::bail!("Unsupported prove batch version: {}", protocol_version_id),
+        tracing::warn!("Failed to decode proof data as V27");
     }
+
+    if let Ok(prove_batch) = bincode::deserialize::<ProveBatchesV28>(proof_data) {
+        tracing::info!("Decode proof data with V28");
+        return Ok(ProveBatchData::V28(prove_batch));
+    }
+
+    // If both fail, return an error
+    anyhow::bail!("Failed to decode proof data as either V27 or V28");
 }
 
 pub async fn verify_proof(prover_batch_data: ProveBatchData) -> anyhow::Result<bool> {
