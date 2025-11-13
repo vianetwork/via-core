@@ -193,7 +193,10 @@ impl ViaVerifierReorgDetector {
         }
 
         tracing::warn!(
-            "Reorg detected, find the block affected block number {block_height} hash {hash}"
+            "Reorg detected, find the block affected, found at block height {} expected hash {}, found hash {} ",
+            block_height,
+            hash,
+            block.block_hash().to_string()
         );
 
         // Todo: compare with other nodes if the hash is different to confirm the reorg
