@@ -223,6 +223,8 @@ impl ViaMainNodeReorgDetector {
                 break candidate_height;
             }
 
+            tracing::info!("Reorg checkpoint not found at block: {candidate_height}");
+
             i += 1;
         };
 
