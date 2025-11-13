@@ -316,6 +316,8 @@ impl ViaMainNodeReorgDetector {
 
             METRICS.reorg_type[&ReorgType::Soft].set(reorg_start_block_height as usize);
 
+            tracing::warn!("Soft Reorg executed");
+
             return Ok(());
         };
 
@@ -329,9 +331,10 @@ impl ViaMainNodeReorgDetector {
                 .via_l1_block_dal()
                 .insert_reorg_metadata(reorg_start_block_height, l1_batch_number)
                 .await?;
-        }
 
-        METRICS.reorg_type[&ReorgType::Hard].set(reorg_start_block_height as usize);
+            tracing::warn!("Hard Reorg found");
+            METRICS.reorg_type[&ReorgType::Hard].set(reorg_start_block_height as usize);
+        }
 
         Ok(())
     }
