@@ -16,7 +16,7 @@ use self::message_processors::MessageProcessor;
 use crate::message_processors::{L1ToL2MessageProcessor, SystemWalletProcessor};
 
 /// Total L1 blocks to process at a time.
-pub const L1_BLOCKS_CHUNK: u32 = 10;
+pub const L1_BLOCKS_CHUNK: u32 = 100;
 
 #[derive(Debug)]
 pub struct L1Indexer {
