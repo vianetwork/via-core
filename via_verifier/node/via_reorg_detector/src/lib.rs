@@ -270,12 +270,12 @@ impl ViaVerifierReorgDetector {
             anyhow::bail!("Reorg start block height not found");
         };
 
+        let l1_block_number_to_keep = reorg_start_block_height - 1;
+
         let l1_batch_number_opt = storage
             .via_transactions_dal()
-            .get_last_processed_l1_batch_number()
+            .get_l1_batch_number_affected_by_reorg(l1_block_number_to_keep)
             .await?;
-
-        let l1_block_number_to_keep = reorg_start_block_height - 1;
 
         let transactions_count = storage
             .via_transactions_dal()

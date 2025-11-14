@@ -135,23 +135,31 @@ impl ViaTransactionsDal<'_, '_> {
         Ok(exists.is_some())
     }
 
-    pub async fn get_last_processed_l1_batch_number(&mut self) -> DalResult<Option<i64>> {
+    pub async fn get_l1_batch_number_affected_by_reorg(
+        &mut self,
+        l1_block_number: i64,
+    ) -> DalResult<Option<i64>> {
         let record = sqlx::query!(
             r#"
             SELECT
-                MAX(l1_batch_number) AS "min_l1_batch_number"
+                l1_batch_number
             FROM
                 via_transactions
             WHERE
-                l1_batch_number IS NOT NULL
+                l1_batch_number IS NOT NULL AND l1_block_number > $1
+            ORDER BY
+                l1_batch_number DESC
+            LIMIT
+                1
             "#,
+            l1_block_number,
         )
-        .instrument("get_last_processed_l1_batch_number")
+        .instrument("get_l1_batch_number_affected_by_reorg")
         .report_latency()
-        .fetch_one(self.storage)
+        .fetch_optional(self.storage)
         .await?;
 
-        Ok(record.min_l1_batch_number)
+        Ok(record.and_then(|r| r.l1_batch_number))
     }
 
     pub async fn get_not_finalized_transactions(&mut self, l1_block_number: i64) -> DalResult<i64> {

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                l1_batch_number\n            FROM\n                via_transactions\n            WHERE\n                l1_batch_number IS NOT NULL AND l1_block_number > $1\n            ORDER BY\n                l1_batch_number DESC\n            LIMIT\n                1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "a7b8c7dbcf9eacd5279607014105a4272e3ae43944dd3128dd6b417b3f5d45a9"
+}
