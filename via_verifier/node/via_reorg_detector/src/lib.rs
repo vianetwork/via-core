@@ -223,6 +223,8 @@ impl ViaVerifierReorgDetector {
                 break candidate_height;
             }
 
+            tracing::info!("Reorg checkpoint not found at block: {candidate_height}");
+
             i += 1;
         };
 
@@ -268,14 +270,16 @@ impl ViaVerifierReorgDetector {
             anyhow::bail!("Reorg start block height not found");
         };
 
+        let l1_block_number_to_keep = reorg_start_block_height - 1;
+
         let l1_batch_number_opt = storage
             .via_transactions_dal()
-            .get_last_processed_l1_batch_number()
+            .get_l1_batch_number_affected_by_reorg(l1_block_number_to_keep)
             .await?;
 
         let transactions_count = storage
             .via_transactions_dal()
-            .get_not_finalized_transactions(reorg_start_block_height)
+            .get_not_finalized_transactions(l1_block_number_to_keep)
             .await?;
 
         METRICS.reorg_data[&ReorgInfo::StartBlock].set(reorg_start_block_height as usize);
@@ -299,10 +303,13 @@ impl ViaVerifierReorgDetector {
             // Reset the BtcWatch last indexer to the last valid batch.
             transaction
                 .via_indexer_dal()
-                .update_last_processed_l1_block(
-                    "via_btc_watch",
-                    (reorg_start_block_height - 1) as u32,
-                )
+                .update_last_processed_l1_block("via_btc_watch", (l1_block_number_to_keep) as u32)
+                .await?;
+
+            // Delete the affected l1 blocks
+            transaction
+                .via_l1_block_dal()
+                .delete_l1_blocks(l1_block_number_to_keep)
                 .await?;
 
             // Delete the reorg
@@ -311,6 +318,8 @@ impl ViaVerifierReorgDetector {
             transaction.commit().await?;
 
             METRICS.soft_reorg.inc();
+
+            tracing::warn!("Soft Reorg executed");
 
             return Ok(false);
         };
@@ -323,6 +332,8 @@ impl ViaVerifierReorgDetector {
             .await?;
 
         METRICS.hard_reorg.inc();
+        tracing::warn!("Hard Reorg found");
+
         Ok(true)
     }
 
