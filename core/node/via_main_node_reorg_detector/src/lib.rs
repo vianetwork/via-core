@@ -189,7 +189,12 @@ impl ViaMainNodeReorgDetector {
             return Ok(());
         }
 
-        tracing::warn!("Reorg detected, find the block affected...");
+        tracing::warn!(
+            "Reorg detected, find the block affected, found at block height {} expected hash {}, found hash {} ",
+            block_height,
+            hash,
+            block.block_hash().to_string()
+        );
 
         // Todo: compare with other nodes if the hash is different to confirm the reorg
 
@@ -217,6 +222,8 @@ impl ViaMainNodeReorgDetector {
             if hash == block.block_hash().to_string() {
                 break candidate_height;
             }
+
+            tracing::info!("Reorg checkpoint not found at block: {candidate_height}");
 
             i += 1;
         };
@@ -285,30 +292,31 @@ impl ViaMainNodeReorgDetector {
             // Sleep and wait for the reorg event is received by all components
             sleep(Duration::from_secs(30)).await;
 
+            let l1_block_number_to_keep = reorg_start_block_height - 1;
+
             // Reset the BtcWatch last indexer to the last valid batch.
             transaction
                 .via_indexer_dal()
-                .update_last_processed_l1_block(
-                    "via_btc_watch",
-                    (reorg_start_block_height - 1) as u32,
-                )
+                .update_last_processed_l1_block("via_btc_watch", (l1_block_number_to_keep) as u32)
                 .await?;
 
             // Delete the reorg
             transaction
                 .via_l1_block_dal()
-                .delete_l1_reorg(reorg_start_block_height)
+                .delete_l1_reorg(l1_block_number_to_keep)
                 .await?;
 
             // Delete the affected l1 blocks
             transaction
                 .via_l1_block_dal()
-                .delete_l1_blocks(reorg_start_block_height - 1)
+                .delete_l1_blocks(l1_block_number_to_keep)
                 .await?;
 
             transaction.commit().await?;
 
             METRICS.reorg_type[&ReorgType::Soft].set(reorg_start_block_height as usize);
+
+            tracing::warn!("Soft Reorg executed");
 
             return Ok(());
         };
@@ -323,9 +331,10 @@ impl ViaMainNodeReorgDetector {
                 .via_l1_block_dal()
                 .insert_reorg_metadata(reorg_start_block_height, l1_batch_number)
                 .await?;
-        }
 
-        METRICS.reorg_type[&ReorgType::Hard].set(reorg_start_block_height as usize);
+            tracing::warn!("Hard Reorg found");
+            METRICS.reorg_type[&ReorgType::Hard].set(reorg_start_block_height as usize);
+        }
 
         Ok(())
     }
