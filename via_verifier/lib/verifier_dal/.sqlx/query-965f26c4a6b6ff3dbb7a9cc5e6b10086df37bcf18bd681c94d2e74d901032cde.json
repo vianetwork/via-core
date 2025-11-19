@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id\n            FROM\n                via_withdrawals\n            WHERE\n                id = $1\n                AND l2_tx_log_index = $2\n                AND receiver = $3\n                AND bridge_withdrawal_id IS NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "965f26c4a6b6ff3dbb7a9cc5e6b10086df37bcf18bd681c94d2e74d901032cde"
+}

@@ -164,21 +164,19 @@ impl ViaWithdrawalDal<'_, '_> {
         bridge_withdrawal_id: i64,
         withdrawal: &WithdrawalRequest,
     ) -> DalResult<()> {
-        sqlx::query!(
+        let result = sqlx::query!(
             r#"
             UPDATE via_withdrawals SET
-                bridge_withdrawal_id = $5,
+                bridge_withdrawal_id = $4,
                 updated_at = NOW()
             WHERE
                 id = $1
                 AND l2_tx_log_index = $2
                 AND receiver = $3
-                AND value = $4
             "#,
             withdrawal.id,
             withdrawal.l2_tx_log_index as i64,
             withdrawal.receiver.to_string(),
-            withdrawal.amount.to_sat() as i64,
             bridge_withdrawal_id
         )
         .instrument("mark_withdrawal_as_processed")
@@ -202,13 +200,11 @@ impl ViaWithdrawalDal<'_, '_> {
                 id = $1
                 AND l2_tx_log_index = $2
                 AND receiver = $3
-                AND value = $4
                 AND bridge_withdrawal_id IS NULL
             "#,
             withdrawal.id,
             withdrawal.l2_tx_log_index as i64,
             withdrawal.receiver.to_string(),
-            withdrawal.amount.to_sat() as i64,
         )
         .instrument("check_if_withdrawal_exists_unprocessed")
         .fetch_optional(&mut self.storage)

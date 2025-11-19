@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE via_withdrawals SET\n                bridge_withdrawal_id = $4,\n                updated_at = NOW()\n            WHERE\n                id = $1\n                AND l2_tx_log_index = $2\n                AND receiver = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b81f568af8f4acfc30338549105533077055ee6fddf3a0e9751d5427ab38eede"
+}

@@ -322,12 +322,12 @@ impl WithdrawalSession {
             .await?;
 
         for w in l1_withdrawals {
-            let processed = storage
+            let not_processed = storage
                 .via_withdrawal_dal()
                 .check_if_withdrawal_exists_unprocessed(&w.clone().into())
                 .await?;
 
-            if processed {
+            if !not_processed {
                 tracing::error!(
                     "Withdrawal already processed or not exists was found in this session, tx hash id: {:?}",
                     w.l2_meta.l2_id
