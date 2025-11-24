@@ -197,6 +197,19 @@ impl VerifierBtcWatch {
                 .map_err(|e| MessageProcessorError::Internal(e.into()))?;
         }
 
+        // Check if the last processed block was updated by another thread. This could happen when a reorg is detected.
+        let current_last_processed_bitcoin_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block(VerifierBtcWatch::module_name())
+            .await? as u32;
+
+        if current_last_processed_bitcoin_block != last_processed_bitcoin_block {
+            tracing::info!(
+                "The btc_watch last processed block was updated by another thread, skipping the block processing"
+            );
+            return Ok(());
+        }
+
         storage
             .via_indexer_dal()
             .update_last_processed_l1_block(VerifierBtcWatch::module_name(), to_block)
