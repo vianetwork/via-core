@@ -91,8 +91,6 @@ impl ViaVerifier {
             return Ok(());
         }
 
-        self.validate_verifier_address().await?;
-
         if let Some((l1_batch_number, mut raw_tx_id)) = storage
             .via_votes_dal()
             .get_first_not_verified_l1_batch_in_canonical_inscription_chain()
@@ -406,25 +404,5 @@ impl ViaVerifier {
         let hash = batch_msg.input.l1_batch_hash;
 
         Ok((blob, hash))
-    }
-    /// Check if the wallet is in the verifier set.
-    async fn validate_verifier_address(&self) -> anyhow::Result<()> {
-        let mut storage = self.pool.connection().await?;
-
-        let last_processed_l1_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block("via_btc_watch")
-            .await?;
-
-        let Some(wallets_map) = storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_l1_block as i64)
-            .await?
-        else {
-            anyhow::bail!("System wallets not found")
-        };
-
-        let wallets = SystemWallets::try_from(wallets_map)?;
-        wallets.is_valid_verifier_address(self.config.wallet_address()?)
     }
 }
