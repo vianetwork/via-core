@@ -288,17 +288,17 @@ impl ViaVerifierReorgDetector {
         if l1_batch_number_opt.is_none() && transactions_count == 0 {
             tracing::info!("There is no transactions affected by the reorg, no action is required");
 
-            // Reset the indexing because it's possible that verifier transactions are affected.
-            let mut transaction = storage.start_transaction().await?;
-
             // Insert a reorg in the DB to stop all the other components from processing
-            transaction
+            storage
                 .via_l1_block_dal()
                 .insert_reorg_metadata(reorg_start_block_height, 0)
                 .await?;
 
             // Sleep and wait for the reorg event is received by all components
             sleep(Duration::from_secs(30)).await;
+
+            // Reset the indexing because it's possible that verifier transactions are affected.
+            let mut transaction = storage.start_transaction().await?;
 
             // Reset the BtcWatch last indexer to the last valid batch.
             transaction

@@ -70,6 +70,11 @@ impl ViaVerifierBlockReverter {
     ) -> anyhow::Result<()> {
         tracing::info!("Reorg found for l1_block_number {}, l1_batch_number {}, verifier network reverting process started...", l1_block_number, l1_batch_number);
 
+        if l1_batch_number == 0 {
+            tracing::info!("There is no l1 batch affected by the reorg, no action is required");
+            return Ok(());
+        }
+
         let mut storage = self.pool.connection().await?;
 
         let mut transaction = storage.start_transaction().await?;
