@@ -120,8 +120,6 @@ impl Inscriber {
         input: &InscriptionMessage,
         recipient: Option<Recipient>,
     ) -> Result<InscriberInfo> {
-        self.sync_context_with_blockchain().await?;
-
         let secp_ref = &self.signer.get_secp_ref();
         let internal_key = self.signer.get_internal_key()?;
         let network = self.client.get_network();
@@ -200,7 +198,7 @@ impl Inscriber {
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
-    async fn sync_context_with_blockchain(&mut self) -> Result<()> {
+    pub async fn sync_context_with_blockchain(&mut self) -> Result<()> {
         debug!("Syncing context with blockchain");
         if self.context.fifo_queue.is_empty() {
             debug!("Context queue is empty, no sync needed");

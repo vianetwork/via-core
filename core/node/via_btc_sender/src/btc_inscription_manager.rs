@@ -82,6 +82,8 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Core>,
     ) -> anyhow::Result<()> {
+        self.inscriber.sync_context_with_blockchain().await?;
+
         let inflight_inscriptions_ids = storage
             .btc_sender_dal()
             .list_inflight_inscription_ids()
