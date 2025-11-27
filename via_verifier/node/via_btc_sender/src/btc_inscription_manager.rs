@@ -154,7 +154,8 @@ impl ViaBtcInscriptionManager {
         }
 
         let balance = self.inscriber.get_balance().await?;
-        METRICS.btc_sender_account_balance.set(balance as usize);
+        METRICS.btc_sender_account_balance[&self.config.wallet_address.clone()]
+            .set(balance as usize);
 
         Ok(())
     }

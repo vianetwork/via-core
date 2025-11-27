@@ -3,7 +3,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::NaiveDateTime;
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
 use vise::{
-    Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Histogram, Metrics, Unit,
+    Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Histogram, LabeledFamily,
+    Metrics, Unit,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EncodeLabelSet, EncodeLabelValue)]
@@ -44,7 +45,8 @@ pub struct ViaBtcSenderMetrics {
     pub last_known_l1_block: Family<L1BatchVariant, Gauge<usize>>,
 
     /// The BTC balance of the account used to created inscriptions.
-    pub btc_sender_account_balance: Gauge<usize>,
+    #[metrics(labels = ["address"])]
+    pub btc_sender_account_balance: LabeledFamily<String, Gauge<usize>>,
 
     /// Errors
     pub errors: Counter,
