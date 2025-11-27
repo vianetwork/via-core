@@ -5,6 +5,7 @@ use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use bitcoin::{
     absolute,
+    consensus::encode::deserialize_hex,
     hashes::Hash,
     sighash::{Prevouts, SighashCache},
     taproot::{ControlBlock, LeafVersion},
@@ -96,8 +97,20 @@ impl Inscriber {
     pub async fn get_balance(&self) -> Result<u128> {
         debug!("Getting balance");
         let address_ref = &self.signer.get_p2wpkh_address()?;
-        let balance = self.client.get_balance(address_ref).await?;
+        let mut balance = self.client.get_balance(address_ref).await?;
         debug!("Balance obtained: {}", balance);
+
+        // Include the transactions in mempool when calculate the balance
+        for inscription in &self.context.fifo_queue {
+            let tx: Transaction = deserialize_hex(&inscription.inscriber_output.reveal_raw_tx)?;
+
+            tx.output.iter().for_each(|output| {
+                if output.script_pubkey == address_ref.script_pubkey() {
+                    balance += output.value.to_sat() as u128;
+                }
+            });
+        }
+
         Ok(balance)
     }
 
@@ -107,8 +120,6 @@ impl Inscriber {
         input: &InscriptionMessage,
         recipient: Option<Recipient>,
     ) -> Result<InscriberInfo> {
-        self.sync_context_with_blockchain().await?;
-
         let secp_ref = &self.signer.get_secp_ref();
         let internal_key = self.signer.get_internal_key()?;
         let network = self.client.get_network();
@@ -187,7 +198,7 @@ impl Inscriber {
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
-    async fn sync_context_with_blockchain(&mut self) -> Result<()> {
+    pub async fn sync_context_with_blockchain(&mut self) -> Result<()> {
         debug!("Syncing context with blockchain");
         if self.context.fifo_queue.is_empty() {
             debug!("Context queue is empty, no sync needed");

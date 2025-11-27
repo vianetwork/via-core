@@ -74,6 +74,8 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
+        self.inscriber.sync_context_with_blockchain().await?;
+
         let inflight_inscriptions = storage
             .via_btc_sender_dal()
             .get_inflight_inscriptions()
