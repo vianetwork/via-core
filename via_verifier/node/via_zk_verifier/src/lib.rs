@@ -18,7 +18,7 @@ use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_object_store::ObjectStore;
-use zksync_types::{via_wallet::SystemWallets, L1BatchNumber, H160, H256};
+use zksync_types::{L1BatchNumber, H160, H256};
 
 mod metrics;
 
