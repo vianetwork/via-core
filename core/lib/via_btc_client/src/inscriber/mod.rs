@@ -5,6 +5,7 @@ use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use bitcoin::{
     absolute,
+    consensus::encode::deserialize_hex,
     hashes::Hash,
     sighash::{Prevouts, SighashCache},
     taproot::{ControlBlock, LeafVersion},
@@ -96,8 +97,20 @@ impl Inscriber {
     pub async fn get_balance(&self) -> Result<u128> {
         debug!("Getting balance");
         let address_ref = &self.signer.get_p2wpkh_address()?;
-        let balance = self.client.get_balance(address_ref).await?;
+        let mut balance = self.client.get_balance(address_ref).await?;
         debug!("Balance obtained: {}", balance);
+
+        // Include the transactions in mempool when calculate the balance
+        for inscription in &self.context.fifo_queue {
+            let tx: Transaction = deserialize_hex(&inscription.inscriber_output.reveal_raw_tx)?;
+
+            tx.output.iter().for_each(|output| {
+                if output.script_pubkey == address_ref.script_pubkey() {
+                    balance += output.value.to_sat() as u128;
+                }
+            });
+        }
+
         Ok(balance)
     }
 
