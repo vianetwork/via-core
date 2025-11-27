@@ -2,7 +2,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::NaiveDateTime;
 use vise::{
-    Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Histogram, Metrics, Unit,
+    Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Histogram, LabeledFamily,
+    Metrics, Unit,
 };
 use zksync_dal::{Connection, Core, CoreDal};
 use zksync_shared_metrics::{BlockL1Stage, BlockStage, APP_METRICS};
@@ -60,7 +61,8 @@ pub struct ViaBtcSenderMetrics {
     pub last_known_l1_block: Family<BlockNumberVariant, Gauge<usize>>,
 
     /// The BTC balance of the account used to created inscriptions.
-    pub btc_sender_account_balance: Gauge<usize>,
+    #[metrics(labels = ["address"])]
+    pub btc_sender_account_balance: LabeledFamily<String, Gauge<usize>>,
 }
 
 impl ViaBtcSenderMetrics {
