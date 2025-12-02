@@ -70,11 +70,6 @@ impl ViaVerifierBlockReverter {
     ) -> anyhow::Result<()> {
         tracing::info!("Reorg found for l1_block_number {}, l1_batch_number {}, verifier network reverting process started...", l1_block_number, l1_batch_number);
 
-        if l1_batch_number == 0 {
-            tracing::info!("There is no l1 batch affected by the reorg, no action is required");
-            return Ok(());
-        }
-
         let mut storage = self.pool.connection().await?;
 
         let mut transaction = storage.start_transaction().await?;
@@ -89,21 +84,24 @@ impl ViaVerifierBlockReverter {
             .delete_l1_reorg(l1_block_number_to_keep)
             .await?;
         transaction
-            .via_transactions_dal()
-            .delete_transactions(l1_block_number_to_keep)
-            .await?;
-        transaction
-            .via_votes_dal()
-            .delete_votable_transactions(l1_batch_number)
-            .await?;
-        transaction
             .via_indexer_dal()
             .update_last_processed_l1_block("via_btc_watch", l1_block_number_to_keep as u32)
             .await?;
-        transaction
-            .via_wallet_dal()
-            .delete_system_wallet(l1_block_number_to_keep)
-            .await?;
+
+        if l1_batch_number != 0 {
+            transaction
+                .via_transactions_dal()
+                .delete_transactions(l1_block_number_to_keep)
+                .await?;
+            transaction
+                .via_votes_dal()
+                .delete_votable_transactions(l1_batch_number)
+                .await?;
+            transaction
+                .via_wallet_dal()
+                .delete_system_wallet(l1_block_number_to_keep)
+                .await?;
+        }
 
         transaction.commit().await?;
 
