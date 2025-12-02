@@ -297,29 +297,9 @@ impl ViaVerifierReorgDetector {
             // Sleep and wait for the reorg event is received by all components
             sleep(Duration::from_secs(30)).await;
 
-            // Reset the indexing because it's possible that verifier transactions are affected.
-            let mut transaction = storage.start_transaction().await?;
-
-            // Reset the BtcWatch last indexer to the last valid batch.
-            transaction
-                .via_indexer_dal()
-                .update_last_processed_l1_block("via_btc_watch", (l1_block_number_to_keep) as u32)
-                .await?;
-
-            // Delete the affected l1 blocks
-            transaction
-                .via_l1_block_dal()
-                .delete_l1_blocks(l1_block_number_to_keep)
-                .await?;
-
-            // Delete the reorg
-            transaction.via_l1_block_dal().delete_l1_reorg(0).await?;
-
-            transaction.commit().await?;
-
             METRICS.soft_reorg.inc();
 
-            tracing::warn!("Soft Reorg executed");
+            tracing::warn!("Soft Reorg found");
 
             return Ok(false);
         };
