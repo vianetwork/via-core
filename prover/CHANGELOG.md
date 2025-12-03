@@ -1,5 +1,25 @@
 # Changelog
 
+## [17.2.0](https://github.com/vianetwork/via-core/compare/prover-v17.1.1...prover-v17.2.0) (2025-12-03)
+
+
+### Features
+
+* **consensus:** Added view_timeout to consensus config ([#3383](https://github.com/vianetwork/via-core/issues/3383)) ([ab756ec](https://github.com/vianetwork/via-core/commit/ab756ecaaf34361359a0e1c4585e74d3d37fd430))
+* **consensus:** Update consensus dependencies ([#3339](https://github.com/vianetwork/via-core/issues/3339)) ([2b39aad](https://github.com/vianetwork/via-core/commit/2b39aadf237fc1a3688250e2dbb417a7031b1ac3))
+* **dal:** support blob chunk by introducing index column to store the chunk ([59d2ecb](https://github.com/vianetwork/via-core/commit/59d2ecb124f592769da54ac59bafd6befad04b51))
+* **node/via_zk_verification:** add logic to fetch the proof from object store when the verifier uses EN as DA provider ([09fe8f3](https://github.com/vianetwork/via-core/commit/09fe8f3a7468411ddad14a7db3e428977141ec48))
+* Support stable compiler for VM (and some other crates) ([#3248](https://github.com/vianetwork/via-core/issues/3248)) ([3f497b2](https://github.com/vianetwork/via-core/commit/3f497b2543daa3deb91f4206cab878c3e503fb2d))
+* **via_state_keeper:** change seal criteria for gateway ([7fd7070](https://github.com/vianetwork/via-core/commit/7fd70701af4b6c71190995c91e810aee08f33313))
+
+
+### Bug Fixes
+
+* added missing quote in prover query ([#3347](https://github.com/vianetwork/via-core/issues/3347)) ([cdb049d](https://github.com/vianetwork/via-core/commit/cdb049d3e2e80110edd3d326433d433d9f4a8b84))
+* **en:** fix metrics ([60c7752](https://github.com/vianetwork/via-core/commit/60c7752a35d67d823ddba1314ac4ba280666a0c5))
+* **prover:** Create reqwest client only once ([#3324](https://github.com/vianetwork/via-core/issues/3324)) ([7725bdd](https://github.com/vianetwork/via-core/commit/7725bddc4f50b242660070537dd25bd890ec25f8))
+* **prover:** use `Version28` protocol version ([be932c0](https://github.com/vianetwork/via-core/commit/be932c0087337c99b3420db10a92e50611826aa0))
+
 ## [17.1.1](https://github.com/matter-labs/zksync-era/compare/prover-v17.1.0...prover-v17.1.1) (2024-11-26)
 
 
