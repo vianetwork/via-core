@@ -20,10 +20,3 @@ jobs:
             token: ${{ secrets.RELEASE_TOKEN }}
             config-file: .github/release-please/config.json
             manifest-file: .github/release-please/manifest.json
-
-      - name: Send Release Info
-        if: ${{ steps.release.outputs.releases_created == 'true' }}
-        uses: matter-labs/format-release-please-for-slack-action@69e6fe9e4ec531b7b5fb0d826f73c190db83cf42 # v2.1.0
-        with:
-          release-please-output: ${{ toJSON(steps.release.outputs) }}
-          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_RELEASES }}
