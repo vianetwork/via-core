@@ -9,17 +9,17 @@ use zksync_types::{Execute, H256, U256};
 ///
 /// - Each dir in `/contracts` translates into a module with the same name (just with `-` chars replaced with `_`).
 /// - Each contract in all files in this dir produces a `RawContract` constant with the same name as the contract.
-mod raw {
-    #![allow(unused, non_upper_case_globals)]
-    include!(concat!(env!("OUT_DIR"), "/raw_contracts.rs"));
-}
+// mod raw {
+//     #![allow(unused, non_upper_case_globals)]
+//     include!(concat!(env!("OUT_DIR"), "/raw_contracts.rs"));
+// }
 
 /// Raw contracts produced by the build script.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct RawContract {
-    pub abi: &'static str,
-    pub bytecode: &'static [u8],
-}
+// #[derive(Debug, Clone, Copy)]
+// pub(crate) struct RawContract {
+//     pub abi: &'static str,
+//     pub bytecode: &'static [u8],
+// }
 
 /// Test contract consisting of deployable EraVM bytecode and Web3 ABI.
 #[derive(Debug, Clone)]
@@ -34,33 +34,78 @@ pub struct TestContract {
 }
 
 impl TestContract {
-    fn new(raw: RawContract) -> Self {
-        let abi = serde_json::from_str(raw.abi).expect("failed parsing contract ABI");
-        Self {
-            abi,
-            bytecode: raw.bytecode,
-            dependencies: vec![],
-        }
-    }
+    // fn new(raw: RawContract) -> Self {
+    //     let abi = serde_json::from_str(raw.abi).expect("failed parsing contract ABI");
+    //     Self {
+    //         abi,
+    //         bytecode: raw.bytecode,
+    //         dependencies: vec![],
+    //     }
+    // }
 
     /// Returns a contract used to test complex system contract upgrades.
     pub fn complex_upgrade() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::complex_upgrade::ComplexUpgrade));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a contract used to test context methods.
     pub fn context_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::context::Context));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a simple counter contract.
     pub fn counter() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::counter::Counter));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
@@ -68,154 +113,481 @@ impl TestContract {
     /// (storage reads / writes, hashing, recursion via far calls etc.).
     pub fn load_test() -> &'static Self {
         static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
-            let mut contract = TestContract::new(raw::loadnext::LoadnextContract);
-            contract.dependencies = vec![TestContract::new(raw::loadnext::Foo)];
-            contract
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
         });
         &CONTRACT
     }
 
     /// Returns a contract with expensive storage operations.
     pub fn expensive() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::expensive::Expensive));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     pub fn failed_call() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::failed_call::FailedCall));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a contract with an infinite loop (useful for testing out-of-gas reverts).
     pub fn infinite_loop() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::infinite::InfiniteLoop));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a custom account with multiple owners.
     pub fn many_owners() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::custom_account::ManyOwnersCustomAccount));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a contract testing `msg.sender` value.
     pub fn msg_sender_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::complex_upgrade::MsgSenderTest));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     pub fn nonce_holder() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::custom_account::NonceHolderTest));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     pub fn validation_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::custom_account::ValidationRuleBreaker));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a contract testing precompiles.
     pub fn precompiles_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::precompiles::Precompiles));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a contract proxying calls to a [counter](Self::counter()).
     pub fn proxy_counter() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::counter::ProxyCounter));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a reentrant recipient for transfers.
     pub fn reentrant_recipient() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::transfer::ReentrantRecipient));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a contract testing reverts.
     pub fn reverts_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::error::SimpleRequire));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a simple fungible token contract.
     pub fn simple_transfer() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::simple_transfer::SimpleTransfer));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a contract testing storage operations.
     pub fn storage_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::storage::StorageTester));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a contract for testing base token transfers.
     pub fn transfer_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::transfer::TransferTest));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a test recipient for the [transfer test](Self::transfer_test()) contract.
     pub fn transfer_recipient() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::transfer::Recipient));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a test ERC20 token implementation.
     pub fn test_erc20() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::transfer::TestERC20));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a mock version of `ContractDeployer`.
     pub fn mock_deployer() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::MockContractDeployer));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a mock version of `KnownCodeStorage`.
     pub fn mock_known_code_storage() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::MockKnownCodeStorage));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Returns a mock EVM emulator.
     pub fn mock_evm_emulator() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::MockEvmEmulator));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Contract testing recursive calls.
     pub fn recursive_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::NativeRecursiveContract));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 
     /// Contract implementing incrementing operations. Used to test static / delegate calls.
     pub fn increment_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> =
-            Lazy::new(|| TestContract::new(raw::mock_evm::IncrementingContract));
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
+            // 2. Return a Dummy TestContract
+            TestContract {
+                // Creates an empty ABI with no functions/events
+                abi: ethabi::Contract {
+                    constructor: None,
+                    functions: Default::default(),
+                    events: Default::default(),
+                    errors: Default::default(),
+                    receive: false,
+                    fallback: false,
+                },
+                // Empty bytecode slice
+                bytecode: &[],
+                dependencies: vec![],
+            }
+        });
         &CONTRACT
     }
 

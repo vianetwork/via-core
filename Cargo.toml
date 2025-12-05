@@ -4,13 +4,13 @@ members = [
   "core/bin/block_reverter",
   "core/bin/contract-verifier",
   "core/bin/custom_genesis_export",
-  "core/bin/external_node",
+#  "core/bin/external_node",
   "core/bin/merkle_tree_consistency_checker",
   "core/bin/snapshots_creator",
   "core/bin/selector_generator",
   "core/bin/system-constants-generator",
   "core/bin/verified_sources_fetcher",
-  "core/bin/zksync_server",
+#  "core/bin/zksync_server",
   "core/bin/genesis_generator",
   "core/bin/zksync_tee_prover",
   # Node services
@@ -76,7 +76,7 @@ members = [
   "core/lib/snapshots_applier",
   "core/lib/crypto_primitives",
   "core/lib/external_price_api",
-  "core/lib/test_contracts",
+#  "core/lib/test_contracts",
   # Test infrastructure
   "core/tests/loadnext",
   "core/tests/vm-benchmark",
@@ -251,7 +251,7 @@ trybuild = "1.0"
 # "Internal" dependencies
 vise = "0.2.0"
 vise-exporter = "0.2.0"
-foundry-compilers = { version = "0.11.6", git = "https://github.com/Moonsong-Labs/compilers.git", rev = "7c69695e5c75451f158dd2456bf8c94a7492ea0b" }
+# foundry-compilers = { version = "0.11.6", git = "https://github.com/Moonsong-Labs/compilers.git", rev = "7c69695e5c75451f158dd2456bf8c94a7492ea0b" }
 
 # DA clients' dependencies
 # Avail
