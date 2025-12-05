@@ -1,5 +1,12 @@
 # Changelog
 
+## [28.0.1](https://github.com/vianetwork/via-core/compare/core-v28.0.0...core-v28.0.1) (2025-12-05)
+
+
+### Bug Fixes
+
+* **test_contracts:** dirty fix the `svm-rs-builds` broken compilation ([#314](https://github.com/vianetwork/via-core/issues/314)) ([6513050](https://github.com/vianetwork/via-core/commit/6513050d61cdcb36264ba702a4b847904e6a5321))
+
 ## [28.0.0](https://github.com/vianetwork/via-core/compare/core-v27.0.0...core-v28.0.0) (2025-12-03)
 
 
