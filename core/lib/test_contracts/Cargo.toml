@@ -24,4 +24,4 @@ serde_json.workspace = true
 
 [build-dependencies]
 serde_json.workspace = true
-foundry-compilers.workspace = true
+#foundry-compilers.workspace = true
