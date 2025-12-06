@@ -18,7 +18,7 @@ use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_object_store::ObjectStore;
-use zksync_types::{via_wallet::SystemWallets, L1BatchNumber, H160, H256};
+use zksync_types::{L1BatchNumber, H160, H256};
 
 mod metrics;
 
@@ -90,8 +90,6 @@ impl ViaVerifier {
         if self.state.is_sync_in_progress().await? {
             return Ok(());
         }
-
-        self.validate_verifier_address().await?;
 
         if let Some((l1_batch_number, mut raw_tx_id)) = storage
             .via_votes_dal()
@@ -406,25 +404,5 @@ impl ViaVerifier {
         let hash = batch_msg.input.l1_batch_hash;
 
         Ok((blob, hash))
-    }
-    /// Check if the wallet is in the verifier set.
-    async fn validate_verifier_address(&self) -> anyhow::Result<()> {
-        let mut storage = self.pool.connection().await?;
-
-        let last_processed_l1_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block("via_btc_watch")
-            .await?;
-
-        let Some(wallets_map) = storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_l1_block as i64)
-            .await?
-        else {
-            anyhow::bail!("System wallets not found")
-        };
-
-        let wallets = SystemWallets::try_from(wallets_map)?;
-        wallets.is_valid_verifier_address(self.config.wallet_address()?)
     }
 }

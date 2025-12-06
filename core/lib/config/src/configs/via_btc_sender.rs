@@ -1,5 +1,6 @@
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
+use bitcoin::Address;
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_DA_LAYER: &str = "celestia";
@@ -59,6 +60,10 @@ impl ViaBtcSenderConfig {
 
     pub fn stuck_inscription_block_number(&self) -> u32 {
         self.stuck_inscription_block_number.unwrap_or(6)
+    }
+
+    pub fn wallet_address(&self) -> anyhow::Result<Address> {
+        Ok(Address::from_str(&self.wallet_address)?.assume_checked())
     }
 }
 
