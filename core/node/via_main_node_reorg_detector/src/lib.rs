@@ -280,19 +280,20 @@ impl ViaMainNodeReorgDetector {
 
         if l1_batch_number_opt.is_none() || !self.is_main_node {
             tracing::info!("There is no l1 batch affected by the reorg, no action is required");
-            // Reset the indexing because it's possible that verifier transactions are affected.
-            let mut transaction = storage.start_transaction().await?;
+
+            // Restart the reorg detector from the last processed block range
+            let l1_block_number_to_keep = reorg_start_block_height - self.config.block_limit();
 
             // Insert a reorg in the DB to stop all the other components from processing
-            transaction
+            storage
                 .via_l1_block_dal()
-                .insert_reorg_metadata(reorg_start_block_height, 0)
+                .insert_reorg_metadata(l1_block_number_to_keep, 0)
                 .await?;
 
             // Sleep and wait for the reorg event is received by all components
             sleep(Duration::from_secs(30)).await;
 
-            let l1_block_number_to_keep = reorg_start_block_height - 1;
+            let mut transaction = storage.start_transaction().await?;
 
             // Reset the BtcWatch last indexer to the last valid batch.
             transaction
