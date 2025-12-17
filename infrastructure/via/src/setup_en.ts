@@ -171,26 +171,39 @@ async function configExternalNode() {
             network = 'bitcoin';
             break;
         case Environment.Testnet:
-            await changeConfigKey('via_ext_node', 'l1_chain_id', 11155111, 'en');
-            await changeConfigKey('via_ext_node', 'l2_chain_id', 300, 'en');
-            await changeConfigKey('via_ext_node', 'main_node_url', 'https://sepolia.era.zksync.dev', 'en');
+            await changeConfigKey('via_ext_node', 'l2_chain_id', 25223, 'en');
+            await changeConfigKey('via_ext_node', 'main_node_url', 'https://testnet.via.onvia.org', 'en');
+            await changeConfigKey('via_ext_node', 'url', 'https://testnet.via.onvia.org', 'en.main_node');
+            await changeConfigKey('via_ext_node', 'network', 'testnet4', 'via_btc_client');
+            await changeConfigKey('via_ext_node', 'rpc_url', 'http://127.0.0.1:48332', 'via_btc_client');
             await changeConfigKey(
                 'via_ext_node',
-                'eth_client_url',
-                'https://ethereum-sepolia-rpc.publicnode.com',
-                'en'
+                'database_url',
+                'postgres://postgres:notsecurepassword@localhost:5430/via_local_ext_node',
+                ''
             );
             await changeConfigKey(
                 'via_ext_node',
                 'bucket_base_url',
-                'zksync-era-boojnet-external-node-snapshots',
+                'testnet.external-node-snapshots.onvia.org',
                 'en.snapshots.object_store'
             );
             network = 'testnet';
             break;
         case Environment.Local:
             await changeConfigKey('via_ext_node', 'l2_chain_id', 25223, 'en');
+            await changeConfigKey('via_ext_node', 'main_node_url', 'https://127.0.0.1:3050', 'en');
+            await changeConfigKey('via_ext_node', 'url', 'http://127.0.0.1:3050', 'en.main_node');
+            await changeConfigKey('via_ext_node', 'network', 'regtest', 'via_btc_client');
+            await changeConfigKey('via_ext_node', 'rpc_url', 'http://127.0.0.1:18443', 'via_btc_client');
+            await changeConfigKey(
+                'via_ext_node',
+                'database_url',
+                'postgres://postgres:notsecurepassword@localhost/via_local_ext_node',
+                ''
+            );
             await changeConfigKey('via_ext_node', 'mode', 'FileBacked', 'en.snapshots.object_store_mode');
+
             break;
     }
     compileConfig('via_ext_node');
