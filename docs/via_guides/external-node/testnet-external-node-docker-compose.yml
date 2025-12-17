@@ -1,0 +1,227 @@
+name: "testnet-node"
+services:
+  prometheus:
+    image: prom/prometheus:v2.35.0
+    volumes:
+      - prometheus:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    expose:
+      - 9090
+  grafana:
+    image: grafana/grafana:9.3.6
+    volumes:
+      - grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    ports:
+      - "127.0.0.1:3000:3000"
+  postgres:
+    image: "postgres:14"
+    command: >
+      postgres
+      -c max_connections=200
+      -c log_error_verbosity=terse
+      -c shared_buffers=2GB
+      -c effective_cache_size=4GB
+      -c maintenance_work_mem=1GB
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c min_wal_size=4GB
+      -c max_wal_size=16GB
+      -c max_worker_processes=16
+      -c checkpoint_timeout=1800
+    expose:
+      - 5430
+    ports:
+      - 5430:5430
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      interval: 1s
+      timeout: 3s
+      test:
+        [
+          "CMD-SHELL",
+          'psql -U postgres -c "select exists (select * from pg_stat_activity where datname = ''{{ database_name }}'' and application_name = ''pg_restore'')" | grep -e ".f$$"',
+        ]
+    environment:
+      POSTGRES_PASSWORD: notsecurepassword
+      PGPORT: 5430
+
+  bitcoind:
+    image: "lightninglabs/bitcoin-core:29.1"
+    command:
+      - -testnet4
+      - -server
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -rpcuser=rpcuser
+      - -rpcpassword=rpcpassword
+      - -fallbackfee=0.0002
+      - -txindex
+      - -printtoconsole
+      - -dustrelayfee=0.0
+      - -minrelaytxfee=0
+      - -acceptnonstdtxn=1
+    ports:
+      - "48332:48332"
+      - "48333:48333"
+    volumes:
+      - bitcoin:/home/bitcoin/.bitcoin
+    environment:
+      BITCOIN_DATA: /home/bitcoin/.bitcoin
+    healthcheck:
+      test:
+        - "CMD"
+        - "bitcoin-cli"
+        - "-testnet4"
+        - "-rpcuser=rpcuser"
+        - "-rpcpassword=rpcpassword"
+        - "getblockchaininfo"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  bitcoin-setup:
+    image: "lightninglabs/bitcoin-core:29.1"
+    restart: no
+    depends_on:
+      bitcoind:
+        condition: service_healthy
+    volumes_from:
+      - bitcoind
+    environment:
+      BITCOIN_DATA: /home/bitcoin/.bitcoin
+      COORDINATOR_ADDRESS: tb1qcj2wvry67umljdw8v8j6xwafktq24cdreju3hn
+      VERIFIER_0_ADDRESS: tb1q5jqutvamnxudcwan9vn2l03dhwge5cdecyduak
+      SEQUENCER_ADDRESS: tb1qzekvnn4jcxyel6xs7pxzmj786xwus4wnqhx6ew
+      BRIDGE_ADDRESS: tb1ppsy8j80jtns42rkpdsfcv25qfschqejxmk6datkvu236eekr4fms06wnz0
+      RPC_ARGS: -chain=testnet4 -rpcconnect=bitcoind -rpcwait -rpcuser=rpcuser -rpcpassword=rpcpassword
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        apt-get update && apt-get install -y jq
+        
+        wallets=$$(bitcoin-cli $${RPC_ARGS} listwalletdir | jq '.wallets | map(.name)')
+        echo "Available wallets: $${wallets}"
+
+        wallet_exists=$$(echo $${wallets} | jq --arg addr "$${SEQUENCER_ADDRESS}" 'index($$addr) != null')
+        if [[ "$${wallet_exists}" == "true" ]]; then
+          bitcoin-cli $${RPC_ARGS} loadwallet $${SEQUENCER_ADDRESS}
+        else
+          bitcoin-cli $${RPC_ARGS} createwallet $${SEQUENCER_ADDRESS} true true "" false true
+          DESCRIPTOR=$$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($${SEQUENCER_ADDRESS})" | jq -r ".descriptor")
+          bitcoin-cli $${RPC_ARGS} -rpcwallet=$${SEQUENCER_ADDRESS} importdescriptors \
+            "[{ \"desc\": \"$${DESCRIPTOR}\", \"timestamp\": 1745017200, \"watchonly\": true}]"
+        fi
+
+        wallet_exists=$$(echo $${wallets} | jq --arg addr "$${COORDINATOR_ADDRESS}" 'index($$addr) != null')
+        if [[ "$${wallet_exists}" == "true" ]]; then
+          bitcoin-cli $${RPC_ARGS} loadwallet $${COORDINATOR_ADDRESS}
+        else
+          bitcoin-cli $${RPC_ARGS} createwallet $${COORDINATOR_ADDRESS} true true "" false true
+          DESCRIPTOR=$$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($${COORDINATOR_ADDRESS})" | jq -r ".descriptor")
+          bitcoin-cli $${RPC_ARGS} -rpcwallet=$${COORDINATOR_ADDRESS} importdescriptors \
+            "[{ \"desc\": \"$${DESCRIPTOR}\", \"timestamp\": 1745017200, \"watchonly\": true}]"
+        fi
+
+        wallet_exists=$$(echo $${wallets} | jq --arg addr "$${VERIFIER_0_ADDRESS}" 'index($$addr) != null')
+        if [[ "$${wallet_exists}" == "true" ]]; then
+          bitcoin-cli $${RPC_ARGS} loadwallet $${VERIFIER_0_ADDRESS}
+        else
+          bitcoin-cli $${RPC_ARGS} createwallet $${VERIFIER_0_ADDRESS} true true "" false true
+          DESCRIPTOR=$$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($${VERIFIER_0_ADDRESS})" | jq -r ".descriptor")
+          bitcoin-cli $${RPC_ARGS} -rpcwallet=$${VERIFIER_0_ADDRESS} importdescriptors \
+            "[{ \"desc\": \"$${DESCRIPTOR}\", \"timestamp\": 1745017200, \"watchonly\": true}]"
+        fi
+
+        wallet_exists=$$(echo $${wallets} | jq --arg addr "$${BRIDGE_ADDRESS}" 'index($$addr) != null')
+        if [[ "$${wallet_exists}" == "true" ]]; then
+          bitcoin-cli $${RPC_ARGS} loadwallet $${BRIDGE_ADDRESS}
+        else
+          bitcoin-cli $${RPC_ARGS} createwallet $${BRIDGE_ADDRESS} true true "" false true
+          DESCRIPTOR=$$(bitcoin-cli $${RPC_ARGS} getdescriptorinfo "addr($${BRIDGE_ADDRESS})" | jq -r ".descriptor")
+          bitcoin-cli $${RPC_ARGS} -rpcwallet=$${BRIDGE_ADDRESS} importdescriptors \
+            "[{ \"desc\": \"$${DESCRIPTOR}\", \"timestamp\": 1745017200, \"watchonly\": true}]"
+        fi
+
+        echo "Loaded wallets: $$(bitcoin-cli $${RPC_ARGS} listwallets)"
+
+  external-node:
+    image: "vianetwork/via-external-node:v28.0.2"
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bitcoind:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3060:3060"
+      - "127.0.0.1:3061:3061"
+      - "127.0.0.1:3081:3081"
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - rocksdb:/db
+    expose:
+      - 3322
+    environment:
+      DATABASE_URL: "postgres://postgres:notsecurepassword@postgres:5430/via_local_ext_node"
+      DATABASE_POOL_SIZE: "10"
+      ZKSYNC_ACTION: "dont_ask"
+      EN_MAIN_NODE_URL: "https://testnet.via.onvia.org"
+      EN_PRUNING_DATA_RETENTION_HOURS: "forever"
+      EN_SNAPSHOTS_RECOVERY_ENABLED: "false"
+      EN_HTTP_PORT: "3060"
+      EN_WS_PORT: "3061"
+      EN_PROMETHEUS_PORT: "3322"
+      EN_HEALTHCHECK_PORT: "3081"
+      EN_THREADS_PER_SERVER: "128"
+      EN_L2_CHAIN_ID: "25223"
+      EN_L1_CHAIN_ID: "11155111"
+      EN_REQ_ENTITIES_LIMIT: "10000"
+      EN_STATE_CACHE_PATH: "./db/via_ext_node/state_keeper"
+      EN_MERKLE_TREE_PATH: "./db/via_ext_node/lightweight"
+      EN_MAX_L1_BATCHES_PER_TREE_ITER: "20"
+      EN_ETH_CLIENT_URL: "https://ethereum-sepolia-rpc.publicnode.com"
+      EN_API_NAMESPACES: "via,eth,web3,net,pubsub,zks,en,debug"
+      EN_BOOTLOADER_HASH: "0x0100038581be3d0e201b3cc45d151ef5cc59eb3a0f146ad44f0f72abf00b594c"
+      EN_DEFAULT_AA_HASH: "0x0100038dc66b69be75ec31653c64cb931678299b9b659472772b2550b703f41c"
+      EN_OPERATOR_ADDR: "0xde03a0B5963f75f1C8485B355fF6D30f3093BDE7"
+      EN_DATABASE_LONG_CONNECTION_THRESHOLD_MS: "2000"
+      EN_DATABASE_SLOW_QUERY_THRESHOLD_MS: "100"
+      EN_SNAPSHOTS_OBJECT_STORE_BUCKET_BASE_URL: "testnet.external-node-snapshots.onvia.org"
+      EN_SNAPSHOTS_OBJECT_STORE_MODE: "GCSAnonymousReadOnly"
+      EN_GATEWAY_URL: "https://testnet.via.onvia.org"
+      RUST_LOG: "warn,zksync_node_framework=info,zksync_node_consensus=info,zksync_consensus_bft=info,zksync_consensus_network=info,zksync_consensus_storage=info,zksync_commitment_generator=info,zksync_core=debug,zksync_dal=info,zksync_db_connection=info,zksync_health_check=debug,zksync_eth_client=info,zksync_state_keeper=info,zksync_node_sync=info,zksync_storage=info,zksync_metadata_calculator=info,zksync_merkle_tree=info,zksync_node_api_server=info,zksync_node_db_pruner=info,zksync_reorg_detector=info,via_consistency_checker=info,zksync_state=debug,zksync_utils=debug,zksync_types=info,zksync_web3_decl=debug,loadnext=info,vm=info,zksync_external_node=info,zksync_snapshots_applier=debug,"
+      RUST_BACKTRACE: "full"
+      RUST_LIB_BACKTRACE: "1"
+      MISC_LOG_FORMAT: "json"
+      VIA_BTC_CLIENT_NETWORK: "testnet4"
+      VIA_BTC_CLIENT_RPC_URL: "http://bitcoind:48332"
+      VIA_BTC_CLIENT_RPC_USER: "rpcuser"
+      VIA_BTC_CLIENT_RPC_PASSWORD: "rpcpassword"
+      VIA_BTC_CLIENT_EXTERNAL_APIS: "https://mempool.space/testnet4/api/v1/fees/recommended"
+      VIA_BTC_CLIENT_FEE_STRATEGIES: "fastestFee"
+      VIA_BTC_CLIENT_USE_RPC_FOR_FEE_RATE: "true"
+      VIA_BTC_WATCH_POLL_INTERVAL: "5000"
+      VIA_BTC_WATCH_BLOCK_CONFIRMATIONS: "3"
+      VIA_BTC_WATCH_BTC_BLOCKS_LAG: "1000"
+      VIA_BTC_WATCH_START_L1_BLOCK_NUMBER: "100891"
+      VIA_BTC_WATCH_RESTART_INDEXING: "false"
+      VIA_BRIDGE_BRIDGE_ADDRESS: "tb1ppsy8j80jtns42rkpdsfcv25qfschqejxmk6datkvu236eekr4fms06wnz0"
+      VIA_BRIDGE_VERIFIERS_PUB_KEYS: "0302ede5e1f0a6ceedf0c4263bb47b803973a3ffa4968b147c1d0f38c62f8c45df,023e01e4e2ff564b0fd159d94e1549fddf605f077a8c143e7a4f555adbeb324fe1"
+      VIA_GENESIS_BOOTSTRAP_TXIDS: "c89e5db75e74700582d106f1c0aa85f7b0df1436cecd3a6536f11bed9db0f407"
+      VIA_REORG_DETECTOR_POLL_INTERVAL_MS: "5000"
+
+volumes:
+  bitcoin:
+  postgres: {}
+  rocksdb: {}
+  prometheus: {}
+  grafana: {}

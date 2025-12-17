@@ -2,14 +2,15 @@
 # All the variables must be provided explicitly.
 # This is on purpose: if EN will accidentally depend on the main node env, it may cause problems.
 
-database_url = "postgres://postgres:notsecurepassword@localhost/via_local_ext_node"
+database_url = "postgres://postgres:notsecurepassword@localhost:5430/via_local_ext_node"
 test_database_url = "postgres://postgres:notsecurepassword@localhost:5433/via_local_test_ext_node"
 database_pool_size = 50
 zksync_action = "dont_ask"
+sqlx_offline=true
 
 [en]
-main_node_url = "https://sepolia.era.zksync.dev"
-pruning_data_retention_hours = "forever"
+main_node_url = "https://testnet.via.onvia.org"
+pruning_data_retention_hours = 1
 snapshots_recovery_enabled = false
 http_port = 3060
 ws_port = 3061
@@ -46,30 +47,30 @@ long_connection_threshold_ms = 2000
 slow_query_threshold_ms = 100
 
 [en.snapshots.object_store]
-bucket_base_url = "zksync-era-boojnet-external-node-snapshots"
-mode = "FileBacked"
-file_backed_base_path = "artifacts"
-# ^ Intentionally set to coincide with main node's in order to read locally produced snapshots
+bucket_base_url = "testnet.external-node-snapshots.onvia.org"
+mode = "GCSAnonymousReadOnly"
 
 [en.main_node]
-url = "http://127.0.0.1:3050"
+url = "https://testnet.via.onvia.org"
 
 [en.gateway]
-url = "http://127.0.0.1:3052"
+url = "https://testnet.via.onvia.org"
 
 
 [via_bridge]
 # The bridge address
-bridge_address = "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq"
+bridge_address = "tb1ppsy8j80jtns42rkpdsfcv25qfschqejxmk6datkvu236eekr4fms06wnz0"
 # The verifiers public keys
 verifiers_pub_keys = [
-    "03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b",
-    "02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662",
+    "0302ede5e1f0a6ceedf0c4263bb47b803973a3ffa4968b147c1d0f38c62f8c45df",
+    "023e01e4e2ff564b0fd159d94e1549fddf605f077a8c143e7a4f555adbeb324fe1"
 ]
 
 [via_genesis]
 # The bootstraping inscriptions
-bootstrap_txids = []
+bootstrap_txids = [
+    "c89e5db75e74700582d106f1c0aa85f7b0df1436cecd3a6536f11bed9db0f407"
+]
 
 [via_btc_client]
 # The btc client user.
@@ -77,11 +78,11 @@ rpc_user = "rpcuser"
 # The btc client password.
 rpc_password = "rpcpassword"
 # Name of the used Bitcoin network
-network = "regtest"
+network = "testnet4"
 # The Bitcoin RPC URL.
-rpc_url = "http://0.0.0.0:18443"
+rpc_url = "http://127.0.0.1:48332"
 # External fee APIs
-external_apis = ["https://mempool.space/testnet/api/v1/fees/recommended"]
+external_apis = ["https://mempool.space/testnet4/api/v1/fees/recommended"]
 # Fee strategies
 fee_strategies = ["fastestFee"]
 # Use RPC to get the fee rate
