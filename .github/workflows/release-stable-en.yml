@@ -30,14 +30,13 @@ jobs:
 
       - name: Push stable image
         run: |
-          docker_repositories=("matterlabs/external-node" "us-docker.pkg.dev/matterlabs-infra/matterlabs-docker/external-node")
+          docker_repositories=("matterlabs/external-node")
           platforms=("linux/amd64" "linux/arm64")
           tag_name="${{ inputs.tag_name }}"
           for repo in "${docker_repositories[@]}"; do
             platform_tags=""
             for platform in "${platforms[@]}"; do
               platform=$(echo $platform | tr '/' '-')
-              alpha_tag="${repo}:${tag_name}-alpha-${platform}"
               tag="${repo}:${tag_name}-${platform}"
               docker pull $alpha_tag
               docker tag $alpha_tag $tag

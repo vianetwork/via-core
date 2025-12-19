@@ -1,0 +1,134 @@
+name: Build Core images
+on:
+  workflow_call:
+    secrets:
+      DOCKERHUB_USER:
+        description: "DOCKERHUB_USER"
+        required: true
+      DOCKERHUB_TOKEN:
+        description: "DOCKERHUB_TOKEN"
+        required: true
+    inputs:
+      image_tag_suffix:
+        description: "Optional suffix to override tag name generation"
+        type: string
+        required: false
+      action:
+        description: "Action that should be perform with built container images"
+        type: string
+        required: false
+        default: "do nothing"
+
+jobs:
+  build-images:
+    name: Build and Push Docker Images
+    env:
+      IMAGE_TAG_SUFFIX: ${{ inputs.image_tag_suffix }}
+    runs-on: ${{ fromJSON('["cpu", "cpu-arm"]')[contains(matrix.platforms, 'arm')] }}
+    strategy:
+      matrix:
+        components:
+          - via-server
+          - via-external-node
+          - snapshots-creator
+        platforms:
+          - linux/amd64
+        include:
+          - components: via-external-node
+            platforms: linux/arm64
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: "recursive"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.6.1
+
+      - name: Setup env
+        shell: bash
+        run: |
+          echo VIA_HOME=$(pwd) >> $GITHUB_ENV
+          echo CI=1 >> $GITHUB_ENV
+          echo $(pwd)/bin >> $GITHUB_PATH
+          echo CI=1 >> .env
+          echo IN_DOCKER=1 >> .env
+
+      - name: Set env vars
+        shell: bash
+        run: |
+          echo PLATFORM=$(echo ${{ matrix.platforms }} | tr '/' '-') >> $GITHUB_ENV
+          if [ -n "${{ inputs.image_tag_suffix }}" ]; then
+            echo IMAGE_TAG_SHA_TS="${{ env.IMAGE_TAG_SUFFIX }}" >> $GITHUB_ENV
+          else
+            echo IMAGE_TAG_SHA_TS=$(git rev-parse --short HEAD)-$(date +%s) >> $GITHUB_ENV
+          fi
+
+      - name: Build contracts
+        run: |
+          via
+          yarn l2-contracts build
+          yarn workspace system-contracts build
+
+      - name: login to Docker registries
+        if: ${{ inputs.action == 'push' }}
+        shell: bash
+        run: |
+          docker login -u ${{ secrets.DOCKERHUB_USER }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build docker image
+        uses: docker/build-push-action@v6.7.0
+        with:
+          context: .
+          load: true
+          platforms: ${{ matrix.platforms }}
+          file: docker/${{ matrix.components }}/Dockerfile
+          tags: |
+            europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}
+            vianetwork/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}
+
+      - name: Push docker image
+        if: ${{ inputs.action == 'push' }}
+        run: |
+          docker push europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}
+          docker push vianetwork/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}      
+
+  create_manifest:
+    name: Create release manifest
+    runs-on: [self-hosted, cpu]
+    needs: build-images
+    if: ${{ inputs.action == 'push' }}
+    strategy:
+      matrix:
+        component:
+          - name: via-server
+            platform: linux/amd64
+          - name: via-external-node
+            platform: linux/amd64,linux/arm64
+          - name: snapshots-creator
+            platform: linux/amd64
+
+    env:
+      IMAGE_TAG_SUFFIX: ${{ inputs.image_tag_suffix }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: login to Docker registries
+        run: |
+          docker login -u ${{ secrets.DOCKERHUB_USER }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create Docker manifest
+        run: |
+          docker_repositories=("vianetwork/${{ matrix.component.name }}" "europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.component.name }}")
+          platforms=${{ matrix.component.platform }}
+          for repo in "${docker_repositories[@]}"; do
+            platform_tags=""
+            for platform in ${platforms//,/ }; do
+              platform=$(echo $platform | tr '/' '-')
+              platform_tags+=" --amend ${repo}:${IMAGE_TAG_SUFFIX}-${platform}"
+            done
+            for manifest in "${repo}:${IMAGE_TAG_SUFFIX}" "${repo}:latest"; do
+              docker manifest create ${manifest} ${platform_tags}
+              docker manifest push ${manifest}
+            done
+          done
