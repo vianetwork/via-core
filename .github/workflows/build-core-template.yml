@@ -20,8 +20,40 @@ on:
         default: "do nothing"
 
 jobs:
+  prepare-contracts:
+    name: Prepare contracts
+    runs-on: [self-hosted, cpu]
+    steps:
+      - uses: actions/checkout@v4.1.7
+        with:
+          submodules: "recursive"
+
+      - name: Prepare ENV
+        shell: bash
+        run: |
+          echo VIA_HOME=$(pwd) >> $GITHUB_ENV
+          echo CI=1 >> $GITHUB_ENV
+          echo $(pwd)/bin >> $GITHUB_PATH
+          echo $HOME/.local/bin >> $GITHUB_PATH
+          echo CI=1 >> .env
+          echo IN_DOCKER=1 >> .env
+
+      - name: Build contracts
+        run: |
+          via
+          yarn l2-contracts build
+          yarn workspace system-contracts build
+
+      - name: Upload contracts
+        uses: actions/upload-artifact@v4.4.0
+        with:
+          name: contacts
+          path: |
+            ./contracts
+
   build-images:
     name: Build and Push Docker Images
+    needs: prepare-contracts
     env:
       IMAGE_TAG_SUFFIX: ${{ inputs.image_tag_suffix }}
     runs-on: ${{ fromJSON('["cpu", "cpu-arm"]')[contains(matrix.platforms, 'arm')] }}
@@ -64,11 +96,12 @@ jobs:
             echo IMAGE_TAG_SHA_TS=$(git rev-parse --short HEAD)-$(date +%s) >> $GITHUB_ENV
           fi
 
-      - name: Build contracts
-        run: |
-          via
-          yarn l2-contracts build
-          yarn workspace system-contracts build
+      - name: Download contracts
+        uses: actions/download-artifact@v4.1.8
+        with:
+          name: contacts
+          path: |
+            ./contracts
 
       - name: login to Docker registries
         if: ${{ inputs.action == 'push' }}
