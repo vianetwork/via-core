@@ -211,7 +211,7 @@ bootstrap-dev:
 		--start-block 1 \
 		--verifiers-pub-keys 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b,02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662 \
 		--governance-address bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm \
-		--bridge-wallet-path etc/test_config/via/new_bridge_address.json \
+		--bridge-wallet-path etc/test_config/via/regtest/bridge_address.json \
 		--sequencer-address bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
 
 	@echo "$(YELLOW)Update ENVs...$(RESET)"

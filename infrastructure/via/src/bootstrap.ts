@@ -91,7 +91,7 @@ export async function systemBootstrapping(
 
     let cmd = `cargo run --example bootstrap ${network} ${rpcUrl} ${rpcUsername} ${rpcPassword} SystemBootstrapping ${privateKey} `;
     cmd += `${startBlock} ${protocolVersion} ${bootloader_hash} ${default_aa_hash} ${snark_wrapper_vk_hash} ${evm_emulator_hash} `;
-    cmd += `${governanceAddress} ${sequencerAddress} ${bridgeAddress} ${merkleRoot} ${bridgeVerifiersPubKeys} ${verifiersPubKeys}`;
+    cmd += `${governanceAddress} ${sequencerAddress} ${bridgeAddress} "${merkleRoot}" ${bridgeVerifiersPubKeys} ${verifiersPubKeys}`;
 
     await utils.spawn(cmd);
 }
