@@ -19,9 +19,14 @@ impl ViaReorgDetectorConfig {
         50
     }
 
-    /// The number of blocks the reorg detector will jump back to quickly locate the block affected by the reorg.
-    pub fn reorg_checkpoint(&self) -> i64 {
-        5
+    /// The reorg window the reorg detector will use to check for reorgs.
+    pub fn reorg_window(&self) -> i64 {
+        25
+    }
+
+    /// Maximum number of concurrent block fetches.
+    pub fn max_concurrent_fetches(&self) -> usize {
+        10
     }
 }
 

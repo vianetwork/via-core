@@ -2,7 +2,6 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
 use bitcoin::Block;
-use futures::future::try_join_all;
 use tokio::time::sleep;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
@@ -42,16 +41,16 @@ impl ViaMainNodeReorgDetector {
         let mut timer = tokio::time::interval(self.config.poll_interval());
         let pool = self.pool.clone();
 
+        self.init().await?;
+
         while !*stop_receiver.borrow_and_update() {
             tokio::select! {
                 _ = timer.tick() => { /* continue iterations */ }
                 _ = stop_receiver.changed() => break,
             }
 
-            self.init().await?;
-
             let mut storage = pool
-                .connection_tagged("via main node reorg detector")
+                .connection_tagged("via_main_node_reorg_detector")
                 .await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
@@ -82,19 +81,24 @@ impl ViaMainNodeReorgDetector {
         from_block_height: i64,
         to_block_height: i64,
     ) -> anyhow::Result<Vec<Block>> {
-        let calls = (from_block_height..=to_block_height)
-            .map(|height| self.btc_client.fetch_block(height as u128))
-            .collect::<Vec<_>>();
+        use futures::stream::{self, StreamExt};
 
-        let results = try_join_all(calls).await?;
+        let heights: Vec<i64> = (from_block_height..=to_block_height).collect();
 
-        Ok(results)
+        let results = stream::iter(heights)
+            .map(|height| async move { self.btc_client.fetch_block(height as u128).await })
+            .buffer_unordered(self.config.max_concurrent_fetches())
+            .collect::<Vec<_>>()
+            .await;
+
+        let blocks: Result<Vec<_>, _> = results.into_iter().collect();
+        blocks.context("Failed to fetch blocks")
     }
 
     async fn init(&mut self) -> anyhow::Result<()> {
         let mut storage = self
             .pool
-            .connection_tagged("via main node reorg detector")
+            .connection_tagged("via_main_node_reorg_detector")
             .await?;
 
         match storage.via_l1_block_dal().get_last_l1_block().await? {
@@ -138,7 +142,7 @@ impl ViaMainNodeReorgDetector {
         };
 
         if !self.is_canonical_chain(block_height, hash).await? {
-            tracing::warn!("No canonical chain found from block height {block_height}");
+            tracing::warn!("Last known block {block_height} is not on canonical chain, reorg detection will handle this");
             return Ok(());
         }
 
@@ -149,6 +153,11 @@ impl ViaMainNodeReorgDetector {
             last_block_height,
             from_block_height + self.config.block_limit(),
         );
+
+        if from_block_height > to_block_height {
+            tracing::debug!("No new blocks to sync");
+            return Ok(());
+        }
 
         let blocks = self
             .fetch_blocks(from_block_height, to_block_height)
@@ -174,96 +183,34 @@ impl ViaMainNodeReorgDetector {
     }
 
     async fn detect_reorg(&self, storage: &mut Connection<'_, Core>) -> anyhow::Result<()> {
-        let Some((block_height, hash)) = storage.via_l1_block_dal().get_last_l1_block().await?
-        else {
+        let Some((block_height, _)) = storage.via_l1_block_dal().get_last_l1_block().await? else {
             anyhow::bail!("No blocks found to detect reorg")
         };
 
-        let block = self
-            .btc_client
-            .fetch_block(block_height as u128)
-            .await
-            .with_context(|| format!("failed to fetch block at height {}", block_height))?;
+        let window = self.config.reorg_window();
+        let start_height = block_height.saturating_sub(window - 1).max(1);
 
-        if hash == block.block_hash().to_string() {
-            return Ok(());
-        }
-
-        tracing::warn!(
-            "Reorg detected, find the block affected, found at block height {} expected hash {}, found hash {} ",
-            block_height,
-            hash,
-            block.block_hash().to_string()
-        );
-
-        // Todo: compare with other nodes if the hash is different to confirm the reorg
-
-        let mut i = 1;
-        let checkpoint_block = loop {
-            let candidate_height = block_height.saturating_sub(i * self.config.reorg_checkpoint());
-
-            if candidate_height == 0 {
-                anyhow::bail!("No checkpoint found while searching for reorg checkpoint");
-            }
-
-            let Some(hash) = storage
-                .via_l1_block_dal()
-                .get_l1_block_hash(candidate_height)
-                .await?
-            else {
-                anyhow::bail!("L1 block hash not found at height {candidate_height}");
-            };
-
-            let block = self
-                .btc_client
-                .fetch_block(candidate_height as u128)
-                .await?;
-
-            if hash == block.block_hash().to_string() {
-                break candidate_height;
-            }
-
-            tracing::info!("Reorg checkpoint not found at block: {candidate_height}");
-
-            i += 1;
-        };
-
-        tracing::info!("Reorg checkpoint found at block: {checkpoint_block}");
-
-        let from_block_height = checkpoint_block + 1;
-        let to_block_height = checkpoint_block + self.config.reorg_checkpoint();
-
-        let blocks = self
-            .fetch_blocks(from_block_height, to_block_height)
-            .await?;
-
+        // Fetch DB blocks in batch
         let db_blocks = storage
             .via_l1_block_dal()
-            .list_l1_blocks(from_block_height, self.config.reorg_checkpoint())
+            .list_l1_blocks(start_height, window)
             .await?;
 
-        if blocks.len() != db_blocks.len() {
-            anyhow::bail!("Mismatch client and DB blocks");
-        }
+        // Fetch chain blocks in batch
+        let chain_blocks = self.fetch_blocks(start_height, block_height).await?;
 
         let mut reorg_start_block_height_opt = None;
 
-        for (i, (db_number, db_hash)) in db_blocks.iter().enumerate() {
-            let client_block = &blocks[i];
-            let expected_number = checkpoint_block + 1 + i as i64;
-
-            if *db_number != expected_number {
-                anyhow::bail!(
-                    "DB returned unexpected block number: got {}, expected {}",
-                    db_number,
-                    expected_number
-                );
-            }
-
-            if client_block.block_hash().to_string() != *db_hash {
+        for ((db_number, db_hash), chain_block) in db_blocks.iter().zip(chain_blocks.iter()) {
+            if chain_block.block_hash().to_string() != *db_hash {
+                tracing::warn!("Reorg detected at block {}", db_number);
                 reorg_start_block_height_opt = Some(*db_number);
                 break;
             }
+        }
+
+        if reorg_start_block_height_opt.is_none() {
+            return Ok(());
         }
 
         let Some(reorg_start_block_height) = reorg_start_block_height_opt else {
@@ -279,28 +226,28 @@ impl ViaMainNodeReorgDetector {
             .await?;
 
         if l1_batch_number_opt.is_none() || !self.is_main_node {
-            tracing::info!("There is no l1 batch affected by the reorg, no action is required");
-            // Reset the indexing because it's possible that verifier transactions are affected.
-            let mut transaction = storage.start_transaction().await?;
+            tracing::info!("Soft reorg detected: no l1 batch affected or not main node");
 
-            // Insert a reorg in the DB to stop all the other components from processing
-            transaction
+            // Insert reorg metadata to signal other components
+            storage
                 .via_l1_block_dal()
                 .insert_reorg_metadata(reorg_start_block_height, 0)
                 .await?;
 
-            // Sleep and wait for the reorg event is received by all components
+            // Sleep to allow other components to process the reorg event
             sleep(Duration::from_secs(30)).await;
+
+            let mut transaction = storage.start_transaction().await?;
 
             let l1_block_number_to_keep = reorg_start_block_height - 1;
 
-            // Reset the BtcWatch last indexer to the last valid batch.
+            // Reset the BtcWatch indexer to the last valid block
             transaction
                 .via_indexer_dal()
-                .update_last_processed_l1_block("via_btc_watch", (l1_block_number_to_keep) as u32)
+                .update_last_processed_l1_block("via_btc_watch", l1_block_number_to_keep as u32)
                 .await?;
 
-            // Delete the reorg
+            // Delete the reorg metadata
             transaction
                 .via_l1_block_dal()
                 .delete_l1_reorg(l1_block_number_to_keep)
@@ -316,15 +263,17 @@ impl ViaMainNodeReorgDetector {
 
             METRICS.reorg_type[&ReorgType::Soft].set(reorg_start_block_height as usize);
 
-            tracing::warn!("Soft Reorg executed");
+            tracing::info!("Soft reorg handled successfully");
 
             return Ok(());
         };
 
         if self.is_main_node {
             let l1_batch_number = l1_batch_number_opt.unwrap();
-            tracing::info!(
-                "Reorg detected and affect the VIA network from l1_batch_number {l1_batch_number}"
+            tracing::warn!(
+                "Hard reorg detected: affects L1 batch {} from block {}",
+                l1_batch_number,
+                reorg_start_block_height
             );
 
             storage
@@ -332,7 +281,6 @@ impl ViaMainNodeReorgDetector {
                 .insert_reorg_metadata(reorg_start_block_height, l1_batch_number)
                 .await?;
 
-            tracing::warn!("Hard Reorg found");
             METRICS.reorg_type[&ReorgType::Hard].set(reorg_start_block_height as usize);
         }
 
@@ -346,8 +294,8 @@ impl ViaMainNodeReorgDetector {
         if let Some((l1_block_number, l1_batch_number)) =
             storage.via_l1_block_dal().has_reorg_in_progress().await?
         {
-            tracing::warn!(
-                "Found reorg in progress at l1 block number: {} and l1 batch number: {}",
+            tracing::debug!(
+                "Reorg in progress at l1 block number: {} and l1 batch number: {} (waiting for external recovery service)",
                 l1_block_number,
                 l1_batch_number
             );
