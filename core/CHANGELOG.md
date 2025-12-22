@@ -1,5 +1,13 @@
 # Changelog
 
+## [28.0.2](https://github.com/vianetwork/via-core/compare/core-v28.0.1...core-v28.0.2) (2025-12-22)
+
+
+### Bug Fixes
+
+* **reorg_detector:** reorg detector check window of blocks not just the tail  ([#323](https://github.com/vianetwork/via-core/issues/323)) ([625f3fa](https://github.com/vianetwork/via-core/commit/625f3fab9510c1c4d47a156bd34d54b70be69d74))
+* **via_bootstrap:** fix the bootstrap script ([#322](https://github.com/vianetwork/via-core/issues/322)) ([d4ba6b6](https://github.com/vianetwork/via-core/commit/d4ba6b6f0632b69cf390efdaac743e56f606a90d))
+
 ## [28.0.1](https://github.com/vianetwork/via-core/compare/core-v28.0.0...core-v28.0.1) (2025-12-05)
 
 
