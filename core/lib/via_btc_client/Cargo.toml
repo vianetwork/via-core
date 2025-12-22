@@ -97,3 +97,7 @@ path = "examples/propose_new_bridge.rs"
 [[example]]
 name = "tx_with_opreturn"
 path = "examples/tx_with_opreturn.rs"
+
+[[example]]
+name = "parse_bootstrap"
+path = "examples/parse_bootstrap.rs"

@@ -62,8 +62,10 @@ async fn create_inscriber(
     let auth = NodeAuth::UserPass(rpc_username.to_string(), rpc_password.to_string());
     let config = ViaBtcClientConfig {
         network: network.to_string(),
-        external_apis: vec![],
-        fee_strategies: vec![],
+        external_apis: vec![String::from(
+            "https://mempool.space/testnet/api/v1/fees/recommended",
+        )],
+        fee_strategies: vec![String::from("fastestFee")],
         use_rpc_for_fee_rate: None,
     };
     let client = Arc::new(BitcoinClient::new(rpc_url, auth, config)?);
@@ -166,7 +168,10 @@ pub async fn bootstrap_inscription(
         .as_unchecked()
         .clone();
 
-    let merkle_root = Some(TapNodeHash::from_str(&args[16].clone())?);
+    let mut merkle_root = None;
+    if args[16].clone() != "" {
+        merkle_root = Some(TapNodeHash::from_str(&args[16].clone())?);
+    }
 
     let bridge_verifier_public_keys = args[17]
         .clone()

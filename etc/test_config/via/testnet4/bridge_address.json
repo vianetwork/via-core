@@ -1,0 +1,14 @@
+{
+  "public_keys": [
+    "0302ede5e1f0a6ceedf0c4263bb47b803973a3ffa4968b147c1d0f38c62f8c45df",
+    "023e01e4e2ff564b0fd159d94e1549fddf605f077a8c143e7a4f555adbeb324fe1"
+  ],
+  "aggregated_internal_key": "",
+  "governance_script_hex": "",
+  "taproot_output_key": "",
+  "merkle_root": "",
+  "taproot_address": "tb1ppsy8j80jtns42rkpdsfcv25qfschqejxmk6datkvu236eekr4fms06wnz0",
+  "control_block": "",
+  "threshold": 2,
+  "total_governance_keys": 2
+}

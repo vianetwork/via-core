@@ -25,8 +25,10 @@ impl BootstrapState {
             anyhow::bail!("Bridge must be Taproot");
         }
 
-        if !self.wallets.governance.script_pubkey().is_p2wsh() {
-            anyhow::bail!("Governance must be P2WSH");
+        if !self.wallets.governance.script_pubkey().is_p2wsh()
+            && !self.wallets.governance.script_pubkey().is_p2wpkh()
+        {
+            anyhow::bail!("Governance must be P2WSH or P2WPKH");
         }
 
         if !self
