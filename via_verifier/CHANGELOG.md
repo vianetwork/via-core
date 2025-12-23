@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/vianetwork/via-core/compare/via_verifier-v1.1.0...via_verifier-v1.1.1) (2025-12-23)
+
+
+### Bug Fixes
+
+* **reorg_detector:** reorg detector check window of blocks not just the tail  ([#323](https://github.com/vianetwork/via-core/issues/323)) ([625f3fa](https://github.com/vianetwork/via-core/commit/625f3fab9510c1c4d47a156bd34d54b70be69d74))
+
 ## [1.1.0](https://github.com/vianetwork/via-core/compare/via_verifier-v1.0.0...via_verifier-v1.1.0) (2025-12-05)
 
 
