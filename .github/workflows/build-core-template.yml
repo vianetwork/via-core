@@ -160,7 +160,7 @@ jobs:
               platform=$(echo $platform | tr '/' '-')
               platform_tags+=" --amend ${repo}:${IMAGE_TAG_SUFFIX}-${platform}"
             done
-            for manifest in "${repo}:${IMAGE_TAG_SUFFIX}" "${repo}:latest"; do
+            for manifest in "${repo}:${IMAGE_TAG_SUFFIX}"; do
               docker manifest create ${manifest} ${platform_tags}
               docker manifest push ${manifest}
             done
