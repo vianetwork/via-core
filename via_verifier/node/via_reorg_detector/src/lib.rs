@@ -222,9 +222,18 @@ impl ViaVerifierReorgDetector {
             return Ok(false);
         }
 
-        let Some(reorg_start_block_height) = reorg_start_block_height_opt else {
+        let Some(mut reorg_start_block_height) = reorg_start_block_height_opt else {
             anyhow::bail!("Reorg start block height not found");
         };
+
+        let last_processed_l1_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await? as i64;
+
+        if last_processed_l1_block < reorg_start_block_height {
+            reorg_start_block_height = last_processed_l1_block;
+        }
 
         let l1_block_number_to_keep = reorg_start_block_height - 1;
 
