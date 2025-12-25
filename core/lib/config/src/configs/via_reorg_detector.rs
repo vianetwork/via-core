@@ -21,7 +21,7 @@ impl ViaReorgDetectorConfig {
 
     /// The reorg window the reorg detector will use to check for reorgs.
     pub fn reorg_window(&self) -> i64 {
-        25
+        100
     }
 
     /// Maximum number of concurrent block fetches.
