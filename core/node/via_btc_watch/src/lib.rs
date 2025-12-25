@@ -148,6 +148,10 @@ impl BtcWatch {
 
         let from_block = last_processed_bitcoin_block + 1;
 
+        if to_block < from_block {
+            return Ok(());
+        }
+
         let system_wallets_map = match storage
             .via_wallet_dal()
             .get_system_wallets_raw(last_processed_bitcoin_block as i64)
