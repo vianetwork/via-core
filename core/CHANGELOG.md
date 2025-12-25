@@ -1,5 +1,12 @@
 # Changelog
 
+## [28.0.3](https://github.com/vianetwork/via-core/compare/core-v28.0.2...core-v28.0.3) (2025-12-25)
+
+
+### Bug Fixes
+
+* **via_reorg:** increase the reorg window ([#329](https://github.com/vianetwork/via-core/issues/329)) ([85ca484](https://github.com/vianetwork/via-core/commit/85ca484aa7bd69804f6fae703754098ef43a36da))
+
 ## [28.0.2](https://github.com/vianetwork/via-core/compare/core-v28.0.1...core-v28.0.2) (2025-12-22)
 
 
