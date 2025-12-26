@@ -41,8 +41,8 @@ impl RestApi {
                 .iter()
                 .map(|s| bitcoin::secp256k1::PublicKey::from_str(s).unwrap())
                 .collect(),
-            verifier_request_timeout: config.verifier_request_timeout,
-            session_timeout: config.session_timeout,
+            verifier_request_timeout: config.verifier_request_timeout(),
+            session_timeout: config.session_timeout(),
         };
 
         let transaction_builder = Arc::new(TransactionBuilder::new(btc_client.clone())?);

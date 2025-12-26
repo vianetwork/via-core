@@ -164,7 +164,7 @@ impl ViaWithdrawalDal<'_, '_> {
         bridge_withdrawal_id: i64,
         withdrawal: &WithdrawalRequest,
     ) -> DalResult<()> {
-        let result = sqlx::query!(
+        sqlx::query!(
             r#"
             UPDATE via_withdrawals SET
                 bridge_withdrawal_id = $4,

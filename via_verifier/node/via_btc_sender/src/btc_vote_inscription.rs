@@ -7,7 +7,10 @@ use via_btc_client::{
 };
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
-use zksync_types::via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType;
+use zksync_types::{
+    via_verifier_btc_inscription_operations::ViaVerifierBtcInscriptionRequestType,
+    via_wallet::SystemWallets,
+};
 
 use crate::metrics::METRICS;
 
@@ -56,6 +59,8 @@ impl ViaVoteInscription {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
+        self.validate_verifier_address().await?;
+
         if storage
             .via_l1_block_dal()
             .has_reorg_in_progress()
@@ -148,5 +153,26 @@ impl ViaVoteInscription {
         let mut reversed_bytes = h256_bytes.to_vec();
         reversed_bytes.reverse();
         Txid::from_slice(&reversed_bytes).with_context(|| "Failed to convert H256 to Txid")
+    }
+
+    /// Check if the wallet is in the verifier set.
+    async fn validate_verifier_address(&self) -> anyhow::Result<()> {
+        let mut storage = self.pool.connection().await?;
+
+        let last_processed_l1_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await?;
+
+        let Some(wallets_map) = storage
+            .via_wallet_dal()
+            .get_system_wallets_raw(last_processed_l1_block as i64)
+            .await?
+        else {
+            anyhow::bail!("System wallets not found")
+        };
+
+        let wallets = SystemWallets::try_from(wallets_map)?;
+        wallets.is_valid_verifier_address(self.config.wallet_address()?)
     }
 }
