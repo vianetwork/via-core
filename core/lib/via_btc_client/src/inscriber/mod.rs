@@ -65,6 +65,86 @@ const BROADCAST_RETRY_COUNT: u32 = 3;
 // https://bitcointalk.org/index.php?topic=5453107.msg62262343#msg62262343
 const P2TR_DUST_LIMIT: Amount = Amount::from_sat(330);
 
+/// Minimum buffer for change output to ensure Reveal TX can be funded.
+/// This accounts for Reveal TX fees plus safety margin.
+const MIN_CHANGE_BUFFER: Amount = Amount::from_sat(10_000);
+
+/// Maximum number of UTXOs to consider for selection (performance reasoning)
+const MAX_UTXOS_TO_CONSIDER: usize = 100;
+
+/// Calculates the minimum target amount needed for UTXO selection.
+/// This includes: Commit TX fee (estimated), P2TR dust output, and minimum change buffer.
+fn calculate_selection_target(input_count: u32, fee_rate: u64) -> Result<Amount> {
+    let commit_fee = InscriberFeeCalculator::estimate_fee(
+        input_count,
+        COMMIT_TX_P2TR_INPUT_COUNT,
+        COMMIT_TX_P2WPKH_OUTPUT_COUNT,
+        COMMIT_TX_P2TR_OUTPUT_COUNT,
+        vec![],
+        fee_rate,
+    )?;
+
+    let target = commit_fee
+        .checked_add(P2TR_DUST_LIMIT)
+        .and_then(|v| v.checked_add(MIN_CHANGE_BUFFER))
+        .ok_or_else(|| anyhow::anyhow!("Target amount overflow"))?;
+    Ok(target)
+}
+
+/// Selects UTXOs using Largest-First: sorts by value descending, picks until target met.
+/// Dynamically recalculates fees as inputs are added. Ensures change for Reveal TX.
+fn select_utxos(
+    mut utxos: Vec<(OutPoint, TxOut)>,
+    fee_rate: u64,
+) -> Result<(Vec<(OutPoint, TxOut)>, Amount)> {
+    if utxos.is_empty() {
+        return Err(anyhow::anyhow!("No UTXOs available for selection"));
+    }
+
+    // Sort by value descending (largest first)
+    utxos.sort_by(|a, b| b.1.value.cmp(&a.1.value));
+
+    // Limit UTXOs to consider for performance
+    utxos.truncate(MAX_UTXOS_TO_CONSIDER);
+
+    let mut selected: Vec<(OutPoint, TxOut)> = Vec::new();
+    let mut total_value = Amount::ZERO;
+
+    for (outpoint, txout) in utxos {
+        selected.push((outpoint, txout.clone()));
+        total_value = total_value
+            .checked_add(txout.value)
+            .ok_or_else(|| anyhow::anyhow!("Total value overflow"))?;
+
+        // Calculate target with current input count
+        let input_count = selected.len() as u32;
+        let target = calculate_selection_target(input_count, fee_rate)?;
+
+        // Check if we have enough
+        if total_value >= target {
+            debug!(
+                "UTXO selection complete: {} inputs, {} sats, target {} sats",
+                input_count,
+                total_value.to_sat(),
+                target.to_sat()
+            );
+            return Ok((selected, total_value));
+        }
+    }
+
+    // If we get here, we've used all UTXOs but may still not have enough
+    let final_target = calculate_selection_target(selected.len() as u32, fee_rate)?;
+    if total_value >= final_target {
+        return Ok((selected, total_value));
+    }
+
+    Err(anyhow::anyhow!(
+        "Insufficient funds: have {} sats, need {} sats",
+        total_value.to_sat(),
+        final_target.to_sat()
+    ))
+}
+
 #[derive(Debug)]
 pub struct Inscriber {
     client: Arc<dyn BitcoinOps>,
@@ -226,10 +306,6 @@ impl Inscriber {
     #[instrument(skip(self), target = "bitcoin_inscriber")]
     async fn prepare_commit_tx_input(&self) -> Result<CommitTxInputRes> {
         debug!("Preparing commit transaction input");
-        let mut commit_tx_inputs: Vec<TxIn> = Vec::new();
-        let mut unlocked_value: Amount = Amount::ZERO;
-        let mut inputs_count: u32 = 0;
-        let mut utxo_amounts: Vec<Amount> = Vec::new();
 
         let address_ref = &self.signer.get_p2wpkh_address()?;
         let mut utxos = self.client.fetch_utxos(address_ref).await?;
@@ -312,7 +388,17 @@ impl Inscriber {
             }
         }
 
-        for (outpoint, txout) in utxos {
+        // Get fee rate for selection calculation
+        let fee_rate = self.get_fee_rate().await?;
+
+        // Select optimal UTXOs using the Largest-First selection algorithm
+        let (selected_utxos, unlocked_value) = select_utxos(utxos, fee_rate)?;
+
+        // Build transaction inputs from selected UTXOs
+        let mut commit_tx_inputs: Vec<TxIn> = Vec::new();
+        let mut utxo_amounts: Vec<Amount> = Vec::new();
+
+        for (outpoint, txout) in selected_utxos {
             let txin = TxIn {
                 previous_output: outpoint,
                 script_sig: ScriptBuf::default(), // For a p2wpkh script_sig is empty.
@@ -321,12 +407,15 @@ impl Inscriber {
             };
 
             commit_tx_inputs.push(txin);
-            unlocked_value += txout.value;
-            inputs_count += 1;
             utxo_amounts.push(txout.value);
         }
 
-        debug!("Commit transaction input prepared");
+        let inputs_count = commit_tx_inputs.len() as u32;
+        debug!(
+            "Commit transaction input prepared: {} inputs, {} sats",
+            inputs_count,
+            unlocked_value.to_sat()
+        );
 
         let res = CommitTxInputRes {
             commit_tx_inputs,
@@ -852,6 +941,70 @@ mod tests {
         BitcoinClientResult, BitcoinNetwork, BitcoinSignerResult, InscriptionMessage,
         L1BatchDAReferenceInput,
     };
+
+    #[test]
+    fn test_select_utxos_largest_first() {
+        let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
+
+        let utxos = vec![
+            (
+                OutPoint { txid: Txid::all_zeros(), vout: 0 },
+                TxOut { value: Amount::from_sat(1_000), script_pubkey: script_pubkey.clone() },
+            ),
+            (
+                OutPoint { txid: Txid::all_zeros(), vout: 1 },
+                TxOut { value: Amount::from_sat(50_000), script_pubkey: script_pubkey.clone() },
+            ),
+            (
+                OutPoint { txid: Txid::all_zeros(), vout: 2 },
+                TxOut { value: Amount::from_sat(10_000), script_pubkey: script_pubkey.clone() },
+            ),
+            (
+                OutPoint { txid: Txid::all_zeros(), vout: 3 },
+                TxOut { value: Amount::from_sat(100_000), script_pubkey: script_pubkey.clone() },
+            ),
+        ];
+
+        // Select with a low fee rate - should prefer largest UTXOs
+        let (selected, total) = select_utxos(utxos, 1).unwrap();
+
+        // Verify largest first ordering - first selected should be 100k sats
+        assert_eq!(selected[0].1.value, Amount::from_sat(100_000));
+        assert!(total >= Amount::from_sat(100_000));
+    }
+
+    #[test]
+    fn test_select_utxos_insufficient_funds() {
+        let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
+
+        let utxos = vec![
+            (
+                OutPoint { txid: Txid::all_zeros(), vout: 0 },
+                TxOut { value: Amount::from_sat(100), script_pubkey: script_pubkey.clone() },
+            ),
+        ];
+
+        let result = select_utxos(utxos, 10);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Insufficient funds"));
+    }
+
+    #[test]
+    fn test_select_utxos_empty() {
+        let utxos: Vec<(OutPoint, TxOut)> = vec![];
+        let result = select_utxos(utxos, 10);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No UTXOs available"));
+    }
+
+    #[test]
+    fn test_calculate_selection_target() {
+        let target = calculate_selection_target(1, 10).unwrap();
+
+        // Target = commit fee + dust (330) + buffer (10000), should be > 10330 sats
+        assert!(target.to_sat() > 10_330);
+        assert!(target.to_sat() < 1_000_000);
+    }
 
     mock! {
         BitcoinOps {}
