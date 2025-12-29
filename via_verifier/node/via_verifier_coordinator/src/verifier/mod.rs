@@ -7,6 +7,7 @@ use anyhow::Context;
 use bitcoin::{TapSighashType, Witness};
 use musig2::{CompactSignature, PartialSignature};
 use reqwest::{header, Client, StatusCode};
+use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use via_btc_client::traits::{BitcoinOps, Serializable};
 use via_musig2::{
@@ -234,7 +235,9 @@ impl ViaWithdrawalVerifier {
         Ok(())
     }
 
-    fn create_request_headers(&self) -> anyhow::Result<header::HeaderMap> {
+    /// Creates authenticated request headers with body hash for replay protection
+    /// The body hash is included in the signed payload
+    fn create_request_headers_with_body(&self, body: &[u8]) -> anyhow::Result<header::HeaderMap> {
         let mut headers = header::HeaderMap::new();
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let signer = get_signer_with_merkle_root(
@@ -248,11 +251,15 @@ impl ViaWithdrawalVerifier {
         let private_key = bitcoin::PrivateKey::from_wif(&self.wallet.private_key)?;
         let secret_key = private_key.inner;
 
-        // Sign timestamp + verifier_index + sequencer_version as a JSON object
+        // Compute SHA-256 hash of the request body for replay protection
+        let body_hash = hex::encode(Sha256::digest(body));
+
+        // Sign timestamp + verifier_index + sequencer_version + body_hash
         let payload = serde_json::json!({
             "timestamp": timestamp,
             "verifier_index": verifier_index,
-            "sequencer_version": sequencer_version
+            "sequencer_version": sequencer_version,
+            "body_hash": body_hash
         });
         let signature = crate::auth::sign_request(&payload, &secret_key)?;
 
@@ -266,8 +273,18 @@ impl ViaWithdrawalVerifier {
             "X-Sequencer-Version",
             header::HeaderValue::from_str(&sequencer_version)?,
         );
+        headers.insert(
+            "X-Body-Hash",
+            header::HeaderValue::from_str(&body_hash)?,
+        );
 
         Ok(headers)
+    }
+
+    /// Creates authenticated request headers GET requests (empty body)
+    /// Get requests that have no body to use as an empty body hash
+    fn create_request_headers(&self) -> anyhow::Result<header::HeaderMap> {
+        self.create_request_headers_with_body(&[])
     }
 
     async fn get_session(&self) -> anyhow::Result<SigningSessionResponse> {
@@ -336,17 +353,20 @@ impl ViaWithdrawalVerifier {
             nonce_map.insert(*input_index, nonce_pair);
         }
 
+        let body = serde_json::to_vec(&nonce_map)?;
+
         let url = format!(
             "{}/session/nonce",
             self.verifier_config.coordinator_http_url
         );
-        let headers = self.create_request_headers()?;
+        let headers = self.create_request_headers_with_body(&body)?;
 
         let res = self
             .client
             .post(&url)
             .headers(headers.clone())
-            .json(&nonce_map)
+            .body(body)
+            .header(header::CONTENT_TYPE, "application/json")
             .send()
             .await?;
 
@@ -473,11 +493,14 @@ impl ViaWithdrawalVerifier {
             sig_pair_per_input.insert(input_index, encoded);
         }
 
+        // Serialize body first for body hash computation
+        let body = serde_json::to_vec(&sig_pair_per_input)?;
+
         let url = format!(
             "{}/session/signature",
             self.verifier_config.coordinator_http_url
         );
-        let headers = self.create_request_headers()?;
+        let headers = self.create_request_headers_with_body(&body)?;
 
         tracing::debug!("Submitting all partial signatures to {}", url);
 
@@ -485,7 +508,8 @@ impl ViaWithdrawalVerifier {
             .client
             .post(&url)
             .headers(headers.clone())
-            .json(&sig_pair_per_input)
+            .body(body)
+            .header(header::CONTENT_TYPE, "application/json")
             .send()
             .await?;
 
@@ -535,13 +559,16 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn create_new_session(&mut self) -> anyhow::Result<()> {
+        let body = Vec::new();
+
         let url = format!("{}/session/new", self.verifier_config.coordinator_http_url);
-        let headers = self.create_request_headers()?;
+        let headers = self.create_request_headers_with_body(&body)?;
         let resp = self
             .client
             .post(&url)
             .headers(headers.clone())
             .header(header::CONTENT_TYPE, "application/json")
+            .body(body)
             .send()
             .await?;
 

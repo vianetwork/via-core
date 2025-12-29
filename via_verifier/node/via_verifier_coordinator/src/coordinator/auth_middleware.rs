@@ -1,11 +1,12 @@
 use std::{str::FromStr, sync::Arc};
 
 use axum::{
-    body::{self, Body},
+    body::{self, Body, Bytes},
     extract::{Request, State},
     middleware::Next,
     response::Response,
 };
+use sha2::{Digest, Sha256};
 use via_verifier_dal::VerifierDal;
 use zksync_types::protocol_version::ProtocolSemanticVersion;
 
@@ -35,6 +36,11 @@ pub async fn auth_middleware(
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| ApiError::Unauthorized("Missing signature header".into()))?;
 
+    let body_hash = headers
+        .get("X-Body-Hash")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| ApiError::Unauthorized("Missing body hash header".into()))?;
+
     let sequencer_version = headers
         .get("X-Sequencer-Version")
         .and_then(|h| h.to_str().ok())
@@ -46,7 +52,8 @@ pub async fn auth_middleware(
     }
 
     let timestamp_now = chrono::Utc::now().timestamp();
-    let timestamp_diff = timestamp_now - timestamp.parse::<i64>().unwrap();
+    let timestamp_diff = timestamp_now - timestamp.parse::<i64>()
+        .map_err(|_| ApiError::Unauthorized("Invalid timestamp".into()))?;
 
     if timestamp_diff > state.state.verifier_request_timeout.into() {
         return Err(ApiError::Unauthorized("Timestamp is too old".into()));
@@ -55,11 +62,25 @@ pub async fn auth_middleware(
     // Get the public key for this verifier
     let public_key = &state.state.verifiers_pub_keys[verifier_index];
 
-    //  verify timestamp + verifier_index
+    // Get the request body bytes (stored by extract_body middleware)
+    let body_bytes = request
+        .extensions()
+        .get::<Bytes>()
+        .map(|b| b.to_vec())
+        .unwrap_or_default();
+
+    // Verify body hash matches actual body content
+    let computed_body_hash = hex::encode(Sha256::digest(&body_bytes));
+    if computed_body_hash != body_hash {
+        return Err(ApiError::Unauthorized("Body hash mismatch".into()));
+    }
+
+    // Verify the signature over timestamp + verifier_index + sequencer_version + body_hash
     let payload = serde_json::json!({
         "timestamp": timestamp,
         "verifier_index": verifier_index.to_string(),
-        "sequencer_version": sequencer_version
+        "sequencer_version": sequencer_version,
+        "body_hash": body_hash
     });
 
     // Verify the signature

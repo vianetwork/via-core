@@ -92,8 +92,10 @@ impl RestApi {
             )
             .route("/nonce", axum::routing::post(Self::submit_nonce))
             .route("/nonce", axum::routing::get(Self::get_nonces))
-            .route_layer(body_mw)
+            // body_mw (outer) extracts body bytes first
+            // auth_mw (inner) verifies signature with body hash second
             .route_layer(auth_mw)
+            .route_layer(body_mw)
             .with_state(shared_state.clone())
             .layer(
                 ServiceBuilder::new()

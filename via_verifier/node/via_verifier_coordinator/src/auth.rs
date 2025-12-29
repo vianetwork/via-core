@@ -77,4 +77,35 @@ mod tests {
         assert!(!verify_signature(&payload, &signature, &wrong_public_key)
             .expect("Verification with wrong key unexpectedly succeeded"));
     }
+
+    #[test]
+    fn test_body_hash_in_signature() {
+        let secp = Secp256k1::new();
+        let (secret_key, public_key) = secp.generate_keypair(&mut OsRng);
+
+        let body = b"test body content";
+        let body_hash = hex::encode(Sha256::digest(body));
+
+        let payload = json!({
+            "timestamp": 1234567890,
+            "verifier_index": "0",
+            "sequencer_version": "0.1.0",
+            "body_hash": body_hash
+        });
+
+        let signature = sign_request(&payload, &secret_key).unwrap();
+        assert!(verify_signature(&payload, &signature, &public_key).unwrap());
+
+        // Verify different body produces different hash
+        let different_body = b"different body";
+        let different_hash = hex::encode(Sha256::digest(different_body));
+        let different_payload = json!({
+            "timestamp": 1234567890,
+            "verifier_index": "0",
+            "sequencer_version": "0.1.0",
+            "body_hash": different_hash
+        });
+
+        assert!(!verify_signature(&different_payload, &signature, &public_key).unwrap());
+    }
 }
