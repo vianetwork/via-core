@@ -213,9 +213,18 @@ impl ViaMainNodeReorgDetector {
             return Ok(());
         }
 
-        let Some(reorg_start_block_height) = reorg_start_block_height_opt else {
+        let Some(mut reorg_start_block_height) = reorg_start_block_height_opt else {
             anyhow::bail!("Reorg start block height not found");
         };
+
+        let last_processed_l1_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await? as i64;
+
+        if last_processed_l1_block < reorg_start_block_height {
+            reorg_start_block_height = last_processed_l1_block;
+        }
 
         METRICS.reorg_type[&ReorgType::Soft]
             .set((block_height - reorg_start_block_height) as usize);
