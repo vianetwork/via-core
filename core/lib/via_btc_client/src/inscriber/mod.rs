@@ -111,9 +111,10 @@ fn select_utxos(
     let mut total_value = Amount::ZERO;
 
     for (outpoint, txout) in utxos {
-        selected.push((outpoint, txout.clone()));
+        let value = txout.value;
+        selected.push((outpoint, txout));
         total_value = total_value
-            .checked_add(txout.value)
+            .checked_add(value)
             .ok_or_else(|| anyhow::anyhow!("Total value overflow"))?;
 
         // Calculate target with current input count
@@ -132,12 +133,8 @@ fn select_utxos(
         }
     }
 
-    // If we get here, we've used all UTXOs but may still not have enough
+    // If we get here, we've used all UTXOs but still don't have enough.
     let final_target = calculate_selection_target(selected.len() as u32, fee_rate)?;
-    if total_value >= final_target {
-        return Ok((selected, total_value));
-    }
-
     Err(anyhow::anyhow!(
         "Insufficient funds: have {} sats, need {} sats",
         total_value.to_sat(),
