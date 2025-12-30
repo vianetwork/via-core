@@ -46,7 +46,18 @@ pub async fn auth_middleware(
     }
 
     let timestamp_now = chrono::Utc::now().timestamp();
-    let timestamp_diff = timestamp_now - timestamp.parse::<i64>().unwrap();
+
+    let parsed_timestamp = validate_timestamp(timestamp).map_err(|msg| {
+        tracing::warn!(
+            "Rejected invalid timestamp '{}' from verifier {}: {}",
+            timestamp,
+            verifier_index,
+            msg
+        );
+        ApiError::Unauthorized(msg.into())
+    })?;
+
+    let timestamp_diff = timestamp_now - parsed_timestamp;
 
     if timestamp_diff > state.state.verifier_request_timeout.into() {
         return Err(ApiError::Unauthorized("Timestamp is too old".into()));
@@ -105,4 +116,132 @@ pub async fn extract_body(
     let mut req = Request::from_parts(parts, Body::from(bytes.clone()));
     req.extensions_mut().insert(bytes);
     Ok(next.run(req).await)
+}
+
+/// Validates and parses a timestamp string.
+/// Returns the parsed timestamp if valid, or an error description if invalid.
+pub fn validate_timestamp(timestamp: &str) -> Result<i64, &'static str> {
+    // Validate the format: a non-empty sequence of ASCII digits, optionally prefixed with a single '-'.
+    let is_valid_format = if let Some(rest) = timestamp.strip_prefix('-') {
+        !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
+    } else {
+        !timestamp.is_empty() && timestamp.chars().all(|c| c.is_ascii_digit())
+    };
+
+    if !is_valid_format {
+        return Err("Invalid timestamp format");
+    }
+
+    let parsed = timestamp.parse::<i64>().map_err(|_| "Invalid timestamp")?;
+
+    // Bounds checking
+    const MAX_TIMESTAMP: i64 = 253402300799; // Year 9999
+    const MIN_TIMESTAMP: i64 = 0; // Unix epoch
+
+    if parsed < MIN_TIMESTAMP || parsed > MAX_TIMESTAMP {
+        return Err("Timestamp out of valid range");
+    }
+
+    Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_malformed_timestamp_returns_error() {
+        // Test with "not-a-number"
+        assert!(validate_timestamp("not-a-number").is_err());
+        assert!(validate_timestamp("abc").is_err());
+        assert!(validate_timestamp("12abc34").is_err());
+
+        // Test with empty string
+        assert!(validate_timestamp("").is_err());
+
+        // Test with special characters
+        assert!(validate_timestamp("123!@#").is_err());
+        assert!(validate_timestamp("12.34").is_err());
+        assert!(validate_timestamp("12 34").is_err());
+        assert!(validate_timestamp("123\n456").is_err());
+        assert!(validate_timestamp("123\t456").is_err());
+
+        // Test with overflow values (beyond i64::MAX)
+        assert!(validate_timestamp("99999999999999999999999999").is_err());
+        assert!(validate_timestamp("9223372036854775808").is_err()); // i64::MAX + 1
+    }
+
+    #[test]
+    fn test_valid_timestamp_parses_correctly() {
+        // Test with a valid Unix timestamp (current time range)
+        let now = chrono::Utc::now().timestamp();
+        assert_eq!(validate_timestamp(&now.to_string()).unwrap(), now);
+
+        // Test with specific valid timestamps
+        assert_eq!(validate_timestamp("1704067200").unwrap(), 1704067200); // 2024-01-01 00:00:00 UTC
+        assert_eq!(validate_timestamp("0").unwrap(), 0); // Unix epoch
+        assert_eq!(validate_timestamp("1").unwrap(), 1); // One second after epoch
+        assert_eq!(validate_timestamp("1609459200").unwrap(), 1609459200); // 2021-01-01
+
+        // Test with leading zeros (valid, parses correctly)
+        assert_eq!(validate_timestamp("0000001704067200").unwrap(), 1704067200);
+    }
+
+    #[test]
+    fn test_negative_timestamp_handled() {
+        // Test with negative timestamp (before epoch) - should be rejected per bound check
+        assert!(validate_timestamp("-1").is_err());
+        assert!(validate_timestamp("-1000000000").is_err());
+        assert!(validate_timestamp("-9223372036854775808").is_err()); // i64::MIN
+    }
+
+    #[test]
+    fn test_future_timestamp_handled() {
+        // Test with a far-future timestamp (within bounds)
+        assert!(validate_timestamp("253402300799").is_ok()); // Year 9999 - max valid
+        assert_eq!(
+            validate_timestamp("253402300799").unwrap(),
+            253402300799
+        );
+
+        // Test with timestamp beyond max
+        assert!(validate_timestamp("253402300800").is_err()); // Beyond year 9999
+        assert!(validate_timestamp("300000000000").is_err()); // Way beyond
+    }
+
+    #[test]
+    fn test_edge_cases() {
+        // Just a minus sign
+        assert!(validate_timestamp("-").is_err());
+
+        // Multiple minus signs
+        assert!(validate_timestamp("--123").is_err());
+        assert!(validate_timestamp("123-456").is_err());
+        assert!(validate_timestamp("---").is_err());
+
+        // Whitespace
+        assert!(validate_timestamp(" 123").is_err());
+        assert!(validate_timestamp("123 ").is_err());
+        assert!(validate_timestamp(" ").is_err());
+
+        // Unicode digits (should be rejected - only ASCII)
+        assert!(validate_timestamp("١٢٣").is_err()); // Arabic-Indic digits
+
+        // Boundary values
+        assert!(validate_timestamp("9223372036854775807").is_err()); // i64::MAX - beyond year 9999
+    }
+
+    #[test]
+    fn test_timestamp_diff_calculation() {
+        // Verify the timestamp difference calculation doesn't overflow
+        let timestamp_now = chrono::Utc::now().timestamp();
+        let valid_past = validate_timestamp(&(timestamp_now - 60).to_string()).unwrap();
+        let diff = timestamp_now - valid_past;
+        assert_eq!(diff, 60);
+
+        // Test with timestamp at epoch
+        let epoch = validate_timestamp("0").unwrap();
+        let diff_from_epoch = timestamp_now - epoch;
+        assert!(diff_from_epoch > 0);
+    }
 }
