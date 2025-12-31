@@ -11,6 +11,9 @@ use zksync_types::protocol_version::ProtocolSemanticVersion;
 
 use crate::coordinator::{api_decl::RestApi, error::ApiError};
 
+/// Maximum allowed clock skew in seconds for future timestamps.
+const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
+
 pub async fn auth_middleware(
     State(state): State<Arc<RestApi>>,
     request: Request,
@@ -58,6 +61,11 @@ pub async fn auth_middleware(
     })?;
 
     let timestamp_diff = timestamp_now - parsed_timestamp;
+
+    if parsed_timestamp > timestamp_now + MAX_CLOCK_SKEW_SECONDS {
+        tracing::warn!("Reject timestamp from verifier {}: {} seconds ahead of current time", verifier_index, parsed_timestamp - timestamp_now);
+        return Err(ApiError::Unauthorized("Timestamp is too far in the future".into()));
+    }
 
     if timestamp_diff > state.state.verifier_request_timeout.into() {
         return Err(ApiError::Unauthorized("Timestamp is too old".into()));
@@ -243,5 +251,19 @@ mod tests {
         let epoch = validate_timestamp("0").unwrap();
         let diff_from_epoch = timestamp_now - epoch;
         assert!(diff_from_epoch > 0);
+    }
+
+    #[test]
+    fn test_future_timestamp_validation() {
+        let now = chrono::Utc::now().timestamp();
+
+        // Boundary tests for MAX_CLOCK_SKEW_SECONDS (30 seconds)
+        assert!(now + 10 <= now + MAX_CLOCK_SKEW_SECONDS);
+        assert!(now + 30 <= now + MAX_CLOCK_SKEW_SECONDS);
+        assert!(now + 31 > now + MAX_CLOCK_SKEW_SECONDS);
+
+        // Far-future timestamps must be rejected (VIA-AUTH-003)
+        let far_future = now + 157_680_000;
+        assert!(far_future > now + MAX_CLOCK_SKEW_SECONDS);
     }
 }
