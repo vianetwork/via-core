@@ -31,7 +31,8 @@ pub fn verify_partial_signature(
     let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, merkle_root);
     let tweak = tap_tweak.to_scalar();
     let tweak_bytes = tweak.to_be_bytes();
-    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
+    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
+        .map_err(|_| anyhow::anyhow!("Taproot tweak scalar out of valid range"))?;
 
     // Apply tweak to the key aggregation context before signing
     musig_key_agg_cache = musig_key_agg_cache.with_xonly_tweak(tweak)?;
@@ -126,7 +127,8 @@ mod tests {
         let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, None);
         let tweak = tap_tweak.to_scalar();
         let tweak_bytes = tweak.to_be_bytes();
-        let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
+        let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
+            .map_err(|_| anyhow::anyhow!("Taproot tweak scalar out of valid range"))?;
 
         // Apply tweak to the key aggregation context before signing
         musig_key_agg_cache = musig_key_agg_cache.with_xonly_tweak(tweak)?;
