@@ -109,9 +109,9 @@ fn calculate_selection_target(input_count: u32, fee_rate: u64) -> Result<Amount>
         fee_rate,
     )?;
 
-    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, self.policy.min_change_output);
+    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, MIN_CHANGE_OUTPUT);
     let target = commit_fee
-        .checked_add(self.policy.min_inscription_output)
+        .checked_add(MIN_INSCRIPTION_OUTPUT)
         .and_then(|v| v.checked_add(minimum_change_budget))
         .ok_or_else(|| anyhow::anyhow!("Target amount overflow"))?;
     Ok(target)
@@ -1179,6 +1179,7 @@ mod tests {
             client: Arc::new(client),
             signer: Arc::new(signer),
             context,
+            policy: InscriberPolicy::default(),
         }
     }
 
