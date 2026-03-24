@@ -122,11 +122,13 @@ impl Inscriber {
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
-    pub async fn get_balance(&self) -> Result<u128> {
-        debug!("Getting balance");
+    pub async fn get_balances(&self) -> Result<(u128, u128)> {
+        debug!("Getting balances");
         let address_ref = &self.signer.get_p2wpkh_address()?;
-        let mut balance = self.client.get_balance(address_ref).await?;
-        debug!("Balance obtained: {}", balance);
+        let trusted_balance = self.client.get_balance(address_ref).await?;
+        debug!("Trusted balance obtained: {}", trusted_balance);
+
+        let mut balance_with_pending_context = trusted_balance;
 
         // Include the transactions in mempool when calculate the balance
         for inscription in &self.context.fifo_queue {
@@ -134,18 +136,24 @@ impl Inscriber {
 
             tx.output.iter().for_each(|output| {
                 if output.script_pubkey == address_ref.script_pubkey() {
-                    balance += output.value.to_sat() as u128;
+                    balance_with_pending_context += output.value.to_sat() as u128;
                 }
             });
         }
 
-        Ok(balance)
+        Ok((trusted_balance, balance_with_pending_context))
+    }
+
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
+    pub async fn get_balance(&self) -> Result<u128> {
+        let (_, balance_with_pending_context) = self.get_balances().await?;
+        Ok(balance_with_pending_context)
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
     pub async fn get_trusted_balance(&self) -> Result<u128> {
-        let address_ref = &self.signer.get_p2wpkh_address()?;
-        Ok(self.client.get_balance(address_ref).await?)
+        let (trusted_balance, _) = self.get_balances().await?;
+        Ok(trusted_balance)
     }
 
     pub fn with_policy(mut self, policy: InscriberPolicy) -> Self {
@@ -434,7 +442,7 @@ impl Inscriber {
             .checked_sub(required_amount)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Required Amount: {:?}, Spendable Amount: {:?} ",
+                    "Required Amount: {:?}, Spendable Amount: {:?}",
                     required_amount,
                     tx_input_data.unlocked_value
                 )
@@ -693,7 +701,7 @@ impl Inscriber {
             .checked_sub(fee_amount + recipient_amount)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Required Amount: {:?} Spendable Amount: {:?} ",
+                    "Required Amount: {:?}, Spendable Amount: {:?}",
                     fee_amount + recipient_amount,
                     tx_input_data.unlock_value
                 )
