@@ -79,7 +79,7 @@ impl WiringLayer for ViaInscriptionManagerLayer {
         let via_btc_inscription_manager =
             ViaBtcInscriptionManager::new(inscriber, master_pool, self.config)
                 .await
-                .unwrap();
+                .with_context(|| "Error init via btc inscription manager")?;
 
         Ok(Output {
             via_btc_inscription_manager,

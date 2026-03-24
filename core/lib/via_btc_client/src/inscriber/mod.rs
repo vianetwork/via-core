@@ -701,7 +701,7 @@ impl Inscriber {
 
         if reveal_change_amount < Amount::from_sat(self.policy.min_change_output_sats) {
             anyhow::bail!(
-                "Required Amount: {:?} Spendable Amount: {:?}. reveal change output {:?} is below minimum {:?}",
+                "Required Amount: {:?}, Spendable Amount: {:?}. reveal change output {:?} is below minimum {:?}",
                 fee_amount + recipient_amount + Amount::from_sat(self.policy.min_change_output_sats),
                 tx_input_data.unlock_value,
                 reveal_change_amount,
@@ -1080,6 +1080,35 @@ mod tests {
         }
     }
 
+    fn dummy_inscription_request() -> InscriptionRequest {
+        InscriptionRequest {
+            message: InscriptionMessage::L1BatchDAReference(L1BatchDAReferenceInput {
+                l1_batch_hash: zksync_basic_types::H256([0; 32]),
+                l1_batch_index: zksync_basic_types::L1BatchNumber(0_u32),
+                da_identifier: "da_identifier_celestia".to_string(),
+                blob_id: "batch_temp_blob_id".to_string(),
+                prev_l1_batch_hash: zksync_basic_types::H256([0; 32]),
+            }),
+            inscriber_output: InscriberOutput {
+                commit_txid: Txid::all_zeros(),
+                commit_raw_tx: String::new(),
+                commit_tx_fee_rate: 0,
+                reveal_txid: Txid::all_zeros(),
+                reveal_raw_tx: String::new(),
+                reveal_tx_fee_rate: 0,
+                is_broadcasted: false,
+            },
+            fee_payer_ctx: FeePayerCtx {
+                fee_payer_utxo_txid: Txid::all_zeros(),
+                fee_payer_utxo_vout: 0,
+                fee_payer_utxo_value: Amount::from_sat(0),
+            },
+            commit_tx_input: CommitTxInput {
+                spent_utxo: vec![TxIn::default()],
+            },
+        }
+    }
+
     #[tokio::test]
     async fn test_inscriber_inscribe() {
         let mut inscriber = get_mock_inscriber_and_conditions();
@@ -1118,32 +1147,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_fee_rate_handles_inconsistent_cap_when_context_non_empty() {
         let mut inscriber = get_mock_inscriber_for_fee_rate_tests();
-        inscriber.context.fifo_queue.push_back(InscriptionRequest {
-            message: InscriptionMessage::L1BatchDAReference(L1BatchDAReferenceInput {
-                l1_batch_hash: zksync_basic_types::H256([0; 32]),
-                l1_batch_index: zksync_basic_types::L1BatchNumber(0_u32),
-                da_identifier: "da_identifier_celestia".to_string(),
-                blob_id: "batch_temp_blob_id".to_string(),
-                prev_l1_batch_hash: zksync_basic_types::H256([0; 32]),
-            }),
-            inscriber_output: InscriberOutput {
-                commit_txid: Txid::all_zeros(),
-                commit_raw_tx: String::new(),
-                commit_tx_fee_rate: 0,
-                reveal_txid: Txid::all_zeros(),
-                reveal_raw_tx: String::new(),
-                reveal_tx_fee_rate: 0,
-                is_broadcasted: false,
-            },
-            fee_payer_ctx: FeePayerCtx {
-                fee_payer_utxo_txid: Txid::all_zeros(),
-                fee_payer_utxo_vout: 0,
-                fee_payer_utxo_value: Amount::from_sat(0),
-            },
-            commit_tx_input: CommitTxInput {
-                spent_utxo: vec![TxIn::default()],
-            },
-        });
+        inscriber.context.fifo_queue.push_back(dummy_inscription_request());
 
         inscriber.set_policy(InscriberPolicy {
             min_inscription_output_sats: 600,
@@ -1155,5 +1159,75 @@ mod tests {
 
         let fee_rate = inscriber.get_fee_rate().await.unwrap();
         assert_eq!(fee_rate, 20);
+    }
+
+    #[tokio::test]
+    async fn test_prepare_inscribe_fails_when_commit_change_below_minimum() {
+        let mut inscriber = get_mock_inscriber_and_conditions();
+        inscriber.set_policy(InscriberPolicy {
+            min_inscription_output_sats: 600,
+            min_change_output_sats: Amount::from_btc(3.0).unwrap().to_sat(),
+            min_feerate_sat_vb: 1,
+            min_chained_feerate_sat_vb: 1,
+            max_feerate_sat_vb: 100,
+        });
+
+        let l1_da_batch_ref = L1BatchDAReferenceInput {
+            l1_batch_hash: zksync_basic_types::H256([0; 32]),
+            l1_batch_index: zksync_basic_types::L1BatchNumber(0_u32),
+            da_identifier: "da_identifier_celestia".to_string(),
+            blob_id: "batch_temp_blob_id".to_string(),
+            prev_l1_batch_hash: zksync_basic_types::H256([0; 32]),
+        };
+
+        let res = inscriber
+            .prepare_inscribe(&InscriptionMessage::L1BatchDAReference(l1_da_batch_ref), None)
+            .await;
+
+        assert!(res.is_err());
+        assert!(
+            res.unwrap_err()
+                .to_string()
+                .contains("change output")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_prepare_inscribe_fails_when_reveal_change_below_minimum() {
+        let mut inscriber = get_mock_inscriber_and_conditions();
+        inscriber.set_policy(InscriberPolicy {
+            min_inscription_output_sats: 600,
+            min_change_output_sats: 1_000,
+            min_feerate_sat_vb: 1,
+            min_chained_feerate_sat_vb: 1,
+            max_feerate_sat_vb: 100,
+        });
+
+        let l1_da_batch_ref = L1BatchDAReferenceInput {
+            l1_batch_hash: zksync_basic_types::H256([0; 32]),
+            l1_batch_index: zksync_basic_types::L1BatchNumber(0_u32),
+            da_identifier: "da_identifier_celestia".to_string(),
+            blob_id: "batch_temp_blob_id".to_string(),
+            prev_l1_batch_hash: zksync_basic_types::H256([0; 32]),
+        };
+
+        let recipient = Recipient {
+            amount: Amount::from_btc(1.99999).unwrap(),
+            script_pubkey: inscriber.signer.get_p2wpkh_script_pubkey().clone(),
+        };
+
+        let res = inscriber
+            .prepare_inscribe(
+                &InscriptionMessage::L1BatchDAReference(l1_da_batch_ref),
+                Some(recipient),
+            )
+            .await;
+
+        assert!(res.is_err());
+        assert!(
+            res.unwrap_err()
+                .to_string()
+                .contains("reveal change output")
+        );
     }
 }
