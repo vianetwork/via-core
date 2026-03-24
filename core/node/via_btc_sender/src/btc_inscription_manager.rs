@@ -73,8 +73,10 @@ impl ViaBtcInscriptionManager {
             return Ok(());
         }
 
-        let spendable_balance = self.update_inscription_status(storage).await?;
-        self.send_new_inscription_txs(storage, spendable_balance).await?;
+        let balance_with_pending_context = self.update_inscription_status(storage).await?;
+        let trusted_balance = self.inscriber.get_trusted_balance().await?;
+        self.send_new_inscription_txs(storage, balance_with_pending_context, trusted_balance)
+            .await?;
         Ok(())
     }
 
@@ -199,10 +201,11 @@ impl ViaBtcInscriptionManager {
     async fn send_new_inscription_txs(
         &mut self,
         storage: &mut Connection<'_, Core>,
-        spendable_balance: u128,
+        balance_with_pending_context: u128,
+        trusted_balance: u128,
     ) -> anyhow::Result<()> {
         let pending_chain_depth = self.inscriber.pending_chain_depth() as u32;
-        if pending_chain_depth >= self.config.max_pending_chain_depth() {
+        if pending_chain_depth > self.config.max_pending_chain_depth() {
             METRICS.chain_guard_blocks.inc();
             tracing::warn!(
                 "Skipping new inscription broadcast due to pending chain depth guard. depth={} max={}.",
@@ -212,11 +215,12 @@ impl ViaBtcInscriptionManager {
             return Ok(());
         }
 
-        if spendable_balance < self.config.min_spendable_balance_sats() as u128 {
+        if trusted_balance < self.config.min_spendable_balance_sats() as u128 {
             METRICS.chain_guard_blocks.inc();
             tracing::warn!(
-                "Skipping new inscription broadcast due to low spendable balance guard. spendable={} min={}",
-                spendable_balance,
+                "Skipping new inscription broadcast due to low trusted balance guard. trusted={} (with_pending={}) min={}",
+                trusted_balance,
+                balance_with_pending_context,
                 self.config.min_spendable_balance_sats()
             );
             return Ok(());

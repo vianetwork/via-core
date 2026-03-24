@@ -29,5 +29,5 @@ min_chained_feerate_sat_vb = 20
 max_feerate_sat_vb = 80
 # Pause new sends when context chain gets too deep.
 max_pending_chain_depth = 3
-# Pause new sends if spendable balance falls below this threshold.
+# Pause new sends if trusted (confirmed) balance falls below this threshold.
 min_spendable_balance_sats = 2000

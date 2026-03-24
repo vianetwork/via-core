@@ -54,7 +54,7 @@ pub struct ViaBtcSenderConfig {
     /// Max number of pending inscriptions in context before pausing new sends.
     pub max_pending_chain_depth: Option<u32>,
 
-    /// Do not send new inscriptions when spendable balance goes below this threshold.
+    /// Do not send new inscriptions when trusted (confirmed) balance goes below this threshold.
     pub min_spendable_balance_sats: Option<u64>,
 }
 

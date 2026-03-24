@@ -142,6 +142,12 @@ impl Inscriber {
         Ok(balance)
     }
 
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
+    pub async fn get_trusted_balance(&self) -> Result<u128> {
+        let address_ref = &self.signer.get_p2wpkh_address()?;
+        Ok(self.client.get_balance(address_ref).await?)
+    }
+
     pub fn with_policy(mut self, policy: InscriberPolicy) -> Self {
         self.policy = policy;
         self
@@ -695,7 +701,7 @@ impl Inscriber {
 
         if reveal_change_amount < Amount::from_sat(self.policy.min_change_output_sats) {
             anyhow::bail!(
-                "Required Amount:{:?} Spendable Amount: {:?}. reveal change output {:?} is below minimum {:?}",
+                "Required Amount: {:?} Spendable Amount: {:?}. reveal change output {:?} is below minimum {:?}",
                 fee_amount + recipient_amount + Amount::from_sat(self.policy.min_change_output_sats),
                 tx_input_data.unlock_value,
                 reveal_change_amount,
@@ -1060,6 +1066,20 @@ mod tests {
         }
     }
 
+    fn get_mock_inscriber_for_fee_rate_tests() -> Inscriber {
+        let mut client = MockBitcoinOps::new();
+        let signer = MockBitcoinSigner::new();
+
+        client.expect_get_fee_rate().returning(|_| Ok(1));
+
+        Inscriber {
+            client: Arc::new(client),
+            signer: Arc::new(signer),
+            context: InscriberContext::default(),
+            policy: InscriberPolicy::default(),
+        }
+    }
+
     #[tokio::test]
     async fn test_inscriber_inscribe() {
         let mut inscriber = get_mock_inscriber_and_conditions();
@@ -1082,7 +1102,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_fee_rate_applies_floor_when_context_empty() {
-        let mut inscriber = get_mock_inscriber_and_conditions();
+        let mut inscriber = get_mock_inscriber_for_fee_rate_tests();
         inscriber.set_policy(InscriberPolicy {
             min_inscription_output_sats: 600,
             min_change_output_sats: 1_000,
@@ -1097,7 +1117,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_fee_rate_handles_inconsistent_cap_when_context_non_empty() {
-        let mut inscriber = get_mock_inscriber_and_conditions();
+        let mut inscriber = get_mock_inscriber_for_fee_rate_tests();
         inscriber.context.fifo_queue.push_back(InscriptionRequest {
             message: InscriptionMessage::L1BatchDAReference(L1BatchDAReferenceInput {
                 l1_batch_hash: zksync_basic_types::H256([0; 32]),
