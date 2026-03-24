@@ -1,4 +1,4 @@
-use via_btc_client::inscriber::Inscriber;
+use via_btc_client::inscriber::{Inscriber, InscriberPolicy};
 use via_btc_sender::btc_inscription_aggregator::ViaBtcInscriptionAggregator;
 use zksync_config::{configs::via_wallets::ViaWallet, ViaBtcSenderConfig};
 
@@ -66,7 +66,12 @@ impl WiringLayer for ViaBtcInscriptionAggregatorLayer {
         let master_pool = input.master_pool.get().await.unwrap();
         let client = input.btc_client_resource.btc_sender.unwrap();
 
-        let inscriber = Inscriber::new(client, &self.wallet.private_key, None)
+        let policy = InscriberPolicy {
+            min_inscription_output: bitcoin::Amount::from_sat(self.config.min_inscription_output_sats()),
+            min_change_output: bitcoin::Amount::from_sat(self.config.min_change_output_sats()),
+            allow_unconfirmed_change_reuse: self.config.allow_unconfirmed_change_reuse(),
+        };
+        let inscriber = Inscriber::new_with_policy(client, &self.wallet.private_key, None, policy)
             .await
             .unwrap();
 

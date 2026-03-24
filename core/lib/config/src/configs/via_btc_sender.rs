@@ -35,6 +35,15 @@ pub struct ViaBtcSenderConfig {
 
     /// The required time (seconds) to wait before create a proof inscription.
     pub block_time_to_proof: Option<u32>,
+
+    /// Minimum inscription output value to stay comfortably above dust-like policy floors.
+    pub min_inscription_output_sats: Option<u64>,
+
+    /// Minimum reusable change output value.
+    pub min_change_output_sats: Option<u64>,
+
+    /// Whether unconfirmed reveal-change outputs from the in-memory inscriber context may be reused.
+    pub allow_unconfirmed_change_reuse: Option<bool>,
 }
 
 impl ViaBtcSenderConfig {
@@ -60,6 +69,18 @@ impl ViaBtcSenderConfig {
     pub fn stuck_inscription_block_number(&self) -> u32 {
         self.stuck_inscription_block_number.unwrap_or(6)
     }
+
+    pub fn min_inscription_output_sats(&self) -> u64 {
+        self.min_inscription_output_sats.unwrap_or(600)
+    }
+
+    pub fn min_change_output_sats(&self) -> u64 {
+        self.min_change_output_sats.unwrap_or(1_000)
+    }
+
+    pub fn allow_unconfirmed_change_reuse(&self) -> bool {
+        self.allow_unconfirmed_change_reuse.unwrap_or(false)
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -76,6 +97,9 @@ impl ViaBtcSenderConfig {
             block_time_to_commit: None,
             block_time_to_proof: None,
             stuck_inscription_block_number: None,
+            min_inscription_output_sats: None,
+            min_change_output_sats: None,
+            allow_unconfirmed_change_reuse: None,
         }
     }
 }

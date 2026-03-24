@@ -17,3 +17,9 @@ stuck_inscription_block_number = 6
 block_time_to_commit = 0
 # The required time (seconds) to wait before create a proof inscription.
 block_time_to_proof = 0
+# Minimum inscription output value kept above dust-like thresholds.
+min_inscription_output_sats = 600
+# Minimum reusable change output value.
+min_change_output_sats = 1000
+# Whether the sender may reuse unconfirmed reveal-change outputs for new inscriptions.
+allow_unconfirmed_change_reuse = false

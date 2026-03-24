@@ -79,10 +79,22 @@ const MIN_CHANGE_BUFFER: Amount = Amount::from_sat(10_000);
 /// Maximum number of UTXOs to consider for selection (performance reasoning)
 const MAX_UTXOS_TO_CONSIDER: usize = 100;
 
-/// Do not fund new inscriptions from unconfirmed reveal-change outputs sitting in the
-/// in-memory inscriber context. This avoids building long 0-conf chains that can stall
-/// proof inscriptions and head-of-line block the queue.
-const ALLOW_UNCONFIRMED_CHANGE_REUSE: bool = false;
+#[derive(Debug, Clone)]
+pub struct InscriberPolicy {
+    pub min_inscription_output: Amount,
+    pub min_change_output: Amount,
+    pub allow_unconfirmed_change_reuse: bool,
+}
+
+impl Default for InscriberPolicy {
+    fn default() -> Self {
+        Self {
+            min_inscription_output: Amount::from_sat(600),
+            min_change_output: Amount::from_sat(1_000),
+            allow_unconfirmed_change_reuse: false,
+        }
+    }
+}
 
 /// Calculates the minimum target amount needed for UTXO selection.
 /// This includes: Commit TX fee (estimated), a safe inscription output amount, and a
@@ -97,9 +109,9 @@ fn calculate_selection_target(input_count: u32, fee_rate: u64) -> Result<Amount>
         fee_rate,
     )?;
 
-    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, MIN_CHANGE_OUTPUT);
+    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, self.policy.min_change_output);
     let target = commit_fee
-        .checked_add(MIN_INSCRIPTION_OUTPUT)
+        .checked_add(self.policy.min_inscription_output)
         .and_then(|v| v.checked_add(minimum_change_budget))
         .ok_or_else(|| anyhow::anyhow!("Target amount overflow"))?;
     Ok(target)
@@ -161,6 +173,7 @@ pub struct Inscriber {
     client: Arc<dyn BitcoinOps>,
     signer: Arc<dyn BitcoinSigner>,
     context: InscriberContext,
+    policy: InscriberPolicy,
 }
 
 impl Inscriber {
@@ -169,6 +182,15 @@ impl Inscriber {
         client: Arc<BitcoinClient>,
         signer_private_key: &str,
         persisted_ctx: Option<InscriberContext>,
+    ) -> Result<Self> {
+        Self::new_with_policy(client, signer_private_key, persisted_ctx, InscriberPolicy::default()).await
+    }
+
+    pub async fn new_with_policy(
+        client: Arc<BitcoinClient>,
+        signer_private_key: &str,
+        persisted_ctx: Option<InscriberContext>,
+        policy: InscriberPolicy,
     ) -> Result<Self> {
         info!("Creating new Inscriber");
         let signer = Arc::new(KeyManager::new(
@@ -181,6 +203,7 @@ impl Inscriber {
             client,
             signer,
             context,
+            policy,
         })
     }
 
@@ -383,7 +406,7 @@ impl Inscriber {
         // Optionally reuse the head reveal-change output from the in-memory context.
         // This is disabled by default because chaining 0-conf outputs can starve the sender of
         // trusted spendable balance and create persistent head-of-line blocking.
-        if ALLOW_UNCONFIRMED_CHANGE_REUSE && context_queue_len > 0 {
+        if self.policy.allow_unconfirmed_change_reuse && context_queue_len > 0 {
             if let Some(head_inscription) = self.context.fifo_queue.front() {
                 let reveal_change_output = head_inscription.inscriber_output.reveal_txid;
 
@@ -463,7 +486,7 @@ impl Inscriber {
     ) -> Result<CommitTxOutputRes> {
         debug!("Preparing commit transaction output");
         let inscription_commitment_output = TxOut {
-            value: std::cmp::max(P2TR_DUST_LIMIT, MIN_INSCRIPTION_OUTPUT),
+            value: std::cmp::max(P2TR_DUST_LIMIT, self.policy.min_inscription_output),
             script_pubkey: inscription_pubkey,
         };
 
@@ -480,7 +503,7 @@ impl Inscriber {
         let fee_amount_before_decrease = fee_amount;
         fee_amount -= (fee_amount * FEE_RATE_DECREASE_COMMIT_TX) / 100;
 
-        let inscription_output_value = std::cmp::max(P2TR_DUST_LIMIT, MIN_INSCRIPTION_OUTPUT);
+        let inscription_output_value = std::cmp::max(P2TR_DUST_LIMIT, self.policy.min_inscription_output);
         let commit_tx_change_output_value = tx_input_data
             .unlocked_value
             .checked_sub(fee_amount + inscription_output_value)
@@ -492,11 +515,11 @@ impl Inscriber {
                 )
             })?;
 
-        if commit_tx_change_output_value < MIN_CHANGE_OUTPUT {
+        if commit_tx_change_output_value < self.policy.min_change_output {
             anyhow::bail!(
                 "Commit change output {:?} below minimum reusable threshold {:?}",
                 commit_tx_change_output_value,
-                MIN_CHANGE_OUTPUT
+                self.policy.min_change_output
             );
         }
 
@@ -731,11 +754,11 @@ impl Inscriber {
                 )
             })?;
 
-        if reveal_change_amount < MIN_CHANGE_OUTPUT {
+        if reveal_change_amount < self.policy.min_change_output {
             anyhow::bail!(
                 "Reveal change output {:?} below minimum reusable threshold {:?}",
                 reveal_change_amount,
-                MIN_CHANGE_OUTPUT
+                self.policy.min_change_output
             );
         }
 
