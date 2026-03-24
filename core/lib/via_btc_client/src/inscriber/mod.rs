@@ -128,18 +128,9 @@ impl Inscriber {
         let trusted_balance = self.client.get_balance(address_ref).await?;
         debug!("Trusted balance obtained: {}", trusted_balance);
 
-        let mut balance_with_pending_context = trusted_balance;
-
-        // Include the transactions in mempool when calculate the balance
-        for inscription in &self.context.fifo_queue {
-            let tx: Transaction = deserialize_hex(&inscription.inscriber_output.reveal_raw_tx)?;
-
-            tx.output.iter().for_each(|output| {
-                if output.script_pubkey == address_ref.script_pubkey() {
-                    balance_with_pending_context += output.value.to_sat() as u128;
-                }
-            });
-        }
+        // Reuse UTXO-selection logic to avoid overcounting chained pending outputs.
+        let commit_tx_input_info = self.prepare_commit_tx_input().await?;
+        let balance_with_pending_context = commit_tx_input_info.unlocked_value.to_sat() as u128;
 
         Ok((trusted_balance, balance_with_pending_context))
     }
