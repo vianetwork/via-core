@@ -64,12 +64,39 @@ const BROADCAST_RETRY_COUNT: u32 = 3;
 // https://bitcoin.stackexchange.com/questions/10986/what-is-meant-by-bitcoin-dust
 // https://bitcointalk.org/index.php?topic=5453107.msg62262343#msg62262343
 const P2TR_DUST_LIMIT: Amount = Amount::from_sat(330);
+const DEFAULT_MIN_INSCRIPTION_OUTPUT_SATS: u64 = 600;
+const DEFAULT_MIN_CHANGE_OUTPUT_SATS: u64 = 1_000;
+const DEFAULT_MIN_FEERATE_SAT_VB: u64 = 8;
+const DEFAULT_MIN_CHAINED_FEERATE_SAT_VB: u64 = 20;
+const DEFAULT_MAX_FEERATE_SAT_VB: u64 = 80;
+
+#[derive(Debug, Clone)]
+pub struct InscriberPolicy {
+    pub min_inscription_output_sats: u64,
+    pub min_change_output_sats: u64,
+    pub min_feerate_sat_vb: u64,
+    pub min_chained_feerate_sat_vb: u64,
+    pub max_feerate_sat_vb: u64,
+}
+
+impl Default for InscriberPolicy {
+    fn default() -> Self {
+        Self {
+            min_inscription_output_sats: DEFAULT_MIN_INSCRIPTION_OUTPUT_SATS,
+            min_change_output_sats: DEFAULT_MIN_CHANGE_OUTPUT_SATS,
+            min_feerate_sat_vb: DEFAULT_MIN_FEERATE_SAT_VB,
+            min_chained_feerate_sat_vb: DEFAULT_MIN_CHAINED_FEERATE_SAT_VB,
+            max_feerate_sat_vb: DEFAULT_MAX_FEERATE_SAT_VB,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Inscriber {
     client: Arc<dyn BitcoinOps>,
     signer: Arc<dyn BitcoinSigner>,
     context: InscriberContext,
+    policy: InscriberPolicy,
 }
 
 impl Inscriber {
@@ -90,6 +117,7 @@ impl Inscriber {
             client,
             signer,
             context,
+            policy: InscriberPolicy::default(),
         })
     }
 
@@ -112,6 +140,19 @@ impl Inscriber {
         }
 
         Ok(balance)
+    }
+
+    pub fn with_policy(mut self, policy: InscriberPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    pub fn set_policy(&mut self, policy: InscriberPolicy) {
+        self.policy = policy;
+    }
+
+    pub fn pending_chain_depth(&self) -> usize {
+        self.context.fifo_queue.len()
     }
 
     #[instrument(skip(self, input), target = "bitcoin_inscriber")]
@@ -355,8 +396,15 @@ impl Inscriber {
         inscription_pubkey: ScriptBuf,
     ) -> Result<CommitTxOutputRes> {
         debug!("Preparing commit transaction output");
+        let min_inscription_output = Amount::from_sat(
+            std::cmp::max(
+                self.policy.min_inscription_output_sats,
+                P2TR_DUST_LIMIT.to_sat(),
+            ),
+        );
+
         let inscription_commitment_output = TxOut {
-            value: P2TR_DUST_LIMIT,
+            value: min_inscription_output,
             script_pubkey: inscription_pubkey,
         };
 
@@ -373,16 +421,28 @@ impl Inscriber {
         let fee_amount_before_decrease = fee_amount;
         fee_amount -= (fee_amount * FEE_RATE_DECREASE_COMMIT_TX) / 100;
 
+        let required_amount = fee_amount + min_inscription_output;
+
         let commit_tx_change_output_value = tx_input_data
             .unlocked_value
-            .checked_sub(fee_amount + P2TR_DUST_LIMIT)
+            .checked_sub(required_amount)
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "Required Amount: {:?}, Spendable Amount: {:?} ",
-                    fee_amount + P2TR_DUST_LIMIT,
+                    required_amount,
                     tx_input_data.unlocked_value
                 )
             })?;
+
+        if commit_tx_change_output_value < Amount::from_sat(self.policy.min_change_output_sats) {
+            anyhow::bail!(
+                "Required Amount: {:?}, Spendable Amount: {:?}. change output {:?} is below minimum {:?}",
+                required_amount + Amount::from_sat(self.policy.min_change_output_sats),
+                tx_input_data.unlocked_value,
+                commit_tx_change_output_value,
+                Amount::from_sat(self.policy.min_change_output_sats)
+            );
+        }
 
         let commit_tx_change_output = TxOut {
             value: commit_tx_change_output_value,
@@ -405,8 +465,17 @@ impl Inscriber {
     async fn get_fee_rate(&self) -> Result<u64> {
         debug!("Getting fee rate");
         let res = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await?;
-        debug!("Fee rate obtained: {}", res);
-        Ok(std::cmp::max(res, 1))
+        let min_floor = if self.context.fifo_queue.is_empty() {
+            self.policy.min_feerate_sat_vb
+        } else {
+            self.policy.min_chained_feerate_sat_vb
+        };
+
+        let mut effective = std::cmp::max(res, min_floor);
+        effective = std::cmp::min(effective, self.policy.max_feerate_sat_vb);
+
+        debug!("Fee rate obtained: {}, effective: {}", res, effective);
+        Ok(std::cmp::max(effective, 1))
     }
 
     #[instrument(skip(self, input, output), target = "bitcoin_inscriber")]
@@ -614,6 +683,16 @@ impl Inscriber {
                     tx_input_data.unlock_value
                 )
             })?;
+
+        if reveal_change_amount < Amount::from_sat(self.policy.min_change_output_sats) {
+            anyhow::bail!(
+                "Required Amount:{:?} Spendable Amount: {:?}. reveal change output {:?} is below minimum {:?}",
+                fee_amount + recipient_amount + Amount::from_sat(self.policy.min_change_output_sats),
+                tx_input_data.unlock_value,
+                reveal_change_amount,
+                Amount::from_sat(self.policy.min_change_output_sats)
+            );
+        }
 
         // Change output goes back to the inscriber
         let reveal_tx_change_output = TxOut {
@@ -968,6 +1047,7 @@ mod tests {
             client: Arc::new(client),
             signer: Arc::new(signer),
             context,
+            policy: InscriberPolicy::default(),
         }
     }
 

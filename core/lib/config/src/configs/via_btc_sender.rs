@@ -35,6 +35,27 @@ pub struct ViaBtcSenderConfig {
 
     /// The required time (seconds) to wait before create a proof inscription.
     pub block_time_to_proof: Option<u32>,
+
+    /// Hard floor for taproot inscription output to avoid dust / borderline outputs.
+    pub min_inscription_output_sats: Option<u64>,
+
+    /// Hard floor for change output to keep spendable UTXOs healthy.
+    pub min_change_output_sats: Option<u64>,
+
+    /// Minimum fee-rate for non-chained transactions (sat/vB).
+    pub min_feerate_sat_vb: Option<u64>,
+
+    /// Minimum fee-rate when pending inscriptions exist in context (sat/vB).
+    pub min_chained_feerate_sat_vb: Option<u64>,
+
+    /// Maximum fee-rate safety cap (sat/vB).
+    pub max_feerate_sat_vb: Option<u64>,
+
+    /// Max number of pending inscriptions in context before pausing new sends.
+    pub max_pending_chain_depth: Option<u32>,
+
+    /// Do not send new inscriptions when spendable balance goes below this threshold.
+    pub min_spendable_balance_sats: Option<u64>,
 }
 
 impl ViaBtcSenderConfig {
@@ -60,6 +81,34 @@ impl ViaBtcSenderConfig {
     pub fn stuck_inscription_block_number(&self) -> u32 {
         self.stuck_inscription_block_number.unwrap_or(6)
     }
+
+    pub fn min_inscription_output_sats(&self) -> u64 {
+        self.min_inscription_output_sats.unwrap_or(600)
+    }
+
+    pub fn min_change_output_sats(&self) -> u64 {
+        self.min_change_output_sats.unwrap_or(1_000)
+    }
+
+    pub fn min_feerate_sat_vb(&self) -> u64 {
+        self.min_feerate_sat_vb.unwrap_or(8)
+    }
+
+    pub fn min_chained_feerate_sat_vb(&self) -> u64 {
+        self.min_chained_feerate_sat_vb.unwrap_or(20)
+    }
+
+    pub fn max_feerate_sat_vb(&self) -> u64 {
+        self.max_feerate_sat_vb.unwrap_or(80)
+    }
+
+    pub fn max_pending_chain_depth(&self) -> u32 {
+        self.max_pending_chain_depth.unwrap_or(3)
+    }
+
+    pub fn min_spendable_balance_sats(&self) -> u64 {
+        self.min_spendable_balance_sats.unwrap_or(2_000)
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -76,6 +125,13 @@ impl ViaBtcSenderConfig {
             block_time_to_commit: None,
             block_time_to_proof: None,
             stuck_inscription_block_number: None,
+            min_inscription_output_sats: None,
+            min_change_output_sats: None,
+            min_feerate_sat_vb: None,
+            min_chained_feerate_sat_vb: None,
+            max_feerate_sat_vb: None,
+            max_pending_chain_depth: None,
+            min_spendable_balance_sats: None,
         }
     }
 }

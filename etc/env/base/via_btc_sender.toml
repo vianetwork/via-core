@@ -17,3 +17,17 @@ stuck_inscription_block_number = 6
 block_time_to_commit = 0
 # The required time (seconds) to wait before create a proof inscription.
 block_time_to_proof = 0
+# Hard floor for taproot inscription output (avoid dust / borderline outputs).
+min_inscription_output_sats = 600
+# Hard floor for change output to preserve a reusable UTXO.
+min_change_output_sats = 1000
+# Baseline fee floor in sat/vB.
+min_feerate_sat_vb = 8
+# Higher floor applied when inscription chain is already pending.
+min_chained_feerate_sat_vb = 20
+# Safety cap to avoid accidental overpaying.
+max_feerate_sat_vb = 80
+# Pause new sends when context chain gets too deep.
+max_pending_chain_depth = 3
+# Pause new sends if spendable balance falls below this threshold.
+min_spendable_balance_sats = 2000

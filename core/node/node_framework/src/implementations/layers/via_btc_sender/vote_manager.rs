@@ -1,5 +1,5 @@
 use anyhow::Context;
-use via_btc_client::inscriber::Inscriber;
+use via_btc_client::inscriber::{Inscriber, InscriberPolicy};
 use via_verifier_btc_sender::btc_inscription_manager::ViaBtcInscriptionManager;
 use zksync_config::{configs::via_wallets::ViaWallet, ViaBtcSenderConfig};
 
@@ -66,9 +66,18 @@ impl WiringLayer for ViaInscriptionManagerLayer {
         let master_pool = input.master_pool.get().await.unwrap();
         let client = input.btc_client_resource.btc_sender.unwrap();
 
+        let inscriber_policy = InscriberPolicy {
+            min_inscription_output_sats: self.config.min_inscription_output_sats(),
+            min_change_output_sats: self.config.min_change_output_sats(),
+            min_feerate_sat_vb: self.config.min_feerate_sat_vb(),
+            min_chained_feerate_sat_vb: self.config.min_chained_feerate_sat_vb(),
+            max_feerate_sat_vb: self.config.max_feerate_sat_vb(),
+        };
+
         let inscriber = Inscriber::new(client, &self.wallet.private_key, None)
             .await
-            .with_context(|| "Error init inscriber")?;
+            .with_context(|| "Error init inscriber")?
+            .with_policy(inscriber_policy);
 
         let via_btc_inscription_manager =
             ViaBtcInscriptionManager::new(inscriber, master_pool, self.config)

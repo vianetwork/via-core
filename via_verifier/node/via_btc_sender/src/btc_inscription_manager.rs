@@ -166,6 +166,28 @@ impl ViaBtcInscriptionManager {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
+        let pending_chain_depth = self.inscriber.pending_chain_depth() as u32;
+        if pending_chain_depth >= self.config.max_pending_chain_depth() {
+            METRICS.chain_guard_blocks.inc();
+            tracing::warn!(
+                "Skipping new verifier inscription broadcast due to pending chain depth guard. depth={} max={}.",
+                pending_chain_depth,
+                self.config.max_pending_chain_depth()
+            );
+            return Ok(());
+        }
+
+        let spendable_balance = self.inscriber.get_balance().await?;
+        if spendable_balance < self.config.min_spendable_balance_sats() as u128 {
+            METRICS.chain_guard_blocks.inc();
+            tracing::warn!(
+                "Skipping new verifier inscription broadcast due to low spendable balance guard. spendable={} min={}",
+                spendable_balance,
+                self.config.min_spendable_balance_sats()
+            );
+            return Ok(());
+        }
+
         let number_inflight_txs = storage
             .via_btc_sender_dal()
             .get_inflight_inscriptions()

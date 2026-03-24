@@ -57,6 +57,9 @@ pub struct ViaBtcSenderMetrics {
     /// Manager errors.
     pub manager_errors: Counter,
 
+    /// Number of times new inscriptions were intentionally paused by policy guards.
+    pub chain_guard_blocks: Counter,
+
     /// Last L1 block observed by the Ethereum sender.
     pub last_known_l1_block: Family<BlockNumberVariant, Gauge<usize>>,
 
