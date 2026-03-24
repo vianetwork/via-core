@@ -198,13 +198,13 @@ impl ViaBtcInscriptionManager {
                             .await?
                         {
                             tracing::warn!(
-                                "Stuck inscription {} for request {} (type {}) exceeded escalation interval {}s; attempting replacement/rebroadcast",
+                                "Stuck inscription {} for request {} (type {}) exceeded escalation interval {}s; retrying by sending a new commit+reveal transaction",
                                 last_inscription_history.reveal_tx_id,
                                 inscription_id,
                                 request.request_type,
                                 self.config.escalation_interval_sec()
                             );
-                            METRICS.rbf_retries.inc();
+                            METRICS.retry_attempts.inc();
                             self.send_inscription_tx(storage, &request).await?;
                         }
                     }

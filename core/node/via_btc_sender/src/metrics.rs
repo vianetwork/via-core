@@ -51,8 +51,8 @@ pub struct ViaBtcSenderMetrics {
     /// Error when broadcast a transaction.
     pub l1_transient_errors: Counter,
 
-    /// Number of replacement / fee-bump attempts triggered for stuck inscriptions.
-    pub rbf_retries: Counter,
+    /// Number of retry attempts triggered for stuck inscriptions.
+    pub retry_attempts: Counter,
 
     /// Aggregator errors.
     pub aggregator_errors: Counter,

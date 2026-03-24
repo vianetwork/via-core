@@ -107,7 +107,11 @@ impl Default for InscriberPolicy {
 /// Calculates the minimum target amount needed for UTXO selection.
 /// This includes: Commit TX fee (estimated), a safe inscription output amount, and a
 /// minimum change budget that stays reusable for follow-up transactions.
-fn calculate_selection_target(input_count: u32, fee_rate: u64) -> Result<Amount> {
+fn calculate_selection_target(
+    input_count: u32,
+    fee_rate: u64,
+    policy: &InscriberPolicy,
+) -> Result<Amount> {
     let commit_fee = InscriberFeeCalculator::estimate_fee(
         input_count,
         COMMIT_TX_P2TR_INPUT_COUNT,
@@ -117,9 +121,9 @@ fn calculate_selection_target(input_count: u32, fee_rate: u64) -> Result<Amount>
         fee_rate,
     )?;
 
-    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, MIN_CHANGE_OUTPUT);
+    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, policy.min_change_output);
     let target = commit_fee
-        .checked_add(MIN_INSCRIPTION_OUTPUT)
+        .checked_add(policy.min_inscription_output)
         .and_then(|v| v.checked_add(minimum_change_budget))
         .ok_or_else(|| anyhow::anyhow!("Target amount overflow"))?;
     Ok(target)
@@ -130,6 +134,7 @@ fn calculate_selection_target(input_count: u32, fee_rate: u64) -> Result<Amount>
 fn select_utxos(
     mut utxos: Vec<(OutPoint, TxOut)>,
     fee_rate: u64,
+    policy: &InscriberPolicy,
 ) -> Result<(Vec<(OutPoint, TxOut)>, Amount)> {
     if utxos.is_empty() {
         return Err(anyhow::anyhow!("No UTXOs available for selection"));
@@ -153,7 +158,7 @@ fn select_utxos(
 
         // Calculate target with current input count
         let input_count = selected.len() as u32;
-        let target = calculate_selection_target(input_count, fee_rate)?;
+        let target = calculate_selection_target(input_count, fee_rate, policy)?;
 
         // Check if we have enough
         if total_value >= target {
@@ -168,7 +173,7 @@ fn select_utxos(
     }
 
     // If we get here, we've used all UTXOs but still don't have enough.
-    let final_target = calculate_selection_target(selected.len() as u32, fee_rate)?;
+    let final_target = calculate_selection_target(selected.len() as u32, fee_rate, policy)?;
     Err(anyhow::anyhow!(
         "Insufficient funds: have {} sats, need {} sats",
         total_value.to_sat(),
@@ -431,7 +436,7 @@ impl Inscriber {
                 utxos.push((reveal_change_output, reveal_txout));
             }
         } else if context_queue_len > 0 {
-            warn!(
+            debug!(
                 "Skipping reuse of unconfirmed context change output; pending context depth: {}",
                 context_queue_len
             );
@@ -441,7 +446,7 @@ impl Inscriber {
         let fee_rate = self.get_fee_rate(self.context.fifo_queue.len()).await?;
 
         // Select optimal UTXOs using the Largest-First selection algorithm
-        let (selected_utxos, unlocked_value) = select_utxos(utxos, fee_rate)?;
+        let (selected_utxos, unlocked_value) = select_utxos(utxos, fee_rate, &self.policy)?;
 
         // Build transaction inputs from selected UTXOs
         let mut commit_tx_inputs: Vec<TxIn> = Vec::new();
@@ -558,11 +563,26 @@ impl Inscriber {
             self.policy.min_feerate_sat_vb
         };
         let escalated = floor.saturating_add(self.policy.escalation_step_sat_vb.saturating_mul(pending_chain_depth as u64));
-        let effective = std::cmp::min(
-            self.policy.max_feerate_sat_vb,
-            std::cmp::max(std::cmp::max(network_rate, floor), escalated),
+        if self.policy.max_feerate_sat_vb < floor {
+            anyhow::bail!(
+                "Invalid fee policy: max_feerate_sat_vb ({}) is lower than the required floor ({})",
+                self.policy.max_feerate_sat_vb,
+                floor
+            );
+        }
+        let candidate = std::cmp::max(std::cmp::max(network_rate, floor), escalated);
+        let effective = std::cmp::max(
+            floor,
+            std::cmp::min(self.policy.max_feerate_sat_vb, candidate),
         );
-        debug!("Fee rate obtained: network={}, pending_depth={}, effective={}", network_rate, pending_chain_depth, effective);
+        debug!(
+            "Fee rate obtained: network={}, pending_depth={}, floor={}, max_feerate={}, effective={}",
+            network_rate,
+            pending_chain_depth,
+            floor,
+            self.policy.max_feerate_sat_vb,
+            effective
+        );
         Ok(std::cmp::max(effective, 1))
     }
 
@@ -1042,11 +1062,12 @@ mod tests {
         ];
 
         // Select with a low fee rate - should prefer largest UTXOs
-        let (selected, total) = select_utxos(utxos, 1).unwrap();
+        let (selected, total) = select_utxos(utxos, 1, &InscriberPolicy::default()).unwrap();
 
-        // Verify largest first ordering - first selected should be 100k sats
+        // Verify largest first ordering and no unnecessary extra inputs for this set.
         assert_eq!(selected[0].1.value, Amount::from_sat(100_000));
-        assert!(total >= Amount::from_sat(100_000));
+        assert_eq!(selected.len(), 1);
+        assert_eq!(total, Amount::from_sat(100_000));
     }
 
     #[test]
@@ -1060,7 +1081,7 @@ mod tests {
             ),
         ];
 
-        let result = select_utxos(utxos, 10);
+        let result = select_utxos(utxos, 10, &InscriberPolicy::default());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Insufficient funds"));
     }
@@ -1068,18 +1089,18 @@ mod tests {
     #[test]
     fn test_select_utxos_empty() {
         let utxos: Vec<(OutPoint, TxOut)> = vec![];
-        let result = select_utxos(utxos, 10);
+        let result = select_utxos(utxos, 10, &InscriberPolicy::default());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No UTXOs available"));
     }
 
     #[test]
     fn test_calculate_selection_target() {
-        let target = calculate_selection_target(1, 10).unwrap();
+        let target = calculate_selection_target(1, 10, &InscriberPolicy::default()).unwrap();
 
-        // Target = commit fee + safe inscription output + reusable change budget.
-        assert!(target.to_sat() > 10_600);
-        assert!(target.to_sat() < 1_000_000);
+        // Target = commit fee (1570) + safe inscription output (600) + reusable change budget (10_000).
+        let expected_target_sats = 12_170;
+        assert_eq!(target.to_sat(), expected_target_sats);
     }
 
     mock! {

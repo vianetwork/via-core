@@ -76,8 +76,7 @@ impl WiringLayer for ViaBtcInscriptionAggregatorLayer {
             escalation_step_sat_vb: self.config.escalation_step_sat_vb(),
         };
         let inscriber = Inscriber::new_with_policy(client, &self.wallet.private_key, None, policy)
-            .await
-            .unwrap();
+            .await?;
 
         let via_btc_inscription_aggregator =
             ViaBtcInscriptionAggregator::new(inscriber, master_pool, self.config).await?;
