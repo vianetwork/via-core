@@ -31,3 +31,5 @@ min_feerate_chained_sat_vb = 20
 max_feerate_sat_vb = 80
 # Additional sat/vB applied as pending chain depth grows.
 escalation_step_sat_vb = 5
+# Minimum age before attempting a replacement / re-broadcast for a stuck inscription.
+escalation_interval_sec = 900

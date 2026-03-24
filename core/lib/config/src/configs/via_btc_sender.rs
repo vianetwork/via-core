@@ -56,6 +56,9 @@ pub struct ViaBtcSenderConfig {
 
     /// Additional sat/vB step applied as pending chain depth grows.
     pub escalation_step_sat_vb: Option<u64>,
+
+    /// Minimum age before attempting a replacement / re-broadcast for a stuck inscription.
+    pub escalation_interval_sec: Option<u64>,
 }
 
 impl ViaBtcSenderConfig {
@@ -109,6 +112,10 @@ impl ViaBtcSenderConfig {
     pub fn escalation_step_sat_vb(&self) -> u64 {
         self.escalation_step_sat_vb.unwrap_or(5)
     }
+
+    pub fn escalation_interval_sec(&self) -> u64 {
+        self.escalation_interval_sec.unwrap_or(900)
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -132,6 +139,7 @@ impl ViaBtcSenderConfig {
             min_feerate_chained_sat_vb: None,
             max_feerate_sat_vb: None,
             escalation_step_sat_vb: None,
+            escalation_interval_sec: None,
         }
     }
 }

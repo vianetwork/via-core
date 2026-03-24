@@ -1,6 +1,7 @@
 use std::{collections::HashMap, i64};
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use bincode::serialize;
 use bitcoin::hashes::Hash;
 use tokio::sync::watch;
@@ -184,6 +185,28 @@ impl ViaBtcInscriptionManager {
                             last_inscription_history.reveal_tx_id,
                             self.config.stuck_inscription_block_number()
                         );
+                    }
+
+                    let age_seconds = (Utc::now().naive_utc() - last_inscription_history.created_at)
+                        .num_seconds()
+                        .max(0) as u64;
+
+                    if age_seconds >= self.config.escalation_interval_sec() {
+                        if let Some(request) = storage
+                            .btc_sender_dal()
+                            .get_inscription_request(inscription_id)
+                            .await?
+                        {
+                            tracing::warn!(
+                                "Stuck inscription {} for request {} (type {}) exceeded escalation interval {}s; attempting replacement/rebroadcast",
+                                last_inscription_history.reveal_tx_id,
+                                inscription_id,
+                                request.request_type,
+                                self.config.escalation_interval_sec()
+                            );
+                            METRICS.rbf_retries.inc();
+                            self.send_inscription_tx(storage, &request).await?;
+                        }
                     }
                 }
             }
