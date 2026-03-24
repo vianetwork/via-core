@@ -104,6 +104,28 @@ impl Default for InscriberPolicy {
     }
 }
 
+impl InscriberPolicy {
+    pub fn from_sats(
+        min_inscription_output_sats: u64,
+        min_change_output_sats: u64,
+        allow_unconfirmed_change_reuse: bool,
+        min_feerate_sat_vb: u64,
+        min_feerate_chained_sat_vb: u64,
+        max_feerate_sat_vb: u64,
+        escalation_step_sat_vb: u64,
+    ) -> Self {
+        Self {
+            min_inscription_output: Amount::from_sat(min_inscription_output_sats),
+            min_change_output: Amount::from_sat(min_change_output_sats),
+            allow_unconfirmed_change_reuse,
+            min_feerate_sat_vb,
+            min_feerate_chained_sat_vb,
+            max_feerate_sat_vb,
+            escalation_step_sat_vb,
+        }
+    }
+}
+
 /// Calculates the minimum target amount needed for UTXO selection.
 /// This includes: Commit TX fee (estimated), a safe inscription output amount, and a
 /// minimum change budget that stays reusable for follow-up transactions.
@@ -476,6 +498,7 @@ impl Inscriber {
             unlocked_value,
             inputs_count,
             utxo_amounts,
+            fee_rate,
         };
 
         Ok(res)
@@ -503,7 +526,7 @@ impl Inscriber {
             script_pubkey: inscription_pubkey,
         };
 
-        let fee_rate = self.get_fee_rate(self.context.fifo_queue.len()).await?;
+        let fee_rate = tx_input_data.fee_rate;
 
         let mut fee_amount = InscriberFeeCalculator::estimate_fee(
             tx_input_data.inputs_count,
@@ -732,6 +755,7 @@ impl Inscriber {
             prev_outs: prev_outs.to_vec(),
             unlock_value,
             control_block: reveal_p2tr_utxo_input.2,
+            fee_rate: commit_output.commit_tx_fee_rate,
         };
 
         Ok(res)
@@ -750,7 +774,7 @@ impl Inscriber {
     ) -> Result<RevealTxOutputRes> {
         debug!("Preparing reveal transaction output");
         let pending_tx_in_context = self.context.fifo_queue.len();
-        let fee_rate = self.get_fee_rate(pending_tx_in_context).await?;
+        let fee_rate = tx_input_data.fee_rate;
 
         let mut reveal_tx_p2wpkh_output_count = REVEAL_TX_P2WPKH_OUTPUT_COUNT;
         let mut reveal_tx_p2tr_output_count = REVEAL_TX_P2TR_OUTPUT_COUNT;
