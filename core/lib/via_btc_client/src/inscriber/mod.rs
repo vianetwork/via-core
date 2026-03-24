@@ -114,6 +114,14 @@ impl InscriberPolicy {
         max_feerate_sat_vb: u64,
         escalation_step_sat_vb: u64,
     ) -> Result<Self> {
+        if min_inscription_output_sats < P2TR_DUST_LIMIT.to_sat() {
+            anyhow::bail!(
+                "Invalid policy: min_inscription_output_sats ({}) must be >= {}",
+                min_inscription_output_sats,
+                P2TR_DUST_LIMIT.to_sat()
+            );
+        }
+
         if min_change_output_sats < P2TR_DUST_LIMIT.to_sat() {
             anyhow::bail!(
                 "Invalid policy: min_change_output_sats ({}) must be >= {}",
@@ -1179,24 +1187,27 @@ mod tests {
     #[test]
     fn test_select_utxos_falls_back_to_full_set_when_truncated_prefix_is_insufficient() {
         let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
+        let policy = InscriberPolicy::default();
 
         let mut utxos = vec![];
-        // First 100 entries are too small to satisfy the target.
-        for vout in 0..100u32 {
+        // 101 equal-valued UTXOs: the first 100 cannot satisfy the target, but the full set can.
+        for vout in 0..101u32 {
             utxos.push((
                 OutPoint { txid: Txid::all_zeros(), vout },
-                TxOut { value: Amount::from_sat(100), script_pubkey: script_pubkey.clone() },
+                TxOut { value: Amount::from_sat(1_000), script_pubkey: script_pubkey.clone() },
             ));
         }
-        // The 101st entry makes the full set sufficient.
-        utxos.push((
-            OutPoint { txid: Txid::all_zeros(), vout: 100 },
-            TxOut { value: Amount::from_sat(20_000), script_pubkey: script_pubkey.clone() },
-        ));
 
-        let (selected, total) = select_utxos(utxos, 10, &InscriberPolicy::default()).unwrap();
-        assert!(selected.iter().any(|(outpoint, _)| outpoint.vout == 100));
-        assert!(total.to_sat() >= 20_000);
+        let truncated_result = select_utxos_from_candidates(
+            utxos.iter().take(100).cloned().collect(),
+            10,
+            &policy,
+        );
+        assert!(truncated_result.is_err());
+
+        let (selected, total) = select_utxos(utxos, 10, &policy).unwrap();
+        assert_eq!(selected.len(), 13);
+        assert!(total.to_sat() >= calculate_selection_target(selected.len() as u32, 10, &policy).unwrap().to_sat());
     }
 
     #[test]

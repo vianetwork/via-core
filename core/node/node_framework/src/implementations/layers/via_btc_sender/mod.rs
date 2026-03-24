@@ -1,3 +1,8 @@
+pub mod aggregator;
+pub mod manager;
+pub mod vote;
+pub mod vote_manager;
+
 use via_btc_client::inscriber::InscriberPolicy;
 use zksync_config::ViaBtcSenderConfig;
 
