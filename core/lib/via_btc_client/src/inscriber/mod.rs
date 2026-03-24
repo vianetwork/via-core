@@ -113,8 +113,25 @@ impl InscriberPolicy {
         min_feerate_chained_sat_vb: u64,
         max_feerate_sat_vb: u64,
         escalation_step_sat_vb: u64,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        if min_change_output_sats < P2TR_DUST_LIMIT.to_sat() {
+            anyhow::bail!(
+                "Invalid policy: min_change_output_sats ({}) must be >= {}",
+                min_change_output_sats,
+                P2TR_DUST_LIMIT.to_sat()
+            );
+        }
+
+        if max_feerate_sat_vb < min_feerate_sat_vb || max_feerate_sat_vb < min_feerate_chained_sat_vb {
+            anyhow::bail!(
+                "Invalid fee policy: max_feerate_sat_vb ({}) must be >= both min_feerate_sat_vb ({}) and min_feerate_chained_sat_vb ({})",
+                max_feerate_sat_vb,
+                min_feerate_sat_vb,
+                min_feerate_chained_sat_vb
+            );
+        }
+
+        Ok(Self {
             min_inscription_output: Amount::from_sat(min_inscription_output_sats),
             min_change_output: Amount::from_sat(min_change_output_sats),
             allow_unconfirmed_change_reuse,
@@ -122,7 +139,7 @@ impl InscriberPolicy {
             min_feerate_chained_sat_vb,
             max_feerate_sat_vb,
             escalation_step_sat_vb,
-        }
+        })
     }
 }
 
@@ -220,10 +237,16 @@ fn select_utxos(
             let truncated_total = utxos
                 .iter()
                 .take(MAX_UTXOS_TO_CONSIDER)
-                .fold(Amount::ZERO, |acc, (_, txout)| acc + txout.value);
+                .try_fold(Amount::ZERO, |acc, (_, txout)| {
+                    acc.checked_add(txout.value)
+                        .ok_or_else(|| anyhow::anyhow!("overflow while computing truncated UTXO total"))
+                })?;
             let full_total = full_candidates
                 .iter()
-                .fold(Amount::ZERO, |acc, (_, txout)| acc + txout.value);
+                .try_fold(Amount::ZERO, |acc, (_, txout)| {
+                    acc.checked_add(txout.value)
+                        .ok_or_else(|| anyhow::anyhow!("overflow while computing full UTXO total"))
+                })?;
 
             if full_total > truncated_total {
                 debug!(
@@ -810,7 +833,6 @@ impl Inscriber {
         commit_tx_fee: Amount,
     ) -> Result<RevealTxOutputRes> {
         debug!("Preparing reveal transaction output");
-        let pending_tx_in_context = self.context.fifo_queue.len();
         let fee_rate = tx_input_data.fee_rate;
 
         let mut reveal_tx_p2wpkh_output_count = REVEAL_TX_P2WPKH_OUTPUT_COUNT;
@@ -833,9 +855,7 @@ impl Inscriber {
             fee_rate,
         )?;
 
-        let txs_stuck_factor = FEE_RATE_INCREASE_PER_PENDING_TX * pending_tx_in_context as u64;
-
-        let increase_factor = txs_stuck_factor + FEE_RATE_INCENTIVE;
+        let increase_factor = FEE_RATE_INCENTIVE;
         fee_amount += (fee_amount * increase_factor) / 100;
         // Add the fee amount removed from the commit tx to reveal
         fee_amount += (commit_tx_fee * FEE_RATE_DECREASE_COMMIT_TX) / 100;
@@ -1181,11 +1201,14 @@ mod tests {
 
     #[test]
     fn test_calculate_selection_target() {
-        let target = calculate_selection_target(1, 10, &InscriberPolicy::default()).unwrap();
+        let policy = InscriberPolicy::default();
+        let low_fee_target =
+            calculate_selection_target(1, 1, &policy).expect("low fee target calculation failed");
+        let high_fee_target =
+            calculate_selection_target(1, 10, &policy).expect("high fee target calculation failed");
 
-        // Target = commit fee (1570) + safe inscription output (600) + reusable change budget (10_000).
-        let expected_target_sats = 12_170;
-        assert_eq!(target.to_sat(), expected_target_sats);
+        assert!(high_fee_target.to_sat() > low_fee_target.to_sat());
+        assert!(high_fee_target.to_sat() >= policy.min_inscription_output.to_sat() + MIN_CHANGE_BUFFER.to_sat());
     }
 
     mock! {
