@@ -151,6 +151,44 @@ fn calculate_selection_target(
     Ok(target)
 }
 
+/// Runs Largest-First selection over the provided candidate list.
+fn select_utxos_from_candidates(
+    utxos: Vec<(OutPoint, TxOut)>,
+    fee_rate: u64,
+    policy: &InscriberPolicy,
+) -> Result<(Vec<(OutPoint, TxOut)>, Amount)> {
+    let mut selected: Vec<(OutPoint, TxOut)> = Vec::new();
+    let mut total_value = Amount::ZERO;
+
+    for (outpoint, txout) in utxos {
+        let value = txout.value;
+        selected.push((outpoint, txout));
+        total_value = total_value
+            .checked_add(value)
+            .ok_or_else(|| anyhow::anyhow!("Total value overflow"))?;
+
+        let input_count = selected.len() as u32;
+        let target = calculate_selection_target(input_count, fee_rate, policy)?;
+
+        if total_value >= target {
+            debug!(
+                "UTXO selection complete: {} inputs, {} sats, target {} sats",
+                input_count,
+                total_value.to_sat(),
+                target.to_sat()
+            );
+            return Ok((selected, total_value));
+        }
+    }
+
+    let final_target = calculate_selection_target(selected.len() as u32, fee_rate, policy)?;
+    Err(anyhow::anyhow!(
+        "Insufficient funds: have {} sats, need {} sats",
+        total_value.to_sat(),
+        final_target.to_sat()
+    ))
+}
+
 /// Selects UTXOs using Largest-First: sorts by value descending, picks until target met.
 /// Dynamically recalculates fees as inputs are added. Ensures change for Reveal TX.
 fn select_utxos(
@@ -165,42 +203,41 @@ fn select_utxos(
     // Sort by value descending (largest first)
     utxos.sort_by(|a, b| b.1.value.cmp(&a.1.value));
 
-    // Limit UTXOs to consider for performance
-    utxos.truncate(MAX_UTXOS_TO_CONSIDER);
-
-    let mut selected: Vec<(OutPoint, TxOut)> = Vec::new();
-    let mut total_value = Amount::ZERO;
-
-    for (outpoint, txout) in utxos {
-        let value = txout.value;
-        selected.push((outpoint, txout));
-        total_value = total_value
-            .checked_add(value)
-            .ok_or_else(|| anyhow::anyhow!("Total value overflow"))?;
-
-        // Calculate target with current input count
-        let input_count = selected.len() as u32;
-        let target = calculate_selection_target(input_count, fee_rate, policy)?;
-
-        // Check if we have enough
-        if total_value >= target {
-            debug!(
-                "UTXO selection complete: {} inputs, {} sats, target {} sats",
-                input_count,
-                total_value.to_sat(),
-                target.to_sat()
-            );
-            return Ok((selected, total_value));
-        }
+    if utxos.len() <= MAX_UTXOS_TO_CONSIDER {
+        return select_utxos_from_candidates(utxos, fee_rate, policy);
     }
 
-    // If we get here, we've used all UTXOs but still don't have enough.
-    let final_target = calculate_selection_target(selected.len() as u32, fee_rate, policy)?;
-    Err(anyhow::anyhow!(
-        "Insufficient funds: have {} sats, need {} sats",
-        total_value.to_sat(),
-        final_target.to_sat()
-    ))
+    let full_candidates = utxos.clone();
+    let truncated_candidates = utxos
+        .iter()
+        .take(MAX_UTXOS_TO_CONSIDER)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    match select_utxos_from_candidates(truncated_candidates, fee_rate, policy) {
+        Ok(result) => Ok(result),
+        Err(err) => {
+            let truncated_total = utxos
+                .iter()
+                .take(MAX_UTXOS_TO_CONSIDER)
+                .fold(Amount::ZERO, |acc, (_, txout)| acc + txout.value);
+            let full_total = full_candidates
+                .iter()
+                .fold(Amount::ZERO, |acc, (_, txout)| acc + txout.value);
+
+            if full_total > truncated_total {
+                debug!(
+                    "Retrying UTXO selection with full set after truncated candidate failure: truncated_total={} sats, full_total={} sats, err={}",
+                    truncated_total.to_sat(),
+                    full_total.to_sat(),
+                    err
+                );
+                select_utxos_from_candidates(full_candidates, fee_rate, policy)
+            } else {
+                Err(err)
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1116,6 +1153,30 @@ mod tests {
         let result = select_utxos(utxos, 10, &InscriberPolicy::default());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No UTXOs available"));
+    }
+
+
+    #[test]
+    fn test_select_utxos_falls_back_to_full_set_when_truncated_prefix_is_insufficient() {
+        let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
+
+        let mut utxos = vec![];
+        // First 100 entries are too small to satisfy the target.
+        for vout in 0..100u32 {
+            utxos.push((
+                OutPoint { txid: Txid::all_zeros(), vout },
+                TxOut { value: Amount::from_sat(100), script_pubkey: script_pubkey.clone() },
+            ));
+        }
+        // The 101st entry makes the full set sufficient.
+        utxos.push((
+            OutPoint { txid: Txid::all_zeros(), vout: 100 },
+            TxOut { value: Amount::from_sat(20_000), script_pubkey: script_pubkey.clone() },
+        ));
+
+        let (selected, total) = select_utxos(utxos, 10, &InscriberPolicy::default()).unwrap();
+        assert!(selected.iter().any(|(outpoint, _)| outpoint.vout == 100));
+        assert!(total.to_sat() >= 20_000);
     }
 
     #[test]
