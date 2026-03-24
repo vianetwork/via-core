@@ -65,6 +65,13 @@ const BROADCAST_RETRY_COUNT: u32 = 3;
 // https://bitcointalk.org/index.php?topic=5453107.msg62262343#msg62262343
 const P2TR_DUST_LIMIT: Amount = Amount::from_sat(330);
 
+/// Keep inscription outputs comfortably above the dust floor so relay / mining policy
+/// does not hinge on borderline values.
+const MIN_INSCRIPTION_OUTPUT: Amount = Amount::from_sat(600);
+
+/// Keep change outputs large enough to remain useful for follow-up reveal / chained spends.
+const MIN_CHANGE_OUTPUT: Amount = Amount::from_sat(1_000);
+
 /// Minimum buffer for change output to ensure Reveal TX can be funded.
 /// This accounts for Reveal TX fees plus safety margin.
 const MIN_CHANGE_BUFFER: Amount = Amount::from_sat(10_000);
@@ -73,7 +80,8 @@ const MIN_CHANGE_BUFFER: Amount = Amount::from_sat(10_000);
 const MAX_UTXOS_TO_CONSIDER: usize = 100;
 
 /// Calculates the minimum target amount needed for UTXO selection.
-/// This includes: Commit TX fee (estimated), P2TR dust output, and minimum change buffer.
+/// This includes: Commit TX fee (estimated), a safe inscription output amount, and a
+/// minimum change budget that stays reusable for follow-up transactions.
 fn calculate_selection_target(input_count: u32, fee_rate: u64) -> Result<Amount> {
     let commit_fee = InscriberFeeCalculator::estimate_fee(
         input_count,
@@ -84,9 +92,10 @@ fn calculate_selection_target(input_count: u32, fee_rate: u64) -> Result<Amount>
         fee_rate,
     )?;
 
+    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, MIN_CHANGE_OUTPUT);
     let target = commit_fee
-        .checked_add(P2TR_DUST_LIMIT)
-        .and_then(|v| v.checked_add(MIN_CHANGE_BUFFER))
+        .checked_add(MIN_INSCRIPTION_OUTPUT)
+        .and_then(|v| v.checked_add(minimum_change_budget))
         .ok_or_else(|| anyhow::anyhow!("Target amount overflow"))?;
     Ok(target)
 }
@@ -442,7 +451,7 @@ impl Inscriber {
     ) -> Result<CommitTxOutputRes> {
         debug!("Preparing commit transaction output");
         let inscription_commitment_output = TxOut {
-            value: P2TR_DUST_LIMIT,
+            value: std::cmp::max(P2TR_DUST_LIMIT, MIN_INSCRIPTION_OUTPUT),
             script_pubkey: inscription_pubkey,
         };
 
@@ -459,16 +468,25 @@ impl Inscriber {
         let fee_amount_before_decrease = fee_amount;
         fee_amount -= (fee_amount * FEE_RATE_DECREASE_COMMIT_TX) / 100;
 
+        let inscription_output_value = std::cmp::max(P2TR_DUST_LIMIT, MIN_INSCRIPTION_OUTPUT);
         let commit_tx_change_output_value = tx_input_data
             .unlocked_value
-            .checked_sub(fee_amount + P2TR_DUST_LIMIT)
+            .checked_sub(fee_amount + inscription_output_value)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Required Amount: {:?}, Spendable Amount: {:?} ",
-                    fee_amount + P2TR_DUST_LIMIT,
+                    "Required Amount: {:?}, Spendable Amount: {:?}",
+                    fee_amount + inscription_output_value,
                     tx_input_data.unlocked_value
                 )
             })?;
+
+        if commit_tx_change_output_value < MIN_CHANGE_OUTPUT {
+            anyhow::bail!(
+                "Commit change output {:?} below minimum reusable threshold {:?}",
+                commit_tx_change_output_value,
+                MIN_CHANGE_OUTPUT
+            );
+        }
 
         let commit_tx_change_output = TxOut {
             value: commit_tx_change_output_value,
@@ -695,11 +713,19 @@ impl Inscriber {
             .checked_sub(fee_amount + recipient_amount)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Required Amount:{:?} Spendable Amount: {:?} ",
+                    "Required Amount:{:?} Spendable Amount: {:?}",
                     fee_amount + recipient_amount,
                     tx_input_data.unlock_value
                 )
             })?;
+
+        if reveal_change_amount < MIN_CHANGE_OUTPUT {
+            anyhow::bail!(
+                "Reveal change output {:?} below minimum reusable threshold {:?}",
+                reveal_change_amount,
+                MIN_CHANGE_OUTPUT
+            );
+        }
 
         // Change output goes back to the inscriber
         let reveal_tx_change_output = TxOut {
@@ -998,8 +1024,8 @@ mod tests {
     fn test_calculate_selection_target() {
         let target = calculate_selection_target(1, 10).unwrap();
 
-        // Target = commit fee + dust (330) + buffer (10000), should be > 10330 sats
-        assert!(target.to_sat() > 10_330);
+        // Target = commit fee + safe inscription output + reusable change budget.
+        assert!(target.to_sat() > 10_600);
         assert!(target.to_sat() < 1_000_000);
     }
 
