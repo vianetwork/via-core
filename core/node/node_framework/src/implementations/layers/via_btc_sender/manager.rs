@@ -1,12 +1,15 @@
 use anyhow::Context;
-use via_btc_client::inscriber::{Inscriber, InscriberPolicy};
+use via_btc_client::inscriber::Inscriber;
 use via_btc_sender::btc_inscription_manager::ViaBtcInscriptionManager;
 use zksync_config::{configs::via_wallets::ViaWallet, ViaBtcSenderConfig};
 
 use crate::{
-    implementations::resources::{
-        pools::{MasterPool, PoolResource},
-        via_btc_client::BtcClientResource,
+    implementations::{
+        layers::via_btc_sender::policy::build_inscriber_policy,
+        resources::{
+            pools::{MasterPool, PoolResource},
+            via_btc_client::BtcClientResource,
+        },
     },
     service::StopReceiver,
     task::{Task, TaskId},
@@ -66,13 +69,7 @@ impl WiringLayer for ViaInscriptionManagerLayer {
         let master_pool = input.master_pool.get().await.unwrap();
         let client = input.btc_client_resource.btc_sender.unwrap();
 
-        let inscriber_policy = InscriberPolicy {
-            min_inscription_output_sats: self.config.min_inscription_output_sats(),
-            min_change_output_sats: self.config.min_change_output_sats(),
-            min_feerate_sat_vb: self.config.min_feerate_sat_vb(),
-            min_chained_feerate_sat_vb: self.config.min_chained_feerate_sat_vb(),
-            max_feerate_sat_vb: self.config.max_feerate_sat_vb(),
-        };
+        let inscriber_policy = build_inscriber_policy(&self.config);
 
         let inscriber = Inscriber::new(client, &self.wallet.private_key, None)
             .await

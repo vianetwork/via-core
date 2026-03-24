@@ -65,15 +65,15 @@ impl ViaBtcInscriptionManager {
             return Ok(());
         }
 
-        self.update_inscription_status_or_resend(storage).await?;
-        self.send_new_inscription_txs(storage).await?;
+        let spendable_balance = self.update_inscription_status_or_resend(storage).await?;
+        self.send_new_inscription_txs(storage, spendable_balance).await?;
         Ok(())
     }
 
     async fn update_inscription_status_or_resend(
         &mut self,
         storage: &mut Connection<'_, Verifier>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<u128> {
         self.inscriber.sync_context_with_blockchain().await?;
 
         let inflight_inscriptions = storage
@@ -159,12 +159,13 @@ impl ViaBtcInscriptionManager {
         METRICS.btc_sender_account_balance[&self.config.wallet_address.clone()]
             .set(balance as usize);
 
-        Ok(())
+        Ok(balance)
     }
 
     async fn send_new_inscription_txs(
         &mut self,
         storage: &mut Connection<'_, Verifier>,
+        spendable_balance: u128,
     ) -> anyhow::Result<()> {
         let pending_chain_depth = self.inscriber.pending_chain_depth() as u32;
         if pending_chain_depth >= self.config.max_pending_chain_depth() {
@@ -177,7 +178,6 @@ impl ViaBtcInscriptionManager {
             return Ok(());
         }
 
-        let spendable_balance = self.inscriber.get_balance().await?;
         if spendable_balance < self.config.min_spendable_balance_sats() as u128 {
             METRICS.chain_guard_blocks.inc();
             tracing::warn!(

@@ -471,8 +471,17 @@ impl Inscriber {
             self.policy.min_chained_feerate_sat_vb
         };
 
-        let mut effective = std::cmp::max(res, min_floor);
-        effective = std::cmp::min(effective, self.policy.max_feerate_sat_vb);
+        let max_cap = self.policy.max_feerate_sat_vb;
+        let effective = if max_cap < min_floor {
+            warn!(
+                "Inconsistent fee policy: max_feerate_sat_vb ({}) < min_floor ({}); ignoring max cap",
+                max_cap,
+                min_floor
+            );
+            std::cmp::max(res, min_floor)
+        } else {
+            std::cmp::min(std::cmp::max(res, min_floor), max_cap)
+        };
 
         debug!("Fee rate obtained: {}, effective: {}", res, effective);
         Ok(std::cmp::max(effective, 1))
@@ -678,7 +687,7 @@ impl Inscriber {
             .checked_sub(fee_amount + recipient_amount)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Required Amount:{:?} Spendable Amount: {:?} ",
+                    "Required Amount: {:?} Spendable Amount: {:?} ",
                     fee_amount + recipient_amount,
                     tx_input_data.unlock_value
                 )
@@ -928,8 +937,8 @@ mod tests {
 
     use super::*;
     use crate::types::{
-        BitcoinClientResult, BitcoinNetwork, BitcoinSignerResult, InscriptionMessage,
-        L1BatchDAReferenceInput,
+        BitcoinClientResult, BitcoinNetwork, BitcoinSignerResult, CommitTxInput, FeePayerCtx,
+        InscriberOutput, InscriptionMessage, InscriptionRequest, L1BatchDAReferenceInput,
     };
 
     mock! {
@@ -1069,5 +1078,62 @@ mod tests {
 
         assert_ne!(res.final_commit_tx.txid, Txid::all_zeros());
         assert_ne!(res.final_reveal_tx.txid, Txid::all_zeros());
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_applies_floor_when_context_empty() {
+        let mut inscriber = get_mock_inscriber_and_conditions();
+        inscriber.set_policy(InscriberPolicy {
+            min_inscription_output_sats: 600,
+            min_change_output_sats: 1_000,
+            min_feerate_sat_vb: 12,
+            min_chained_feerate_sat_vb: 20,
+            max_feerate_sat_vb: 50,
+        });
+
+        let fee_rate = inscriber.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, 12);
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_handles_inconsistent_cap_when_context_non_empty() {
+        let mut inscriber = get_mock_inscriber_and_conditions();
+        inscriber.context.fifo_queue.push_back(InscriptionRequest {
+            message: InscriptionMessage::L1BatchDAReference(L1BatchDAReferenceInput {
+                l1_batch_hash: zksync_basic_types::H256([0; 32]),
+                l1_batch_index: zksync_basic_types::L1BatchNumber(0_u32),
+                da_identifier: "da_identifier_celestia".to_string(),
+                blob_id: "batch_temp_blob_id".to_string(),
+                prev_l1_batch_hash: zksync_basic_types::H256([0; 32]),
+            }),
+            inscriber_output: InscriberOutput {
+                commit_txid: Txid::all_zeros(),
+                commit_raw_tx: String::new(),
+                commit_tx_fee_rate: 0,
+                reveal_txid: Txid::all_zeros(),
+                reveal_raw_tx: String::new(),
+                reveal_tx_fee_rate: 0,
+                is_broadcasted: false,
+            },
+            fee_payer_ctx: FeePayerCtx {
+                fee_payer_utxo_txid: Txid::all_zeros(),
+                fee_payer_utxo_vout: 0,
+                fee_payer_utxo_value: Amount::from_sat(0),
+            },
+            commit_tx_input: CommitTxInput {
+                spent_utxo: vec![TxIn::default()],
+            },
+        });
+
+        inscriber.set_policy(InscriberPolicy {
+            min_inscription_output_sats: 600,
+            min_change_output_sats: 1_000,
+            min_feerate_sat_vb: 8,
+            min_chained_feerate_sat_vb: 20,
+            max_feerate_sat_vb: 10,
+        });
+
+        let fee_rate = inscriber.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, 20);
     }
 }
