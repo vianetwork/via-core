@@ -79,6 +79,11 @@ const MIN_CHANGE_BUFFER: Amount = Amount::from_sat(10_000);
 /// Maximum number of UTXOs to consider for selection (performance reasoning)
 const MAX_UTXOS_TO_CONSIDER: usize = 100;
 
+/// Do not fund new inscriptions from unconfirmed reveal-change outputs sitting in the
+/// in-memory inscriber context. This avoids building long 0-conf chains that can stall
+/// proof inscriptions and head-of-line block the queue.
+const ALLOW_UNCONFIRMED_CHANGE_REUSE: bool = false;
+
 /// Calculates the minimum target amount needed for UTXO selection.
 /// This includes: Commit TX fee (estimated), a safe inscription output amount, and a
 /// minimum change budget that stays reusable for follow-up transactions.
@@ -375,8 +380,10 @@ impl Inscriber {
             !is_spent && is_p2wpkh
         });
 
-        // add context available utxo (head utxo) to spendable utxos list
-        if context_queue_len > 0 {
+        // Optionally reuse the head reveal-change output from the in-memory context.
+        // This is disabled by default because chaining 0-conf outputs can starve the sender of
+        // trusted spendable balance and create persistent head-of-line blocking.
+        if ALLOW_UNCONFIRMED_CHANGE_REUSE && context_queue_len > 0 {
             if let Some(head_inscription) = self.context.fifo_queue.front() {
                 let reveal_change_output = head_inscription.inscriber_output.reveal_txid;
 
@@ -392,6 +399,11 @@ impl Inscriber {
 
                 utxos.push((reveal_change_output, reveal_txout));
             }
+        } else if context_queue_len > 0 {
+            warn!(
+                "Skipping reuse of unconfirmed context change output; pending context depth: {}",
+                context_queue_len
+            );
         }
 
         // Get fee rate for selection calculation
