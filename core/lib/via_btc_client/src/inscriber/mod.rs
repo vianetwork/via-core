@@ -84,6 +84,10 @@ pub struct InscriberPolicy {
     pub min_inscription_output: Amount,
     pub min_change_output: Amount,
     pub allow_unconfirmed_change_reuse: bool,
+    pub min_feerate_sat_vb: u64,
+    pub min_feerate_chained_sat_vb: u64,
+    pub max_feerate_sat_vb: u64,
+    pub escalation_step_sat_vb: u64,
 }
 
 impl Default for InscriberPolicy {
@@ -92,6 +96,10 @@ impl Default for InscriberPolicy {
             min_inscription_output: Amount::from_sat(600),
             min_change_output: Amount::from_sat(1_000),
             allow_unconfirmed_change_reuse: false,
+            min_feerate_sat_vb: 8,
+            min_feerate_chained_sat_vb: 20,
+            max_feerate_sat_vb: 80,
+            escalation_step_sat_vb: 5,
         }
     }
 }
@@ -430,7 +438,7 @@ impl Inscriber {
         }
 
         // Get fee rate for selection calculation
-        let fee_rate = self.get_fee_rate().await?;
+        let fee_rate = self.get_fee_rate(self.context.fifo_queue.len()).await?;
 
         // Select optimal UTXOs using the Largest-First selection algorithm
         let (selected_utxos, unlocked_value) = select_utxos(utxos, fee_rate)?;
@@ -490,7 +498,7 @@ impl Inscriber {
             script_pubkey: inscription_pubkey,
         };
 
-        let fee_rate = self.get_fee_rate().await?;
+        let fee_rate = self.get_fee_rate(self.context.fifo_queue.len()).await?;
 
         let mut fee_amount = InscriberFeeCalculator::estimate_fee(
             tx_input_data.inputs_count,
@@ -541,11 +549,21 @@ impl Inscriber {
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
-    async fn get_fee_rate(&self) -> Result<u64> {
+    async fn get_fee_rate(&self, pending_chain_depth: usize) -> Result<u64> {
         debug!("Getting fee rate");
-        let res = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await?;
-        debug!("Fee rate obtained: {}", res);
-        Ok(std::cmp::max(res, 1))
+        let network_rate = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await?;
+        let floor = if pending_chain_depth > 0 {
+            self.policy.min_feerate_chained_sat_vb
+        } else {
+            self.policy.min_feerate_sat_vb
+        };
+        let escalated = floor.saturating_add(self.policy.escalation_step_sat_vb.saturating_mul(pending_chain_depth as u64));
+        let effective = std::cmp::min(
+            self.policy.max_feerate_sat_vb,
+            std::cmp::max(std::cmp::max(network_rate, floor), escalated),
+        );
+        debug!("Fee rate obtained: network={}, pending_depth={}, effective={}", network_rate, pending_chain_depth, effective);
+        Ok(std::cmp::max(effective, 1))
     }
 
     #[instrument(skip(self, input, output), target = "bitcoin_inscriber")]
@@ -711,8 +729,8 @@ impl Inscriber {
         commit_tx_fee: Amount,
     ) -> Result<RevealTxOutputRes> {
         debug!("Preparing reveal transaction output");
-        let fee_rate = self.get_fee_rate().await?;
         let pending_tx_in_context = self.context.fifo_queue.len();
+        let fee_rate = self.get_fee_rate(pending_tx_in_context).await?;
 
         let mut reveal_tx_p2wpkh_output_count = REVEAL_TX_P2WPKH_OUTPUT_COUNT;
         let mut reveal_tx_p2tr_output_count = REVEAL_TX_P2TR_OUTPUT_COUNT;

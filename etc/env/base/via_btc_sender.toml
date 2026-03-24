@@ -23,3 +23,11 @@ min_inscription_output_sats = 600
 min_change_output_sats = 1000
 # Whether the sender may reuse unconfirmed reveal-change outputs for new inscriptions.
 allow_unconfirmed_change_reuse = false
+# Minimum feerate for fresh inscriptions.
+min_feerate_sat_vb = 8
+# Minimum feerate for chained / pending inscription flows.
+min_feerate_chained_sat_vb = 20
+# Max feerate cap to avoid runaway overpay.
+max_feerate_sat_vb = 80
+# Additional sat/vB applied as pending chain depth grows.
+escalation_step_sat_vb = 5

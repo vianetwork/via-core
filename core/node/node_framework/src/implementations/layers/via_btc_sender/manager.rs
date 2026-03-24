@@ -70,6 +70,10 @@ impl WiringLayer for ViaInscriptionManagerLayer {
             min_inscription_output: bitcoin::Amount::from_sat(self.config.min_inscription_output_sats()),
             min_change_output: bitcoin::Amount::from_sat(self.config.min_change_output_sats()),
             allow_unconfirmed_change_reuse: self.config.allow_unconfirmed_change_reuse(),
+            min_feerate_sat_vb: self.config.min_feerate_sat_vb(),
+            min_feerate_chained_sat_vb: self.config.min_feerate_chained_sat_vb(),
+            max_feerate_sat_vb: self.config.max_feerate_sat_vb(),
+            escalation_step_sat_vb: self.config.escalation_step_sat_vb(),
         };
         let inscriber = Inscriber::new_with_policy(client, &self.wallet.private_key, None, policy)
             .await

@@ -44,6 +44,18 @@ pub struct ViaBtcSenderConfig {
 
     /// Whether unconfirmed reveal-change outputs from the in-memory inscriber context may be reused.
     pub allow_unconfirmed_change_reuse: Option<bool>,
+
+    /// Minimum feerate for normal inscription construction.
+    pub min_feerate_sat_vb: Option<u64>,
+
+    /// Minimum feerate when the sender is already operating on a pending chain.
+    pub min_feerate_chained_sat_vb: Option<u64>,
+
+    /// Maximum feerate cap to avoid runaway overpay behavior.
+    pub max_feerate_sat_vb: Option<u64>,
+
+    /// Additional sat/vB step applied as pending chain depth grows.
+    pub escalation_step_sat_vb: Option<u64>,
 }
 
 impl ViaBtcSenderConfig {
@@ -81,6 +93,22 @@ impl ViaBtcSenderConfig {
     pub fn allow_unconfirmed_change_reuse(&self) -> bool {
         self.allow_unconfirmed_change_reuse.unwrap_or(false)
     }
+
+    pub fn min_feerate_sat_vb(&self) -> u64 {
+        self.min_feerate_sat_vb.unwrap_or(8)
+    }
+
+    pub fn min_feerate_chained_sat_vb(&self) -> u64 {
+        self.min_feerate_chained_sat_vb.unwrap_or(20)
+    }
+
+    pub fn max_feerate_sat_vb(&self) -> u64 {
+        self.max_feerate_sat_vb.unwrap_or(80)
+    }
+
+    pub fn escalation_step_sat_vb(&self) -> u64 {
+        self.escalation_step_sat_vb.unwrap_or(5)
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -100,6 +128,10 @@ impl ViaBtcSenderConfig {
             min_inscription_output_sats: None,
             min_change_output_sats: None,
             allow_unconfirmed_change_reuse: None,
+            min_feerate_sat_vb: None,
+            min_feerate_chained_sat_vb: None,
+            max_feerate_sat_vb: None,
+            escalation_step_sat_vb: None,
         }
     }
 }
