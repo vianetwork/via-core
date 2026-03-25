@@ -773,7 +773,7 @@ impl Inscriber {
                 floor
             );
         }
-        let candidate = std::cmp::max(std::cmp::max(network_rate, floor), escalated);
+        let candidate = std::cmp::max(network_rate, escalated);
         let effective = std::cmp::min(self.policy.max_feerate_sat_vb, candidate);
         debug!(
             "Fee rate obtained: network={}, pending_depth={}, floor={}, max_feerate={}, effective={}",
