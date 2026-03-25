@@ -232,7 +232,6 @@ fn select_utxos(
         return select_utxos_from_candidates(utxos, fee_rate, policy);
     }
 
-    let full_candidates = utxos.clone();
     let truncated_candidates = utxos
         .iter()
         .take(MAX_UTXOS_TO_CONSIDER)
@@ -249,7 +248,7 @@ fn select_utxos(
                     acc.checked_add(txout.value)
                         .ok_or_else(|| anyhow::anyhow!("overflow while computing truncated UTXO total"))
                 })?;
-            let full_total = full_candidates
+            let full_total = utxos
                 .iter()
                 .try_fold(Amount::ZERO, |acc, (_, txout)| {
                     acc.checked_add(txout.value)
@@ -263,7 +262,7 @@ fn select_utxos(
                     full_total.to_sat(),
                     err
                 );
-                select_utxos_from_candidates(full_candidates, fee_rate, policy)
+                select_utxos_from_candidates(utxos, fee_rate, policy)
             } else {
                 Err(err)
             }
@@ -662,10 +661,7 @@ impl Inscriber {
             );
         }
         let candidate = std::cmp::max(std::cmp::max(network_rate, floor), escalated);
-        let effective = std::cmp::max(
-            floor,
-            std::cmp::min(self.policy.max_feerate_sat_vb, candidate),
-        );
+        let effective = std::cmp::min(self.policy.max_feerate_sat_vb, candidate);
         debug!(
             "Fee rate obtained: network={}, pending_depth={}, floor={}, max_feerate={}, effective={}",
             network_rate,
