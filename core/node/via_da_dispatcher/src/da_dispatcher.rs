@@ -110,6 +110,11 @@ impl ViaDataAvailabilityDispatcher {
         drop(conn);
 
         for batch in batches {
+            println!(
+                "----------------------PUBDATA-------------------------: {:?}",
+                hex::encode(batch.pubdata.clone())
+            );
+
             let chunks: Vec<Vec<u8>> = batch
                 .pubdata
                 .clone()
