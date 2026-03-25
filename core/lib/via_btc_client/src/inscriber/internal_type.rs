@@ -6,6 +6,7 @@ pub struct CommitTxInputRes {
     pub unlocked_value: Amount,
     pub inputs_count: u32,
     pub utxo_amounts: Vec<Amount>,
+    pub fee_rate: u64,
 }
 
 #[derive(Debug)]
@@ -22,6 +23,7 @@ pub struct RevealTxInputRes {
     pub prev_outs: Vec<TxOut>,
     pub unlock_value: Amount,
     pub control_block: ControlBlock,
+    pub fee_rate: u64,
 }
 
 #[derive(Debug)]
