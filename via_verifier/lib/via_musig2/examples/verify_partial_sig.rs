@@ -17,6 +17,7 @@ use bitcoin::{
 use musig2::{secp::Scalar, KeyAggContext, PartialSignature};
 use rand::Rng;
 use secp256k1_musig2::schnorr::Signature;
+use via_musig2::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
 use via_musig2::utils::verify_partial_signature;
 
 const NETWORK: Network = Network::Regtest;
@@ -72,7 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, None);
     let tweak = tap_tweak.to_scalar();
     let tweak_bytes = tweak.to_be_bytes();
-    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
+    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
+        .map_err(|_| anyhow::anyhow!(TAPROOT_TWEAK_SCALAR_RANGE_ERR))?;
 
     // Apply tweak to the key aggregation context before signing
     musig_key_agg_cache = musig_key_agg_cache.with_xonly_tweak(tweak)?;

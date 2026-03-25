@@ -8,6 +8,8 @@ use musig2::{
 };
 use rand::{rngs::OsRng, Rng};
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
+
+use crate::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
 pub mod constants;
 pub mod fee;
 pub mod transaction_builder;
@@ -110,9 +112,7 @@ impl Signer {
         let tweak = tap_tweak.to_scalar();
         let tweak_bytes = tweak.to_be_bytes();
         let musig2_compatible_tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
-            .map_err(|_| MusigError::Musig2Error(
-                "Taproot tweak scalar out of valid range".into()
-            ))?;
+            .map_err(|_| MusigError::Musig2Error(TAPROOT_TWEAK_SCALAR_RANGE_ERR.into()))?;
         // Apply tweak to the key aggregation context before signing
         musig_key_agg_cache = musig_key_agg_cache
             .with_xonly_tweak(musig2_compatible_tweak)
