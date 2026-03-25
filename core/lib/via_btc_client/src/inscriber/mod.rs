@@ -153,13 +153,53 @@ impl InscriberPolicy {
     }
 }
 
+fn estimate_reveal_requirements(
+    fee_rate: u64,
+    inscription_script_size: usize,
+    recipient: Option<&Recipient>,
+    commit_tx_fee: Amount,
+    policy: &InscriberPolicy,
+) -> Result<Amount> {
+    let mut reveal_tx_p2wpkh_output_count = REVEAL_TX_P2WPKH_OUTPUT_COUNT;
+    let mut reveal_tx_p2tr_output_count = REVEAL_TX_P2TR_OUTPUT_COUNT;
+
+    if let Some(r) = recipient {
+        if r.address.script_pubkey().is_p2tr() {
+            reveal_tx_p2tr_output_count += 1;
+        } else {
+            reveal_tx_p2wpkh_output_count += 1;
+        };
+    }
+
+    let mut reveal_fee = InscriberFeeCalculator::estimate_fee(
+        REVEAL_TX_P2WPKH_INPUT_COUNT,
+        REVEAL_TX_P2TR_INPUT_COUNT,
+        reveal_tx_p2wpkh_output_count,
+        reveal_tx_p2tr_output_count,
+        vec![inscription_script_size],
+        fee_rate,
+    )?;
+    reveal_fee += (reveal_fee * FEE_RATE_INCENTIVE) / 100;
+    reveal_fee += (commit_tx_fee * FEE_RATE_DECREASE_COMMIT_TX) / 100;
+
+    let recipient_amount = recipient.as_ref().map_or(Amount::ZERO, |r| r.amount);
+    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, policy.min_change_output);
+
+    reveal_fee
+        .checked_add(recipient_amount)
+        .and_then(|v| v.checked_add(minimum_change_budget))
+        .ok_or_else(|| anyhow::anyhow!("Reveal requirements overflow"))
+}
+
 /// Calculates the minimum target amount needed for UTXO selection.
-/// This includes: Commit TX fee (estimated), a safe inscription output amount, and a
-/// minimum change budget that stays reusable for follow-up transactions.
+/// This includes the estimated commit fee and enough post-commit value to cover the reveal
+/// transaction fee requirements, any recipient amount, and a reusable change budget.
 fn calculate_selection_target(
     input_count: u32,
     fee_rate: u64,
     policy: &InscriberPolicy,
+    inscription_script_size: usize,
+    recipient: Option<&Recipient>,
 ) -> Result<Amount> {
     let commit_fee = InscriberFeeCalculator::estimate_fee(
         input_count,
@@ -170,12 +210,15 @@ fn calculate_selection_target(
         fee_rate,
     )?;
 
-    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, policy.min_change_output);
-    let target = commit_fee
-        .checked_add(policy.min_inscription_output)
-        .and_then(|v| v.checked_add(minimum_change_budget))
-        .ok_or_else(|| anyhow::anyhow!("Target amount overflow"))?;
-    Ok(target)
+    commit_fee
+        .checked_add(estimate_reveal_requirements(
+            fee_rate,
+            inscription_script_size,
+            recipient,
+            commit_fee,
+            policy,
+        )?)
+        .ok_or_else(|| anyhow::anyhow!("Target amount overflow"))
 }
 
 /// Runs Largest-First selection over the provided candidate list.
@@ -183,6 +226,8 @@ fn select_utxos_from_candidates(
     utxos: Vec<(OutPoint, TxOut)>,
     fee_rate: u64,
     policy: &InscriberPolicy,
+    inscription_script_size: usize,
+    recipient: Option<&Recipient>,
 ) -> Result<(Vec<(OutPoint, TxOut)>, Amount)> {
     let mut selected: Vec<(OutPoint, TxOut)> = Vec::new();
     let mut total_value = Amount::ZERO;
@@ -195,7 +240,13 @@ fn select_utxos_from_candidates(
             .ok_or_else(|| anyhow::anyhow!("Total value overflow"))?;
 
         let input_count = selected.len() as u32;
-        let target = calculate_selection_target(input_count, fee_rate, policy)?;
+        let target = calculate_selection_target(
+            input_count,
+            fee_rate,
+            policy,
+            inscription_script_size,
+            recipient,
+        )?;
 
         if total_value >= target {
             debug!(
@@ -208,7 +259,13 @@ fn select_utxos_from_candidates(
         }
     }
 
-    let final_target = calculate_selection_target(selected.len() as u32, fee_rate, policy)?;
+    let final_target = calculate_selection_target(
+        selected.len() as u32,
+        fee_rate,
+        policy,
+        inscription_script_size,
+        recipient,
+    )?;
     Err(anyhow::anyhow!(
         "Insufficient funds: have {} sats, need {} sats",
         total_value.to_sat(),
@@ -222,6 +279,8 @@ fn select_utxos(
     mut utxos: Vec<(OutPoint, TxOut)>,
     fee_rate: u64,
     policy: &InscriberPolicy,
+    inscription_script_size: usize,
+    recipient: Option<&Recipient>,
 ) -> Result<(Vec<(OutPoint, TxOut)>, Amount)> {
     if utxos.is_empty() {
         return Err(anyhow::anyhow!("No UTXOs available for selection"));
@@ -231,7 +290,13 @@ fn select_utxos(
     utxos.sort_by(|a, b| b.1.value.cmp(&a.1.value));
 
     if utxos.len() <= MAX_UTXOS_TO_CONSIDER {
-        return select_utxos_from_candidates(utxos, fee_rate, policy);
+        return select_utxos_from_candidates(
+            utxos,
+            fee_rate,
+            policy,
+            inscription_script_size,
+            recipient,
+        );
     }
 
     let truncated_candidates = utxos
@@ -240,7 +305,13 @@ fn select_utxos(
         .cloned()
         .collect::<Vec<_>>();
 
-    match select_utxos_from_candidates(truncated_candidates, fee_rate, policy) {
+    match select_utxos_from_candidates(
+        truncated_candidates,
+        fee_rate,
+        policy,
+        inscription_script_size,
+        recipient,
+    ) {
         Ok(result) => Ok(result),
         Err(err) => {
             let truncated_total = utxos.iter().take(MAX_UTXOS_TO_CONSIDER).try_fold(
@@ -263,7 +334,13 @@ fn select_utxos(
                     full_total.to_sat(),
                     err
                 );
-                select_utxos_from_candidates(utxos, fee_rate, policy)
+                select_utxos_from_candidates(
+                    utxos,
+                    fee_rate,
+                    policy,
+                    inscription_script_size,
+                    recipient,
+                )
             } else {
                 Err(err)
             }
@@ -361,7 +438,9 @@ impl Inscriber {
 
         let inscription_data = InscriptionData::new(input, secp_ref, internal_key, network)?;
 
-        let commit_tx_input_info = self.prepare_commit_tx_input().await?;
+        let commit_tx_input_info = self
+            .prepare_commit_tx_input(inscription_data.script_size, recipient.as_ref())
+            .await?;
 
         let commit_tx_output_info = self
             .prepare_commit_tx_output(
@@ -459,7 +538,11 @@ impl Inscriber {
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
-    async fn prepare_commit_tx_input(&self) -> Result<CommitTxInputRes> {
+    async fn prepare_commit_tx_input(
+        &self,
+        inscription_script_size: usize,
+        recipient: Option<&Recipient>,
+    ) -> Result<CommitTxInputRes> {
         debug!("Preparing commit transaction input");
 
         let address_ref = &self.signer.get_p2wpkh_address()?;
@@ -554,7 +637,13 @@ impl Inscriber {
         let fee_rate = self.get_fee_rate(self.context.fifo_queue.len()).await?;
 
         // Select optimal UTXOs using the Largest-First selection algorithm
-        let (selected_utxos, unlocked_value) = select_utxos(utxos, fee_rate, &self.policy)?;
+        let (selected_utxos, unlocked_value) = select_utxos(
+            utxos,
+            fee_rate,
+            &self.policy,
+            inscription_script_size,
+            recipient,
+        )?;
 
         // Build transaction inputs from selected UTXOs
         let mut commit_tx_inputs: Vec<TxIn> = Vec::new();
@@ -1195,7 +1284,8 @@ mod tests {
         ];
 
         // Select with a low fee rate - should prefer largest UTXOs
-        let (selected, total) = select_utxos(utxos, 1, &InscriberPolicy::default()).unwrap();
+        let (selected, total) =
+            select_utxos(utxos, 1, &InscriberPolicy::default(), 0, None).unwrap();
 
         // Verify largest first ordering and no unnecessary extra inputs for this set.
         assert_eq!(selected[0].1.value, Amount::from_sat(100_000));
@@ -1218,7 +1308,7 @@ mod tests {
             },
         )];
 
-        let result = select_utxos(utxos, 10, &InscriberPolicy::default());
+        let result = select_utxos(utxos, 10, &InscriberPolicy::default(), 0, None);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -1229,7 +1319,7 @@ mod tests {
     #[test]
     fn test_select_utxos_empty() {
         let utxos: Vec<(OutPoint, TxOut)> = vec![];
-        let result = select_utxos(utxos, 10, &InscriberPolicy::default());
+        let result = select_utxos(utxos, 10, &InscriberPolicy::default(), 0, None);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -1241,41 +1331,48 @@ mod tests {
     fn test_select_utxos_falls_back_to_full_set_when_truncated_prefix_is_insufficient() {
         let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
         let policy = InscriberPolicy::default();
+        let fee_rate = 10;
+        let target_for_100 = calculate_selection_target(100, fee_rate, &policy, 0, None).unwrap();
+        let target_for_101 = calculate_selection_target(101, fee_rate, &policy, 0, None).unwrap();
 
-        let mut found = false;
-        for amount in 100u64..5000u64 {
-            let utxos = (0..101u32)
-                .map(|vout| {
-                    (
-                        OutPoint {
-                            txid: Txid::all_zeros(),
-                            vout,
-                        },
-                        TxOut {
-                            value: Amount::from_sat(amount),
-                            script_pubkey: script_pubkey.clone(),
-                        },
-                    )
-                })
-                .collect::<Vec<_>>();
+        let lower_bound = target_for_101.to_sat().div_ceil(101);
+        let upper_bound = (target_for_100.to_sat() - 1) / 100;
+        assert!(
+            lower_bound <= upper_bound,
+            "Expected deterministic fixture bounds to overlap"
+        );
 
-            let truncated_result = select_utxos_from_candidates(
-                utxos.iter().take(100).cloned().collect(),
-                10,
-                &policy,
-            );
-            let full_result = select_utxos(utxos, 10, &policy);
+        let amount = lower_bound;
+        let utxos = (0..101u32)
+            .map(|vout| {
+                (
+                    OutPoint {
+                        txid: Txid::all_zeros(),
+                        vout,
+                    },
+                    TxOut {
+                        value: Amount::from_sat(amount),
+                        script_pubkey: script_pubkey.clone(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
 
-            if truncated_result.is_err() && full_result.is_ok() {
-                let (selected, total) = full_result.unwrap();
-                assert!(selected.len() >= 101);
-                assert!(total.to_sat() >= amount * 101);
-                found = true;
-                break;
-            }
-        }
+        let truncated_result = select_utxos_from_candidates(
+            utxos.iter().take(100).cloned().collect(),
+            fee_rate,
+            &policy,
+            0,
+            None,
+        );
+        let full_result = select_utxos(utxos, fee_rate, &policy, 0, None);
 
-        assert!(found, "Expected to find a fixture where truncated selection fails but full-set fallback succeeds");
+        assert!(truncated_result.is_err());
+        assert!(full_result.is_ok());
+
+        let (selected, total) = full_result.unwrap();
+        assert!(selected.len() >= 101);
+        assert_eq!(total.to_sat(), amount * 101);
     }
 
     #[tokio::test]
@@ -1330,10 +1427,10 @@ mod tests {
     #[test]
     fn test_calculate_selection_target() {
         let policy = InscriberPolicy::default();
-        let low_fee_target =
-            calculate_selection_target(1, 1, &policy).expect("low fee target calculation failed");
-        let high_fee_target =
-            calculate_selection_target(1, 10, &policy).expect("high fee target calculation failed");
+        let low_fee_target = calculate_selection_target(1, 1, &policy, 0, None)
+            .expect("low fee target calculation failed");
+        let high_fee_target = calculate_selection_target(1, 10, &policy, 0, None)
+            .expect("high fee target calculation failed");
 
         assert!(high_fee_target.to_sat() > low_fee_target.to_sat());
         assert!(

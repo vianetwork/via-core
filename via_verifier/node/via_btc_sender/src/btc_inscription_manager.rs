@@ -172,7 +172,7 @@ impl ViaBtcInscriptionManager {
     ) -> anyhow::Result<()> {
         let pending_chain_depth = self.inscriber.pending_chain_depth();
         let max_pending_chain_depth = self.config.max_pending_chain_depth() as usize;
-        if pending_chain_depth > max_pending_chain_depth {
+        if pending_chain_depth >= max_pending_chain_depth {
             METRICS.chain_guard_blocks.inc();
             tracing::warn!(
                 "Skipping new verifier inscription broadcast due to pending chain depth guard. depth={} max={}.",
