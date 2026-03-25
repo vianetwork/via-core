@@ -93,8 +93,8 @@ pub struct InscriberPolicy {
 impl Default for InscriberPolicy {
     fn default() -> Self {
         Self {
-            min_inscription_output: Amount::from_sat(600),
-            min_change_output: Amount::from_sat(1_000),
+            min_inscription_output: MIN_INSCRIPTION_OUTPUT,
+            min_change_output: MIN_CHANGE_OUTPUT,
             allow_unconfirmed_change_reuse: false,
             min_feerate_sat_vb: 8,
             min_feerate_chained_sat_vb: 20,
