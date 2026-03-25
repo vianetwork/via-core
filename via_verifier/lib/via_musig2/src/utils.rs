@@ -1,8 +1,12 @@
 use std::str::FromStr;
 
+use anyhow::Context;
+
 use bitcoin::{TapNodeHash, TapTweakHash};
 use musig2::{verify_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce};
 use secp256k1_musig2::PublicKey;
+
+use crate::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
 
 pub fn verify_partial_signature(
     nonce: PubNonce,
@@ -31,7 +35,8 @@ pub fn verify_partial_signature(
     let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, merkle_root);
     let tweak = tap_tweak.to_scalar();
     let tweak_bytes = tweak.to_be_bytes();
-    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
+    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
+        .with_context(|| TAPROOT_TWEAK_SCALAR_RANGE_ERR)?;
 
     // Apply tweak to the key aggregation context before signing
     musig_key_agg_cache = musig_key_agg_cache.with_xonly_tweak(tweak)?;
@@ -53,6 +58,8 @@ pub fn verify_partial_signature(
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
+
+    use anyhow::Context;
 
     use bitcoin::{
         hashes::Hash,
@@ -126,7 +133,8 @@ mod tests {
         let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, None);
         let tweak = tap_tweak.to_scalar();
         let tweak_bytes = tweak.to_be_bytes();
-        let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
+        let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
+            .with_context(|| TAPROOT_TWEAK_SCALAR_RANGE_ERR)?;
 
         // Apply tweak to the key aggregation context before signing
         musig_key_agg_cache = musig_key_agg_cache.with_xonly_tweak(tweak)?;

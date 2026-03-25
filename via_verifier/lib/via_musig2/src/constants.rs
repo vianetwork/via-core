@@ -30,3 +30,5 @@ pub const OUTPUT_WEIGHT: u64 = OUTPUT_SIZE * 4;
 pub const FIXED_OVERHEAD_WEIGHT: u64 = (TX_OVERHEAD + OP_RETURN_SIZE) * 4 + WITNESS_OVERHEAD;
 
 pub const AVAILABLE_WEIGHT: u64 = MAX_STANDARD_TX_WEIGHT as u64 - FIXED_OVERHEAD_WEIGHT;
+
+pub const TAPROOT_TWEAK_SCALAR_RANGE_ERR: &str = "Taproot tweak scalar out of valid range";

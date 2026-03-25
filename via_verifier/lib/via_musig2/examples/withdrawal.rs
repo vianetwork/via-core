@@ -2,6 +2,8 @@
 
 use std::{str::FromStr, sync::Arc};
 
+use anyhow::Context;
+
 use bitcoin::{
     hex::{Case, DisplayHex},
     key::Keypair,
@@ -12,6 +14,7 @@ use bitcoin::{
 };
 use musig2::KeyAggContext;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
+use via_musig2::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
 use via_musig2::{
     fee::WithdrawalFeeStrategy,
     get_signer,
@@ -82,7 +85,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, None);
     let tweak = tap_tweak.to_scalar();
     let tweak_bytes = tweak.to_be_bytes();
-    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
+    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
+        .with_context(|| TAPROOT_TWEAK_SCALAR_RANGE_ERR)?;
 
     // Apply tweak to the key aggregation context before signing
     musig_key_agg_cache = musig_key_agg_cache.with_xonly_tweak(tweak)?;

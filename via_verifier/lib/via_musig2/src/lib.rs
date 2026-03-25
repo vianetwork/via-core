@@ -8,6 +8,8 @@ use musig2::{
 };
 use rand::{rngs::OsRng, Rng};
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
+
+use crate::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
 pub mod constants;
 pub mod fee;
 pub mod transaction_builder;
@@ -109,7 +111,9 @@ impl Signer {
         let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, merkle_root);
         let tweak = tap_tweak.to_scalar();
         let tweak_bytes = tweak.to_be_bytes();
-        let musig2_compatible_tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).unwrap();
+        let musig2_compatible_tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
+            .with_context(|| TAPROOT_TWEAK_SCALAR_RANGE_ERR)
+            .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
         // Apply tweak to the key aggregation context before signing
         musig_key_agg_cache = musig_key_agg_cache
             .with_xonly_tweak(musig2_compatible_tweak)
@@ -320,8 +324,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_valid_scalar_accepted() {
+        // Valid scalar within curve order - zero is valid.
+        let valid_bytes = [0u8; 32];
+        let result = secp256k1_musig2::Scalar::from_be_bytes(valid_bytes);
+        assert!(result.is_ok(), "Zero should be a valid scalar");
+
+        // Another valid scalar - small value.
+        let mut small_bytes = [0u8; 32];
+        small_bytes[31] = 1; // Value = 1
+        let result = secp256k1_musig2::Scalar::from_be_bytes(small_bytes);
+        assert!(result.is_ok(), "Small values should be valid scalars");
+    }
+
+    #[test]
     fn test_signer_lifecycle() -> Result<(), MusigError> {
         let mut rng = OsRng;
+
+        // Create two signers with random keys
         let secret_key_1 = SecretKey::new(&mut rng);
         let secret_key_2 = SecretKey::new(&mut rng);
 
@@ -339,6 +359,7 @@ mod tests {
         let nonce1 = signer1.start_signing_session(message.clone())?;
         let nonce2 = signer2.start_signing_session(message.clone())?;
 
+        // Exchange nonces
         signer1.receive_nonce(1, nonce2)?;
         signer2.receive_nonce(0, nonce1)?;
 
