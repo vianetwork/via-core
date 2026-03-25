@@ -33,3 +33,7 @@ max_feerate_sat_vb = 80
 escalation_step_sat_vb = 5
 # Minimum age before attempting a replacement / re-broadcast for a stuck inscription.
 escalation_interval_sec = 900
+# Pause new sends when context chain gets too deep.
+max_pending_chain_depth = 3
+# Pause new sends if trusted (confirmed) balance falls below this threshold.
+min_spendable_balance_sats = 2000

@@ -59,6 +59,12 @@ pub struct ViaBtcSenderConfig {
 
     /// Minimum age before attempting a replacement / re-broadcast for a stuck inscription.
     pub escalation_interval_sec: Option<u64>,
+
+    /// Max number of pending inscriptions in context before pausing new sends.
+    pub max_pending_chain_depth: Option<u32>,
+
+    /// Do not send new inscriptions when trusted (confirmed) balance goes below this threshold.
+    pub min_spendable_balance_sats: Option<u64>,
 }
 
 impl ViaBtcSenderConfig {
@@ -116,6 +122,14 @@ impl ViaBtcSenderConfig {
     pub fn escalation_interval_sec(&self) -> u64 {
         self.escalation_interval_sec.unwrap_or(900)
     }
+
+    pub fn max_pending_chain_depth(&self) -> u32 {
+        self.max_pending_chain_depth.unwrap_or(3)
+    }
+
+    pub fn min_spendable_balance_sats(&self) -> u64 {
+        self.min_spendable_balance_sats.unwrap_or(2_000)
+    }
 }
 
 impl ViaBtcSenderConfig {
@@ -140,6 +154,21 @@ impl ViaBtcSenderConfig {
             max_feerate_sat_vb: None,
             escalation_step_sat_vb: None,
             escalation_interval_sec: None,
+            max_pending_chain_depth: None,
+            min_spendable_balance_sats: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ViaBtcSenderConfig;
+
+    #[test]
+    fn test_guardrail_defaults() {
+        let config = ViaBtcSenderConfig::for_tests();
+
+        assert_eq!(config.max_pending_chain_depth(), 3);
+        assert_eq!(config.min_spendable_balance_sats(), 2_000);
     }
 }

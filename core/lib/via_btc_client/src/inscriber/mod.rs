@@ -130,7 +130,9 @@ impl InscriberPolicy {
             );
         }
 
-        if max_feerate_sat_vb < min_feerate_sat_vb || max_feerate_sat_vb < min_feerate_chained_sat_vb {
+        if max_feerate_sat_vb < min_feerate_sat_vb
+            || max_feerate_sat_vb < min_feerate_chained_sat_vb
+        {
             anyhow::bail!(
                 "Invalid fee policy: max_feerate_sat_vb ({}) must be >= both min_feerate_sat_vb ({}) and min_feerate_chained_sat_vb ({})",
                 max_feerate_sat_vb,
@@ -241,19 +243,18 @@ fn select_utxos(
     match select_utxos_from_candidates(truncated_candidates, fee_rate, policy) {
         Ok(result) => Ok(result),
         Err(err) => {
-            let truncated_total = utxos
-                .iter()
-                .take(MAX_UTXOS_TO_CONSIDER)
-                .try_fold(Amount::ZERO, |acc, (_, txout)| {
-                    acc.checked_add(txout.value)
-                        .ok_or_else(|| anyhow::anyhow!("overflow while computing truncated UTXO total"))
-                })?;
-            let full_total = utxos
-                .iter()
-                .try_fold(Amount::ZERO, |acc, (_, txout)| {
-                    acc.checked_add(txout.value)
-                        .ok_or_else(|| anyhow::anyhow!("overflow while computing full UTXO total"))
-                })?;
+            let truncated_total = utxos.iter().take(MAX_UTXOS_TO_CONSIDER).try_fold(
+                Amount::ZERO,
+                |acc, (_, txout)| {
+                    acc.checked_add(txout.value).ok_or_else(|| {
+                        anyhow::anyhow!("overflow while computing truncated UTXO total")
+                    })
+                },
+            )?;
+            let full_total = utxos.iter().try_fold(Amount::ZERO, |acc, (_, txout)| {
+                acc.checked_add(txout.value)
+                    .ok_or_else(|| anyhow::anyhow!("overflow while computing full UTXO total"))
+            })?;
 
             if full_total > truncated_total {
                 debug!(
@@ -285,7 +286,13 @@ impl Inscriber {
         signer_private_key: &str,
         persisted_ctx: Option<InscriberContext>,
     ) -> Result<Self> {
-        Self::new_with_policy(client, signer_private_key, persisted_ctx, InscriberPolicy::default()).await
+        Self::new_with_policy(
+            client,
+            signer_private_key,
+            persisted_ctx,
+            InscriberPolicy::default(),
+        )
+        .await
     }
 
     pub async fn new_with_policy(
@@ -310,24 +317,36 @@ impl Inscriber {
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
-    pub async fn get_balance(&self) -> Result<u128> {
-        debug!("Getting balance");
+    pub async fn get_balances(&self) -> Result<(u128, u128)> {
+        debug!("Getting balances");
         let address_ref = &self.signer.get_p2wpkh_address()?;
-        let mut balance = self.client.get_balance(address_ref).await?;
-        debug!("Balance obtained: {}", balance);
+        let trusted_balance = self.client.get_balance(address_ref).await?;
+        debug!("Trusted balance obtained: {}", trusted_balance);
 
-        // Include the transactions in mempool when calculate the balance
+        let mut balance_with_pending_context = trusted_balance;
+
+        // Include the transactions in mempool when calculating the effective balance.
         for inscription in &self.context.fifo_queue {
             let tx: Transaction = deserialize_hex(&inscription.inscriber_output.reveal_raw_tx)?;
 
             tx.output.iter().for_each(|output| {
                 if output.script_pubkey == address_ref.script_pubkey() {
-                    balance += output.value.to_sat() as u128;
+                    balance_with_pending_context += output.value.to_sat() as u128;
                 }
             });
         }
 
-        Ok(balance)
+        Ok((trusted_balance, balance_with_pending_context))
+    }
+
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
+    pub async fn get_balance(&self) -> Result<u128> {
+        let (_, balance_with_pending_context) = self.get_balances().await?;
+        Ok(balance_with_pending_context)
+    }
+
+    pub fn pending_chain_depth(&self) -> usize {
+        self.context.fifo_queue.len()
     }
 
     #[instrument(skip(self, input), target = "bitcoin_inscriber")]
@@ -606,7 +625,8 @@ impl Inscriber {
         let fee_amount_before_decrease = fee_amount;
         fee_amount -= (fee_amount * FEE_RATE_DECREASE_COMMIT_TX) / 100;
 
-        let inscription_output_value = std::cmp::max(P2TR_DUST_LIMIT, self.policy.min_inscription_output);
+        let inscription_output_value =
+            std::cmp::max(P2TR_DUST_LIMIT, self.policy.min_inscription_output);
         let commit_tx_change_output_value = tx_input_data
             .unlocked_value
             .checked_sub(fee_amount + inscription_output_value)
@@ -652,7 +672,11 @@ impl Inscriber {
         } else {
             self.policy.min_feerate_sat_vb
         };
-        let escalated = floor.saturating_add(self.policy.escalation_step_sat_vb.saturating_mul(pending_chain_depth as u64));
+        let escalated = floor.saturating_add(
+            self.policy
+                .escalation_step_sat_vb
+                .saturating_mul(pending_chain_depth as u64),
+        );
         if self.policy.max_feerate_sat_vb < floor {
             anyhow::bail!(
                 "Invalid fee policy: max_feerate_sat_vb ({}) is lower than the required floor ({})",
@@ -1129,20 +1153,44 @@ mod tests {
 
         let utxos = vec![
             (
-                OutPoint { txid: Txid::all_zeros(), vout: 0 },
-                TxOut { value: Amount::from_sat(1_000), script_pubkey: script_pubkey.clone() },
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 0,
+                },
+                TxOut {
+                    value: Amount::from_sat(1_000),
+                    script_pubkey: script_pubkey.clone(),
+                },
             ),
             (
-                OutPoint { txid: Txid::all_zeros(), vout: 1 },
-                TxOut { value: Amount::from_sat(50_000), script_pubkey: script_pubkey.clone() },
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 1,
+                },
+                TxOut {
+                    value: Amount::from_sat(50_000),
+                    script_pubkey: script_pubkey.clone(),
+                },
             ),
             (
-                OutPoint { txid: Txid::all_zeros(), vout: 2 },
-                TxOut { value: Amount::from_sat(10_000), script_pubkey: script_pubkey.clone() },
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 2,
+                },
+                TxOut {
+                    value: Amount::from_sat(10_000),
+                    script_pubkey: script_pubkey.clone(),
+                },
             ),
             (
-                OutPoint { txid: Txid::all_zeros(), vout: 3 },
-                TxOut { value: Amount::from_sat(100_000), script_pubkey: script_pubkey.clone() },
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 3,
+                },
+                TxOut {
+                    value: Amount::from_sat(100_000),
+                    script_pubkey: script_pubkey.clone(),
+                },
             ),
         ];
 
@@ -1159,16 +1207,23 @@ mod tests {
     fn test_select_utxos_insufficient_funds() {
         let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
 
-        let utxos = vec![
-            (
-                OutPoint { txid: Txid::all_zeros(), vout: 0 },
-                TxOut { value: Amount::from_sat(100), script_pubkey: script_pubkey.clone() },
-            ),
-        ];
+        let utxos = vec![(
+            OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            },
+            TxOut {
+                value: Amount::from_sat(100),
+                script_pubkey: script_pubkey.clone(),
+            },
+        )];
 
         let result = select_utxos(utxos, 10, &InscriberPolicy::default());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Insufficient funds"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Insufficient funds"));
     }
 
     #[test]
@@ -1176,9 +1231,11 @@ mod tests {
         let utxos: Vec<(OutPoint, TxOut)> = vec![];
         let result = select_utxos(utxos, 10, &InscriberPolicy::default());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No UTXOs available"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No UTXOs available"));
     }
-
 
     #[test]
     fn test_select_utxos_falls_back_to_full_set_when_truncated_prefix_is_insufficient() {
@@ -1190,7 +1247,10 @@ mod tests {
             let utxos = (0..101u32)
                 .map(|vout| {
                     (
-                        OutPoint { txid: Txid::all_zeros(), vout },
+                        OutPoint {
+                            txid: Txid::all_zeros(),
+                            vout,
+                        },
                         TxOut {
                             value: Amount::from_sat(amount),
                             script_pubkey: script_pubkey.clone(),
@@ -1199,8 +1259,11 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            let truncated_result =
-                select_utxos_from_candidates(utxos.iter().take(100).cloned().collect(), 10, &policy);
+            let truncated_result = select_utxos_from_candidates(
+                utxos.iter().take(100).cloned().collect(),
+                10,
+                &policy,
+            );
             let full_result = select_utxos(utxos, 10, &policy);
 
             if truncated_result.is_err() && full_result.is_ok() {
@@ -1215,6 +1278,55 @@ mod tests {
         assert!(found, "Expected to find a fixture where truncated selection fails but full-set fallback succeeds");
     }
 
+    #[tokio::test]
+    async fn test_get_balances_separates_trusted_and_pending_context() {
+        let mut inscriber = get_mock_inscriber_and_conditions();
+        let address = inscriber.signer.get_p2wpkh_address().unwrap();
+        let change_tx = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![TxOut {
+                value: Amount::from_sat(1_234),
+                script_pubkey: address.script_pubkey(),
+            }],
+        };
+        let reveal_raw_tx = bitcoin::consensus::encode::serialize_hex(&change_tx);
+        let context_entry = crate::types::InscriptionRequest {
+            message: InscriptionMessage::L1ToL2Message(crate::types::L1ToL2MessageInput {
+                receiver_l2_address: zksync_basic_types::Address::zero(),
+                l2_contract_address: zksync_basic_types::Address::zero(),
+                call_data: vec![],
+            }),
+            inscriber_output: crate::types::InscriberOutput {
+                commit_txid: Txid::all_zeros(),
+                commit_raw_tx: String::new(),
+                commit_tx_fee_rate: 0,
+                reveal_txid: change_tx.compute_txid(),
+                reveal_raw_tx,
+                reveal_tx_fee_rate: 0,
+                is_broadcasted: false,
+            },
+            fee_payer_ctx: crate::types::FeePayerCtx {
+                fee_payer_utxo_txid: Txid::all_zeros(),
+                fee_payer_utxo_vout: 0,
+                fee_payer_utxo_value: Amount::ZERO,
+            },
+            commit_tx_input: crate::types::CommitTxInput { spent_utxo: vec![] },
+        };
+        inscriber.context.fifo_queue.push_back(context_entry);
+
+        let (trusted_balance, balance_with_pending_context) =
+            inscriber.get_balances().await.unwrap();
+
+        assert_eq!(
+            trusted_balance,
+            Amount::from_btc(2.0).unwrap().to_sat() as u128
+        );
+        assert_eq!(balance_with_pending_context, trusted_balance + 1_234);
+        assert_eq!(inscriber.pending_chain_depth(), 1);
+    }
+
     #[test]
     fn test_calculate_selection_target() {
         let policy = InscriberPolicy::default();
@@ -1224,7 +1336,10 @@ mod tests {
             calculate_selection_target(1, 10, &policy).expect("high fee target calculation failed");
 
         assert!(high_fee_target.to_sat() > low_fee_target.to_sat());
-        assert!(high_fee_target.to_sat() >= policy.min_inscription_output.to_sat() + MIN_CHANGE_BUFFER.to_sat());
+        assert!(
+            high_fee_target.to_sat()
+                >= policy.min_inscription_output.to_sat() + MIN_CHANGE_BUFFER.to_sat()
+        );
     }
 
     mock! {
@@ -1299,13 +1414,11 @@ mod tests {
         // sign_ecdsa
         signer
             .expect_sign_ecdsa()
-            .times(2)
             .returning(|_| Ok(ECDSASignature::from_compact(&[0; 64]).unwrap()));
 
         // sign_schnorr
         signer
             .expect_sign_schnorr()
-            .times(1)
             .returning(|_| Ok(SchnorrSignature::from_slice(&[0; 64]).unwrap()));
 
         // get_public_key
@@ -1315,7 +1428,6 @@ mod tests {
         // Setup Client
         client
             .expect_get_network()
-            .times(2)
             .return_const(BitcoinNetwork::Regtest);
 
         client.expect_fetch_utxos().returning(move |_| {
@@ -1331,6 +1443,10 @@ mod tests {
 
             Ok(vec![(fake_outpoint, fake_txout)])
         });
+
+        client
+            .expect_get_balance()
+            .returning(|_| Ok(Amount::from_btc(2.0).unwrap().to_sat() as u128));
 
         client.expect_get_fee_rate().returning(|_| Ok(1));
 

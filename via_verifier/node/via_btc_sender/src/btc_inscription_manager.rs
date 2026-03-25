@@ -65,15 +65,17 @@ impl ViaBtcInscriptionManager {
             return Ok(());
         }
 
-        self.update_inscription_status_or_resend(storage).await?;
-        self.send_new_inscription_txs(storage).await?;
+        let (trusted_balance, balance_with_pending_context) =
+            self.update_inscription_status_or_resend(storage).await?;
+        self.send_new_inscription_txs(storage, balance_with_pending_context, trusted_balance)
+            .await?;
         Ok(())
     }
 
     async fn update_inscription_status_or_resend(
         &mut self,
         storage: &mut Connection<'_, Verifier>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<(u128, u128)> {
         self.inscriber.sync_context_with_blockchain().await?;
 
         let inflight_inscriptions = storage
@@ -155,17 +157,41 @@ impl ViaBtcInscriptionManager {
             }
         }
 
-        let balance = self.inscriber.get_balance().await?;
+        let (trusted_balance, balance_with_pending_context) = self.inscriber.get_balances().await?;
         METRICS.btc_sender_account_balance[&self.config.wallet_address.clone()]
-            .set(balance as usize);
+            .set(balance_with_pending_context as usize);
 
-        Ok(())
+        Ok((trusted_balance, balance_with_pending_context))
     }
 
     async fn send_new_inscription_txs(
         &mut self,
         storage: &mut Connection<'_, Verifier>,
+        balance_with_pending_context: u128,
+        trusted_balance: u128,
     ) -> anyhow::Result<()> {
+        let pending_chain_depth = self.inscriber.pending_chain_depth();
+        let max_pending_chain_depth = self.config.max_pending_chain_depth() as usize;
+        if pending_chain_depth > max_pending_chain_depth {
+            METRICS.chain_guard_blocks.inc();
+            tracing::warn!(
+                "Skipping new verifier inscription broadcast due to pending chain depth guard. depth={} max={}.",
+                pending_chain_depth,
+                max_pending_chain_depth
+            );
+            return Ok(());
+        }
+
+        if trusted_balance < self.config.min_spendable_balance_sats() as u128 {
+            METRICS.chain_guard_blocks.inc();
+            tracing::warn!(
+                "Skipping new verifier inscription broadcast due to low trusted balance guard. trusted={} (with_pending={}) min={}",
+                trusted_balance,
+                balance_with_pending_context,
+                self.config.min_spendable_balance_sats()
+            );
+            return Ok(());
+        }
         let number_inflight_txs = storage
             .via_btc_sender_dal()
             .get_inflight_inscriptions()
