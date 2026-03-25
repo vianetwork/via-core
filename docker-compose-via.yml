@@ -241,7 +241,7 @@ services:
       - POSTGRES_PASSWORD=notsecurepassword
 
   celestia-node-init:
-    image: "ghcr.io/celestiaorg/celestia-node:v0.29.3-mocha"
+    image: &celestia-image "ghcr.io/celestiaorg/celestia-node:v0.29.3-mocha"
     volumes:
       - ./etc/docker-data/celestia/keys:/keys
       - celestia:/home/celestia
@@ -261,7 +261,7 @@ services:
         echo "TrustedHash updated to: $$TRUSTED_HASH"
 
   celestia-node:
-    image: "ghcr.io/celestiaorg/celestia-node:v0.29.3-mocha"
+    image: *celestia-image
     depends_on:
       celestia-node-init:
         condition: service_completed_successfully
