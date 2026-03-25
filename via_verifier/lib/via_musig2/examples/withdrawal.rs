@@ -2,6 +2,8 @@
 
 use std::{str::FromStr, sync::Arc};
 
+use anyhow::Context;
+
 use bitcoin::{
     hex::{Case, DisplayHex},
     key::Keypair,
