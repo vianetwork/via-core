@@ -1194,11 +1194,14 @@ mod tests {
             ));
         }
 
-        let truncated_result = select_utxos_from_candidates(
-            utxos.iter().take(100).cloned().collect(),
-            10,
-            &policy,
-        );
+        let truncated_only = utxos.iter().take(100).cloned().collect::<Vec<_>>();
+        let truncated_total = truncated_only
+            .iter()
+            .try_fold(Amount::ZERO, |acc, (_, txout)| acc.checked_add(txout.value).ok_or(()))
+            .unwrap();
+        let truncated_result = select_utxos_from_candidates(truncated_only, 10, &policy);
+        let full_target = calculate_selection_target(101, 10, &policy).unwrap();
+        assert!(truncated_total < full_target);
         assert!(truncated_result.is_err());
 
         let (selected, total) = select_utxos(utxos, 10, &policy).unwrap();
