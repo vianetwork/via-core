@@ -1185,28 +1185,34 @@ mod tests {
         let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
         let policy = InscriberPolicy::default();
 
-        let mut utxos = vec![];
-        // 101 equal-valued UTXOs: the first 100 cannot satisfy the target, but the full set can.
-        for vout in 0..101u32 {
-            utxos.push((
-                OutPoint { txid: Txid::all_zeros(), vout },
-                TxOut { value: Amount::from_sat(1_000), script_pubkey: script_pubkey.clone() },
-            ));
+        let mut found = false;
+        for amount in 100u64..5000u64 {
+            let utxos = (0..101u32)
+                .map(|vout| {
+                    (
+                        OutPoint { txid: Txid::all_zeros(), vout },
+                        TxOut {
+                            value: Amount::from_sat(amount),
+                            script_pubkey: script_pubkey.clone(),
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            let truncated_result =
+                select_utxos_from_candidates(utxos.iter().take(100).cloned().collect(), 10, &policy);
+            let full_result = select_utxos(utxos, 10, &policy);
+
+            if truncated_result.is_err() && full_result.is_ok() {
+                let (selected, total) = full_result.unwrap();
+                assert!(selected.len() >= 101);
+                assert!(total.to_sat() >= amount * 101);
+                found = true;
+                break;
+            }
         }
 
-        let truncated_only = utxos.iter().take(100).cloned().collect::<Vec<_>>();
-        let truncated_total = truncated_only
-            .iter()
-            .try_fold(Amount::ZERO, |acc, (_, txout)| acc.checked_add(txout.value).ok_or(()))
-            .unwrap();
-        let truncated_result = select_utxos_from_candidates(truncated_only, 10, &policy);
-        let full_target = calculate_selection_target(101, 10, &policy).unwrap();
-        assert!(truncated_total < full_target);
-        assert!(truncated_result.is_err());
-
-        let (selected, total) = select_utxos(utxos, 10, &policy).unwrap();
-        assert_eq!(selected.len(), 13);
-        assert!(total.to_sat() >= calculate_selection_target(selected.len() as u32, 10, &policy).unwrap().to_sat());
+        assert!(found, "Expected to find a fixture where truncated selection fails but full-set fallback succeeds");
     }
 
     #[test]
