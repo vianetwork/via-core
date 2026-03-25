@@ -45,12 +45,6 @@ impl fmt::Display for MusigError {
 
 impl std::error::Error for MusigError {}
 
-pub fn tap_tweak_to_musig2_scalar(
-    tweak_bytes: [u8; 32],
-) -> anyhow::Result<secp256k1_musig2::Scalar> {
-    secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).context(TAPROOT_TWEAK_SCALAR_RANGE_ERR)
-}
-
 /// Represents a single signer in the MuSig2 protocol
 pub struct Signer {
     secret_key: SecretKey,
@@ -117,7 +111,8 @@ impl Signer {
         let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, merkle_root);
         let tweak = tap_tweak.to_scalar();
         let tweak_bytes = tweak.to_be_bytes();
-        let musig2_compatible_tweak = tap_tweak_to_musig2_scalar(tweak_bytes)
+        let musig2_compatible_tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
+            .with_context(|| TAPROOT_TWEAK_SCALAR_RANGE_ERR)
             .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
         // Apply tweak to the key aggregation context before signing
         musig_key_agg_cache = musig_key_agg_cache
@@ -327,13 +322,6 @@ mod tests {
     use rand::rngs::OsRng;
 
     use super::*;
-
-    /// Tests that the helper rejects invalid scalar bytes and preserves custom context.
-    #[test]
-    fn test_tap_tweak_to_musig2_scalar_rejects_invalid_bytes() {
-        let err = tap_tweak_to_musig2_scalar([0xFF; 32]).unwrap_err();
-        assert!(err.to_string().contains(TAPROOT_TWEAK_SCALAR_RANGE_ERR));
-    }
 
     #[test]
     fn test_valid_scalar_accepted() {
