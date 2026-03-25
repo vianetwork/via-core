@@ -48,8 +48,7 @@ impl std::error::Error for MusigError {}
 pub fn tap_tweak_to_musig2_scalar(
     tweak_bytes: [u8; 32],
 ) -> anyhow::Result<secp256k1_musig2::Scalar> {
-    secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
-        .map_err(|e| anyhow::anyhow!("{}: {}", TAPROOT_TWEAK_SCALAR_RANGE_ERR, e))
+    secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes).context(TAPROOT_TWEAK_SCALAR_RANGE_ERR)
 }
 
 /// Represents a single signer in the MuSig2 protocol
@@ -329,7 +328,7 @@ mod tests {
 
     use super::*;
 
-    /// Tests that valid scalar bytes (within curve order) are accepted
+    /// Tests that the helper rejects invalid scalar bytes and preserves custom context.
     #[test]
     fn test_tap_tweak_to_musig2_scalar_rejects_invalid_bytes() {
         let err = tap_tweak_to_musig2_scalar([0xFF; 32]).unwrap_err();
@@ -338,27 +337,16 @@ mod tests {
 
     #[test]
     fn test_valid_scalar_accepted() {
-        // Valid scalar within curve order - zero is valid
+        // Valid scalar within curve order - zero is valid.
         let valid_bytes = [0u8; 32];
         let result = secp256k1_musig2::Scalar::from_be_bytes(valid_bytes);
         assert!(result.is_ok(), "Zero should be a valid scalar");
 
-        // Another valid scalar - small value
+        // Another valid scalar - small value.
         let mut small_bytes = [0u8; 32];
         small_bytes[31] = 1; // Value = 1
         let result = secp256k1_musig2::Scalar::from_be_bytes(small_bytes);
         assert!(result.is_ok(), "Small values should be valid scalars");
-    }
-
-    /// Tests that invalid scalar bytes (>= curve order) are rejected
-    #[test]
-    fn test_invalid_scalar_rejected() {
-        // Scalar >= curve order should fail
-        // secp256k1 order n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-        // All 0xFF bytes is definitely > curve order
-        let invalid_bytes = [0xFF; 32];
-        let result = secp256k1_musig2::Scalar::from_be_bytes(invalid_bytes);
-        assert!(result.is_err(), "Scalar >= curve order should be rejected");
     }
 
     #[test]
