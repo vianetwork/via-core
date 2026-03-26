@@ -17,10 +17,16 @@ ifeq ($(CMD), via-verifier)
     VIA_ENV := via_verifier
 	DIFF := 1
 	MODE := verifier
+else ifeq ($(CMD), via-verifier-1)
+    VIA_ENV := via_verifier_1
+	DIFF := 5
+	MODE := verifier
 else ifeq ($(CMD), via-restart)
     VIA_ENV := via
 else ifeq ($(CMD), via-restart-verifier)
 	VIA_ENV := via_verifier
+else ifeq ($(CMD), via-restart-verifier-1)
+	VIA_ENV := via_verifier-1
 else ifeq ($(CMD), via-coordinator)
 	VIA_ENV := via_coordinator
 	DIFF := 2
@@ -100,6 +106,14 @@ all: base transactions btc-explorer bootstrap-dev server-genesis server
 # Run the basic setup workflow in verifier
 .PHONY: via-verifier
 via-verifier: base verifier
+
+# Run the basic setup workflow in verifier
+.PHONY: via-verifier-1
+via-verifier-1: base verifier
+
+# Run the basic setup workflow in verifier
+.PHONY: via-restart-verifier-1
+via-restart-verifier-1: base verifier
 
 # Restart the verifier
 .PHONY: via-restart-verifier
@@ -209,7 +223,7 @@ bootstrap-dev:
 	@$(CLI_TOOL) bootstrap system-bootstrapping \
 		--private-key cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
 		--start-block 1 \
-		--verifiers-pub-keys 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b,02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662 \
+		--verifiers-pub-keys 03d8e2443ef58aa80fb6256bf3b94d2ecf9117f19cb17661ec60ad35fd84ff4a8b,02043f839b8ecd9ffd79f26ec7d05750555cd0d1e0777cfc84a29b7e38e6324662,0397970cc213de18e3b7a9fbd6e54f6b24a582d561d9d05f154a0bc152038b3543 \
 		--governance-address bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm \
 		--bridge-wallet-path etc/test_config/via/regtest/bridge_address.json \
 		--sequencer-address bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56
