@@ -14,6 +14,22 @@ use crate::coordinator::{api_decl::RestApi, error::ApiError};
 /// Maximum allowed clock skew in seconds for future timestamps.
 const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
 
+fn check_timestamp_skew(
+    parsed_timestamp: i64,
+    now: i64,
+    max_age_secs: i64,
+    max_skew_secs: i64,
+) -> Result<(), &'static str> {
+    let diff = now - parsed_timestamp;
+    if diff > max_age_secs {
+        return Err("Timestamp is too old");
+    }
+    if diff < -max_skew_secs {
+        return Err("Timestamp is too far in the future");
+    }
+    Ok(())
+}
+
 pub async fn auth_middleware(
     State(state): State<Arc<RestApi>>,
     request: Request,
@@ -62,14 +78,22 @@ pub async fn auth_middleware(
 
     let timestamp_diff = timestamp_now - parsed_timestamp;
 
-    if parsed_timestamp > timestamp_now + MAX_CLOCK_SKEW_SECONDS {
-        tracing::warn!("Reject timestamp from verifier {}: {} seconds ahead of current time", verifier_index, parsed_timestamp - timestamp_now);
-        return Err(ApiError::Unauthorized("Timestamp is too far in the future".into()));
-    }
-
-    if timestamp_diff > state.state.verifier_request_timeout.into() {
-        return Err(ApiError::Unauthorized("Timestamp is too old".into()));
-    }
+    check_timestamp_skew(
+        parsed_timestamp,
+        timestamp_now,
+        state.state.verifier_request_timeout.into(),
+        MAX_CLOCK_SKEW_SECONDS,
+    )
+    .map_err(|msg| {
+        if timestamp_diff < -MAX_CLOCK_SKEW_SECONDS {
+            tracing::warn!(
+                "Reject timestamp from verifier {}: {} seconds ahead of current time",
+                verifier_index,
+                -timestamp_diff
+            );
+        }
+        ApiError::Unauthorized(msg.into())
+    })?;
 
     // Get the public key for this verifier
     let public_key = &state.state.verifiers_pub_keys[verifier_index];
@@ -207,10 +231,7 @@ mod tests {
     fn test_future_timestamp_handled() {
         // Test with a far-future timestamp (within bounds)
         assert!(validate_timestamp("253402300799").is_ok()); // Year 9999 - max valid
-        assert_eq!(
-            validate_timestamp("253402300799").unwrap(),
-            253402300799
-        );
+        assert_eq!(validate_timestamp("253402300799").unwrap(), 253402300799);
 
         // Test with timestamp beyond max
         assert!(validate_timestamp("253402300800").is_err()); // Beyond year 9999
@@ -255,15 +276,27 @@ mod tests {
 
     #[test]
     fn test_future_timestamp_validation() {
-        let now = chrono::Utc::now().timestamp();
+        let now = 1_000_000;
+        let max_age = 60;
+        let max_skew = MAX_CLOCK_SKEW_SECONDS;
 
-        // Boundary tests for MAX_CLOCK_SKEW_SECONDS (30 seconds)
-        assert!(now + 10 <= now + MAX_CLOCK_SKEW_SECONDS);
-        assert!(now + 30 <= now + MAX_CLOCK_SKEW_SECONDS);
-        assert!(now + 31 > now + MAX_CLOCK_SKEW_SECONDS);
+        assert!(check_timestamp_skew(now, now, max_age, max_skew).is_ok());
+        assert!(check_timestamp_skew(now - max_age, now, max_age, max_skew).is_ok());
+        assert!(check_timestamp_skew(now + max_skew, now, max_age, max_skew).is_ok());
 
-        // Far-future timestamps must be rejected (VIA-AUTH-003)
+        assert_eq!(
+            check_timestamp_skew(now - max_age - 1, now, max_age, max_skew),
+            Err("Timestamp is too old")
+        );
+        assert_eq!(
+            check_timestamp_skew(now + max_skew + 1, now, max_age, max_skew),
+            Err("Timestamp is too far in the future")
+        );
+
         let far_future = now + 157_680_000;
-        assert!(far_future > now + MAX_CLOCK_SKEW_SECONDS);
+        assert_eq!(
+            check_timestamp_skew(far_future, now, max_age, max_skew),
+            Err("Timestamp is too far in the future")
+        );
     }
 }
