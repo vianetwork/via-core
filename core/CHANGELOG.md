@@ -1,5 +1,12 @@
 # Changelog
 
+## [28.0.4](https://github.com/vianetwork/via-core/compare/core-v28.0.3...core-v28.0.4) (2026-03-26)
+
+
+### Bug Fixes
+
+* **via_btc_watch:** via btc watch skip blocks after reorg ([#332](https://github.com/vianetwork/via-core/issues/332)) ([80ca2ba](https://github.com/vianetwork/via-core/commit/80ca2ba9594bacda8ec642c252cae36c1ac3c90a))
+
 ## [28.0.3](https://github.com/vianetwork/via-core/compare/core-v28.0.2...core-v28.0.3) (2025-12-25)
 
 
