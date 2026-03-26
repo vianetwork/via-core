@@ -8,6 +8,7 @@ use musig2::{
 };
 use rand::{rngs::OsRng, Rng};
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
+use zeroize::Zeroizing;
 
 use crate::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
 pub mod constants;
@@ -47,7 +48,7 @@ impl std::error::Error for MusigError {}
 
 /// Represents a single signer in the MuSig2 protocol
 pub struct Signer {
-    secret_key: SecretKey,
+    secret_key: Zeroizing<[u8; 32]>,
     public_key: PublicKey,
     signer_index: usize,
     key_agg_ctx: KeyAggContext,
@@ -120,7 +121,7 @@ impl Signer {
             .map_err(|e| MusigError::Musig2Error(format!("Failed to apply tweak: {}", e)))?;
 
         Ok(Self {
-            secret_key,
+            secret_key: Zeroizing::new(secret_key.secret_bytes()),
             public_key,
             signer_index,
             key_agg_ctx: musig_key_agg_cache,
@@ -130,6 +131,11 @@ impl Signer {
             nonce_submitted: false,
             partial_sig_submitted: false,
         })
+    }
+
+    fn signing_secret_key(&self) -> Result<SecretKey, MusigError> {
+        SecretKey::from_byte_array(self.secret_key.as_ref())
+            .map_err(|e| MusigError::Musig2Error(format!("Invalid signer secret key bytes: {}", e)))
     }
 
     /// Get the aggregated public key for all signers
@@ -143,12 +149,14 @@ impl Signer {
 
         let msg_array = message.as_slice();
 
+        let secret_key = self.signing_secret_key()?;
+
         let first_round = FirstRound::new(
             self.key_agg_ctx.clone(),
             OsRng.gen::<[u8; 32]>(),
             self.signer_index,
             SecNonceSpices::new()
-                .with_seckey(self.secret_key)
+                .with_seckey(secret_key)
                 .with_message(&msg_array),
         )
         .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
@@ -184,8 +192,10 @@ impl Signer {
             .take()
             .ok_or_else(|| MusigError::InvalidState("First round not initialized".into()))?;
 
+        let secret_key = self.signing_secret_key()?;
+
         let second_round = first_round
-            .finalize(self.secret_key, msg_array)
+            .finalize(secret_key, msg_array)
             .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
 
         let partial_sig = second_round.our_signature();

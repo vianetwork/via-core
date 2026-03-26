@@ -12,15 +12,15 @@ use crate::{
     traits::BitcoinSigner,
     types::{BitcoinError, BitcoinSignerResult},
 };
+use zeroize::Zeroizing;
 
 /// KeyManager handles the creation and management of Bitcoin keys and addresses.
 /// It provides functionality for signing transactions using both ECDSA and Schnorr signatures.
 #[derive(Clone)]
 pub struct KeyManager {
     secp: Secp256k1<All>,
-    sk: SecretKey,
+    sk: Zeroizing<[u8; 32]>,
     address: Address,
-    keypair: Keypair,
     internal_key: UntweakedPublicKey,
     script_pubkey: ScriptBuf,
 }
@@ -62,9 +62,8 @@ impl KeyManager {
 
         Ok(Self {
             secp,
-            sk,
+            sk: Zeroizing::new(sk.secret_bytes()),
             address,
-            keypair,
             internal_key,
             script_pubkey,
         })
@@ -84,9 +83,8 @@ impl Default for KeyManager {
 
         Self {
             secp,
-            sk: sk.inner,
+            sk: Zeroizing::new(sk.inner.secret_bytes()),
             address,
-            keypair,
             internal_key,
             script_pubkey,
         }
@@ -112,17 +110,24 @@ impl BitcoinSigner for KeyManager {
     }
 
     fn sign_ecdsa(&self, msg: Message) -> BitcoinSignerResult<ECDSASignature> {
-        let signature = self.secp.sign_ecdsa(&msg, &self.sk);
+        let sk = SecretKey::from_slice(self.sk.as_ref())
+            .map_err(|e| BitcoinError::SigningError(format!("Invalid cached secret key: {}", e)))?;
+        let signature = self.secp.sign_ecdsa(&msg, &sk);
         Ok(signature)
     }
 
     fn sign_schnorr(&self, msg: Message) -> BitcoinSignerResult<SchnorrSignature> {
-        let signature = self.secp.sign_schnorr_no_aux_rand(&msg, &self.keypair);
+        let sk = SecretKey::from_slice(self.sk.as_ref())
+            .map_err(|e| BitcoinError::SigningError(format!("Invalid cached secret key: {}", e)))?;
+        let keypair = Keypair::from_secret_key(&self.secp, &sk);
+        let signature = self.secp.sign_schnorr_no_aux_rand(&msg, &keypair);
         Ok(signature)
     }
 
     fn get_public_key(&self) -> PublicKey {
-        self.sk.public_key(&self.secp)
+        SecretKey::from_slice(self.sk.as_ref())
+            .map(|sk| sk.public_key(&self.secp))
+            .expect("KeyManager secret key must be valid")
     }
 }
 
