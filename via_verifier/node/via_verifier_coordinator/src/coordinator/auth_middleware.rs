@@ -273,7 +273,6 @@ mod tests {
 
     #[test]
     fn test_future_timestamp_validation() {
-        let now = 1_000_000;
         let max_age = 60;
         let max_skew = MAX_CLOCK_SKEW_SECONDS;
 
@@ -290,9 +289,9 @@ mod tests {
             Err("Timestamp is too far in the future")
         );
 
-        let far_future = now + 157_680_000;
+        let far_future_diff = -157_680_000;
         assert_eq!(
-            check_timestamp_skew(now - far_future, max_age, max_skew),
+            check_timestamp_skew(far_future_diff, max_age, max_skew),
             Err("Timestamp is too far in the future")
         );
     }
