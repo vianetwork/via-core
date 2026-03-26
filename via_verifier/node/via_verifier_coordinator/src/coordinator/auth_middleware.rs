@@ -11,6 +11,23 @@ use zksync_types::protocol_version::ProtocolSemanticVersion;
 
 use crate::coordinator::{api_decl::RestApi, error::ApiError};
 
+/// Maximum allowed clock skew in seconds for future timestamps.
+const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
+
+fn check_timestamp_skew(
+    timestamp_diff: i64,
+    max_age_secs: i64,
+    max_skew_secs: i64,
+) -> Result<(), &'static str> {
+    if timestamp_diff > max_age_secs {
+        return Err("Timestamp is too old");
+    }
+    if timestamp_diff < -max_skew_secs {
+        return Err("Timestamp is too far in the future");
+    }
+    Ok(())
+}
+
 pub async fn auth_middleware(
     State(state): State<Arc<RestApi>>,
     request: Request,
@@ -59,9 +76,21 @@ pub async fn auth_middleware(
 
     let timestamp_diff = timestamp_now - parsed_timestamp;
 
-    if timestamp_diff > state.state.verifier_request_timeout.into() {
-        return Err(ApiError::Unauthorized("Timestamp is too old".into()));
-    }
+    check_timestamp_skew(
+        timestamp_diff,
+        state.state.verifier_request_timeout.into(),
+        MAX_CLOCK_SKEW_SECONDS,
+    )
+    .map_err(|msg| {
+        if timestamp_diff < -MAX_CLOCK_SKEW_SECONDS {
+            tracing::warn!(
+                "Reject timestamp from verifier {}: {} seconds ahead of current time",
+                verifier_index,
+                -timestamp_diff
+            );
+        }
+        ApiError::Unauthorized(msg.into())
+    })?;
 
     // Get the public key for this verifier
     let public_key = &state.state.verifiers_pub_keys[verifier_index];
@@ -199,10 +228,7 @@ mod tests {
     fn test_future_timestamp_handled() {
         // Test with a far-future timestamp (within bounds)
         assert!(validate_timestamp("253402300799").is_ok()); // Year 9999 - max valid
-        assert_eq!(
-            validate_timestamp("253402300799").unwrap(),
-            253402300799
-        );
+        assert_eq!(validate_timestamp("253402300799").unwrap(), 253402300799);
 
         // Test with timestamp beyond max
         assert!(validate_timestamp("253402300800").is_err()); // Beyond year 9999
@@ -243,5 +269,30 @@ mod tests {
         let epoch = validate_timestamp("0").unwrap();
         let diff_from_epoch = timestamp_now - epoch;
         assert!(diff_from_epoch > 0);
+    }
+
+    #[test]
+    fn test_future_timestamp_validation() {
+        let max_age = 60;
+        let max_skew = MAX_CLOCK_SKEW_SECONDS;
+
+        assert!(check_timestamp_skew(0, max_age, max_skew).is_ok());
+        assert!(check_timestamp_skew(max_age, max_age, max_skew).is_ok());
+        assert!(check_timestamp_skew(-max_skew, max_age, max_skew).is_ok());
+
+        assert_eq!(
+            check_timestamp_skew(max_age + 1, max_age, max_skew),
+            Err("Timestamp is too old")
+        );
+        assert_eq!(
+            check_timestamp_skew(-(max_skew + 1), max_age, max_skew),
+            Err("Timestamp is too far in the future")
+        );
+
+        let far_future_diff = -157_680_000;
+        assert_eq!(
+            check_timestamp_skew(far_future_diff, max_age, max_skew),
+            Err("Timestamp is too far in the future")
+        );
     }
 }
