@@ -15,16 +15,14 @@ use crate::coordinator::{api_decl::RestApi, error::ApiError};
 const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
 
 fn check_timestamp_skew(
-    parsed_timestamp: i64,
-    now: i64,
+    timestamp_diff: i64,
     max_age_secs: i64,
     max_skew_secs: i64,
 ) -> Result<(), &'static str> {
-    let diff = now - parsed_timestamp;
-    if diff > max_age_secs {
+    if timestamp_diff > max_age_secs {
         return Err("Timestamp is too old");
     }
-    if diff < -max_skew_secs {
+    if timestamp_diff < -max_skew_secs {
         return Err("Timestamp is too far in the future");
     }
     Ok(())
@@ -79,8 +77,7 @@ pub async fn auth_middleware(
     let timestamp_diff = timestamp_now - parsed_timestamp;
 
     check_timestamp_skew(
-        parsed_timestamp,
-        timestamp_now,
+        timestamp_diff,
         state.state.verifier_request_timeout.into(),
         MAX_CLOCK_SKEW_SECONDS,
     )
@@ -280,22 +277,22 @@ mod tests {
         let max_age = 60;
         let max_skew = MAX_CLOCK_SKEW_SECONDS;
 
-        assert!(check_timestamp_skew(now, now, max_age, max_skew).is_ok());
-        assert!(check_timestamp_skew(now - max_age, now, max_age, max_skew).is_ok());
-        assert!(check_timestamp_skew(now + max_skew, now, max_age, max_skew).is_ok());
+        assert!(check_timestamp_skew(0, max_age, max_skew).is_ok());
+        assert!(check_timestamp_skew(max_age, max_age, max_skew).is_ok());
+        assert!(check_timestamp_skew(-max_skew, max_age, max_skew).is_ok());
 
         assert_eq!(
-            check_timestamp_skew(now - max_age - 1, now, max_age, max_skew),
+            check_timestamp_skew(max_age + 1, max_age, max_skew),
             Err("Timestamp is too old")
         );
         assert_eq!(
-            check_timestamp_skew(now + max_skew + 1, now, max_age, max_skew),
+            check_timestamp_skew(-(max_skew + 1), max_age, max_skew),
             Err("Timestamp is too far in the future")
         );
 
         let far_future = now + 157_680_000;
         assert_eq!(
-            check_timestamp_skew(far_future, now, max_age, max_skew),
+            check_timestamp_skew(now - far_future, max_age, max_skew),
             Err("Timestamp is too far in the future")
         );
     }
