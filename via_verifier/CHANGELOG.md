@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.2](https://github.com/vianetwork/via-core/compare/via_verifier-v1.1.1...via_verifier-v1.1.2) (2026-03-26)
+
+
+### Bug Fixes
+
+* **musig2:** replace .unwrap() with error propagation on scalar conversion ([e9b7791](https://github.com/vianetwork/via-core/commit/e9b7791b10bb7a903ede4eee41d4ee2e7af41894))
+* **musig2:** replace .unwrap() with error propagation on scalar conversion ([#341](https://github.com/vianetwork/via-core/issues/341)) ([04e8940](https://github.com/vianetwork/via-core/commit/04e89406baaa76140d513232a3be40bc829eb389))
+* **via_btc_watch:** via btc watch skip blocks after reorg ([#332](https://github.com/vianetwork/via-core/issues/332)) ([80ca2ba](https://github.com/vianetwork/via-core/commit/80ca2ba9594bacda8ec642c252cae36c1ac3c90a))
+* **via_musig2:** align examples with safe scalar handling ([d4f7c7e](https://github.com/vianetwork/via-core/commit/d4f7c7e99272724b02f954171890cf29b59066b5))
+* **via_musig2:** import anyhow context in example ([ff0e930](https://github.com/vianetwork/via-core/commit/ff0e93064f2a1660beba46bbe27641eec7fd9a98))
+* **via_verifier_coordinator:** prevent panic on malformed timestamp header input ([#336](https://github.com/vianetwork/via-core/issues/336)) ([3c51553](https://github.com/vianetwork/via-core/commit/3c51553da3c7785cf1a190831e81d130769a566e))
+* **via_verifier_coordinator:** reject far-future timestamps ([283bea0](https://github.com/vianetwork/via-core/commit/283bea0bdd37e0a1a8de3354e2d3cbc56da9474f))
+* **via_verifier_coordinator:** reject far-future timestamps ([#340](https://github.com/vianetwork/via-core/issues/340)) ([0445f96](https://github.com/vianetwork/via-core/commit/0445f96b9cc4e57357ea3a445a897acc0ab5da53))
+
 ## [1.1.1](https://github.com/vianetwork/via-core/compare/via_verifier-v1.1.0...via_verifier-v1.1.1) (2025-12-23)
 
 
