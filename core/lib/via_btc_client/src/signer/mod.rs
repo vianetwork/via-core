@@ -26,6 +26,11 @@ pub struct KeyManager {
 }
 
 impl KeyManager {
+    fn signing_secret_key(&self) -> BitcoinSignerResult<SecretKey> {
+        SecretKey::from_slice(self.sk.as_ref())
+            .map_err(|e| BitcoinError::SigningError(format!("Invalid cached secret key: {}", e)))
+    }
+
     /// Creates a new KeyManager instance from a WIF-encoded private key and network.
     ///
     /// # Arguments
@@ -110,22 +115,20 @@ impl BitcoinSigner for KeyManager {
     }
 
     fn sign_ecdsa(&self, msg: Message) -> BitcoinSignerResult<ECDSASignature> {
-        let sk = SecretKey::from_slice(self.sk.as_ref())
-            .map_err(|e| BitcoinError::SigningError(format!("Invalid cached secret key: {}", e)))?;
+        let sk = self.signing_secret_key()?;
         let signature = self.secp.sign_ecdsa(&msg, &sk);
         Ok(signature)
     }
 
     fn sign_schnorr(&self, msg: Message) -> BitcoinSignerResult<SchnorrSignature> {
-        let sk = SecretKey::from_slice(self.sk.as_ref())
-            .map_err(|e| BitcoinError::SigningError(format!("Invalid cached secret key: {}", e)))?;
+        let sk = self.signing_secret_key()?;
         let keypair = Keypair::from_secret_key(&self.secp, &sk);
         let signature = self.secp.sign_schnorr_no_aux_rand(&msg, &keypair);
         Ok(signature)
     }
 
     fn get_public_key(&self) -> PublicKey {
-        SecretKey::from_slice(self.sk.as_ref())
+        self.signing_secret_key()
             .map(|sk| sk.public_key(&self.secp))
             .expect("KeyManager secret key must be valid")
     }

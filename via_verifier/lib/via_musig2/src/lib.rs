@@ -134,7 +134,7 @@ impl Signer {
     }
 
     fn signing_secret_key(&self) -> Result<SecretKey, MusigError> {
-        SecretKey::from_byte_array(self.secret_key.as_ref())
+        SecretKey::from_slice(self.secret_key.as_ref())
             .map_err(|e| MusigError::Musig2Error(format!("Invalid signer secret key bytes: {}", e)))
     }
 
@@ -277,9 +277,8 @@ pub fn get_signer(
     verifiers_pub_keys_str: Vec<String>,
 ) -> anyhow::Result<Signer> {
     let private_key = PrivateKey::from_wif(private_key_wif)?;
-    let secret_key =
-        secp256k1_musig2::SecretKey::from_byte_array(&private_key.inner.secret_bytes())
-            .with_context(|| "Error to compute the coordinator sk")?;
+    let secret_key = secp256k1_musig2::SecretKey::from_slice(&private_key.inner.secret_bytes())
+        .with_context(|| "Error to compute the coordinator sk")?;
     let secp = secp256k1_musig2::Secp256k1::new();
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
@@ -305,9 +304,8 @@ pub fn get_signer_with_merkle_root(
     merkle_root: Option<TapNodeHash>,
 ) -> anyhow::Result<Signer> {
     let private_key = PrivateKey::from_wif(private_key_wif)?;
-    let secret_key =
-        secp256k1_musig2::SecretKey::from_byte_array(&private_key.inner.secret_bytes())
-            .with_context(|| "Error to compute the coordinator sk")?;
+    let secret_key = secp256k1_musig2::SecretKey::from_slice(&private_key.inner.secret_bytes())
+        .with_context(|| "Error to compute the coordinator sk")?;
     let secp = secp256k1_musig2::Secp256k1::new();
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
