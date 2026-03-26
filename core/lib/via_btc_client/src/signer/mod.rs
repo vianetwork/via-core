@@ -20,6 +20,7 @@ use zeroize::Zeroizing;
 pub struct KeyManager {
     secp: Secp256k1<All>,
     sk: Zeroizing<[u8; 32]>,
+    public_key: PublicKey,
     address: Address,
     internal_key: UntweakedPublicKey,
     script_pubkey: ScriptBuf,
@@ -49,7 +50,8 @@ impl KeyManager {
 
         let sk = private_key.inner;
 
-        let pk = bitcoin::PublicKey::new(sk.public_key(&secp));
+        let public_key = sk.public_key(&secp);
+        let pk = bitcoin::PublicKey::new(public_key);
         let wpkh = pk.wpubkey_hash().map_err(|_e| {
             BitcoinError::UncompressedPublicKeyError("key is compressed".to_string())
         })?;
@@ -68,6 +70,7 @@ impl KeyManager {
         Ok(Self {
             secp,
             sk: Zeroizing::new(sk.secret_bytes()),
+            public_key,
             address,
             internal_key,
             script_pubkey,
@@ -85,10 +88,12 @@ impl Default for KeyManager {
         let address = Address::p2wpkh(&compressed_pk, Network::Testnet);
         let internal_key = keypair.x_only_public_key().0;
         let script_pubkey = address.script_pubkey();
+        let public_key = sk.inner.public_key(&secp);
 
         Self {
             secp,
             sk: Zeroizing::new(sk.inner.secret_bytes()),
+            public_key,
             address,
             internal_key,
             script_pubkey,
@@ -128,9 +133,7 @@ impl BitcoinSigner for KeyManager {
     }
 
     fn get_public_key(&self) -> PublicKey {
-        self.signing_secret_key()
-            .map(|sk| sk.public_key(&self.secp))
-            .expect("KeyManager secret key must be valid")
+        self.public_key
     }
 }
 
