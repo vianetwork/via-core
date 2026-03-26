@@ -52,7 +52,7 @@ impl KeyManager {
         let public_key = sk.public_key(&secp);
         let pk = bitcoin::PublicKey::new(public_key);
         let wpkh = pk.wpubkey_hash().map_err(|_e| {
-            BitcoinError::UncompressedPublicKeyError("key is compressed".to_string())
+            BitcoinError::UncompressedPublicKeyError("public key is uncompressed".to_string())
         })?;
 
         let compressed_pk = CompressedPublicKey::from_private_key(&secp, &private_key)
@@ -84,7 +84,7 @@ impl Default for KeyManager {
         let keypair = Keypair::from_secret_key(&secp, &sk.inner);
         let compressed_pk = CompressedPublicKey::from_private_key(&secp, &sk)
             .expect("Failed to generate compressed public key");
-        let address = Address::p2wpkh(&compressed_pk, Network::Testnet);
+        let address = Address::p2wpkh(&compressed_pk, Network::Regtest);
         let internal_key = keypair.x_only_public_key().0;
         let script_pubkey = address.script_pubkey();
         let public_key = sk.inner.public_key(&secp);

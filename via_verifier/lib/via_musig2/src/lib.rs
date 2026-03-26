@@ -75,13 +75,15 @@ impl fmt::Debug for Signer {
 impl Signer {
     /// Create a new signer with the given secret key and index
     pub fn new(
-        secret_key: SecretKey,
+        secret_key: Zeroizing<[u8; 32]>,
         signer_index: usize,
         all_pubkeys: Vec<PublicKey>,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<Self, MusigError> {
         let secp = Secp256k1::new();
-        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+        let secret_key_ref = SecretKey::from_slice(secret_key.as_ref())
+            .map_err(|e| MusigError::Musig2Error(format!("Invalid signer secret key bytes: {}", e)))?;
+        let public_key = PublicKey::from_secret_key(&secp, &secret_key_ref);
 
         // Verify that signer_index is valid and matches the public key
         if signer_index >= all_pubkeys.len() {
@@ -121,7 +123,7 @@ impl Signer {
             .map_err(|e| MusigError::Musig2Error(format!("Failed to apply tweak: {}", e)))?;
 
         Ok(Self {
-            secret_key: Zeroizing::new(secret_key.secret_bytes()),
+            secret_key,
             public_key,
             signer_index,
             key_agg_ctx: musig_key_agg_cache,
@@ -295,7 +297,12 @@ pub fn get_signer(
         }
     }
 
-    let signer = Signer::new(secret_key, signer_index, all_pubkeys.clone(), None)?;
+    let signer = Signer::new(
+        Zeroizing::new(secret_key.secret_bytes()),
+        signer_index,
+        all_pubkeys.clone(),
+        None,
+    )?;
     Ok(signer)
 }
 
@@ -323,7 +330,12 @@ pub fn get_signer_with_merkle_root(
         }
     }
 
-    let signer = Signer::new(secret_key, signer_index, all_pubkeys.clone(), merkle_root)?;
+    let signer = Signer::new(
+        Zeroizing::new(secret_key.secret_bytes()),
+        signer_index,
+        all_pubkeys.clone(),
+        merkle_root,
+    )?;
     Ok(signer)
 }
 
@@ -361,8 +373,18 @@ mod tests {
 
         let pubkeys = vec![public_key_1, public_key_2];
 
-        let mut signer1 = Signer::new(secret_key_1, 0, pubkeys.clone(), None)?;
-        let mut signer2 = Signer::new(secret_key_2, 1, pubkeys, None)?;
+        let mut signer1 = Signer::new(
+            Zeroizing::new(secret_key_1.secret_bytes()),
+            0,
+            pubkeys.clone(),
+            None,
+        )?;
+        let mut signer2 = Signer::new(
+            Zeroizing::new(secret_key_2.secret_bytes()),
+            1,
+            pubkeys,
+            None,
+        )?;
 
         // Generate and exchange nonces
         let message = b"test message".to_vec();
