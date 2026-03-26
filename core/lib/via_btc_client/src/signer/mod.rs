@@ -16,7 +16,6 @@ use zeroize::Zeroizing;
 
 /// KeyManager handles the creation and management of Bitcoin keys and addresses.
 /// It provides functionality for signing transactions using both ECDSA and Schnorr signatures.
-#[derive(Clone)]
 pub struct KeyManager {
     secp: Secp256k1<All>,
     sk: Zeroizing<[u8; 32]>,
