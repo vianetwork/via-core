@@ -297,12 +297,7 @@ pub fn get_signer(
         }
     }
 
-    let signer = Signer::new(
-        Zeroizing::new(secret_key.secret_bytes()),
-        signer_index,
-        all_pubkeys.clone(),
-        None,
-    )?;
+    let signer = Signer::new(secret_key_bytes, signer_index, all_pubkeys, None)?;
     Ok(signer)
 }
 
@@ -330,12 +325,7 @@ pub fn get_signer_with_merkle_root(
         }
     }
 
-    let signer = Signer::new(
-        Zeroizing::new(secret_key.secret_bytes()),
-        signer_index,
-        all_pubkeys.clone(),
-        merkle_root,
-    )?;
+    let signer = Signer::new(secret_key_bytes, signer_index, all_pubkeys, merkle_root)?;
     Ok(signer)
 }
 
