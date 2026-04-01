@@ -18,10 +18,15 @@ between system and user logs.
 
 ### Initiation
 
-A new priority operation can be appended by calling the
-[requestL2Transaction](https://github.com/code-423n4/2023-10-zksync/blob/ef99273a8fdb19f5912ca38ba46d6bd02071363d/code/contracts/ethereum/contracts/zksync/facets/Mailbox.sol#L236)
-method on L1. This method will perform several checks for the transaction, making sure that it is processable and
-provides enough fee to compensate the operator for this transaction. Then, this transaction will be
+Historically, a new priority operation was appended by calling
+[`requestL2Transaction`](https://github.com/code-423n4/2023-10-zksync/blob/ef99273a8fdb19f5912ca38ba46d6bd02071363d/code/contracts/ethereum/contracts/zksync/facets/Mailbox.sol#L236)
+on Mailbox.
+
+Deprecation note: `requestL2Transaction` is deprecated. New integrations should use
+`Bridgehub.requestL2TransactionDirect`.
+
+This flow performs several checks for the transaction, making sure that it is processable and provides enough fee to
+compensate the operator. Then, this transaction is
 [appended](https://github.com/code-423n4/2023-10-zksync/blob/ef99273a8fdb19f5912ca38ba46d6bd02071363d/code/contracts/ethereum/contracts/zksync/facets/Mailbox.sol#L369C1-L369C1)
 to the priority queue.
 
