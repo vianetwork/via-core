@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::OnceLock};
 
 use anyhow::Context;
 use bitcoin::{
@@ -37,7 +37,7 @@ pub fn parse_l2_withdrawal_message(
     let func_selector_bytes = &l2_to_l1_message[0..4];
     if !_get_supported_withdraw_function_selectors()
         .iter()
-        .any(|selector| func_selector_bytes == selector)
+        .any(|selector| func_selector_bytes == selector.as_slice())
     {
         return Err(anyhow::format_err!("Invalid message function selector."));
     }
@@ -116,14 +116,19 @@ pub fn parse_l2_withdrawal_message(
 }
 
 /// Get all supported withdrawal function selectors.
-fn _get_supported_withdraw_function_selectors() -> Vec<Vec<u8>> {
-    WITHDRAW_FUNC_SIGS
-        .iter()
-        .map(|sig| {
-            let hash = keccak256(sig.as_bytes());
-            hash[0..4].to_vec()
+fn _get_supported_withdraw_function_selectors() -> &'static [[u8; 4]] {
+    static SUPPORTED_SELECTORS: OnceLock<Vec<[u8; 4]>> = OnceLock::new();
+    SUPPORTED_SELECTORS
+        .get_or_init(|| {
+            WITHDRAW_FUNC_SIGS
+                .iter()
+                .map(|sig| {
+                    let hash = keccak256(sig.as_bytes());
+                    [hash[0], hash[1], hash[2], hash[3]]
+                })
+                .collect()
         })
-        .collect()
+        .as_slice()
 }
 
 #[cfg(test)]
@@ -256,14 +261,14 @@ mod tests {
             removed: None,
         };
 
-        let mut l2_to_l1_message = hex::decode("6c0960f93141317a5031655035514765666932444d505466544c35534c6d7637446976664e610000000000000000000000000000000000000000000000000de0b6b3a7640000").unwrap();
+        let mut l2_to_l1_message = hex::decode("6c0960f93141317a5031655035514765666932444d505466544c35534c6d7637446976664e610000000000000000000000000000000000000000000000000000000005f5e100").unwrap();
         let supported_selectors = _get_supported_withdraw_function_selectors();
         l2_to_l1_message[0..4].copy_from_slice(&supported_selectors[1]);
 
         let expected_receiver = BitcoinAddress::from_str("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
             .unwrap()
             .assume_checked();
-        let expected_amount = Amount::from_sat(1000000000000000000);
+        let expected_amount = Amount::from_sat(100000000);
         let res = parse_l2_withdrawal_message(l2_to_l1_message, log, Network::Bitcoin).unwrap();
 
         assert_eq!(res.receiver, expected_receiver);
