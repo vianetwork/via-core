@@ -103,8 +103,11 @@ Input: 0xeb672419000000000000000000000000618263ce921f7dd5f4f40c29f6c524aaf97b9bb
 ```
 
 The deposit command has called the contract on address `0xa6B` (which is exactly the `CONTRACTS_DIAMOND_PROXY_ADDR` from
-`deployL1.log`), and it has called the method `0xeb672419` - which is the `requestL2Transaction` from
-[Mailbox.sol](https://github.com/matter-labs/era-contracts/blob/f06a58360a2b8e7129f64413998767ac169d1efd/ethereum/contracts/zksync/facets/Mailbox.sol#L220)
+`deployL1.log`), and it has called the method `0xeb672419` - which is the legacy `requestL2Transaction` from
+[Mailbox.sol](https://github.com/matter-labs/era-contracts/blob/f06a58360a2b8e7129f64413998767ac169d1efd/ethereum/contracts/zksync/facets/Mailbox.sol#L220).
+
+Deprecation note: `requestL2Transaction` is deprecated. New integrations should use
+`Bridgehub.requestL2TransactionDirect`.
 
 #### Quick note on our L1 contracts
 
