@@ -109,6 +109,9 @@ The deposit command has called the contract on address `0xa6B` (which is exactly
 Deprecation note: `requestL2Transaction` is deprecated. New integrations should use
 `Bridgehub.requestL2TransactionDirect`.
 
+Implementation note: some SDK/internal call paths expose this via a wrapper entrypoint
+(e.g. `bridgehubRequestL2Transaction` on Hyperchain ABI), which ultimately maps to the Bridgehub flow.
+
 #### Quick note on our L1 contracts
 
 We're using the DiamondProxy setup, that allows us to have a fixed immutable entry point (DiamondProxy) - that forwards
