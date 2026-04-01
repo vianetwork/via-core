@@ -6,4 +6,4 @@
 [submodule "via-core-ext"]
 	path = via-core-ext
 	url = https://github.com/vianetwork/via-core-ext.git
-	branch = main
+	branch = fix/via-in-memory-da-client
