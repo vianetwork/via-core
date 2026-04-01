@@ -6,7 +6,7 @@ use bitcoin::{
     Address as BitcoinAddress, Amount, Network,
 };
 use ethers::abi::{decode, ParamType};
-use via_da_client::types::WITHDRAW_FUNC_SIG;
+use via_da_client::types::WITHDRAW_FUNC_SIGS;
 use via_verifier_types::withdrawal::WithdrawalRequest;
 use zksync_basic_types::{web3::keccak256, U256};
 use zksync_types::{api::Log, Address};
@@ -35,7 +35,10 @@ pub fn parse_l2_withdrawal_message(
     }
 
     let func_selector_bytes = &l2_to_l1_message[0..4];
-    if func_selector_bytes != _get_withdraw_function_selector() {
+    if !_get_supported_withdraw_function_selectors()
+        .iter()
+        .any(|selector| func_selector_bytes == selector)
+    {
         return Err(anyhow::format_err!("Invalid message function selector."));
     }
 
@@ -112,10 +115,15 @@ pub fn parse_l2_withdrawal_message(
     })
 }
 
-/// Get the withdrawal function selector.
-fn _get_withdraw_function_selector() -> Vec<u8> {
-    let hash = keccak256(WITHDRAW_FUNC_SIG.as_bytes());
-    hash[0..4].to_vec()
+/// Get all supported withdrawal function selectors.
+fn _get_supported_withdraw_function_selectors() -> Vec<Vec<u8>> {
+    WITHDRAW_FUNC_SIGS
+        .iter()
+        .map(|sig| {
+            let hash = keccak256(sig.as_bytes());
+            hash[0..4].to_vec()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -206,6 +214,52 @@ mod tests {
         };
 
         let l2_to_l1_message = hex::decode("6c0960f93141317a5031655035514765666932444d505466544c35534c6d7637446976664e610000000000000000000000000000000000000000000000000de0b6b3a7640000").unwrap();
+        let expected_receiver = BitcoinAddress::from_str("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
+            .unwrap()
+            .assume_checked();
+        let expected_amount = Amount::from_sat(1000000000000000000);
+        let res = parse_l2_withdrawal_message(l2_to_l1_message, log, Network::Bitcoin).unwrap();
+
+        assert_eq!(res.receiver, expected_receiver);
+        assert_eq!(res.amount, expected_amount);
+    }
+
+    #[test]
+    fn test_parse_l2_withdrawal_message_accepts_nullifier_selector() {
+        let btc_bytes = b"1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_vec();
+        let amount = U256::from("0000000000000000000000000000000000000000000000000de0b6b3a7640000");
+        let encoded_data = encode(&[Token::Bytes(btc_bytes.clone()), Token::Uint(amount.clone())]);
+        let data = Bytes::from(encoded_data);
+
+        let log = Log {
+            block_timestamp: None,
+            l1_batch_number: Some(U64::one()),
+            address: H160::random(),
+            topics: vec![
+                H256::from_str(
+                    "0x2d6ef0fc97a54b2a96a5f3c96e3e69dca5b8d5ef4f68f01472c9e7c2b8d1f17b",
+                )
+                .unwrap(),
+                H256::from_str(
+                    "0x000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                )
+                .unwrap(),
+            ],
+            data,
+            block_hash: None,
+            block_number: Some(U64::one()),
+            transaction_hash: Some(H256::zero()),
+            transaction_index: None,
+            log_index: Some(U256::zero()),
+            transaction_log_index: Some(U256::zero()),
+            log_type: None,
+            removed: None,
+        };
+
+        let mut l2_to_l1_message = hex::decode("6c0960f93141317a5031655035514765666932444d505466544c35534c6d7637446976664e610000000000000000000000000000000000000000000000000de0b6b3a7640000").unwrap();
+        let supported_selectors = _get_supported_withdraw_function_selectors();
+        l2_to_l1_message[0..4].copy_from_slice(&supported_selectors[1]);
+
         let expected_receiver = BitcoinAddress::from_str("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
             .unwrap()
             .assume_checked();
