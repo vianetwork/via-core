@@ -4,8 +4,16 @@ use anyhow::Context;
 use byteorder::{BigEndian, ReadBytesExt};
 use zksync_types::{u256_to_bytes_be, u256_to_h256, Address, H160, H256, U256};
 
-/// The function selector used in L2 to compute the message.
-pub const WITHDRAW_FUNC_SIG: &str = "finalizeEthWithdrawal(uint256,uint256,uint16,bytes,bytes32[])";
+/// Legacy function selector used in L2 messages before Bridgehub/L1Nullifier migration.
+pub const WITHDRAW_FUNC_SIG_LEGACY: &str =
+    "finalizeEthWithdrawal(uint256,uint256,uint16,bytes,bytes32[])";
+
+/// New function selector expected after migrating to L1Nullifier finalize flow.
+pub const WITHDRAW_FUNC_SIG_NULLIFIER: &str =
+    "finalizeDeposit(uint256,uint256,uint16,bytes,bytes32[])";
+
+/// Supported L2 message function signatures during migration.
+pub const WITHDRAW_FUNC_SIGS: [&str; 2] = [WITHDRAW_FUNC_SIG_LEGACY, WITHDRAW_FUNC_SIG_NULLIFIER];
 
 /// The L2 BaseToken address.
 pub const L2_BASE_TOKEN_SYSTEM_CONTRACT_ADDR: &str = "000000000000000000000000000000000000800a";
