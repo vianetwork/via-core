@@ -406,18 +406,20 @@ impl<S: EthereumSigner> EthereumProvider<S> {
             .base_cost(gas_limit, L1_TO_L2_GAS_PER_PUBDATA, Some(gas_price))
             .await
             .map_err(|e| ClientError::NetworkError(e.to_string()))?;
-        let value = base_cost + operator_tip + l2_value;
+        let mint_value = base_cost + operator_tip + l2_value;
         let tx_data = self.client().encode_tx_data(
-            "requestL2Transaction",
-            (
+            "bridgehubRequestL2Transaction",
+            ((
+                self.client().sender_account(),
                 contract_address,
+                mint_value,
                 l2_value,
                 calldata,
                 gas_limit,
                 U256::from(L1_TO_L2_GAS_PER_PUBDATA),
                 factory_deps,
                 refund_recipient,
-            )
+            ),)
                 .into_tokens(),
         );
 
@@ -427,7 +429,6 @@ impl<S: EthereumSigner> EthereumProvider<S> {
                 tx_data,
                 Options::with(|f| {
                     f.gas = Some(U256::from(300000));
-                    f.value = Some(value);
                     f.gas_price = Some(gas_price)
                 }),
             )
@@ -535,7 +536,7 @@ impl<S: EthereumSigner> EthereumProvider<S> {
             )
             .await?
         } else {
-            // TODO(EVM-571): This should be moved to the shared bridge, and the `requestL2Transaction` method
+            // TODO(EVM-571): This should be moved to the shared bridge end-to-end for deposit flows
             let bridge_address =
                 bridge_address.unwrap_or(self.default_bridges.l1_erc20_default_bridge.unwrap());
             let contract_function = self
