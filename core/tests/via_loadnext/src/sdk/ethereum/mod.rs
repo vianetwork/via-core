@@ -407,21 +407,20 @@ impl<S: EthereumSigner> EthereumProvider<S> {
             .await
             .map_err(|e| ClientError::NetworkError(e.to_string()))?;
         let mint_value = base_cost + operator_tip + l2_value;
-        let tx_data = self.client().encode_tx_data(
-            "bridgehubRequestL2Transaction",
-            ((
-                self.client().sender_account(),
-                contract_address,
-                mint_value,
-                l2_value,
-                calldata,
-                gas_limit,
-                U256::from(L1_TO_L2_GAS_PER_PUBDATA),
-                factory_deps,
-                refund_recipient,
-            ),)
-                .into_tokens(),
-        );
+        let request_token = ethabi::Token::Tuple(vec![
+            ethabi::Token::Address(self.client().sender_account()),
+            ethabi::Token::Address(contract_address),
+            ethabi::Token::Uint(mint_value),
+            ethabi::Token::Uint(l2_value),
+            ethabi::Token::Bytes(calldata),
+            ethabi::Token::Uint(gas_limit),
+            ethabi::Token::Uint(U256::from(L1_TO_L2_GAS_PER_PUBDATA)),
+            ethabi::Token::Array(factory_deps.into_iter().map(ethabi::Token::Bytes).collect()),
+            ethabi::Token::Address(refund_recipient),
+        ]);
+        let tx_data = self
+            .client()
+            .encode_tx_data("bridgehubRequestL2Transaction", vec![request_token]);
 
         let tx = self
             .client()
