@@ -101,7 +101,7 @@ applying address aliasing leaves room for future EVM compatibility.
 
 The L1 -> L2 communication is also used for bridging ether. The user should include a `msg.value` when initiating a
 transaction request on the L1 contract. Before executing a transaction on L2, the specified address will be credited
-with the funds. To withdraw funds user should call `withdraw` function on the `L2EtherToken` system contracts.
+with the funds. To withdraw funds, the user should call the `withdraw` function on the `L2EtherToken` system contract.
 
 Deprecation note: `finalizeEthWithdrawal` on `MailboxFacet` is deprecated. The replacement flow is
 `L1Nullifier.finalizeDeposit`.

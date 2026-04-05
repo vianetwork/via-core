@@ -136,6 +136,7 @@ mod tests {
     use std::str::FromStr;
 
     use ethers::abi::{encode, Token};
+    use via_da_client::types::WITHDRAW_FUNC_SIG_NULLIFIER;
     use zksync_types::{web3::Bytes, H160, H256, U64};
 
     use super::*;
@@ -262,8 +263,14 @@ mod tests {
         };
 
         let mut l2_to_l1_message = hex::decode("6c0960f93141317a5031655035514765666932444d505466544c35534c6d7637446976664e610000000000000000000000000000000000000000000000000000000005f5e100").unwrap();
-        let supported_selectors = _get_supported_withdraw_function_selectors();
-        l2_to_l1_message[0..4].copy_from_slice(&supported_selectors[1]);
+        let nullifier_hash = keccak256(WITHDRAW_FUNC_SIG_NULLIFIER.as_bytes());
+        let nullifier_selector = [
+            nullifier_hash[0],
+            nullifier_hash[1],
+            nullifier_hash[2],
+            nullifier_hash[3],
+        ];
+        l2_to_l1_message[0..4].copy_from_slice(&nullifier_selector);
 
         let expected_receiver = BitcoinAddress::from_str("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
             .unwrap()
