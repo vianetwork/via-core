@@ -199,14 +199,16 @@ impl ViaMainNodeReorgDetector {
         // Fetch chain blocks in batch
         let chain_blocks = self.fetch_blocks(start_height, block_height).await?;
 
-        let mut reorg_start_block_height_opt = None;
+        let chain_hashes = chain_blocks
+            .iter()
+            .map(|block| block.block_hash().to_string())
+            .collect::<Vec<_>>();
 
-        for ((db_number, db_hash), chain_block) in db_blocks.iter().zip(chain_blocks.iter()) {
-            if chain_block.block_hash().to_string() != *db_hash {
-                tracing::warn!("Reorg detected at block {}", db_number);
-                reorg_start_block_height_opt = Some(*db_number);
-                break;
-            }
+        let reorg_start_block_height_opt =
+            find_reorg_start_block_in_window(start_height, &db_blocks, &chain_hashes);
+
+        if let Some(reorg_start_block_height) = reorg_start_block_height_opt {
+            tracing::warn!("Reorg detected at block {}", reorg_start_block_height);
         }
 
         if reorg_start_block_height_opt.is_none() {
@@ -312,5 +314,57 @@ impl ViaMainNodeReorgDetector {
         }
 
         Ok(false)
+    }
+}
+
+fn find_reorg_start_block_in_window(
+    start_height: i64,
+    db_blocks: &[(i64, String)],
+    chain_hashes: &[String],
+) -> Option<i64> {
+    for (db_number, db_hash) in db_blocks {
+        let Ok(chain_index) = usize::try_from(*db_number - start_height) else {
+            continue;
+        };
+        let Some(chain_hash) = chain_hashes.get(chain_index) else {
+            continue;
+        };
+
+        if chain_hash != db_hash {
+            return Some(*db_number);
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_reorg_start_block_in_window;
+
+    #[test]
+    fn sparse_l1_block_window_compares_hashes_by_height() {
+        let start_height = 100_792;
+        let db_blocks = vec![(100_891, "hash-100891".to_string())];
+        let chain_hashes = (start_height..=100_891)
+            .map(|height| format!("hash-{height}"))
+            .collect::<Vec<_>>();
+
+        let reorg_start = find_reorg_start_block_in_window(start_height, &db_blocks, &chain_hashes);
+
+        assert_eq!(reorg_start, None);
+    }
+
+    #[test]
+    fn matching_height_hash_mismatch_detects_reorg_at_db_height() {
+        let start_height = 100_792;
+        let db_blocks = vec![(100_891, "stale-hash".to_string())];
+        let chain_hashes = (start_height..=100_891)
+            .map(|height| format!("hash-{height}"))
+            .collect::<Vec<_>>();
+
+        let reorg_start = find_reorg_start_block_in_window(start_height, &db_blocks, &chain_hashes);
+
+        assert_eq!(reorg_start, Some(100_891));
     }
 }
