@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/vianetwork/via-core/security/advisories/new
+    about: Use private disclosure for security-sensitive issues.
+  - name: Feature or documentation proposal
+    url: https://github.com/vianetwork/via-core/pulls
+    about: Open a focused pull request for non-bug enhancements or documentation improvements.
+  - name: General question or support
+    url: https://github.com/vianetwork/via-core
+    about: Use the relevant project support channel; GitHub issues are reserved for actionable bug reports with evidence.

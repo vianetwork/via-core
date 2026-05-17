@@ -105,6 +105,34 @@ This repo does not own live or desired-state deployment. Use sibling repos for K
   proof. Keep `.gitnexus/`, `.claude/`, `.rooignore`, and similar agent artifacts
   local/excluded unless an ignore-policy PR is explicitly intended.
 
+## Automated review
+
+`.coderabbit.yaml` configures advisory CodeRabbit reviews. Treat CodeRabbit
+comments as review input, not authority.
+
+CodeRabbit is configured to use this `AGENTS.md`, the PR template, issue forms,
+and the issue-template validator as review guidance. It also has path-specific
+instructions for BTC, L1/reorg, DA, migrations, and process files.
+
+- Verify CodeRabbit suggestions against source, tests, sibling main-node/verifier
+  paths, deployment boundaries, and live evidence before applying them.
+- Recurring incorrect or noisy feedback should be fixed in `.coderabbit.yaml` or
+  this document rather than repeatedly overridden in PRs.
+- CodeRabbit is advisory; objective enforcement belongs in GitHub Actions and
+  repository validators.
+
+## Review Expectations
+
+When making changes, authors and reviewers should consider both correctness **and** performance characteristics.
+
+This is especially important for Via-specific code (any path containing `via_`). The level of detail expected scales with risk:
+
+- **High-risk areas** (reorg detection, L1 sync, BTC integration, DA, and hot database paths) require explicit reasoning about time complexity, allocations, and cache behavior when algorithms or data structures are changed or introduced.
+- For other Via-specific code, a lighter discussion of performance impact is expected when relevant.
+- For upstream-derived code that has not been significantly modified, performance considerations can remain light unless the change affects critical paths.
+
+See the PR template for the expected format of the “Performance / Complexity Impact” section.
+
 ## Validation
 
 Choose checks that match the files changed and report exactly what ran.
@@ -123,6 +151,18 @@ then broader checks if the change is shared or safety-critical. If a command
 cannot run locally, state why and list the source inspection or narrower check
 used instead.
 
+## GitHub issues
+
+Use the closest `.github/ISSUE_TEMPLATE/` form when creating issues. For
+CLI/API-created issues, manually include the selected form's required fields;
+GitHub only applies issue forms automatically in the web UI.
+
+For runtime, protocol, database, deployment, L1/BTC/reorg, verifier,
+external-node, or operator-evidence issues, do not create free-form issues.
+Include raw values, value provenance, facts versus hypotheses, the suspected
+invariant, ordering/identity assumptions, a regression-test expectation, and
+live-read/write boundaries.
+
 ## PR descriptions
 
 Use `.github/pull_request_template.md` for PR bodies.
@@ -136,7 +176,16 @@ Use impersonal, operator-facing wording. Avoid first-person singular or plural
 phrasing. Name the component, crate, runtime invariant, config key, deployment
 boundary, or operator action instead.
 
-For runtime/safety PRs, the `Why` section should describe the observed failure
-mode and the invariant the code should enforce. The `What did not change` section
-should prevent unsafe assumptions, especially around live rollout, database
-mutation, secrets, deployment desired state, and follow-up infra work.
+For runtime/safety PRs, the `Why` section should be a real reviewer/operator-facing
+explanation, not a bullet-only summary. It should describe the observed failure
+mode or process gap, why the existing source/process state was unsafe,
+misleading, incomplete, or hard to review, what future maintainer, release, or
+incident path could be harmed, and the invariant the repo should enforce.
+
+For process/tooling PRs, explain the reviewer or maintainer failure mode the
+process change prevents and the boundary between advisory guidance and enforced
+checks.
+
+The `What did not change` section should prevent unsafe assumptions, especially
+around live rollout, database mutation, secrets, deployment desired state, and
+follow-up infra work.

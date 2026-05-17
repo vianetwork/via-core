@@ -4,9 +4,12 @@
 Explain the runtime, protocol, developer-experience, or documentation problem in
 human terms.
 
-For protocol/runtime/safety changes, write a short narrative rather than a terse
-summary. The reader may be a future reviewer or operator trying to understand why
-this behavior exists during an incident, release, or migration.
+For protocol/runtime/safety changes, write a real reviewer/operator-facing
+narrative rather than a terse summary or bullet-only changelog. The reader may be
+a future reviewer or operator trying to understand why this behavior exists
+during an incident, release, or migration. Include enough context for that reader
+to reconstruct the reasoning without reading the chat, agent logs, or every
+linked issue.
 
 Cover the relevant parts of the story:
 - What was observed in source behavior, tests, logs, public APIs, live systems,
@@ -14,10 +17,11 @@ Cover the relevant parts of the story:
 - Why was the existing behavior unsafe, misleading, incomplete, hard to review,
   or insufficient for operations?
 - What future maintainer, release, migration, external-node bootstrap, proof
-  flow, verifier path, BTC sender path, or incident-response path could be harmed
-  by leaving it as-is?
+  flow, verifier path, BTC sender path, reviewer, or incident-response path could
+  be harmed by leaving it as-is?
 - Which protocol/runtime invariant, config contract, ordering guarantee, data
-  shape, or deployment boundary should this repo enforce now?
+  shape, deployment boundary, or review/process boundary should this repo enforce
+  now?
 
 Distinguish source changes from live proof. Code, docs, tests, configs, and
 Docker files in this repo describe behavior or artifacts; they do not by
@@ -45,6 +49,36 @@ Examples:
 - The external-node guide now documents the bootstrap dependency that must be
   satisfied before a restart durability check.
 -->
+
+## Performance / Complexity Impact
+
+This section is **required for Via-specific code** (`via_*` paths) in the following areas:
+
+- Reorg detection and L1 sync
+- BTC sender, watch, or client
+- DA / Celestia
+- Hot database paths (especially `via_*_dal`)
+
+For all other changes, this section is optional but encouraged.
+
+Please describe the performance characteristics of the change. Cover the relevant points:
+
+- Was an existing function or algorithm **replaced**, or were **new** functions or data structures introduced?
+- Time complexity of the main operation(s) before vs after
+- Allocation behavior
+- Any relevant cache or memory access implications
+
+A small table is often the clearest way to present this, especially when replacing logic. It is not mandatory, but it is encouraged when it improves clarity.
+
+**Example:**
+
+| Operation                        | Before     | After      | Notes |
+|----------------------------------|------------|------------|-------|
+| Lookup by height                 | O(n)       | O(log n)   | Binary search on sorted Vec |
+| Full window comparison           | O(n)       | O(n)       | Two-pointer merge |
+| Building the structure           | O(n)       | O(n log n) | One-time sort on construction |
+
+If the change has no meaningful performance impact, simply state that.
 
 ## Boundaries and non-goals
 
@@ -119,6 +153,11 @@ git diff --check
 zkstack dev fmt
 zkstack dev lint
 cargo test -p <crate-or-package>
+
+# Secret scanning:
+# - CI uses TruffleHog if .github/workflows/secrets_scanner.yaml.disabled is
+#   re-enabled as an active workflow.
+# - For local checks, run the repo-approved scanner or gitleaks if available.
 gitleaks protect --staged --redact --no-banner
 gitleaks git --log-opts="main..HEAD" --redact --no-banner
 ```

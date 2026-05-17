@@ -1,0 +1,88 @@
+name: Bug report
+description: Report an ordinary user-facing bug or unexpected behavior
+title: "bug: <component>: <summary>"
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for ordinary user-facing bugs.
+
+        For runtime correctness, protocol, L1/BTC/reorg, verifier, external-node,
+        database, deployment, or operator evidence issues, use the stricter
+        evidence templates instead.
+
+        Do not include secrets, private keys, wallet cookies, tokens, database
+        URLs, RPC credentials, or unredacted connection strings.
+
+  - type: input
+    id: component
+    attributes:
+      label: Component
+      description: Name the affected component, crate, service, command, or document.
+      placeholder: "Example: external-node, verifier, btc_sender, zkstack_cli, docs"
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: Current behavior
+      description: Describe what actually happened.
+      placeholder: "Describe the observed behavior."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: Describe what should have happened.
+      placeholder: "Describe the expected behavior."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide exact steps or commands when possible.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      description: Paste logs, command output, or screenshots if useful. Redact secrets.
+      render: text
+      placeholder: "Paste relevant logs or output here."
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include enough version/config context to reproduce or triage.
+      value: |
+        - Commit / branch / version:
+        - OS / host:
+        - Network:
+        - Node type:
+        - Relevant config:
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      placeholder: "Anything else useful for triage?"
+    validations:
+      required: false

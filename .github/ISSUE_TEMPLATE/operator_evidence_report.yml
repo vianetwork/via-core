@@ -1,0 +1,290 @@
+name: Operator evidence report
+description: Use for runtime, protocol, database, deployment, or operator-observed correctness issues
+title: "bug: <component>: <observed failure>"
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for correctness, runtime, protocol, database,
+        deployment, and operator evidence issues.
+
+        Required:
+        - raw observed values;
+        - where each value came from;
+        - what is proven versus inferred;
+        - suspected invariant or contract violation;
+        - ordering / identity audit where relevant;
+        - regression test that should fail before the fix and pass after it.
+
+        If something is unknown, write:
+        "Unknown because: <what was tried> / <why unavailable> / <what would obtain it>".
+
+        Do not include secrets, private keys, wallet cookies, tokens, database
+        URLs, RPC credentials, or unredacted connection strings.
+
+  - type: dropdown
+    id: reporter_context
+    attributes:
+      label: Reporter context
+      description: Select the closest context for how this issue was found.
+      multiple: false
+      options:
+        - Reproduced locally
+        - Operator / live environment observation
+        - Code review or source audit
+        - Debugging or test run
+        - CI failure
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected_area
+    attributes:
+      label: Affected area
+      multiple: true
+      options:
+        - Main node / runtime
+        - External node
+        - Verifier
+        - Prover
+        - BTC sender
+        - BTC watch
+        - BTC client
+        - DA / Celestia
+        - Database / migrations
+        - zkstack_cli
+        - Docker / bootstrap
+        - Kubernetes / Helm / deployment
+        - Docs / operator guide
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: commit_or_version
+    attributes:
+      label: Commit / branch / image / deployed version
+      placeholder: "main@<sha>, PR #123, image tag, chart version, or deployed commit"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the issue in human terms. Separate source behavior from live deployment proof.
+      placeholder: |
+        Example:
+        A runtime path can treat sparse local database state as canonical evidence
+        and then take recovery action from a misleading comparison.
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed_behavior
+    attributes:
+      label: Observed behavior
+      description: Describe what was actually seen. Include the first wrong thing, not only the final symptom.
+      placeholder: "Describe the observed failure and the first point where behavior diverged from expectations."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: Describe the expected behavior and safety property.
+      placeholder: "Describe the behavior or invariant the component should preserve."
+    validations:
+      required: true
+
+  - type: textarea
+    id: raw_evidence
+    attributes:
+      label: Raw evidence
+      description: Paste exact logs, SQL output, RPC responses, block heights, hashes, txids, bytes, commands, stack traces, or CI output.
+      render: text
+      placeholder: |
+        Source / command:
+          ...
+
+        Output:
+          ...
+
+        Raw values:
+          ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence_matrix
+    attributes:
+      label: Evidence matrix
+      description: Fill this for every important height/hash/id/offset/tx/batch/config value involved.
+      value: |
+        | Identity | Expected value | Observed value | Source | Command/log/query | Proven or inferred? |
+        | --- | --- | --- | --- | --- | --- |
+        |  |  |  |  |  |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction / observation path
+      description: Exact steps, commands, DB state, config, or why reproduction is currently unavailable.
+      value: |
+        Reproduction status:
+        - [ ] Reproduced locally
+        - [ ] Reproduced in CI
+        - [ ] Observed in live/staging environment
+        - [ ] Inferred from source + logs
+        - [ ] Not yet reproduced
+
+        Steps / commands:
+        1.
+        2.
+        3.
+
+        If not reproduced, explain what evidence exists instead:
+    validations:
+      required: true
+
+  - type: textarea
+    id: source_references
+    attributes:
+      label: Source references
+      description: List exact files/functions/lines reviewed. Include sibling implementations where relevant.
+      value: |
+        | File | Function / area | Why relevant |
+        | --- | --- | --- |
+        |  |  |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariant
+    attributes:
+      label: Invariant / contract that may be violated
+      description: State the invariant in one sentence, then explain how the evidence relates to it.
+      placeholder: |
+        Invariant:
+        <The property that must always hold.>
+
+        Why this may be violated:
+        <How the evidence relates to the invariant.>
+    validations:
+      required: true
+
+  - type: textarea
+    id: ordering_identity_audit
+    attributes:
+      label: Ordering / identity audit
+      description: Required for async fetches, batch RPC, DB row ordering, zip, Vec index, heights, hashes, txids, offsets, nonces, timestamps, or batch numbers.
+      value: |
+        | Question | Answer |
+        | --- | --- |
+        | Does this involve async fetches, batch RPC calls, DB row ordering, `zip`, or Vec/index position? |  |
+        | What identity must be preserved? |  |
+        | Where is ordering guaranteed, if anywhere? |  |
+        | Could completion/order differ from requested order? |  |
+        | Is identity carried explicitly in the type, e.g. `(height, value)`? |  |
+        | What assumption would make a proposed fix still wrong? |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: hypotheses
+    attributes:
+      label: Hypotheses and possible fixes
+      description: List possible causes/fixes as hypotheses, not as proof. Include risks.
+      value: |
+        | Hypothesis / possible fix | Evidence for | Evidence against | Risk / missing check |
+        | --- | --- | --- | --- |
+        |  |  |  |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: regression_test
+    attributes:
+      label: Regression test that should catch this
+      description: Describe the failing-before/passing-after test expected for the fix.
+      value: |
+        Test name / location:
+        Old code should fail because:
+        Fixed code should pass because:
+        Existing tests missed this because:
+
+        The test should include, if relevant:
+        - [ ] sparse / missing data
+        - [ ] out-of-order async or batch completion
+        - [ ] DB read/write semantics
+        - [ ] sibling implementation path
+        - [ ] live config vs source config distinction
+    validations:
+      required: true
+
+  - type: textarea
+    id: live_infra
+    attributes:
+      label: Live infrastructure and deployment impact
+      description: State whether live systems were touched. Be explicit about reads versus writes.
+      value: |
+        Live interaction:
+        - [ ] No live infrastructure actions were run
+        - [ ] Read-only live checks were run
+        - [ ] Live changes were run
+
+        If read-only checks were run:
+        - Environment/context:
+        - Exact command/query/API:
+        - Output summary:
+
+        If live changes were run:
+        - Environment/context:
+        - Resource/service/database:
+        - Exact operation:
+        - Verification:
+        - Rollback/follow-up:
+
+        Expected post-fix deployment impact:
+    validations:
+      required: true
+
+  - type: textarea
+    id: unknowns
+    attributes:
+      label: Unknowns / missing evidence
+      description: List what is still unknown and how to obtain it.
+      value: |
+        | Unknown | Why unknown | How to obtain |
+        | --- | --- | --- |
+        |  |  |  |
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: evidence_checklist
+    attributes:
+      label: Evidence checklist
+      options:
+        - label: Exact raw values are included, not only summaries.
+          required: true
+        - label: Each important value says where it came from.
+          required: true
+        - label: Proven facts are separated from hypotheses.
+          required: true
+        - label: A suspected invariant or contract is stated.
+          required: true
+        - label: Ordering / identity assumptions were audited or marked irrelevant with explanation.
+          required: true
+        - label: A regression test is proposed.
+          required: true
+        - label: Unknown fields explain why they are unknown.
+          required: true
+        - label: No secrets, private keys, wallet cookies, tokens, database URLs, RPC credentials, or unredacted connection strings are included.
+          required: true

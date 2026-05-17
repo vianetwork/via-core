@@ -1,0 +1,297 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+
+issue_enrichment:
+  auto_enrich:
+    enabled: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+
+  high_level_summary: false
+  high_level_summary_placeholder: "@coderabbitai summary"
+  high_level_summary_in_walkthrough: true
+  auto_title_placeholder: "@coderabbitai"
+
+  review_status: false
+  commit_status: false
+  fail_commit_status: false
+
+  collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  review_details: true
+
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: false
+  suggested_reviewers: true
+
+  in_progress_fortune: false
+  poem: false
+  abort_on_close: true
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+    title:
+      mode: warning
+    description:
+      mode: warning
+    issue_assessment:
+      mode: warning
+
+  path_filters:
+    - "!prover/data/**"
+
+  path_instructions:
+    - path: "**/*.rs"
+      instructions: |
+        Focus on correctness, security, error handling, race conditions, async ordering,
+        DB semantics, height/hash/txid identity, and maintainability.
+        Do not request docstrings or unit tests unless tied to a concrete failure mode or invariant.
+        When changing a Via-specific path, consider the corresponding main-node or verifier sibling.
+
+    - path: "core/lib/via_btc_client/**"
+      instructions: |
+        Byte-order / txid representation is critical; Bitcoin uses little-endian 32-byte txids in many contexts.
+        Distinguish mempool, canonical chain, in-cluster node RPC, DB state, and public explorer evidence.
+        Do not infer live wallet, mempool, deployment, or node state from source changes alone.
+
+    - path: "core/node/via_btc_sender/**"
+      instructions: |
+        Review inscription lifecycle, DB-backed inflight state, rate limiting, mempool policy handling,
+        and coordination with via_btc_watch. Check sibling logic in via_verifier/node/via_btc_sender when relevant.
+        Preserve explicit height/hash/txid identity; audit async completion order versus requested order.
+
+    - path: "core/node/via_btc_watch/**"
+      instructions: |
+        Focus on L1-to-L2 message processing, governance upgrades, withdrawals, and system wallet handling.
+        Cross-check against via_verifier/node/via_btc_watch when touching shared or duplicated behavior.
+
+    - path: "via_verifier/node/via_btc_sender/**"
+      instructions: |
+        Verifier-side BTC sender. Apply the same byte-order, inscription, inflight-state, and identity rules
+        as the main-node side. Check for unintended divergence from core/node/via_btc_sender.
+
+    - path: "via_verifier/node/via_btc_watch/**"
+      instructions: |
+        Verifier-side BTC watch. Cross-check against the main-node implementation when behavior overlaps.
+
+    - path: "core/lib/dal/src/via_btc_sender_dal.rs"
+      instructions: |
+        BTC sender DAL. Review DB state transitions for pending/inflight/confirmed inscriptions,
+        history rows, ordering assumptions, and coordination with watch/sender loops.
+
+    - path: "via_verifier/lib/verifier_dal/src/via_btc_sender_dal.rs"
+      instructions: |
+        Verifier-side BTC sender DAL. Keep identity, ordering, and state-transition semantics aligned
+        with the main-node side unless the PR explicitly justifies divergence.
+
+    - path: "core/lib/config/src/configs/via_btc_*.rs"
+      instructions: |
+        BTC-related config. Review defaults, env mapping, operational safety, and consistency across
+        sender/watch/client and main-node/verifier usage.
+
+    - path: "core/lib/env_config/src/via_btc_*.rs"
+      instructions: |
+        BTC environment/config loading. Review for naming consistency, safe defaults, and parity with config structs.
+
+    - path: "core/node/node_framework/src/implementations/layers/via_btc_sender/**"
+      instructions: |
+        Node framework wiring for BTC sender. Changes affect startup, dependency injection, and runtime task composition.
+
+    - path: "core/node/node_framework/src/implementations/layers/via_btc_watch.rs"
+      instructions: |
+        Node framework wiring for BTC watch. Check that resources and task wiring match the intended runtime behavior.
+
+    - path: "core/node/node_framework/src/implementations/layers/via_btc_client.rs"
+      instructions: |
+        Node framework wiring for BTC client. Review RPC/client resource construction and config boundaries.
+
+    - path: "core/node/node_framework/src/implementations/resources/via_btc_client.rs"
+      instructions: |
+        Resource layer for BTC client. Review ownership, sharing, and runtime dependency semantics.
+
+    - path: "core/node/reorg_detector/**"
+      instructions: |
+        Upstream/base reorg detector. Changes here can affect Via main-node and verifier reorg paths.
+        Review for explicit height/hash comparison; never rely on Vec position, zip order, or async completion order
+        unless the ordering contract is proven and tested. Consider impact on sparse via_l1_blocks rows.
+
+    - path: "core/node/via_main_node_reorg_detector/**"
+      instructions: |
+        Main-node reorg detector. Review together with via_verifier/node/via_reorg_detector when behavior overlaps.
+        Enforce explicit height/hash identity. Audit sparse rows, async fetch ordering, and Vec/zip usage.
+
+    - path: "via_verifier/node/via_reorg_detector/**"
+      instructions: |
+        Verifier reorg detector. Treat as sibling of the main-node version; check both when either changes.
+        Preserve explicit height/hash identity and DB ordering assumptions.
+
+    - path: "core/node/node_framework/src/implementations/layers/*reorg_detector*.rs"
+      instructions: |
+        Node framework reorg detector layers for base, Via main-node, and verifier wiring.
+        Changes affect detector startup and dependency injection.
+
+    - path: "core/lib/dal/src/via_l1_block_dal.rs"
+      instructions: |
+        via_l1_blocks DAL. Height/hash identity, sparse rows, query ordering, and index behavior are first-class concerns.
+
+    - path: "via_verifier/lib/verifier_dal/src/via_l1_block_dal.rs"
+      instructions: |
+        Verifier-side via_l1_blocks DAL. Keep identity invariants aligned with the main DAL unless divergence is intentional.
+
+    - path: "core/lib/via_da_clients/**"
+      instructions: |
+        DA client implementations. Focus on blob/batch identity, inclusion proofs, availability, fallback behavior,
+        and source-vs-live boundaries.
+
+    - path: "core/lib/via_da_dispatcher/**"
+      instructions: |
+        DA dispatcher library. Review blob/batch identity, inclusion state, retry/error behavior, and dispatcher invariants.
+
+    - path: "core/node/via_da_dispatcher/**"
+      instructions: |
+        Node-level DA dispatcher. Review task lifecycle, metrics, retry/error behavior, and interaction with sequencer state.
+
+    - path: "via_verifier/lib/via_da_client/**"
+      instructions: |
+        Verifier-side DA client. Check for unintended divergence from main-node DA client paths.
+
+    - path: "**/migrations/**/*.sql"
+      instructions: |
+        Review semantic safety, forward/backward compatibility, index impact on live nodes, and rollback/down behavior,
+        especially for via_l1_blocks, BTC sender state, and inscription tables. Avoid generic SQL style-only nitpicks.
+
+    - path: "**/*.proto"
+      instructions: |
+        Protocol buffer schemas. Focus on field addition/removal compatibility, reserved fields,
+        wire compatibility, and serialization impact across main-node, verifier, external-node, and tooling consumers.
+
+    - path: ".github/ISSUE_TEMPLATE/**"
+      instructions: |
+        These are strict evidence contracts per AGENTS.md. Preserve raw values, provenance, facts-vs-hypotheses,
+        invariants, ordering audits, regression-test expectations, and live read/write boundaries.
+        Do not suggest adding "AI", "LLM", "agent", "Hermes", "Grok", or similar language into public-facing templates.
+
+    - path: ".github/pull_request_template.md"
+      instructions: |
+        Canonical PR description contract. Keep aligned with AGENTS.md on source-vs-deployment boundaries,
+        sibling implementation review, evidence quality, and operator-facing wording.
+
+    - path: ".github/scripts/validate_issue_templates.py"
+      instructions: |
+        Production validator for issue templates. Do not break the COMPONENT_LABELS registry,
+        path-claim validation, or required evidence concept checks.
+
+    - path: ".github/workflows/issue-template-lint.yml"
+      instructions: |
+        CI guard for issue templates. Keep it in sync with the validator script and AGENTS.md requirements.
+
+    - path: "AGENTS.md"
+      instructions: |
+        Source of truth for review posture. CodeRabbit feedback should be consistent with via_ modules,
+        byte-reversed txids, source-vs-deployment distinction, sibling checks, and avoiding unwrap/expect in runtime paths.
+
+    - path: ".coderabbit.yaml"
+      instructions: |
+        Validate against the official schema after edits. Keep this file self-contained; do not enable inheritance unless
+        org-level configuration is intentionally adopted.
+
+    - path: ".github/workflows/*.disabled*"
+      instructions: |
+        Disabled workflows or reference files. Only flag security, correctness, or misleading documentation issues
+        relevant to potential re-enablement. Do not treat disabled workflows as active CI.
+
+    - path: "docs/**"
+      instructions: |
+        Focus on technical accuracy, stale commands, unsafe operator guidance, and source-vs-live or deployment-boundary claims.
+        Avoid prose churn.
+
+    - path: "prover/docs/**"
+      instructions: |
+        Prover documentation. Prioritize correctness of commands, key management, and operator safety over style.
+
+    # ======================================================
+    # Additional Via-specific Performance & Safety Guidance
+    # ======================================================
+    # High-risk Via-specific areas (detailed guidance)
+    - path: "**/via_*reorg_detector*/**"
+      instructions: |
+        This is high-risk Via-specific code. Apply strong scrutiny across these review lenses:
+        - Identity and ordering assumptions (especially around heights, hashes, and async results)
+        - Main-node vs verifier sibling consistency
+        - Performance impact (time complexity, allocations, and cache behavior) when replacing algorithms or introducing new functions/data structures
+        - Clear distinction between DB state, canonical data, and live system behavior
+
+    - path: "**/via_btc_*/*"
+      instructions: |
+        High-risk Via-specific Bitcoin integration code. Pay special attention to:
+        - Byte order and txid/hash identity
+        - Ordering and async assumptions
+        - Performance characteristics (complexity, allocations, cache behavior)
+        - Consistency with the corresponding verifier-side implementation
+
+    - path: "**/via_da_*/*"
+      instructions: |
+        High-risk Via-specific data availability code. Focus on:
+        - Blob/batch identity and inclusion semantics
+        - Performance impact of new or changed logic
+        - Consistency between main-node and verifier paths
+
+    # General Via-specific code (lighter guidance)
+    - path: "**/via_*/**"
+      instructions: |
+        This is Via-specific code. When the change involves replacing an existing algorithm or introducing new functions or data structures, consider and describe the performance impact (time complexity, allocations, and cache behavior where relevant), in addition to correctness.
+
+  tools:
+    github-checks:
+      enabled: true
+      timeout_ms: 90000
+
+    actionlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    hadolint:
+      enabled: true
+
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+    osvScanner:
+      enabled: true
+
+    clippy:
+      enabled: true
+
+chat:
+  auto_reply: false
+
+knowledge_base:
+  opt_out: false
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
+      - ".github/pull_request_template.md"
+      - ".github/ISSUE_TEMPLATE/*.yml"
+      - ".github/scripts/validate_issue_templates.py"
+      - ".github/workflows/issue-template-lint.yml"
