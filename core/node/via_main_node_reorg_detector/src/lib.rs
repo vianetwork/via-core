@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use bitcoin::Block;
@@ -10,6 +10,38 @@ use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use crate::metrics::{ReorgType, METRICS};
 
 mod metrics;
+
+#[cfg(test)]
+mod tests;
+
+/// Result of comparing local DB blocks against the canonical chain map.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ReorgScan {
+    /// All DB blocks present in the canonical map match.
+    NoReorg,
+    /// First height at which a DB hash does not match the canonical hash.
+    ReorgAt(i64),
+    /// Local DB has a row whose height is not present in the canonical map
+    /// (sparse/stale fetch). Caller must treat as inconclusive and skip.
+    SparseAt(i64),
+}
+
+/// Pure helper: compare DB rows (ascending by `number`) against a
+/// height-keyed canonical map. Comparison is by explicit block height,
+/// never by positional `zip`.
+pub(crate) fn scan_for_reorg(
+    db_blocks: &[(i64, String)],
+    canonical_by_height: &HashMap<i64, String>,
+) -> ReorgScan {
+    for (db_number, db_hash) in db_blocks {
+        match canonical_by_height.get(db_number) {
+            Some(canonical_hash) if canonical_hash == db_hash => continue,
+            Some(_) => return ReorgScan::ReorgAt(*db_number),
+            None => return ReorgScan::SparseAt(*db_number),
+        }
+    }
+    ReorgScan::NoReorg
+}
 
 #[derive(Debug)]
 pub struct ViaMainNodeReorgDetector {
@@ -76,23 +108,36 @@ impl ViaMainNodeReorgDetector {
         Ok(())
     }
 
+    /// Fetch canonical blocks paired with their fetched height, so that
+    /// downstream code never relies on `buffer_unordered` preserving order.
     async fn fetch_blocks(
         &self,
         from_block_height: i64,
         to_block_height: i64,
-    ) -> anyhow::Result<Vec<Block>> {
+    ) -> anyhow::Result<Vec<(i64, Block)>> {
         use futures::stream::{self, StreamExt};
 
         let heights: Vec<i64> = (from_block_height..=to_block_height).collect();
 
         let results = stream::iter(heights)
-            .map(|height| async move { self.btc_client.fetch_block(height as u128).await })
+            .map(|height| async move {
+                self.btc_client
+                    .fetch_block(height as u128)
+                    .await
+                    .map(|block| (height, block))
+            })
             .buffer_unordered(self.config.max_concurrent_fetches())
             .collect::<Vec<_>>()
             .await;
 
-        let blocks: Result<Vec<_>, _> = results.into_iter().collect();
-        blocks.context("Failed to fetch blocks")
+        let mut blocks: Vec<(i64, Block)> = results
+            .into_iter()
+            .collect::<Result<_, _>>()
+            .context("Failed to fetch blocks")?;
+        // Restore ascending height order; `buffer_unordered` yields results
+        // in completion order, not request order.
+        blocks.sort_by_key(|(height, _)| *height);
+        Ok(blocks)
     }
 
     async fn init(&mut self) -> anyhow::Result<()> {
@@ -128,7 +173,7 @@ impl ViaMainNodeReorgDetector {
     async fn is_canonical_chain(&self, block_height: i64, hash: String) -> anyhow::Result<bool> {
         let blocks = self.fetch_blocks(block_height, block_height).await?;
 
-        let Some(block) = blocks.first() else {
+        let Some((_, block)) = blocks.first() else {
             anyhow::bail!("Cannot fetch the block {}", block_height);
         };
 
@@ -165,7 +210,7 @@ impl ViaMainNodeReorgDetector {
 
         let mut transaction = storage.start_transaction().await?;
 
-        for (height, block) in (from_block_height..=to_block_height).zip(blocks) {
+        for (height, block) in blocks {
             tracing::debug!(
                 "Fetched block {height} with hash {}",
                 block.block_hash().to_string()
@@ -196,18 +241,32 @@ impl ViaMainNodeReorgDetector {
             .list_l1_blocks(start_height, window)
             .await?;
 
-        // Fetch chain blocks in batch
+        // Fetch chain blocks in batch, keyed by explicit canonical height so
+        // we never compare positionally against a sparse DB window.
         let chain_blocks = self.fetch_blocks(start_height, block_height).await?;
+        let canonical_by_height: HashMap<i64, String> = chain_blocks
+            .into_iter()
+            .map(|(height, block)| (height, block.block_hash().to_string()))
+            .collect();
 
-        let mut reorg_start_block_height_opt = None;
-
-        for ((db_number, db_hash), chain_block) in db_blocks.iter().zip(chain_blocks.iter()) {
-            if chain_block.block_hash().to_string() != *db_hash {
-                tracing::warn!("Reorg detected at block {}", db_number);
-                reorg_start_block_height_opt = Some(*db_number);
-                break;
+        let reorg_start_block_height_opt = match scan_for_reorg(&db_blocks, &canonical_by_height) {
+            ReorgScan::NoReorg => None,
+            ReorgScan::ReorgAt(height) => {
+                tracing::warn!("Reorg detected at block {}", height);
+                Some(height)
             }
-        }
+            ReorgScan::SparseAt(height) => {
+                // Stale/incomplete canonical fetch for a height that is
+                // present in the local DB. Treat as inconclusive so we do
+                // not falsely demote the BtcWatch cursor below the wallet
+                // bootstrap block when via_l1_blocks is sparse.
+                tracing::warn!(
+                    "Skipping reorg check: canonical chain fetch missing block {height} \
+                     for height-keyed comparison (sparse local via_l1_blocks window)"
+                );
+                return Ok(());
+            }
+        };
 
         if reorg_start_block_height_opt.is_none() {
             return Ok(());
