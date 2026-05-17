@@ -6,7 +6,9 @@ use std::{
 use anyhow::anyhow;
 use async_trait::async_trait;
 use celestia_rpc::{BlobClient, Client, P2PClient};
-use celestia_types::{nmt::Namespace, Blob, Commitment, TxConfig};
+use celestia_types::{
+    consts::appconsts::SHARE_VERSION_ZERO, nmt::Namespace, Blob, Commitment, TxConfig,
+};
 use hex;
 use zksync_config::configs::via_secrets::ViaDASecrets;
 pub use zksync_config::ViaCelestiaConfig;
@@ -15,6 +17,8 @@ use zksync_types::{
     url::SensitiveUrl,
     via_da_dispatcher::{deserialize_blob_ids, ViaDaBlob},
 };
+
+use crate::common::{parse_blob_id, VIA_NAME_SPACE_BYTES};
 
 /// If no value is provided for GasPrice, then this will be serialized to `-1.0` which means the node that
 /// receives the request will calculate the GasPrice for given blob.
@@ -38,12 +42,7 @@ impl CelestiaClient {
         // connection test
         let _info = client.p2p_info().await?;
 
-        let namespace_bytes = [b'V', b'I', b'A', 0, 0, 0, 0, 0]; // Pad with zeros to reach 8 bytes
-        let namespace_bytes: &[u8] = &namespace_bytes;
-        let namespace = Namespace::new_v0(namespace_bytes).map_err(|error| types::DAError {
-            error: error.into(),
-            is_retriable: false,
-        })?;
+        let namespace = Namespace::new_v0(&VIA_NAME_SPACE_BYTES)?;
 
         Ok(Self {
             light_node_url: secrets.api_node_url,
@@ -51,31 +50,6 @@ impl CelestiaClient {
             blob_size_limit,
             namespace,
         })
-    }
-
-    fn parse_blob_id(&self, blob_id: &str) -> anyhow::Result<(Commitment, u64)> {
-        // [8]byte block height ++ [32]byte commitment
-        let blob_id_bytes = hex::decode(blob_id).map_err(|error| types::DAError {
-            error: error.into(),
-            is_retriable: false,
-        })?;
-
-        let block_height =
-            u64::from_be_bytes(blob_id_bytes[..8].try_into().map_err(|_| types::DAError {
-                error: anyhow!("Failed to convert block height"),
-                is_retriable: false,
-            })?);
-
-        let commitment_data: [u8; 32] =
-            blob_id_bytes[8..40]
-                .try_into()
-                .map_err(|_| types::DAError {
-                    error: anyhow!("Failed to convert commitment"),
-                    is_retriable: false,
-                })?;
-        let commitment = Commitment(commitment_data);
-
-        Ok((commitment, block_height))
     }
 }
 
@@ -86,22 +60,21 @@ impl DataAvailabilityClient for CelestiaClient {
         _batch_number: u32,
         data: Vec<u8>,
     ) -> Result<types::DispatchResponse, types::DAError> {
-        let share_version = celestia_types::consts::appconsts::SHARE_VERSION_ZERO;
-
         let blob = Blob::new(self.namespace, data.clone()).map_err(|error| types::DAError {
             error: error.into(),
             is_retriable: false,
         })?;
 
-        let commitment_result = match Commitment::from_blob(self.namespace, share_version, &data) {
-            Ok(commit) => commit,
-            Err(error) => {
-                return Err(types::DAError {
-                    error: error.into(),
-                    is_retriable: false,
-                })
-            }
-        };
+        let commitment_result =
+            match Commitment::from_blob(self.namespace, SHARE_VERSION_ZERO, &data) {
+                Ok(commit) => commit,
+                Err(error) => {
+                    return Err(types::DAError {
+                        error: error.into(),
+                        is_retriable: false,
+                    })
+                }
+            };
 
         // NOTE: during refactoring add address to the config
         // we can specify the sender address for the transaction with using TxConfig
@@ -137,11 +110,10 @@ impl DataAvailabilityClient for CelestiaClient {
         blob_id: &str,
     ) -> Result<Option<types::InclusionData>, types::DAError> {
         let (commitment, block_height) =
-            self.parse_blob_id(&blob_id)
-                .map_err(|error| types::DAError {
-                    error: error.into(),
-                    is_retriable: true,
-                })?;
+            parse_blob_id(&blob_id).map_err(|error| types::DAError {
+                error: error.into(),
+                is_retriable: true,
+            })?;
 
         let blob = self
             .inner
@@ -177,11 +149,10 @@ impl DataAvailabilityClient for CelestiaClient {
 
                     for blob_id in blob_ids {
                         let (commitment, block_height) =
-                            self.parse_blob_id(&blob_id)
-                                .map_err(|error| types::DAError {
-                                    error: error.into(),
-                                    is_retriable: true,
-                                })?;
+                            parse_blob_id(&blob_id).map_err(|error| types::DAError {
+                                error: error.into(),
+                                is_retriable: true,
+                            })?;
 
                         let blob = self
                             .inner
