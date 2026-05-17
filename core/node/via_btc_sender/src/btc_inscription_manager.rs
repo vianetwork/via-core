@@ -3,6 +3,7 @@ use std::{collections::HashMap, i64};
 use anyhow::{Context, Result};
 use bincode::serialize;
 use bitcoin::hashes::Hash;
+use chrono::Utc;
 use tokio::sync::watch;
 use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
 use zksync_config::ViaBtcSenderConfig;
@@ -73,15 +74,17 @@ impl ViaBtcInscriptionManager {
             return Ok(());
         }
 
-        self.update_inscription_status(storage).await?;
-        self.send_new_inscription_txs(storage).await?;
+        let (trusted_balance, balance_with_pending_context) =
+            self.update_inscription_status(storage).await?;
+        self.send_new_inscription_txs(storage, balance_with_pending_context, trusted_balance)
+            .await?;
         Ok(())
     }
 
     async fn update_inscription_status(
         &mut self,
         storage: &mut Connection<'_, Core>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<(u128, u128)> {
         self.inscriber.sync_context_with_blockchain().await?;
 
         let inflight_inscriptions_ids = storage
@@ -185,21 +188,67 @@ impl ViaBtcInscriptionManager {
                             self.config.stuck_inscription_block_number()
                         );
                     }
+
+                    let age_seconds = (Utc::now().naive_utc() - last_inscription_history.created_at)
+                        .num_seconds()
+                        .max(0) as u64;
+
+                    if age_seconds >= self.config.escalation_interval_sec() {
+                        if let Some(request) = storage
+                            .btc_sender_dal()
+                            .get_inscription_request(inscription_id)
+                            .await?
+                        {
+                            tracing::warn!(
+                                "Stuck inscription {} for request {} (type {}) exceeded escalation interval {}s; retrying by sending a new commit+reveal transaction",
+                                last_inscription_history.reveal_tx_id,
+                                inscription_id,
+                                request.request_type,
+                                self.config.escalation_interval_sec()
+                            );
+                            METRICS.retry_attempts.inc();
+                            self.send_inscription_tx(storage, &request).await?;
+                        }
+                    }
                 }
             }
         }
 
-        let balance = self.inscriber.get_balance().await?;
+        let (trusted_balance, balance_with_pending_context) = self.inscriber.get_balances().await?;
         METRICS.btc_sender_account_balance[&self.config.wallet_address.clone()]
-            .set(balance as usize);
+            .set(balance_with_pending_context as usize);
 
-        Ok(())
+        Ok((trusted_balance, balance_with_pending_context))
     }
 
     async fn send_new_inscription_txs(
         &mut self,
         storage: &mut Connection<'_, Core>,
+        balance_with_pending_context: u128,
+        trusted_balance: u128,
     ) -> anyhow::Result<()> {
+        let pending_chain_depth = self.inscriber.pending_chain_depth();
+        let max_pending_chain_depth = self.config.max_pending_chain_depth() as usize;
+        if pending_chain_depth >= max_pending_chain_depth {
+            METRICS.chain_guard_blocks.inc();
+            tracing::warn!(
+                "Skipping new inscription broadcast due to pending chain depth guard. depth={} max={}.",
+                pending_chain_depth,
+                max_pending_chain_depth
+            );
+            return Ok(());
+        }
+
+        if trusted_balance < self.config.min_spendable_balance_sats() as u128 {
+            METRICS.chain_guard_blocks.inc();
+            tracing::warn!(
+                "Skipping new inscription broadcast due to low trusted balance guard. trusted={} (with_pending={}) min={}",
+                trusted_balance,
+                balance_with_pending_context,
+                self.config.min_spendable_balance_sats()
+            );
+            return Ok(());
+        }
         let number_inflight_txs = storage
             .btc_sender_dal()
             .list_inflight_inscription_ids()

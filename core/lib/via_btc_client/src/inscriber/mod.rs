@@ -65,11 +65,295 @@ const BROADCAST_RETRY_COUNT: u32 = 3;
 // https://bitcointalk.org/index.php?topic=5453107.msg62262343#msg62262343
 const P2TR_DUST_LIMIT: Amount = Amount::from_sat(330);
 
+/// Keep inscription outputs comfortably above the dust floor so relay / mining policy
+/// does not hinge on borderline values.
+const MIN_INSCRIPTION_OUTPUT: Amount = Amount::from_sat(600);
+
+/// Keep change outputs large enough to remain useful for follow-up reveal / chained spends.
+const MIN_CHANGE_OUTPUT: Amount = Amount::from_sat(1_000);
+
+/// Minimum buffer for change output to ensure Reveal TX can be funded.
+/// This accounts for Reveal TX fees plus safety margin.
+const MIN_CHANGE_BUFFER: Amount = Amount::from_sat(10_000);
+
+/// Maximum number of UTXOs to consider for selection (performance reasoning)
+const MAX_UTXOS_TO_CONSIDER: usize = 100;
+
+#[derive(Debug, Clone)]
+pub struct InscriberPolicy {
+    pub min_inscription_output: Amount,
+    pub min_change_output: Amount,
+    pub allow_unconfirmed_change_reuse: bool,
+    pub min_feerate_sat_vb: u64,
+    pub min_feerate_chained_sat_vb: u64,
+    pub max_feerate_sat_vb: u64,
+    pub escalation_step_sat_vb: u64,
+}
+
+impl Default for InscriberPolicy {
+    fn default() -> Self {
+        Self {
+            min_inscription_output: MIN_INSCRIPTION_OUTPUT,
+            min_change_output: MIN_CHANGE_OUTPUT,
+            allow_unconfirmed_change_reuse: false,
+            min_feerate_sat_vb: 8,
+            min_feerate_chained_sat_vb: 20,
+            max_feerate_sat_vb: 80,
+            escalation_step_sat_vb: 5,
+        }
+    }
+}
+
+impl InscriberPolicy {
+    pub fn from_sats(
+        min_inscription_output_sats: u64,
+        min_change_output_sats: u64,
+        allow_unconfirmed_change_reuse: bool,
+        min_feerate_sat_vb: u64,
+        min_feerate_chained_sat_vb: u64,
+        max_feerate_sat_vb: u64,
+        escalation_step_sat_vb: u64,
+    ) -> Result<Self> {
+        if min_inscription_output_sats < P2TR_DUST_LIMIT.to_sat() {
+            anyhow::bail!(
+                "Invalid policy: min_inscription_output_sats ({}) must be >= {}",
+                min_inscription_output_sats,
+                P2TR_DUST_LIMIT.to_sat()
+            );
+        }
+
+        if min_change_output_sats < P2TR_DUST_LIMIT.to_sat() {
+            anyhow::bail!(
+                "Invalid policy: min_change_output_sats ({}) must be >= {}",
+                min_change_output_sats,
+                P2TR_DUST_LIMIT.to_sat()
+            );
+        }
+
+        if max_feerate_sat_vb < min_feerate_sat_vb
+            || max_feerate_sat_vb < min_feerate_chained_sat_vb
+        {
+            anyhow::bail!(
+                "Invalid fee policy: max_feerate_sat_vb ({}) must be >= both min_feerate_sat_vb ({}) and min_feerate_chained_sat_vb ({})",
+                max_feerate_sat_vb,
+                min_feerate_sat_vb,
+                min_feerate_chained_sat_vb
+            );
+        }
+
+        Ok(Self {
+            min_inscription_output: Amount::from_sat(min_inscription_output_sats),
+            min_change_output: Amount::from_sat(min_change_output_sats),
+            allow_unconfirmed_change_reuse,
+            min_feerate_sat_vb,
+            min_feerate_chained_sat_vb,
+            max_feerate_sat_vb,
+            escalation_step_sat_vb,
+        })
+    }
+}
+
+fn estimate_reveal_requirements(
+    fee_rate: u64,
+    inscription_script_size: usize,
+    recipient: Option<&Recipient>,
+    commit_tx_fee: Amount,
+    policy: &InscriberPolicy,
+) -> Result<Amount> {
+    let mut reveal_tx_p2wpkh_output_count = REVEAL_TX_P2WPKH_OUTPUT_COUNT;
+    let mut reveal_tx_p2tr_output_count = REVEAL_TX_P2TR_OUTPUT_COUNT;
+
+    if let Some(r) = recipient {
+        if r.address.script_pubkey().is_p2tr() {
+            reveal_tx_p2tr_output_count += 1;
+        } else {
+            reveal_tx_p2wpkh_output_count += 1;
+        };
+    }
+
+    let mut reveal_fee = InscriberFeeCalculator::estimate_fee(
+        REVEAL_TX_P2WPKH_INPUT_COUNT,
+        REVEAL_TX_P2TR_INPUT_COUNT,
+        reveal_tx_p2wpkh_output_count,
+        reveal_tx_p2tr_output_count,
+        vec![inscription_script_size],
+        fee_rate,
+    )?;
+    reveal_fee += (reveal_fee * FEE_RATE_INCENTIVE) / 100;
+    reveal_fee += (commit_tx_fee * FEE_RATE_DECREASE_COMMIT_TX) / 100;
+
+    let recipient_amount = recipient.as_ref().map_or(Amount::ZERO, |r| r.amount);
+    let minimum_change_budget = std::cmp::max(MIN_CHANGE_BUFFER, policy.min_change_output);
+
+    reveal_fee
+        .checked_add(recipient_amount)
+        .and_then(|v| v.checked_add(minimum_change_budget))
+        .ok_or_else(|| anyhow::anyhow!("Reveal requirements overflow"))
+}
+
+/// Calculates the minimum target amount needed for UTXO selection.
+/// This includes the estimated commit fee and enough post-commit value to cover the reveal
+/// transaction fee requirements, any recipient amount, and a reusable change budget.
+fn calculate_selection_target(
+    input_count: u32,
+    fee_rate: u64,
+    policy: &InscriberPolicy,
+    inscription_script_size: usize,
+    recipient: Option<&Recipient>,
+) -> Result<Amount> {
+    let commit_fee = InscriberFeeCalculator::estimate_fee(
+        input_count,
+        COMMIT_TX_P2TR_INPUT_COUNT,
+        COMMIT_TX_P2WPKH_OUTPUT_COUNT,
+        COMMIT_TX_P2TR_OUTPUT_COUNT,
+        vec![],
+        fee_rate,
+    )?;
+
+    commit_fee
+        .checked_add(estimate_reveal_requirements(
+            fee_rate,
+            inscription_script_size,
+            recipient,
+            commit_fee,
+            policy,
+        )?)
+        .ok_or_else(|| anyhow::anyhow!("Target amount overflow"))
+}
+
+/// Runs Largest-First selection over the provided candidate list.
+fn select_utxos_from_candidates(
+    utxos: Vec<(OutPoint, TxOut)>,
+    fee_rate: u64,
+    policy: &InscriberPolicy,
+    inscription_script_size: usize,
+    recipient: Option<&Recipient>,
+) -> Result<(Vec<(OutPoint, TxOut)>, Amount)> {
+    let mut selected: Vec<(OutPoint, TxOut)> = Vec::new();
+    let mut total_value = Amount::ZERO;
+
+    for (outpoint, txout) in utxos {
+        let value = txout.value;
+        selected.push((outpoint, txout));
+        total_value = total_value
+            .checked_add(value)
+            .ok_or_else(|| anyhow::anyhow!("Total value overflow"))?;
+
+        let input_count = selected.len() as u32;
+        let target = calculate_selection_target(
+            input_count,
+            fee_rate,
+            policy,
+            inscription_script_size,
+            recipient,
+        )?;
+
+        if total_value >= target {
+            debug!(
+                "UTXO selection complete: {} inputs, {} sats, target {} sats",
+                input_count,
+                total_value.to_sat(),
+                target.to_sat()
+            );
+            return Ok((selected, total_value));
+        }
+    }
+
+    let final_target = calculate_selection_target(
+        selected.len() as u32,
+        fee_rate,
+        policy,
+        inscription_script_size,
+        recipient,
+    )?;
+    Err(anyhow::anyhow!(
+        "Insufficient funds: have {} sats, need {} sats",
+        total_value.to_sat(),
+        final_target.to_sat()
+    ))
+}
+
+/// Selects UTXOs using Largest-First: sorts by value descending, picks until target met.
+/// Dynamically recalculates fees as inputs are added. Ensures change for Reveal TX.
+fn select_utxos(
+    mut utxos: Vec<(OutPoint, TxOut)>,
+    fee_rate: u64,
+    policy: &InscriberPolicy,
+    inscription_script_size: usize,
+    recipient: Option<&Recipient>,
+) -> Result<(Vec<(OutPoint, TxOut)>, Amount)> {
+    if utxos.is_empty() {
+        return Err(anyhow::anyhow!("No UTXOs available for selection"));
+    }
+
+    // Sort by value descending (largest first)
+    utxos.sort_by(|a, b| b.1.value.cmp(&a.1.value));
+
+    if utxos.len() <= MAX_UTXOS_TO_CONSIDER {
+        return select_utxos_from_candidates(
+            utxos,
+            fee_rate,
+            policy,
+            inscription_script_size,
+            recipient,
+        );
+    }
+
+    let truncated_candidates = utxos
+        .iter()
+        .take(MAX_UTXOS_TO_CONSIDER)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    match select_utxos_from_candidates(
+        truncated_candidates,
+        fee_rate,
+        policy,
+        inscription_script_size,
+        recipient,
+    ) {
+        Ok(result) => Ok(result),
+        Err(err) => {
+            let truncated_total = utxos.iter().take(MAX_UTXOS_TO_CONSIDER).try_fold(
+                Amount::ZERO,
+                |acc, (_, txout)| {
+                    acc.checked_add(txout.value).ok_or_else(|| {
+                        anyhow::anyhow!("overflow while computing truncated UTXO total")
+                    })
+                },
+            )?;
+            let full_total = utxos.iter().try_fold(Amount::ZERO, |acc, (_, txout)| {
+                acc.checked_add(txout.value)
+                    .ok_or_else(|| anyhow::anyhow!("overflow while computing full UTXO total"))
+            })?;
+
+            if full_total > truncated_total {
+                debug!(
+                    "Retrying UTXO selection with full set after truncated candidate failure: truncated_total={} sats, full_total={} sats, err={}",
+                    truncated_total.to_sat(),
+                    full_total.to_sat(),
+                    err
+                );
+                select_utxos_from_candidates(
+                    utxos,
+                    fee_rate,
+                    policy,
+                    inscription_script_size,
+                    recipient,
+                )
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Inscriber {
     client: Arc<dyn BitcoinOps>,
     signer: Arc<dyn BitcoinSigner>,
     context: InscriberContext,
+    policy: InscriberPolicy,
 }
 
 impl Inscriber {
@@ -78,6 +362,21 @@ impl Inscriber {
         client: Arc<BitcoinClient>,
         signer_private_key: &str,
         persisted_ctx: Option<InscriberContext>,
+    ) -> Result<Self> {
+        Self::new_with_policy(
+            client,
+            signer_private_key,
+            persisted_ctx,
+            InscriberPolicy::default(),
+        )
+        .await
+    }
+
+    pub async fn new_with_policy(
+        client: Arc<BitcoinClient>,
+        signer_private_key: &str,
+        persisted_ctx: Option<InscriberContext>,
+        policy: InscriberPolicy,
     ) -> Result<Self> {
         info!("Creating new Inscriber");
         let signer = Arc::new(KeyManager::new(
@@ -90,28 +389,41 @@ impl Inscriber {
             client,
             signer,
             context,
+            policy,
         })
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
-    pub async fn get_balance(&self) -> Result<u128> {
-        debug!("Getting balance");
+    pub async fn get_balances(&self) -> Result<(u128, u128)> {
+        debug!("Getting balances");
         let address_ref = &self.signer.get_p2wpkh_address()?;
-        let mut balance = self.client.get_balance(address_ref).await?;
-        debug!("Balance obtained: {}", balance);
+        let trusted_balance = self.client.get_balance(address_ref).await?;
+        debug!("Trusted balance obtained: {}", trusted_balance);
 
-        // Include the transactions in mempool when calculate the balance
+        let mut balance_with_pending_context = trusted_balance;
+
+        // Include the transactions in mempool when calculating the effective balance.
         for inscription in &self.context.fifo_queue {
             let tx: Transaction = deserialize_hex(&inscription.inscriber_output.reveal_raw_tx)?;
 
             tx.output.iter().for_each(|output| {
                 if output.script_pubkey == address_ref.script_pubkey() {
-                    balance += output.value.to_sat() as u128;
+                    balance_with_pending_context += output.value.to_sat() as u128;
                 }
             });
         }
 
-        Ok(balance)
+        Ok((trusted_balance, balance_with_pending_context))
+    }
+
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
+    pub async fn get_balance(&self) -> Result<u128> {
+        let (_, balance_with_pending_context) = self.get_balances().await?;
+        Ok(balance_with_pending_context)
+    }
+
+    pub fn pending_chain_depth(&self) -> usize {
+        self.context.fifo_queue.len()
     }
 
     #[instrument(skip(self, input), target = "bitcoin_inscriber")]
@@ -126,7 +438,9 @@ impl Inscriber {
 
         let inscription_data = InscriptionData::new(input, secp_ref, internal_key, network)?;
 
-        let commit_tx_input_info = self.prepare_commit_tx_input().await?;
+        let commit_tx_input_info = self
+            .prepare_commit_tx_input(inscription_data.script_size, recipient.as_ref())
+            .await?;
 
         let commit_tx_output_info = self
             .prepare_commit_tx_output(
@@ -224,12 +538,12 @@ impl Inscriber {
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
-    async fn prepare_commit_tx_input(&self) -> Result<CommitTxInputRes> {
+    async fn prepare_commit_tx_input(
+        &self,
+        inscription_script_size: usize,
+        recipient: Option<&Recipient>,
+    ) -> Result<CommitTxInputRes> {
         debug!("Preparing commit transaction input");
-        let mut commit_tx_inputs: Vec<TxIn> = Vec::new();
-        let mut unlocked_value: Amount = Amount::ZERO;
-        let mut inputs_count: u32 = 0;
-        let mut utxo_amounts: Vec<Amount> = Vec::new();
 
         let address_ref = &self.signer.get_p2wpkh_address()?;
         let mut utxos = self.client.fetch_utxos(address_ref).await?;
@@ -293,8 +607,10 @@ impl Inscriber {
             !is_spent && is_p2wpkh
         });
 
-        // add context available utxo (head utxo) to spendable utxos list
-        if context_queue_len > 0 {
+        // Optionally reuse the head reveal-change output from the in-memory context.
+        // This is disabled by default because chaining 0-conf outputs can starve the sender of
+        // trusted spendable balance and create persistent head-of-line blocking.
+        if self.policy.allow_unconfirmed_change_reuse && context_queue_len > 0 {
             if let Some(head_inscription) = self.context.fifo_queue.front() {
                 let reveal_change_output = head_inscription.inscriber_output.reveal_txid;
 
@@ -310,9 +626,30 @@ impl Inscriber {
 
                 utxos.push((reveal_change_output, reveal_txout));
             }
+        } else if context_queue_len > 0 {
+            debug!(
+                "Skipping reuse of unconfirmed context change output; pending context depth: {}",
+                context_queue_len
+            );
         }
 
-        for (outpoint, txout) in utxos {
+        // Get fee rate for selection calculation
+        let fee_rate = self.get_fee_rate(self.context.fifo_queue.len()).await?;
+
+        // Select optimal UTXOs using the Largest-First selection algorithm
+        let (selected_utxos, unlocked_value) = select_utxos(
+            utxos,
+            fee_rate,
+            &self.policy,
+            inscription_script_size,
+            recipient,
+        )?;
+
+        // Build transaction inputs from selected UTXOs
+        let mut commit_tx_inputs: Vec<TxIn> = Vec::new();
+        let mut utxo_amounts: Vec<Amount> = Vec::new();
+
+        for (outpoint, txout) in selected_utxos {
             let txin = TxIn {
                 previous_output: outpoint,
                 script_sig: ScriptBuf::default(), // For a p2wpkh script_sig is empty.
@@ -321,18 +658,22 @@ impl Inscriber {
             };
 
             commit_tx_inputs.push(txin);
-            unlocked_value += txout.value;
-            inputs_count += 1;
             utxo_amounts.push(txout.value);
         }
 
-        debug!("Commit transaction input prepared");
+        let inputs_count = commit_tx_inputs.len() as u32;
+        debug!(
+            "Commit transaction input prepared: {} inputs, {} sats",
+            inputs_count,
+            unlocked_value.to_sat()
+        );
 
         let res = CommitTxInputRes {
             commit_tx_inputs,
             unlocked_value,
             inputs_count,
             utxo_amounts,
+            fee_rate,
         };
 
         Ok(res)
@@ -356,11 +697,11 @@ impl Inscriber {
     ) -> Result<CommitTxOutputRes> {
         debug!("Preparing commit transaction output");
         let inscription_commitment_output = TxOut {
-            value: P2TR_DUST_LIMIT,
+            value: std::cmp::max(P2TR_DUST_LIMIT, self.policy.min_inscription_output),
             script_pubkey: inscription_pubkey,
         };
 
-        let fee_rate = self.get_fee_rate().await?;
+        let fee_rate = tx_input_data.fee_rate;
 
         let mut fee_amount = InscriberFeeCalculator::estimate_fee(
             tx_input_data.inputs_count,
@@ -373,16 +714,26 @@ impl Inscriber {
         let fee_amount_before_decrease = fee_amount;
         fee_amount -= (fee_amount * FEE_RATE_DECREASE_COMMIT_TX) / 100;
 
+        let inscription_output_value =
+            std::cmp::max(P2TR_DUST_LIMIT, self.policy.min_inscription_output);
         let commit_tx_change_output_value = tx_input_data
             .unlocked_value
-            .checked_sub(fee_amount + P2TR_DUST_LIMIT)
+            .checked_sub(fee_amount + inscription_output_value)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Required Amount: {:?}, Spendable Amount: {:?} ",
-                    fee_amount + P2TR_DUST_LIMIT,
+                    "Required Amount: {:?}, Spendable Amount: {:?}",
+                    fee_amount + inscription_output_value,
                     tx_input_data.unlocked_value
                 )
             })?;
+
+        if commit_tx_change_output_value < self.policy.min_change_output {
+            anyhow::bail!(
+                "Commit change output {:?} below minimum reusable threshold {:?}",
+                commit_tx_change_output_value,
+                self.policy.min_change_output
+            );
+        }
 
         let commit_tx_change_output = TxOut {
             value: commit_tx_change_output_value,
@@ -402,11 +753,37 @@ impl Inscriber {
     }
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
-    async fn get_fee_rate(&self) -> Result<u64> {
+    async fn get_fee_rate(&self, pending_chain_depth: usize) -> Result<u64> {
         debug!("Getting fee rate");
-        let res = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await?;
-        debug!("Fee rate obtained: {}", res);
-        Ok(std::cmp::max(res, 1))
+        let network_rate = self.client.get_fee_rate(FEE_RATE_CONF_TARGET).await?;
+        let floor = if pending_chain_depth > 0 {
+            self.policy.min_feerate_chained_sat_vb
+        } else {
+            self.policy.min_feerate_sat_vb
+        };
+        let escalated = floor.saturating_add(
+            self.policy
+                .escalation_step_sat_vb
+                .saturating_mul(pending_chain_depth as u64),
+        );
+        if self.policy.max_feerate_sat_vb < floor {
+            anyhow::bail!(
+                "Invalid fee policy: max_feerate_sat_vb ({}) is lower than the required floor ({})",
+                self.policy.max_feerate_sat_vb,
+                floor
+            );
+        }
+        let candidate = std::cmp::max(network_rate, escalated);
+        let effective = std::cmp::min(self.policy.max_feerate_sat_vb, candidate);
+        debug!(
+            "Fee rate obtained: network={}, pending_depth={}, floor={}, max_feerate={}, effective={}",
+            network_rate,
+            pending_chain_depth,
+            floor,
+            self.policy.max_feerate_sat_vb,
+            effective
+        );
+        Ok(std::cmp::max(effective, 1))
     }
 
     #[instrument(skip(self, input, output), target = "bitcoin_inscriber")]
@@ -555,6 +932,7 @@ impl Inscriber {
             prev_outs: prev_outs.to_vec(),
             unlock_value,
             control_block: reveal_p2tr_utxo_input.2,
+            fee_rate: commit_output.commit_tx_fee_rate,
         };
 
         Ok(res)
@@ -572,8 +950,7 @@ impl Inscriber {
         commit_tx_fee: Amount,
     ) -> Result<RevealTxOutputRes> {
         debug!("Preparing reveal transaction output");
-        let fee_rate = self.get_fee_rate().await?;
-        let pending_tx_in_context = self.context.fifo_queue.len();
+        let fee_rate = tx_input_data.fee_rate;
 
         let mut reveal_tx_p2wpkh_output_count = REVEAL_TX_P2WPKH_OUTPUT_COUNT;
         let mut reveal_tx_p2tr_output_count = REVEAL_TX_P2TR_OUTPUT_COUNT;
@@ -595,9 +972,7 @@ impl Inscriber {
             fee_rate,
         )?;
 
-        let txs_stuck_factor = FEE_RATE_INCREASE_PER_PENDING_TX * pending_tx_in_context as u64;
-
-        let increase_factor = txs_stuck_factor + FEE_RATE_INCENTIVE;
+        let increase_factor = FEE_RATE_INCENTIVE;
         fee_amount += (fee_amount * increase_factor) / 100;
         // Add the fee amount removed from the commit tx to reveal
         fee_amount += (commit_tx_fee * FEE_RATE_DECREASE_COMMIT_TX) / 100;
@@ -609,11 +984,19 @@ impl Inscriber {
             .checked_sub(fee_amount + recipient_amount)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Required Amount:{:?} Spendable Amount: {:?} ",
+                    "Required Amount:{:?} Spendable Amount: {:?}",
                     fee_amount + recipient_amount,
                     tx_input_data.unlock_value
                 )
             })?;
+
+        if reveal_change_amount < self.policy.min_change_output {
+            anyhow::bail!(
+                "Reveal change output {:?} below minimum reusable threshold {:?}",
+                reveal_change_amount,
+                self.policy.min_change_output
+            );
+        }
 
         // Change output goes back to the inscriber
         let reveal_tx_change_output = TxOut {
@@ -853,6 +1236,209 @@ mod tests {
         L1BatchDAReferenceInput,
     };
 
+    #[test]
+    fn test_select_utxos_largest_first() {
+        let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
+
+        let utxos = vec![
+            (
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 0,
+                },
+                TxOut {
+                    value: Amount::from_sat(1_000),
+                    script_pubkey: script_pubkey.clone(),
+                },
+            ),
+            (
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 1,
+                },
+                TxOut {
+                    value: Amount::from_sat(50_000),
+                    script_pubkey: script_pubkey.clone(),
+                },
+            ),
+            (
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 2,
+                },
+                TxOut {
+                    value: Amount::from_sat(10_000),
+                    script_pubkey: script_pubkey.clone(),
+                },
+            ),
+            (
+                OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 3,
+                },
+                TxOut {
+                    value: Amount::from_sat(100_000),
+                    script_pubkey: script_pubkey.clone(),
+                },
+            ),
+        ];
+
+        // Select with a low fee rate - should prefer largest UTXOs
+        let (selected, total) =
+            select_utxos(utxos, 1, &InscriberPolicy::default(), 0, None).unwrap();
+
+        // Verify largest first ordering and no unnecessary extra inputs for this set.
+        assert_eq!(selected[0].1.value, Amount::from_sat(100_000));
+        assert_eq!(selected.len(), 1);
+        assert_eq!(total, Amount::from_sat(100_000));
+    }
+
+    #[test]
+    fn test_select_utxos_insufficient_funds() {
+        let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
+
+        let utxos = vec![(
+            OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            },
+            TxOut {
+                value: Amount::from_sat(100),
+                script_pubkey: script_pubkey.clone(),
+            },
+        )];
+
+        let result = select_utxos(utxos, 10, &InscriberPolicy::default(), 0, None);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Insufficient funds"));
+    }
+
+    #[test]
+    fn test_select_utxos_empty() {
+        let utxos: Vec<(OutPoint, TxOut)> = vec![];
+        let result = select_utxos(utxos, 10, &InscriberPolicy::default(), 0, None);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No UTXOs available"));
+    }
+
+    #[test]
+    fn test_select_utxos_falls_back_to_full_set_when_truncated_prefix_is_insufficient() {
+        let script_pubkey = ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
+        let policy = InscriberPolicy::default();
+        let fee_rate = 10;
+        let target_for_100 = calculate_selection_target(100, fee_rate, &policy, 0, None).unwrap();
+        let target_for_101 = calculate_selection_target(101, fee_rate, &policy, 0, None).unwrap();
+
+        let lower_bound = target_for_101.to_sat().div_ceil(101);
+        let upper_bound = (target_for_100.to_sat() - 1) / 100;
+        assert!(
+            lower_bound <= upper_bound,
+            "Expected deterministic fixture bounds to overlap"
+        );
+
+        let amount = lower_bound;
+        let utxos = (0..101u32)
+            .map(|vout| {
+                (
+                    OutPoint {
+                        txid: Txid::all_zeros(),
+                        vout,
+                    },
+                    TxOut {
+                        value: Amount::from_sat(amount),
+                        script_pubkey: script_pubkey.clone(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let truncated_result = select_utxos_from_candidates(
+            utxos.iter().take(100).cloned().collect(),
+            fee_rate,
+            &policy,
+            0,
+            None,
+        );
+        let full_result = select_utxos(utxos, fee_rate, &policy, 0, None);
+
+        assert!(truncated_result.is_err());
+        assert!(full_result.is_ok());
+
+        let (selected, total) = full_result.unwrap();
+        assert!(selected.len() >= 101);
+        assert_eq!(total.to_sat(), amount * 101);
+    }
+
+    #[tokio::test]
+    async fn test_get_balances_separates_trusted_and_pending_context() {
+        let mut inscriber = get_mock_inscriber_and_conditions();
+        let address = inscriber.signer.get_p2wpkh_address().unwrap();
+        let change_tx = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![TxOut {
+                value: Amount::from_sat(1_234),
+                script_pubkey: address.script_pubkey(),
+            }],
+        };
+        let reveal_raw_tx = bitcoin::consensus::encode::serialize_hex(&change_tx);
+        let context_entry = crate::types::InscriptionRequest {
+            message: InscriptionMessage::L1ToL2Message(crate::types::L1ToL2MessageInput {
+                receiver_l2_address: zksync_basic_types::Address::zero(),
+                l2_contract_address: zksync_basic_types::Address::zero(),
+                call_data: vec![],
+            }),
+            inscriber_output: crate::types::InscriberOutput {
+                commit_txid: Txid::all_zeros(),
+                commit_raw_tx: String::new(),
+                commit_tx_fee_rate: 0,
+                reveal_txid: change_tx.compute_txid(),
+                reveal_raw_tx,
+                reveal_tx_fee_rate: 0,
+                is_broadcasted: false,
+            },
+            fee_payer_ctx: crate::types::FeePayerCtx {
+                fee_payer_utxo_txid: Txid::all_zeros(),
+                fee_payer_utxo_vout: 0,
+                fee_payer_utxo_value: Amount::ZERO,
+            },
+            commit_tx_input: crate::types::CommitTxInput { spent_utxo: vec![] },
+        };
+        inscriber.context.fifo_queue.push_back(context_entry);
+
+        let (trusted_balance, balance_with_pending_context) =
+            inscriber.get_balances().await.unwrap();
+
+        assert_eq!(
+            trusted_balance,
+            Amount::from_btc(2.0).unwrap().to_sat() as u128
+        );
+        assert_eq!(balance_with_pending_context, trusted_balance + 1_234);
+        assert_eq!(inscriber.pending_chain_depth(), 1);
+    }
+
+    #[test]
+    fn test_calculate_selection_target() {
+        let policy = InscriberPolicy::default();
+        let low_fee_target = calculate_selection_target(1, 1, &policy, 0, None)
+            .expect("low fee target calculation failed");
+        let high_fee_target = calculate_selection_target(1, 10, &policy, 0, None)
+            .expect("high fee target calculation failed");
+
+        assert!(high_fee_target.to_sat() > low_fee_target.to_sat());
+        assert!(
+            high_fee_target.to_sat()
+                >= policy.min_inscription_output.to_sat() + MIN_CHANGE_BUFFER.to_sat()
+        );
+    }
+
     mock! {
         BitcoinOps {}
         #[async_trait]
@@ -925,13 +1511,11 @@ mod tests {
         // sign_ecdsa
         signer
             .expect_sign_ecdsa()
-            .times(2)
             .returning(|_| Ok(ECDSASignature::from_compact(&[0; 64]).unwrap()));
 
         // sign_schnorr
         signer
             .expect_sign_schnorr()
-            .times(1)
             .returning(|_| Ok(SchnorrSignature::from_slice(&[0; 64]).unwrap()));
 
         // get_public_key
@@ -941,7 +1525,6 @@ mod tests {
         // Setup Client
         client
             .expect_get_network()
-            .times(2)
             .return_const(BitcoinNetwork::Regtest);
 
         client.expect_fetch_utxos().returning(move |_| {
@@ -958,6 +1541,10 @@ mod tests {
             Ok(vec![(fake_outpoint, fake_txout)])
         });
 
+        client
+            .expect_get_balance()
+            .returning(|_| Ok(Amount::from_btc(2.0).unwrap().to_sat() as u128));
+
         client.expect_get_fee_rate().returning(|_| Ok(1));
 
         client
@@ -968,6 +1555,7 @@ mod tests {
             client: Arc::new(client),
             signer: Arc::new(signer),
             context,
+            policy: InscriberPolicy::default(),
         }
     }
 

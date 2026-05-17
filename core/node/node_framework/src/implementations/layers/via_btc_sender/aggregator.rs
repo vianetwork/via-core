@@ -2,6 +2,8 @@ use via_btc_client::inscriber::Inscriber;
 use via_btc_sender::btc_inscription_aggregator::ViaBtcInscriptionAggregator;
 use zksync_config::{configs::via_wallets::ViaWallet, ViaBtcSenderConfig};
 
+use super::inscriber_policy_from_config;
+
 use crate::{
     implementations::resources::{
         pools::{MasterPool, PoolResource},
@@ -65,10 +67,9 @@ impl WiringLayer for ViaBtcInscriptionAggregatorLayer {
         // Get resources.
         let master_pool = input.master_pool.get().await.unwrap();
         let client = input.btc_client_resource.btc_sender.unwrap();
-
-        let inscriber = Inscriber::new(client, &self.wallet.private_key, None)
-            .await
-            .unwrap();
+        let policy = inscriber_policy_from_config(&self.config)?;
+        let inscriber = Inscriber::new_with_policy(client, &self.wallet.private_key, None, policy)
+            .await?;
 
         let via_btc_inscription_aggregator =
             ViaBtcInscriptionAggregator::new(inscriber, master_pool, self.config).await?;
