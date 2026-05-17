@@ -1,0 +1,30 @@
+name: Issue template lint
+
+on:
+  pull_request:
+    paths:
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/scripts/validate_issue_templates.py"
+      - ".github/workflows/issue-template-lint.yml"
+      - "AGENTS.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  issue-template-lint:
+    name: Validate issue templates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install YAML parser
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.2
+
+      - name: Validate issue templates
+        run: python .github/scripts/validate_issue_templates.py

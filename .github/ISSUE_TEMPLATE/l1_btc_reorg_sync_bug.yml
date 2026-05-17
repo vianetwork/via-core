@@ -1,0 +1,273 @@
+name: L1 / BTC / reorg / sync bug
+description: Use for via_l1_blocks, BTC watch/sender, reorg detector, verifier sync, or external-node bootstrap issues
+title: "bug: l1-btc: <component>: <symptom>"
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for bugs involving:
+        - `via_l1_blocks`;
+        - BTC watch, BTC sender, or BTC client behavior;
+        - main-node or verifier reorg detection;
+        - external-node bootstrap;
+        - block heights, hashes, txids, or Bitcoin RPC evidence.
+
+        Height/hash/txid identity must be explicit. Do not rely on prose only.
+        Include raw values, where each value came from, what is proven versus
+        inferred, and the live read/write boundary for any operational evidence.
+        Distinguish source behavior, deployment desired state, public API/RPC
+        evidence, database state, and live environment state.
+
+        Do not include secrets, private keys, wallet cookies, tokens, database
+        URLs, RPC credentials, or unredacted connection strings.
+
+  - type: dropdown
+    id: affected_path
+    attributes:
+      label: Affected path
+      multiple: true
+      options:
+        - core/node/via_main_node_reorg_detector
+        - via_verifier/node/via_reorg_detector
+        - core/node/via_btc_watch
+        - via_verifier/node/via_btc_watch
+        - core/node/via_btc_sender
+        - via_verifier/node/via_btc_sender
+        - core/lib/via_btc_client
+        - core/lib/dal/src/via_l1_block_dal.rs
+        - via_verifier/lib/verifier_dal/src/via_l1_block_dal.rs
+        - core/lib/config via_btc_* / via_reorg_detector
+        - external-node bootstrap
+        - deployment / kube-state / helm values
+        - not sure
+    validations:
+      required: true
+
+  - type: input
+    id: commit_or_env
+    attributes:
+      label: Commit / branch / image / environment
+      placeholder: "main@<sha>, PR #, image tag, Hetzner EN, via-main-testnet, testnet4, etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: Describe the observed L1/BTC/reorg/sync failure.
+      placeholder: |
+        Example:
+        The reorg detector reported a reorg at height 100891 during external-node
+        bootstrap even though the canonical Bitcoin hash for height 100891 matched
+        the DB row when checked directly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: height_hash_matrix
+    attributes:
+      label: Height / hash / txid matrix
+      description: Fill this with DB, canonical chain, public API, and tx evidence as applicable.
+      value: |
+        | Identity type | Height / txid / batch | DB value | Canonical/public value | DB source/query | RPC/API/log source | Matches? |
+        | --- | --- | --- | --- | --- | --- | --- |
+        |  |  |  |  |  |  |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: db_state
+    attributes:
+      label: Relevant DB state
+      description: Paste SQL output or describe why DB evidence is unavailable. Include sparse/missing rows when relevant.
+      render: sql
+      placeholder: |
+        SELECT number, hash
+        FROM via_l1_blocks
+        WHERE number BETWEEN <start_height> AND <end_height>
+        ORDER BY number ASC;
+    validations:
+      required: true
+
+  - type: textarea
+    id: bitcoin_rpc_evidence
+    attributes:
+      label: Bitcoin RPC / public chain evidence
+      description: Paste exact commands and outputs from Bitcoin RPC, mempool.space, Blockscout, or other public APIs.
+      render: text
+      placeholder: |
+        Command / endpoint:
+          getblockhash <height>
+          getblock <hash>
+          <mempool-api-base>/...
+
+        mempool.space API base examples:
+          mainnet:  https://mempool.space/api
+          testnet4: https://mempool.space/testnet4/api
+
+        Example endpoint paths:
+          <mempool-api-base>/blocks/tip/height
+          <mempool-api-base>/tx/<txid>/status
+          <mempool-api-base>/tx/<txid>
+          <mempool-api-base>/tx/<txid>/hex
+
+        Output:
+          ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: detector_window
+    attributes:
+      label: Detector / sync window calculation
+      description: Include the values used to calculate the L1/reorg/sync window.
+      value: |
+        - Last known DB height:
+        - Last known canonical/RPC height:
+        - Configured reorg window:
+        - Computed start_height:
+        - Computed end_height:
+        - DB rows present in window:
+        - Canonical blocks fetched:
+        - Node type:
+        - Network:
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed_logs
+    attributes:
+      label: Observed logs
+      description: Paste exact detector / btc_watch / btc_sender / verifier / external-node logs.
+      render: text
+      placeholder: "Paste logs here."
+    validations:
+      required: true
+
+  - type: textarea
+    id: source_surfaces_checked
+    attributes:
+      label: Source surfaces checked
+      description: Mark the relevant source/deployment surfaces that were checked and summarize findings.
+      value: |
+        | Surface | Checked? | Finding |
+        | --- | --- | --- |
+        | core/node/via_main_node_reorg_detector |  |  |
+        | via_verifier/node/via_reorg_detector |  |  |
+        | core/lib/dal/src/via_l1_block_dal.rs |  |  |
+        | via_verifier/lib/verifier_dal/src/via_l1_block_dal.rs |  |  |
+        | core/node/via_btc_watch |  |  |
+        | via_verifier/node/via_btc_watch |  |  |
+        | core/node/via_btc_sender |  |  |
+        | via_verifier/node/via_btc_sender |  |  |
+        | core/lib/via_btc_client |  |  |
+        | core/lib/config via_btc_* / via_reorg_detector |  |  |
+        | deployment/kube-state or helm-charts desired state |  |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariant
+    attributes:
+      label: L1 identity invariant
+      description: State the required height/hash/txid identity invariant and how this issue may violate it.
+      value: |
+        Required invariant:
+        A Bitcoin block hash, txid, batch number, or DB row must remain bound to
+        the exact height, transaction, batch, or row identity it was fetched or
+        stored for.
+
+        How this issue may violate the invariant:
+    validations:
+      required: true
+
+  - type: textarea
+    id: ordering_audit
+    attributes:
+      label: Ordering / async / DB audit
+      description: Required for sparse DB rows, async fetches, batch RPC, zip, Vec index, heights, hashes, txids, batches, or timestamps.
+      value: |
+        | Question | Answer |
+        | --- | --- |
+        | Does the DB query order rows? Where? |  |
+        | Does the DB query assert dense coverage? |  |
+        | Does the chain fetch preserve requested height order? Where? |  |
+        | Is any code using `zip` or Vec/index position to bind height/hash/tx identity? |  |
+        | Could async completion order differ from requested order? |  |
+        | Are main-node and verifier paths both affected? |  |
+        | What assumption would make a proposed fix still wrong? |  |
+    validations:
+      required: true
+
+  - type: textarea
+    id: regression_test
+    attributes:
+      label: Required regression coverage
+      description: Describe the failing-before/passing-after test expected for the fix.
+      value: |
+        The regression test should prove:
+
+        - [ ] sparse `via_l1_blocks` rows cannot cause height/hash miscomparison
+        - [ ] canonical hashes are compared by explicit height
+        - [ ] out-of-order async block fetch completion cannot corrupt comparison or insertion
+        - [ ] `sync_l1_blocks` cannot insert a hash under the wrong height
+        - [ ] verifier and main/external-node detector paths are covered or explicitly ruled out
+
+        Old-code failure:
+        Fixed-code pass:
+        Existing tests missed this because:
+    validations:
+      required: true
+
+  - type: textarea
+    id: operational_impact
+    attributes:
+      label: Operational impact
+      description: State live/read-only/mutating impact and follow-up risk.
+      value: |
+        - Did this affect a live or rehearsal external node?
+        - Did it reset `via_btc_watch`?
+        - Did it affect wallet/resource visibility?
+        - Did it affect BTC sender queue/inflight state?
+        - Did it require DB repair or restart?
+        - Was any live mutation performed?
+        - What follow-up deployment or infra action may be needed?
+    validations:
+      required: true
+
+  - type: textarea
+    id: unknowns
+    attributes:
+      label: Unknowns / missing evidence
+      description: List what is still unknown and how to obtain it.
+      value: |
+        | Unknown | Why unknown | How to obtain |
+        | --- | --- | --- |
+        |  |  |  |
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: L1 evidence checklist
+      options:
+        - label: Exact heights are included.
+          required: true
+        - label: Exact hashes, txids, or batch numbers are included or explicitly unavailable.
+          required: true
+        - label: DB source and canonical RPC/API source are distinguished.
+          required: true
+        - label: Source, desired-state, public/API, DB, and live evidence are not conflated.
+          required: true
+        - label: Ordering assumptions are audited.
+          required: true
+        - label: Main-node and verifier sibling paths are considered.
+          required: true
+        - label: A failing-before/passing-after regression test is proposed.
+          required: true
+        - label: Live infrastructure reads/writes are explicitly stated.
+          required: true
