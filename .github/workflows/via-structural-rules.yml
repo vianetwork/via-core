@@ -1,0 +1,43 @@
+name: Via Structural Rules
+
+on:
+  pull_request:
+
+# Permissions are intentionally minimal.
+permissions:
+  contents: read
+
+jobs:
+  via-structural-rules:
+    name: Via Structural Rules
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          persist-credentials: false
+
+      - name: Install ast-grep
+        run: |
+          VERSION="0.42.0"
+          ZIP="app-x86_64-unknown-linux-gnu.zip"
+          URL="https://github.com/ast-grep/ast-grep/releases/download/${VERSION}/${ZIP}"
+          SHA256="e825a05603f0bcc4cd9076c4cc8c9abd6d008b7cd07d9aa3cc323ba4b8606651"
+
+          curl -fsSL "$URL" -o "/tmp/${ZIP}"
+          echo "${SHA256}  /tmp/${ZIP}" | sha256sum --check -
+          mkdir -p "$HOME/.local/bin"
+          unzip -o "/tmp/${ZIP}" ast-grep -d "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/ast-grep"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/ast-grep" --version
+
+      - name: Run Via Structural Rules (Advisory Mode)
+        env:
+          # Change to "strict" to make this check blocking
+          VIA_STRUCTURAL_RULES_MODE: advisory
+        run: .github/scripts/check-via-structural-rules.sh

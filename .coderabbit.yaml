@@ -79,19 +79,27 @@ reviews:
         and coordination with via_btc_watch. Check sibling logic in via_verifier/node/via_btc_sender when relevant.
         Preserve explicit height/hash/txid identity; audit async completion order versus requested order.
 
+        Before adding or modifying significant logic here, review via_verifier/node/via_btc_sender/ for overlap.
+        Follow the root AGENTS.md → "Reuse and duplication discipline". Prefer extracting shared behavior to core/lib/ when possible.
+
     - path: "core/node/via_btc_watch/**"
       instructions: |
         Focus on L1-to-L2 message processing, governance upgrades, withdrawals, and system wallet handling.
         Cross-check against via_verifier/node/via_btc_watch when touching shared or duplicated behavior.
+        Follow the root AGENTS.md → "Reuse and duplication discipline" for any new or changed logic.
 
     - path: "via_verifier/node/via_btc_sender/**"
       instructions: |
         Verifier-side BTC sender. Apply the same byte-order, inscription, inflight-state, and identity rules
         as the main-node side. Check for unintended divergence from core/node/via_btc_sender.
 
+        Before adding or modifying significant logic here, review core/node/via_btc_sender/ for overlap.
+        Follow the root AGENTS.md → "Reuse and duplication discipline". Prefer extracting shared behavior to core/lib/ when possible.
+
     - path: "via_verifier/node/via_btc_watch/**"
       instructions: |
         Verifier-side BTC watch. Cross-check against the main-node implementation when behavior overlaps.
+        Follow the root AGENTS.md → "Reuse and duplication discipline" for any new or changed logic.
 
     - path: "core/lib/dal/src/via_btc_sender_dal.rs"
       instructions: |
@@ -103,18 +111,28 @@ reviews:
         Verifier-side BTC sender DAL. Keep identity, ordering, and state-transition semantics aligned
         with the main-node side unless the PR explicitly justifies divergence.
 
+        Before making significant changes, review core/lib/dal/src/via_btc_sender_dal.rs for overlap.
+        Follow the root AGENTS.md → "Reuse and duplication discipline".
+
     - path: "core/lib/config/src/configs/via_btc_*.rs"
       instructions: |
         BTC-related config. Review defaults, env mapping, operational safety, and consistency across
         sender/watch/client and main-node/verifier usage.
 
+        When making changes, check the corresponding verifier-side config (if it exists) and follow the root AGENTS.md → "Reuse and duplication discipline". Prefer keeping configuration aligned unless divergence is explicitly justified.
+
     - path: "core/lib/env_config/src/via_btc_*.rs"
       instructions: |
         BTC environment/config loading. Review for naming consistency, safe defaults, and parity with config structs.
 
+        When making changes, consider the corresponding verifier-side usage. Follow the root AGENTS.md → "Reuse and duplication discipline" for any duplicated configuration loading logic.
+
     - path: "core/node/node_framework/src/implementations/layers/via_btc_sender/**"
       instructions: |
         Node framework wiring for BTC sender. Changes affect startup, dependency injection, and runtime task composition.
+
+        When modifying this layer, consider impact on the verifier-side equivalent in via_verifier/node/node_framework/.
+        Follow the root AGENTS.md → "Reuse and duplication discipline" if changes affect duplicated behavior across main-node and verifier.
 
     - path: "core/node/node_framework/src/implementations/layers/via_btc_watch.rs"
       instructions: |
@@ -124,9 +142,13 @@ reviews:
       instructions: |
         Node framework wiring for BTC client. Review RPC/client resource construction and config boundaries.
 
+        When modifying this layer, consider impact on the verifier-side equivalent. Follow the root AGENTS.md → "Reuse and duplication discipline" if changes affect duplicated behavior across main-node and verifier.
+
     - path: "core/node/node_framework/src/implementations/resources/via_btc_client.rs"
       instructions: |
         Resource layer for BTC client. Review ownership, sharing, and runtime dependency semantics.
+
+        When modifying this layer, consider impact on the verifier-side equivalent. Follow the root AGENTS.md → "Reuse and duplication discipline" if changes affect duplicated behavior across main-node and verifier.
 
     - path: "core/node/reorg_detector/**"
       instructions: |
@@ -139,15 +161,24 @@ reviews:
         Main-node reorg detector. Review together with via_verifier/node/via_reorg_detector when behavior overlaps.
         Enforce explicit height/hash identity. Audit sparse rows, async fetch ordering, and Vec/zip usage.
 
+        Before adding or modifying logic here, check whether equivalent behavior exists in via_verifier/node/via_reorg_detector/.
+        Follow the root AGENTS.md → "Reuse and duplication discipline". If duplication is being introduced, it must be explicitly justified with a clear invariant or ownership boundary.
+
     - path: "via_verifier/node/via_reorg_detector/**"
       instructions: |
         Verifier reorg detector. Treat as sibling of the main-node version; check both when either changes.
         Preserve explicit height/hash identity and DB ordering assumptions.
 
+        Before adding or modifying logic here, check whether equivalent behavior exists in core/node/via_main_node_reorg_detector/.
+        Follow the root AGENTS.md → "Reuse and duplication discipline". If duplication is being introduced, it must be explicitly justified with a clear invariant or ownership boundary.
+
     - path: "core/node/node_framework/src/implementations/layers/*reorg_detector*.rs"
       instructions: |
         Node framework reorg detector layers for base, Via main-node, and verifier wiring.
         Changes affect detector startup and dependency injection.
+
+        When modifying these layers, consider impact on both main-node and verifier reorg detectors.
+        Follow the root AGENTS.md → "Reuse and duplication discipline" if changes affect duplicated behavior.
 
     - path: "core/lib/dal/src/via_l1_block_dal.rs"
       instructions: |
@@ -161,6 +192,7 @@ reviews:
       instructions: |
         DA client implementations. Focus on blob/batch identity, inclusion proofs, availability, fallback behavior,
         and source-vs-live boundaries.
+        Cross-check against via_verifier/lib/via_da_client/ when behavior overlaps. Follow the root AGENTS.md → "Reuse and duplication discipline".
 
     - path: "core/lib/via_da_dispatcher/**"
       instructions: |
@@ -170,9 +202,13 @@ reviews:
       instructions: |
         Node-level DA dispatcher. Review task lifecycle, metrics, retry/error behavior, and interaction with sequencer state.
 
+        When modifying this layer, consider the verifier-side equivalent and follow the root AGENTS.md → "Reuse and duplication discipline" if behavior overlaps.
+
     - path: "via_verifier/lib/via_da_client/**"
       instructions: |
         Verifier-side DA client. Check for unintended divergence from main-node DA client paths.
+        Follow the root AGENTS.md → "Reuse and duplication discipline" when adding or modifying logic.
+        Before making significant changes, review core/lib/via_da_clients/ for overlap and prefer extraction when appropriate.
 
     - path: "**/migrations/**/*.sql"
       instructions: |
@@ -259,6 +295,8 @@ reviews:
     - path: "**/via_*/**"
       instructions: |
         This is Via-specific code. When the change involves replacing an existing algorithm or introducing new functions or data structures, consider and describe the performance impact (time complexity, allocations, and cache behavior where relevant), in addition to correctness.
+
+        Strongly prefer extracting shared logic to core/lib/ rather than duplicating it between core/node/ and via_verifier/node/. Before adding new logic in a via_* path, check whether equivalent behavior already exists (or should exist) in the corresponding main-node or verifier sibling. Follow the root AGENTS.md → "Reuse and duplication discipline".
 
   tools:
     github-checks:

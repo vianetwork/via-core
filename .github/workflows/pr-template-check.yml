@@ -1,0 +1,269 @@
+name: PR Template Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  pr-template-check:
+    name: PR template check
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to post/update the PR template check comment.
+      pull-requests: write
+      # Required to read .github/sibling-paths.yml from the checked-out tree.
+      contents: read
+
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          persist-credentials: false
+
+      - name: Check PR Template (Content-Aware + Path-Aware)
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const prNumber = context.payload.pull_request?.number || context.issue.number;
+            if (!prNumber) {
+              core.setFailed('Could not determine pull request number from workflow payload.');
+              return;
+            }
+
+            let pr = context.payload.pull_request;
+            if (!pr) {
+              const response = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              pr = response.data;
+            }
+
+            const body = pr.body || '';
+            const visibleBody = body.replace(/<!--[\s\S]*?-->/g, '');
+
+            // Load sibling pairs from the base commit, not the PR head. Otherwise a PR
+            // could weaken the check by editing .github/sibling-paths.yml itself.
+            let siblingData = '';
+            try {
+              const siblingFile = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: '.github/sibling-paths.yml',
+                ref: pr.base.sha
+              });
+              siblingData = Buffer.from(siblingFile.data.content, siblingFile.data.encoding).toString('utf8');
+            } catch (error) {
+              if (error.status === 404) {
+                const fs = require('fs');
+                core.warning('Base .github/sibling-paths.yml does not exist yet; using the checked-out PR copy for bootstrap.');
+                siblingData = fs.readFileSync('.github/sibling-paths.yml', 'utf8');
+              } else {
+                core.setFailed(`Could not load base .github/sibling-paths.yml: ${error.message}`);
+                return;
+              }
+            }
+
+            const siblingPairs = [];
+            const lines = siblingData.split('\n');
+            for (const line of lines) {
+              const match = line.match(/-\s*\[(.+?),\s*(.+?)\]/);
+              if (match) siblingPairs.push([match[1].trim(), match[2].trim()]);
+            }
+
+            const requiredSections = [
+              'Why', 'What changed', 'Reuse & Duplication', 'Performance, Complexity, and Resource Impact'
+            ];
+
+            const missingSections = [];
+            const sectionContent = {};
+            const headings = [...visibleBody.matchAll(/^##\s+(.+)$/gm)];
+
+            const getSectionContent = (section) => {
+              const headingIndex = headings.findIndex(match =>
+                match[1].trim().toLowerCase() === section.toLowerCase()
+              );
+              if (headingIndex === -1) return '';
+
+              const start = headings[headingIndex].index + headings[headingIndex][0].length;
+              const next = headings[headingIndex + 1];
+              const end = next ? next.index : visibleBody.length;
+              return visibleBody.slice(start, end).trim();
+            };
+
+            for (const section of requiredSections) {
+              const content = getSectionContent(section);
+              if (!content) {
+                missingSections.push(section);
+              } else {
+                sectionContent[section] = content;
+              }
+            }
+
+            // === Quality & Anti-pattern Checks ===
+            const bannedPhrases = ['searched the repo', 'no duplication found', 'n/a'];
+            const reuseContent = sectionContent['Reuse & Duplication'] || '';
+            const reuseBody = reuseContent.replace(/^##\s+Reuse & Duplication\s*/i, '').trim();
+            const authoredReuseContent = reuseBody
+              .replace(/\*\*Required for any PR that adds or changes production logic in a `via_\*` path\.\*\*/g, '')
+              .replace(/Before writing implementation code, you must have completed the checks described in the root `AGENTS\.md` → \*Reuse and duplication discipline\*\./g, '')
+              .replace(/\*\*You must include the following in this section\*\* \(answers must be specific — vague or placeholder text will be rejected\):/g, '')
+              .replace(/-\s+Closest existing implementation considered: `<function or module name>`/g, '')
+              .replace(/-\s+Sibling paths inspected: `<list of specific paths>`/g, '')
+              .replace(/-\s+Search command run: `<exact rg\/grep command>`/g, '')
+              .replace(/-\s+Shared extraction decision: extracted to `<path>` \*\*OR\*\* not extracted because `<exact invariant \/ ownership \/ execution-context difference>`/g, '')
+              .replace(/Vague answers such as "searched the repo" or "no duplication found" are not accepted\./g, '')
+              .replace(/>\s+Self-check before submitting: Have you named a specific function\? Have you listed sibling paths actually inspected \(with backticks\)\? If any answer is no, revise this section\./g, '')
+              .trim();
+
+            const hasBannedPhrase = bannedPhrases.some(phrase =>
+              authoredReuseContent.toLowerCase().includes(phrase)
+            );
+
+            const hasBacktick = /`[^`]+`/.test(authoredReuseContent);
+
+            let qualityIssues = [];
+
+            if (hasBannedPhrase) {
+              qualityIssues.push('Contains banned/vague phrases (e.g. "searched the repo", "no duplication found")');
+            }
+            const isNotApplicable = /not applicable/i.test(authoredReuseContent);
+            if (!hasBacktick && authoredReuseContent.length > 30 && !isNotApplicable) {
+              qualityIssues.push('Reuse & Duplication section is missing backtick code references (e.g. `functionName`)');
+            }
+
+            // === Path-Aware Sibling Enforcement ===
+            // Use pagination to handle PRs with many files (default is only 30)
+            let filePaths = [];
+            let page = 1;
+            while (true) {
+              const response = await github.rest.pulls.listFiles({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                per_page: 100,
+                page
+              });
+              filePaths = filePaths.concat(response.data.map(f => f.filename));
+              if (response.data.length < 100) break;
+              page++;
+            }
+            const missingSiblingMentions = [];
+
+            for (const [pathA, pathB] of siblingPairs) {
+              const touchesA = filePaths.some(f => f.startsWith(pathA));
+              const touchesB = filePaths.some(f => f.startsWith(pathB));
+
+              if (touchesA || touchesB) {
+                const mentionsA = visibleBody.includes(pathA);
+                const mentionsB = visibleBody.includes(pathB);
+
+                if ((touchesA && !mentionsB) || (touchesB && !mentionsA)) {
+                  missingSiblingMentions.push([pathA, pathB]);
+                }
+              }
+            }
+
+            // === Build Comment ===
+            let commentBody = '### PR Template Check\n\n';
+
+            const hasIssues = missingSections.length > 0 || qualityIssues.length > 0 || missingSiblingMentions.length > 0;
+
+            if (!hasIssues) {
+              commentBody += 'All required sections appear present with reasonable content.';
+            } else {
+              if (missingSections.length > 0) {
+                commentBody += '**Missing required sections:**\n';
+                missingSections.forEach(s => commentBody += `- ${s}\n`);
+              }
+
+              if (qualityIssues.length > 0) {
+                commentBody += '\n**Quality issues in Reuse & Duplication section:**\n';
+                qualityIssues.forEach(issue => commentBody += `- ${issue}\n`);
+              }
+
+              if (missingSiblingMentions.length > 0) {
+                commentBody += '\n**Missing sibling path references:**\n';
+                for (const [a, b] of missingSiblingMentions) {
+                  commentBody += `- This PR touches one of \`${a}\` or \`${b}\`, but the sibling path is not referenced.\n`;
+                }
+              }
+
+              commentBody += '\n\n> This is currently a **warning only**. It will not block merging.\n';
+              commentBody += '> See the "Reuse & Duplication" section of the PR template and the root AGENTS.md → "Reuse and duplication discipline" for guidance.';
+            }
+
+            // === Structural rules reminder (advisory only) ===
+            // If the PR touches a sibling-paired path but doesn't mention the structural check,
+            // add a gentle note. This is intentionally non-blocking.
+            const touchesHighRisk = siblingPairs.some(([a, b]) =>
+              filePaths.some(f => f.startsWith(a) || f.startsWith(b))
+            );
+            const defaultChecksScaffold = new Set([
+              '```bash',
+              '```',
+              'git diff --check',
+              'zkstack dev fmt',
+              'zkstack dev lint',
+              '# Via structural rules (ast-grep)',
+              '# Run for sibling-paired paths (see .github/sibling-paths.yml) or other high-risk areas.',
+              '# Use `just via-check-strict` when required. See root AGENTS.md → Validation section.',
+              'just via-check',
+              'just via-check-strict',
+              'cargo test -p <relevant-crate>',
+              '# Secret scanning',
+              'gitleaks protect --staged --redact --no-banner',
+              'gitleaks git --log-opts="main..HEAD" --redact --no-banner'
+            ]);
+            const checksBody = getSectionContent('Checks run')
+              .replace(/^##\s+Checks run\s*/i, '')
+              .split('\n')
+              .map(line => line.trim())
+              .filter(line => line && !defaultChecksScaffold.has(line))
+              .join('\n');
+            const mentionsStructural = /via-check|structural.*lint|ast-grep/i.test(checksBody);
+
+            if (touchesHighRisk && !mentionsStructural) {
+              commentBody += '\n\n**Note:** This PR touches sibling-paired path(s). Consider running `just via-check-strict` (see root AGENTS.md → Validation) and recording it in the Checks run section.';
+            }
+
+            // Find and update existing comment
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              per_page: 100
+            });
+
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('PR Template Check')
+            );
+
+            try {
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body: commentBody
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: commentBody
+                });
+              }
+            } catch (error) {
+              if (error.status === 403) {
+                core.warning(`Skipping PR Template Check comment because token cannot write PR comments: ${error.message}`);
+              } else {
+                throw error;
+              }
+            }

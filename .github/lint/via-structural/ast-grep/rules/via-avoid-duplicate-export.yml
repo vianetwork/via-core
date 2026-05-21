@@ -1,0 +1,26 @@
+id: via-avoid-duplicate-export
+language: Rust
+severity: warning
+message: |
+  `pub use $B::$C;` from a module that is also declared as `pub mod $B;` in the same file.
+  This creates two public paths to the same item (e.g. both `crate::$C` and `crate::$B::$C`).
+  Prefer one canonical public path to reduce duplication and confusion.
+note: |
+  This is a Via-specific structural rule. Re-exporting items from a publicly declared
+  sibling module at the same level increases the public API surface unnecessarily.
+  It is especially relevant for library entry points and shared Via crates.
+rule:
+  all:
+    - pattern: pub use $B::$C;
+    - inside:
+        kind: source_file
+        has:
+          pattern: pub mod $B;   # same metavariable ensures we only match the declared module
+metadata:
+  category: duplication
+  related:
+    - public-api
+    - modularity
+    - reuse
+  harness_refs:
+    - components/reuse-duplication

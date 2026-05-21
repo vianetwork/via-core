@@ -10,7 +10,200 @@ NC='\033[0m' # No Color
 INSTALL_PROPT="Please install ZK Stack CLI using zkstackup from https://github.com/matter-labs/zksync-era/tree/main/zkstack_cli/zkstackup"
 FORMAT_PROMPT="Please format the code via 'zkstack dev fmt', cannot push unformatted code"
 
-# Check that prettier formatting rules are not violated.
+load_sibling_high_risk_paths() {
+    local sibling_paths_file=".github/sibling-paths.yml"
+
+    if [ ! -f "$sibling_paths_file" ]; then
+        return
+    fi
+
+    # Expected format is the compact pair list used by .github/sibling-paths.yml:
+    #   - [core/path, verifier/path]
+    # Keep this hook dependency-free so it can run in local Git hook contexts
+    # without requiring yq/ruby/python.
+    awk '
+        function trim(value) {
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            return value
+        }
+        /^[[:space:]]*-[[:space:]]*\[/ {
+            line = $0
+            sub(/[[:space:]]+#.*$/, "", line)
+            sub(/^[^[]*\[[[:space:]]*/, "", line)
+            sub(/[[:space:]]*\].*$/, "", line)
+            split(line, paths, ",")
+            if (paths[1] != "" && paths[2] != "") {
+                print trim(paths[1])
+                print trim(paths[2])
+            }
+        }
+    ' "$sibling_paths_file"
+}
+
+load_structural_tooling_paths() {
+    local via_areas_file=".github/via-areas.yml"
+
+    if [ ! -f "$via_areas_file" ]; then
+        return
+    fi
+
+    # Expected format is the mapping list used by .github/via-areas.yml:
+    #   - path: ".github/lint/via-structural/**"
+    #     area: structural
+    # The parser accepts path/area in either order within one mapping.
+    awk '
+        function trim(value) {
+            gsub(/^"|"$/, "", value)
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            return value
+        }
+        function emit_if_structural() {
+            if (path != "" && area == "structural") {
+                print path
+            }
+        }
+        /^[[:space:]]*-[[:space:]]*/ {
+            emit_if_structural()
+            path = ""
+            area = ""
+        }
+        /^[[:space:]]*-[[:space:]]*path:/ {
+            path = $0
+            sub(/^[[:space:]]*-[[:space:]]*path:[[:space:]]*/, "", path)
+            path = trim(path)
+            next
+        }
+        /^[[:space:]]*-[[:space:]]*area:/ {
+            area = $0
+            sub(/^[[:space:]]*-[[:space:]]*area:[[:space:]]*/, "", area)
+            area = trim(area)
+            next
+        }
+        /^[[:space:]]*path:/ {
+            path = $0
+            sub(/^[[:space:]]*path:[[:space:]]*/, "", path)
+            path = trim(path)
+            next
+        }
+        /^[[:space:]]*area:/ {
+            area = $0
+            sub(/^[[:space:]]*area:[[:space:]]*/, "", area)
+            area = trim(area)
+            next
+        }
+        END {
+            emit_if_structural()
+        }
+    ' "$via_areas_file"
+}
+
+normalize_high_risk_paths() {
+    local path
+
+    while IFS= read -r path; do
+        path="${path%%#*}"
+        path="${path#"${path%%[![:space:]]*}"}"
+        path="${path%"${path##*[![:space:]]}"}"
+
+        if [ -z "$path" ]; then
+            continue
+        fi
+
+        case "$path" in
+            *'/**')
+                printf '%s/\n' "${path%/**}"
+                ;;
+            *'/*')
+                printf '%s/\n' "${path%/*}"
+                ;;
+            */)
+                printf '%s\n' "$path"
+                ;;
+            *.*)
+                printf '%s\n' "$path"
+                ;;
+            *)
+                printf '%s/\n' "$path"
+                ;;
+        esac
+    done
+}
+
+# High-risk paths for Via structural rules are sourced from shared metadata so
+# the hook stays aligned with PR checks and structural tooling ownership.
+load_high_risk_paths() {
+    {
+        load_sibling_high_risk_paths
+        load_structural_tooling_paths
+    } | normalize_high_risk_paths | awk 'NF && !seen[$0]++'
+}
+
+path_matches_high_risk_prefix() {
+    local changed_path="$1"
+    local high_risk_path
+
+    for high_risk_path in "${HIGH_RISK_PATHS[@]}"; do
+        if [[ "$changed_path" == "$high_risk_path"* ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Check if the push touches any high-risk Via paths
+should_run_via_structural_check() {
+    local range
+    local base_sha
+
+    while read -r local_ref local_sha remote_ref remote_sha; do
+        if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+            continue
+        fi
+
+        if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+            # New branch: compare the pushed history against the nearest known base.
+            local upstream_ref
+            upstream_ref="$(git for-each-ref --format='%(upstream)' "$local_ref")"
+
+            if [ -n "$upstream_ref" ] && git rev-parse --verify "$upstream_ref" >/dev/null 2>&1 \
+                && base_sha="$(git merge-base "$upstream_ref" "$local_sha" 2>/dev/null)"; then
+                range="$base_sha..$local_sha"
+            elif git rev-parse --verify origin/main >/dev/null 2>&1 \
+                && base_sha="$(git merge-base origin/main "$local_sha" 2>/dev/null)"; then
+                range="$base_sha..$local_sha"
+            elif git rev-parse --verify origin/master >/dev/null 2>&1 \
+                && base_sha="$(git merge-base origin/master "$local_sha" 2>/dev/null)"; then
+                range="$base_sha..$local_sha"
+            elif git rev-parse --verify "$local_sha^" >/dev/null 2>&1; then
+                range="$local_sha^..$local_sha"
+            else
+                range="$(git hash-object -t tree /dev/null)..$local_sha"
+            fi
+        else
+            range="$remote_sha..$local_sha"
+        fi
+
+        while IFS= read -r changed_path; do
+            if path_matches_high_risk_prefix "$changed_path"; then
+                return 0
+            fi
+        done < <(git diff --name-only "$range")
+    done
+
+    return 1
+}
+
+HIGH_RISK_PATHS=()
+while IFS= read -r high_risk_path; do
+    HIGH_RISK_PATHS+=("$high_risk_path")
+done < <(load_high_risk_paths)
+
+# =====================
+# 1. Formatting check (original behavior - blocking)
+# =====================
 if which zkstack >/dev/null; then
   if ! zkstack dev fmt --check; then
       echo -e "${RED}Push error!${NC}"
@@ -32,3 +225,22 @@ else
     exit 1
   fi
 fi
+
+# =====================
+# 2. Via Structural Rules (advisory mode for now)
+# =====================
+if should_run_via_structural_check; then
+    echo ""
+    echo "Via structural rules check triggered (advisory mode)"
+    echo "------------------------------------------------------"
+
+    if ! VIA_STRUCTURAL_RULES_MODE=advisory .github/scripts/check-via-structural-rules.sh; then
+        echo "Warning: advisory Via structural rules check did not complete successfully."
+    fi
+
+    echo "------------------------------------------------------"
+    echo "Note: This is currently advisory only — push will continue."
+    echo ""
+fi
+
+exit 0

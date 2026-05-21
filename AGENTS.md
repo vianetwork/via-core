@@ -2,190 +2,162 @@
 
 ## Scope
 
-Applies to this repository root and all descendants unless a nested `AGENTS.md` adds more specific instructions.
-This repository contains Via Network protocol and runtime code. Keep changes reviewable, and grounded in source behavior, tests, and deployment facts.
+Applies to this repository and all descendants unless a nested `AGENTS.md` adds more specific instructions.
 
 ## Purpose
 
-This repo owns Via source/runtime behavior: main node, external node, verifier, indexer, BTC sender, prover, contracts, config semantics, docs, and developer tooling that ship with `via-core`.
-
-This repo does not own live or desired-state deployment. Use sibling repos for Kubernetes, Helm, Hetzner/OpenTofu/Ansible, GCP/Terragrunt, explorer code, and durable incident synthesis. Source changes here can affect future builds, but do not prove what is currently deployed.
+This repository owns Via source and runtime behavior. It does not own live or desired-state deployment.
 
 ## Read first
 
-- Before changing non-trivial runtime behavior, read the relevant Via guide
-  (`docs/via_guides/development.md`, `docs/via_guides/architecture.md`, or
-  `docs/via_guides/data-flow.md`) and the nearest crate README/config; do not
-  infer behavior from file names alone.
+Before changing non-trivial runtime behavior, read the relevant Via guide and the nearest crate README or config.
 
 ## Important paths
 
-- Runtime: `core/`; verifier: `via_verifier/`; prover/indexer: `prover/`, `via_indexer/`.
-- Bitcoin: `core/lib/via_btc_client/`, `core/node/via_btc_*/`, verifier BTC paths, and `core/lib/dal/src/via_btc_sender_dal.rs`.
-- DA/reorg: `core/lib/via_da_clients/`, verifier DA paths, `core/node/via_main_node_reorg_detector/`, and `via_verifier/node/via_reorg_detector/`.
-- Contracts/config/CLI/docs/examples: `contracts/`, `configs/`, `etc/`, `zkstack_cli/`, `docs/`, `docker/`, `.github/`.
+- Runtime: `core/`
+- Verifier: `via_verifier/`
+- Prover / Indexer: `prover/`, `via_indexer/`
+- Bitcoin: `core/lib/via_btc_client/`, `core/node/via_btc_*`, and verifier BTC paths
+- DA / Reorg: `core/lib/via_da_clients/`, `core/node/via_main_node_reorg_detector/`, and `via_verifier/node/via_reorg_detector/`. (When touching one, check the other — see *Reuse and duplication discipline*.)
 
 ## Source-of-truth rules
 
-- Keep source, desired state, and live state separate: repo code does not prove
-  deployment, and deployment repos do not prove runtime behavior. Verify against
-  source, kube/Helm/infra repos, live cluster/host state, public APIs, DB state,
-  or tests as appropriate.
-- Do not assume upstream ZKsync behavior is unchanged after Via-specific forks.
-  Check Via files and upstream references before classifying a divergence.
-- Treat current upstream ZKsync `main` documentation as a reference, not as a
-  direct source of repo rules. Before importing newer upstream guidance, verify
-  the referenced files, commands, and upgrade architecture exist in this repo's
-  current ZKsync lineage and Via-specific fork state.
-- Prefer Via-specific `via_` modules, crates, services, binaries, and components
-  when extending fork behavior. Touch upstream-derived non-`via_` code only when
-  the task requires that exact path or a Via component depends on it, and explain
-  why a `via_` extension was not enough.
-- For Bitcoin transaction investigations, check byte-reversed 32-byte txids
-  before declaring a transaction missing from public explorers or node RPC.
+- Source code describes behavior; it does not prove deployment.
+- Prefer Via-specific `via_` modules when extending fork behavior.
+- Follow the call graph into upstream (non-`via_*`) code when necessary, and explain why a Via extension was insufficient.
+- For Bitcoin work, remember that txids are byte-reversed.
 
 ## Safety rules
 
-- Never commit secrets, private keys, wallet material, database URLs, RPC
-  passwords, cookies, decrypted env files, or generated local state.
-- Do not query or print live secrets from deployment repos or clusters while
-  working in this repo.
-- Do not deploy, restart workloads, run migrations against live databases, or
-  mutate live infrastructure from this repo without explicit operator approval.
-- Keep local diagnostic artifacts out of commits. Use `.git/info/exclude` for
-  local agent/indexing scratch directories such as `.gitnexus/`, `.claude/`, or
-  similar tool output if they appear.
+- Never commit secrets or live credentials.
+- Do not run migrations or deploy from this repo without explicit approval.
+- Keep local agent scratch directories (`.gitnexus/`, `.agents/`, etc.) out of commits.
+
+## Reuse and duplication discipline
+
+Apply this section before writing implementation code. The PR template’s *Reuse & Duplication* and *Performance, Complexity, and Resource Impact* sections cannot be filled in honestly after the fact — they exist to surface the reasoning required here.
+
+**Production code is permanent audit cost.** Every new function, detector, client, poller, watcher, or worker adds ongoing review and maintenance burden. Production LOC is measured as **net delta** (lines added minus lines removed, excluding comments, documentation, tests, and generated files). Before writing new code, identify the existing function or module that should own the behavior. If you cannot name it, you are likely introducing duplication.
+
+**Do not tunnel on `via_*`.** `via_*` directories are not hard boundaries. Follow the call graph into upstream and non-`via_*` modules. Always check sibling implementations across node types (main-node vs. verifier, `core/` vs. `via_verifier/`) before adding new logic.
+
+Detector, poller, watcher, and fetch/compare logic copied across main-node and verifier paths is the canonical anti-pattern this section exists to prevent (see PRs #355–#360).
+
+**Mandatory pre-coding check.** Before creating a new file, struct, detector, poller, watcher, client, DAL method, parser, or conversion in a `via_*` path, complete the following:
+
+1. Name the closest existing function or module you considered extending or replacing.
+2. List the specific sibling paths you inspected (main-node ↔ verifier, `core/` ↔ `via_verifier/`). For reorg-related work this must include both `core/node/via_main_node_reorg_detector/` and `via_verifier/node/via_reorg_detector/`.
+3. If you are not extracting shared logic, state the exact invariant, ownership boundary, or execution-context difference that prevents extraction.
+
+If you cannot complete the steps above, stop and do the search before writing implementation code.
+
+### Anti-pattern vs Required Pattern (example)
+
+**Anti-pattern** (duplication of sibling logic):
+
+- Similar detector / poller / watcher logic added in both a `core/node/` path and the corresponding `via_verifier/node/` path with only minor differences.
+- No attempt to extract shared behavior.
+
+**Required pattern**:
+
+- Shared logic extracted to `core/lib/` (or the most appropriate shared crate).
+- Only thin node-specific wrappers remain in `core/node/` and `via_verifier/node/`.
+
+This pattern applies to any duplicated logic across main-node and verifier (not just reorg detectors).
+
+### Maintaining supporting files
+
+When new duplication patterns, high-risk areas, or sibling relationships are discovered, update the following files:
+
+- `.github/sibling-paths.yml` — Add new main-node ↔ verifier path pairs.
+- `.github/via-scopes.yml` — Add new `via-*` scopes when a recurring area of work appears.
+- `.github/via-areas.yml` — Map new paths to the appropriate `Via-Area` value.
+
+Also consider adding a small `AGENTS.md` file in the relevant high-risk directory if one does not already exist.
+
+## Commit Message Convention
+
+Use Conventional Commits. All Via-specific changes must use a `via-` scope.
+
+**Format:**
+
+```text
+<type>(via-<area>): <imperative subject>
+```
+
+**Allowed types:** `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `chore`, `build`, `ci`, `revert`
+
+**Examples:**
+
+- `feat(via-reorg): detect deep reorgs from DA layer`
+- `fix(via-btc): correct txid byte-reversal in mempool watcher`
+- `refactor(via-da): extract shared inclusion proof parsing`
+- `perf(via-verifier): batch L1 batch metadata loads`
+- `fix(via-reorg): align reorg handling with new upstream batch finality rules`
+- `chore(upstream-sync): merge ZKsync vX.Y.Z`
+
+**Scopes:** See `.github/via-scopes.yml` for the current list of allowed scopes, including Via-specific `via-*` scopes and the non-Via `upstream-sync` scope.
+
+When merging upstream ZKsync changes that are **not** Via-specific, use the `upstream-sync` scope instead of a `via-` scope.
 
 ## Change discipline
 
-- For bug fixes, include a regression test when the affected crate/test harness
-  makes it practical.
-- Preserve rich error context in production/library paths. Prefer propagated
-  errors and `anyhow::Context` / `with_context` over flattening failures into
-  generic strings. Avoid `unwrap()` / `expect()` in non-test runtime paths.
-- Make examples model safe usage when they are copied by operators or integrators;
-  do not leave panic-prone examples around hardened library APIs.
-- Compact-by-default: prefer one-line expressions and short helper calls when
-  they remain readable and rustfmt accepts them; avoid manual wrapping churn and
-  do not reformat unrelated existing code just to change line shape.
-- Reuse-first: search for the canonical abstraction before adding helpers,
-  parsers, clients, DAL methods, conversions, or runtime glue. Prefer extension
-  over near-duplicates; if new code is needed, place it beside the closest owner
-  and explain the non-reuse decision in the PR.
-- For runtime behavior changes that affect deployments, document the required
-  deployment/config follow-up in the PR body. Do not imply live rollout has
-  happened unless it has been verified separately.
-- When touching duplicated main-node/verifier/external-node logic, check whether
-  the same bug exists in the sibling implementation before stopping.
-- When changing async fetch/compare code, preserve or explicitly encode ordering
-  assumptions. Do not compare height-indexed data by vector position unless the
-  ordering contract is proven and tested.
-- For `zkstack_cli/` Rust changes, rebuild the installed CLI with
-  `zkstackup --local` before validating CLI behavior.
-- For Forge/deployment/upgrade flows, verify generated paths, env vars,
-  deployment state, and call order against Via's actual command flow. Prefer
-  fail-fast root-cause fixes over broad fallbacks, `try/catch`, or low-level
-  `staticcall` probes that hide missing deployments or ordering bugs; use
-  `cast run` or equivalent tracing for opaque failures.
-- Protocol-sensitive areas include Bitcoin, DA/Celestia, verifier/prover, state
-  keeper, reorg/reverter, contracts/upgrades, migrations/DAL, serialization,
-  hashes, signatures, byte order, and inscriptions. Search call sites and
-  downstream consumers before changing APIs, config keys, DB schema, metrics, or
-  encoded data.
-- Long-lived services in `core/node` and `via_verifier/node` often communicate
-  through database state rather than direct calls. Before changing one, identify
-  the table/query it polls, rows it creates or updates, downstream consumers, and
-  retry/error/stop-signal behavior.
+- Include a regression test for bug fixes when practical.
+- Preserve rich error context (`anyhow::Context`, `with_context`, `?`) in production paths. Never strip it to shorten a diff.
+- When changing async fetch/compare code, preserve or explicitly document ordering assumptions.
+- Protocol-sensitive areas (Bitcoin, DA, reorg, verifier/prover, serialization, hashes, signatures, inscriptions) require extra care. Search call sites and downstream consumers before changing them.
 
-## GitNexus and cross-repo review
-
-- Use GitNexus before non-trivial impact analysis or Via cross-repo review; then
-  verify decisive graph findings against exact source files.
-- Treat `kube-state` and `helm-charts` as deployment/config context, not live
-  proof. Keep `.gitnexus/`, `.claude/`, `.rooignore`, and similar agent artifacts
-  local/excluded unless an ignore-policy PR is explicitly intended.
-
-## Automated review
-
-`.coderabbit.yaml` configures advisory CodeRabbit reviews. Treat CodeRabbit
-comments as review input, not authority.
-
-CodeRabbit is configured to use this `AGENTS.md`, the PR template, issue forms,
-and the issue-template validator as review guidance. It also has path-specific
-instructions for BTC, L1/reorg, DA, migrations, and process files.
-
-- Verify CodeRabbit suggestions against source, tests, sibling main-node/verifier
-  paths, deployment boundaries, and live evidence before applying them.
-- Recurring incorrect or noisy feedback should be fixed in `.coderabbit.yaml` or
-  this document rather than repeatedly overridden in PRs.
-- CodeRabbit is advisory; objective enforcement belongs in GitHub Actions and
-  repository validators.
+Reuse and duplication rules are defined in the dedicated section above.
 
 ## Review Expectations
 
-When making changes, authors and reviewers should consider both correctness **and** performance characteristics.
+When making changes, consider both correctness **and** performance.
 
-This is especially important for Via-specific code (any path containing `via_`). The level of detail expected scales with risk:
+High-risk areas (reorg detection, L1 sync, BTC integration, DA, and hot database paths) require explicit reasoning about time complexity, allocations, and cache behavior.
 
-- **High-risk areas** (reorg detection, L1 sync, BTC integration, DA, and hot database paths) require explicit reasoning about time complexity, allocations, and cache behavior when algorithms or data structures are changed or introduced.
-- For other Via-specific code, a lighter discussion of performance impact is expected when relevant.
-- For upstream-derived code that has not been significantly modified, performance considerations can remain light unless the change affects critical paths.
+Reason about the common (happy) path, not only worst-case Big-O. State the expected work in concrete terms: allocations per operation, DB calls, RPCs, locks held, serialization, background work, and approximate production LOC added. Asymptotic complexity hides the constants that matter at production throughput.
 
-See the PR template for the expected format of the “Performance / Complexity Impact” section.
+Unjustified duplication or missing sibling checks are grounds for blocking merge.
 
 ## Validation
 
-Choose checks that match the files changed and report exactly what ran.
-
-Common local gates:
+Run the standard local checks before pushing:
 
 ```bash
 git diff --check
 zkstack dev fmt
 zkstack dev lint
-cargo test -p <crate-or-package>
+cargo test -p <crate>
+just via-check          # structural lint (ast-grep), advisory
 ```
 
-For targeted Rust changes, prefer the narrowest meaningful crate tests first,
-then broader checks if the change is shared or safety-critical. If a command
-cannot run locally, state why and list the source inspection or narrower check
-used instead.
+**Structural lint (blocking for sibling-paired paths)**
 
-## GitHub issues
+If your change touches any of the following, run `just via-check-strict` and ensure it passes before pushing:
 
-Use the closest `.github/ISSUE_TEMPLATE/` form when creating issues. For
-CLI/API-created issues, manually include the selected form's required fields;
-GitHub only applies issue forms automatically in the web UI.
+- `core/node/via_main_node_reorg_detector/`
+- `via_verifier/node/via_reorg_detector/`
+- Any path pair listed in `.github/sibling-paths.yml`
+- `.github/lint/via-structural/ast-grep/rules/` or `.github/scripts/check-via-structural-rules.sh`
 
-For runtime, protocol, database, deployment, L1/BTC/reorg, verifier,
-external-node, or operator-evidence issues, do not create free-form issues.
-Include raw values, value provenance, facts versus hypotheses, the suspected
-invariant, ordering/identity assumptions, a regression-test expectation, and
-live-read/write boundaries.
+`just via-check` (and `just via-check-strict` for sibling-paired paths) runs structural lint rules that catch common duplication, ordering, and identity anti-patterns across main-node and verifier code. These rules are maintained in `.github/lint/via-structural/ast-grep/rules/`. `zkstack dev lint` does not cover them.
 
-## PR descriptions
+A pre-push hook runs these rules in advisory mode for reorg detector paths as a safety net, but do not rely on it — run the command yourself.
 
-Use `.github/pull_request_template.md` for PR bodies.
+If a rule fires and you believe it is a false positive, document the reasoning in the PR description. Do not silence rules without justification. Rule sources live in `.github/lint/via-structural/ast-grep/rules/`.
 
-Write PR descriptions for a human reviewer/operator, not as an agent/tool audit
-log. Explain why the change exists, what behavior changes, what intentionally did
-not change, how to review the risk, which checks ran, and whether any live
-infrastructure action occurred.
+## GitHub issues and PRs
 
-Use impersonal, operator-facing wording. Avoid first-person singular or plural
-phrasing. Name the component, crate, runtime invariant, config key, deployment
-boundary, or operator action instead.
+Use the appropriate issue template. For runtime, protocol, L1/BTC/reorg, verifier, or external-node issues, do not use free-form issues.
 
-For runtime/safety PRs, the `Why` section should be a real reviewer/operator-facing
-explanation, not a bullet-only summary. It should describe the observed failure
-mode or process gap, why the existing source/process state was unsafe,
-misleading, incomplete, or hard to review, what future maintainer, release, or
-incident path could be harmed, and the invariant the repo should enforce.
+All PRs must follow `.github/pull_request_template.md`. Write descriptions for human reviewers and operators, not as an agent/tool audit log. Focus on the “Why”, what actually changed, what did not change, the risk, and the checks that were run. Use impersonal, operator-facing wording and name the component, crate, runtime invariant, config key, deployment boundary, or operator action instead.
 
-For process/tooling PRs, explain the reviewer or maintainer failure mode the
-process change prevents and the boundary between advisory guidance and enforced
-checks.
+## Tooling and cross-repo notes
 
-The `What did not change` section should prevent unsafe assumptions, especially
-around live rollout, database mutation, secrets, deployment desired state, and
-follow-up infra work.
+- Use GitNexus for non-trivial cross-repo impact analysis.
+- Treat `kube-state` and `helm-charts` as deployment context, not runtime proof.
+- CodeRabbit reviews are advisory. Verify suggestions against source and tests.
+
+## Directory-level guidance
+
+High-risk directories should contain a small `AGENTS.md` that points back to this section. This is often the most effective way to ensure agents encounter the relevant rules at the point of use.

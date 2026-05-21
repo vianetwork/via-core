@@ -1,0 +1,14 @@
+# .github/sibling-paths.yml
+#
+# Machine-readable mapping of high-risk paths to their sibling(s).
+# This file is used by the PR template lint and CodeRabbit rules.
+#
+# Format: [path_in_core, path_in_via_verifier]
+
+pairs:
+  - [core/node/via_main_node_reorg_detector, via_verifier/node/via_reorg_detector]
+  - [core/node/via_btc_watch, via_verifier/node/via_btc_watch]
+  - [core/node/via_btc_sender, via_verifier/node/via_btc_sender]
+  - [core/lib/via_da_clients, via_verifier/lib/via_da_client]  # note: naming differs (clients vs client)
+
+  # Add more pairs here as they are identified

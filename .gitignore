@@ -17,6 +17,13 @@ tags
 *.orig
 .direnv
 
+# Local agent / AI working directory (never commit)
+.agents/
+.antigravitycli/
+
+# Local LLM-wiki / agent-harness knowledge base (experimental, not committed yet)
+llm-wiki/
+
 # Yarn files
 .yarn/
 .yarnrc.yml

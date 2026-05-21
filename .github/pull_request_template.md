@@ -50,35 +50,93 @@ Examples:
   satisfied before a restart durability check.
 -->
 
-## Performance / Complexity Impact
+## Reuse & Duplication
 
-This section is **required for Via-specific code** (`via_*` paths) in the following areas:
+<!--
+Required for any PR that adds or changes production logic. For docs-only,
+comments-only, generated-only, test-only, or process-only changes, write
+"Not applicable — <one-line reason>".
 
-- Reorg detection and L1 sync
-- BTC sender, watch, or client
-- DA / Celestia
-- Hot database paths (especially `via_*_dal`)
+Name the specific function, module, or crate. Vague answers such as
+"searched the repo" or "no duplication found" are not acceptable.
 
-For all other changes, this section is optional but encouraged.
+- Closest existing implementation: Name the function, module, or crate that
+  already does something similar. If none was found, state where you searched
+  (at minimum the nearest via_* crate and the sibling core/ or via_verifier/ path).
 
-Please describe the performance characteristics of the change. Cover the relevant points:
+- Reuse decision: State whether you extended, extracted, replaced, or
+  deliberately duplicated existing logic — and why. If duplication was
+  introduced or left in place, justify it.
 
-- Was an existing function or algorithm **replaced**, or were **new** functions or data structures introduced?
-- Time complexity of the main operation(s) before vs after
-- Allocation behavior
-- Any relevant cache or memory access implications
+- Sibling check: For changes in reorg detection, Bitcoin handling, DA clients,
+  watch services, verifier/prover paths, or any logic mirrored across core/
+  and via_verifier/, explicitly state whether you reviewed the sibling
+  implementation and whether it shares the bug, shares the fix, or is
+  intentionally different.
 
-A small table is often the clearest way to present this, especially when replacing logic. It is not mandatory, but it is encouraged when it improves clarity.
+High-risk areas (Bitcoin, DA/Celestia, reorg/reverter, verifier/prover, hot DAL
+paths, migrations, serialization, hashes, signatures, inscriptions) require
+especially specific answers.
 
-**Example:**
+Anti-pattern example:
+- New detector logic added in both core/node/.../reorg_detector and via_verifier/node/.../reorg_detector with only minor differences.
+- No shared code was extracted.
 
-| Operation                        | Before     | After      | Notes |
-|----------------------------------|------------|------------|-------|
-| Lookup by height                 | O(n)       | O(log n)   | Binary search on sorted Vec |
-| Full window comparison           | O(n)       | O(n)       | Two-pointer merge |
-| Building the structure           | O(n)       | O(n log n) | One-time sort on construction |
+Required pattern:
+- Shared logic extracted to core/lib/ (or appropriate shared crate).
+- Only thin node-specific wrappers remain in core/node/ and via_verifier/node/.
+-->
 
-If the change has no meaningful performance impact, simply state that.
+**Required for any PR that adds or changes production logic in a `via_*` path.**
+
+Before writing implementation code, you must have completed the checks described in the root `AGENTS.md` → *Reuse and duplication discipline*.
+
+**You must include the following in this section** (answers must be specific — vague or placeholder text will be rejected):
+
+- Closest existing implementation considered: `<function or module name>`
+- Sibling paths inspected: `<list of specific paths>`
+- Search command run: `<exact rg/grep command>`
+- Shared extraction decision: extracted to `<path>` **OR** not extracted because `<exact invariant / ownership / execution-context difference>`
+
+Vague answers such as "searched the repo" or "no duplication found" are not accepted.
+
+> Self-check before submitting: Have you named a specific function? Have you listed sibling paths actually inspected (with backticks)? If any answer is no, revise this section.
+
+## Performance, Complexity, and Resource Impact
+
+<!--
+Required for changes touching Via runtime paths (via_* crates, reorg detection,
+Bitcoin sender/watch/client, DA/Celestia, verifier, prover, state keeper, hot
+DAL queries, async fetch/compare logic, ordering-sensitive code). Encouraged
+elsewhere. For docs-only or process-only changes, write
+"Not applicable — <one-line reason>".
+
+Focus on the dimensions that matter for this change. A table is usually the
+clearest way to show trade-offs — use or adapt the format below. Prose is also
+acceptable.
+
+Do not fabricate precision. Do not optimize for fewer lines at the expense of
+correctness or error context.
+-->
+
+**Recommended table format (adapt rows as needed):**
+
+| Dimension                        | Before                          | After                           | Notes |
+|----------------------------------|---------------------------------|---------------------------------|-------|
+| Time complexity (main operation) | O(n)                            | O(n)                            | Now compares by explicit height |
+| Allocations per operation        | 1 Vec + N clones                | 1 HashMap build + sort          | After buffer_unordered |
+| Happy-path work per call         | Positional zip                  | Height-keyed HashMap lookup     | Correctly handles sparse windows |
+| Memory pressure                  | Grows with window size          | Bounded (~100 entries)          | - |
+| DB / I/O / RPCs                  | -                               | -                               | No change |
+| Net production LOC (approx.)     | -                               | +~65 lines                      | Excluding comments, docs & tests |
+
+**Guidance:**
+- Include a complexity row when the shape of the work actually changed.
+- Prioritize allocations and real work done on the common (happy) path.
+- Treat production LOC as audit cost — disclose the approximate delta.
+- You may add, remove, or rename rows. A table is not required if it would not improve clarity.
+
+If the change has no meaningful performance or resource impact, state that clearly.
 
 ## Boundaries and non-goals
 
@@ -150,14 +208,19 @@ copy/paste runnable where possible. Remove commands that were not run.
 
 ```bash
 git diff --check
+
 zkstack dev fmt
 zkstack dev lint
-cargo test -p <crate-or-package>
 
-# Secret scanning:
-# - CI uses TruffleHog if .github/workflows/secrets_scanner.yaml.disabled is
-#   re-enabled as an active workflow.
-# - For local checks, run the repo-approved scanner or gitleaks if available.
+# Via structural rules (ast-grep)
+# Run for sibling-paired paths (see .github/sibling-paths.yml) or other high-risk areas.
+# Use `just via-check-strict` when required. See root AGENTS.md → Validation section.
+just via-check
+just via-check-strict
+
+cargo test -p <relevant-crate>
+
+# Secret scanning
 gitleaks protect --staged --redact --no-banner
 gitleaks git --log-opts="main..HEAD" --redact --no-banner
 ```
@@ -166,6 +229,7 @@ gitleaks git --log-opts="main..HEAD" --redact --no-banner
 
 - [ ] PR title follows Conventional Commits.
 - [ ] Tests, docs, formatting, and linting were updated or marked not applicable.
+- [ ] Ran `just via-check` (and `just via-check-strict` where required) and recorded results in the Checks run section.
 
 ## Live infrastructure and deployment impact
 

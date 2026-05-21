@@ -1,0 +1,34 @@
+id: via-da-batch-before-proof
+language: Rust
+severity: warning
+message: |
+  `dispatch_real_proofs` or proof-related inscription logic appears without a clear
+  preceding confirmed batch data dispatch for the same l1_batch_number.
+
+  In Via, batch data must be durably published via DA (and often inscribed on Bitcoin)
+  before the corresponding proof data. Violating this ordering can lead to finalization
+  of batches whose data was never properly made available.
+
+  See external Via Agent Harness references documented in
+  .github/lint/via-structural/ast-grep/README.md:
+    - mappings/da-dispatcher-deeper.md
+    - proposals/critical/DA-01-batch-before-proof-ordering.md
+    - proposals/critical/DA-02-batch-before-proof-astgrep.md
+
+rule:
+  # Targets calls to dispatch_real_proofs (the actual proof dispatch action),
+  # not bare member access or the function definition itself.
+  # This is still a heuristic rule. Use with scoping in sgconfig.yml and manual review.
+  all:
+    - kind: call_expression
+    - pattern: $R.dispatch_real_proofs($$$)
+
+metadata:
+  category: correctness
+  related:
+    - da
+    - ordering
+    - finalization
+  harness_refs:
+    - mappings/da-dispatcher-deeper.md
+    - proposals/critical/DA-01-batch-before-proof-ordering.md

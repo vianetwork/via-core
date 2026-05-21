@@ -1,0 +1,13 @@
+# Known structural findings that pre-date strict enforcement.
+# Format: rule_id|path
+# Repeat an entry when a file has multiple known findings for the same rule.
+# Advisory output still reports exact locations; strict mode fails only when a
+# rule/path finding count exceeds this baseline.
+via-reorg-buffer-unordered|via_verifier/node/via_reorg_detector/src/lib.rs
+via-reorg-buffer-unordered|core/node/via_main_node_reorg_detector/src/lib.rs
+via-reorg-height-association-required|via_verifier/node/via_reorg_detector/src/lib.rs
+via-reorg-height-association-required|core/node/via_main_node_reorg_detector/src/lib.rs
+via-da-batch-before-proof|core/node/via_da_dispatcher/src/da_dispatcher.rs
+via-avoid-duplicate-export|core/lib/types/src/lib.rs
+via-avoid-duplicate-export|core/lib/types/src/lib.rs
+via-avoid-duplicate-export|core/lib/types/src/lib.rs
