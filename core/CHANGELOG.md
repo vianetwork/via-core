@@ -1,5 +1,17 @@
 # Changelog
 
+## [28.1.0](https://github.com/vianetwork/via-core/compare/core-v28.0.3...core-v28.1.0) (2026-05-21)
+
+
+### Features
+
+* **via-structural:** add Via structural review tooling ([5fb3a53](https://github.com/vianetwork/via-core/commit/5fb3a53b2f2216e0775bf71033d7321cb8c88ff6))
+
+
+### Bug Fixes
+
+* **via_btc_watch:** via btc watch skip blocks after reorg ([#332](https://github.com/vianetwork/via-core/issues/332)) ([80ca2ba](https://github.com/vianetwork/via-core/commit/80ca2ba9594bacda8ec642c252cae36c1ac3c90a))
+
 ## [28.0.3](https://github.com/vianetwork/via-core/compare/core-v28.0.2...core-v28.0.3) (2025-12-25)
 
 
