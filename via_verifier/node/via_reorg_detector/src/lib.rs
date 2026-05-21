@@ -8,8 +8,12 @@ use via_verifier_dal::{Verifier, VerifierDal};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
 use zksync_dal::{Connection, ConnectionPool};
 
-use crate::metrics::{ReorgInfo, METRICS};
+use crate::{
+    compare::find_reorg_start_height,
+    metrics::{ReorgInfo, METRICS},
+};
 
+mod compare;
 mod metrics;
 
 #[derive(Debug)]
@@ -91,17 +95,26 @@ impl ViaVerifierReorgDetector {
         match storage.via_l1_block_dal().get_last_l1_block().await? {
             Some(_) => {}
             None => {
-                let block_height = storage
+                let bootstrap_height = storage
                     .via_indexer_dal()
                     .get_last_processed_l1_block("via_btc_watch")
                     .await? as i64;
 
-                let block = self.btc_client.fetch_block(block_height as u128).await?;
+                // Seed a coherent reorg-window-sized prefix ending at the wallet bootstrap
+                // block so subsequent `detect_reorg()` calls have dense local state and
+                // cannot misalign DB rows against canonical chain rows by zip position.
+                let window = self.config.reorg_window();
+                let from_height = (bootstrap_height - window + 1).max(1);
+                let blocks = self.fetch_blocks(from_height, bootstrap_height).await?;
 
-                storage
-                    .via_l1_block_dal()
-                    .insert_l1_block(block_height, block.block_hash().to_string())
-                    .await?;
+                let mut transaction = storage.start_transaction().await?;
+                for (height, block) in (from_height..=bootstrap_height).zip(blocks) {
+                    transaction
+                        .via_l1_block_dal()
+                        .insert_l1_block(height, block.block_hash().to_string())
+                        .await?;
+                }
+                transaction.commit().await?;
             }
         };
 
@@ -205,26 +218,20 @@ impl ViaVerifierReorgDetector {
 
         // Fetch chain blocks in batch
         let chain_blocks = self.fetch_blocks(start_height, block_height).await?;
+        let chain_hashes: Vec<String> = chain_blocks
+            .iter()
+            .map(|b| b.block_hash().to_string())
+            .collect();
 
-        // let mut reorg_found = false;
-        let mut reorg_start_block_height_opt = None;
-
-        for ((db_number, db_hash), chain_block) in db_blocks.iter().zip(chain_blocks.iter()) {
-            if chain_block.block_hash().to_string() != *db_hash {
-                tracing::warn!("Reorg detected at block {}", db_number);
-                // reorg_found = true;
-                reorg_start_block_height_opt = Some(*db_number);
-                break;
-            }
-        }
-
-        if reorg_start_block_height_opt.is_none() {
+        // Compare by explicit block height to stay correct when `db_blocks` is sparse
+        // (e.g. a freshly bootstrapped verifier where `via_l1_blocks` only holds the
+        // wallet bootstrap row); zip-by-position would otherwise pair mismatched heights.
+        let Some(mut reorg_start_block_height) =
+            find_reorg_start_height(start_height, &chain_hashes, &db_blocks)
+        else {
             return Ok(false);
-        }
-
-        let Some(mut reorg_start_block_height) = reorg_start_block_height_opt else {
-            anyhow::bail!("Reorg start block height not found");
         };
+        tracing::warn!("Reorg detected at block {}", reorg_start_block_height);
 
         let last_processed_l1_block = storage
             .via_indexer_dal()
