@@ -1,0 +1,52 @@
+# .github/via-areas.yml
+#
+# Maps file paths/globs to Via-Area values.
+# Intended for CI auto-injection of Via-Change / Via-Area trailers
+# and future path-aware linting / review rules.
+#
+# This file should be kept in sync with .github/sibling-paths.yml where possible.
+
+mappings:
+  - path: "core/node/via_main_node_reorg_detector/**"
+    area: reorg
+
+  - path: "via_verifier/node/via_reorg_detector/**"
+    area: reorg
+
+  - path: "core/node/via_btc_watch/**"
+    area: btc
+
+  - path: "via_verifier/node/via_btc_watch/**"
+    area: btc
+
+  - path: "core/node/via_btc_sender/**"
+    area: btc
+
+  - path: "via_verifier/node/via_btc_sender/**"
+    area: btc
+
+  - path: "core/node/via_da_dispatcher/**"
+    area: da
+
+  - path: "core/lib/via_da_clients/**"
+    area: da
+
+  - path: "via_verifier/lib/via_da_client/**"
+    area: da
+
+  - path: ".github/lint/via-structural/**"
+    area: structural
+
+  - path: ".github/scripts/check-via-structural-rules.sh"
+    area: structural
+
+  - path: ".github/workflows/via-structural-rules.yml"
+    area: structural
+
+  - path: ".githooks/pre-push"
+    area: structural
+
+  # Add more mappings as needed
+  # Example for future shared crates:
+  # - path: "core/lib/via_reorg_detector/**"
+  #   area: reorg

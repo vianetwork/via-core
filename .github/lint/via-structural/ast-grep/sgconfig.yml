@@ -1,0 +1,32 @@
+# ast-grep configuration for Via Structural Rules
+#
+# These rules protect critical Via identity and ordering invariants,
+# especially `bitcoin_block_height_hash` comparison after async fetches.
+
+ruleDirs:
+  - rules
+
+# Intended scope for each rule. The runner script also passes these globs via
+# `ast-grep scan --globs` because ast-grep 0.42 does not reliably enforce these
+# rule-level globs in this repository setup.
+rules:
+  - include: "via-reorg-buffer-unordered"
+    glob:
+      - "core/node/via_main_node_reorg_detector/**/*.rs"
+      - "via_verifier/node/via_reorg_detector/**/*.rs"
+
+  - include: "via-reorg-height-association-required"
+    glob:
+      - "core/node/via_main_node_reorg_detector/**/*.rs"
+      - "via_verifier/node/via_reorg_detector/**/*.rs"
+
+  - include: "via-da-batch-before-proof"
+    glob:
+      - "core/node/via_da_dispatcher/**/*.rs"
+
+  - include: "via-avoid-duplicate-export"
+    glob:
+      - "core/node/via_*/**/*.rs"
+      - "via_verifier/**/*.rs"
+      - "core/lib/via_*/**/*.rs"
+      - "core/lib/types/src/**/*.rs"

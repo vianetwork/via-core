@@ -1,0 +1,37 @@
+id: via-reorg-buffer-unordered
+language: Rust
+severity: warning
+message: |
+  `buffer_unordered` used inside a reorg detector.
+
+  Results from `buffer_unordered` do not preserve request order.
+  When later combined with positional logic (zip, enumerate, range indexing)
+  against data from `list_l1_blocks` (or any height-indexed collection),
+  the `bitcoin_block_height_hash` identity is violated.
+
+  Height must be the explicit comparison key. Never rely on vector position
+  or async completion order after an unordered fetch.
+
+  See external Via Agent Harness references documented in
+  .github/lint/via-structural/ast-grep/README.md:
+  reorg-detector.md, IDENTITIES.tsv (bitcoin_block_height_hash),
+  and RISK_REGISTER.md (risk.reorg.positional_height_comparison).
+note: |
+  Advisory rule. A match requires the author to explain why height ordering
+  is still guaranteed after this unordered fetch.
+  Prefer collecting into a height-keyed map or using an order-preserving
+  stream + explicit height association.
+rule:
+  pattern: $RECEIVER.buffer_unordered($$$ARGS)
+
+metadata:
+  category: correctness
+  related:
+    - ordering
+    - reorg-detector
+    - async
+    - identity
+  harness_refs:
+    - components/reorg-detector.md
+    - llm-wiki/generated/IDENTITIES.tsv
+    - llm-wiki/generated/RISK_REGISTER.md

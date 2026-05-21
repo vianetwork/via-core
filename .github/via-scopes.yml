@@ -1,0 +1,19 @@
+# .github/via-scopes.yml
+#
+# Allowed Conventional Commit scopes in via-core.
+# Reference metadata for commitlint / PR title checks.
+#
+# Use a `via-` scope for any change that is specific to Via
+# and not intended to be contributed upstream as-is. Use `upstream-sync`
+# only for upstream ZKsync merges that are not Via-specific.
+
+scopes:
+  via-reorg:     Reorg detection and L1 reorg handling
+  via-btc:       Bitcoin client, sender, watcher, and inscriptions
+  via-da:        Data Availability (Celestia, etc.)
+  via-verifier:  Verifier-specific logic and components
+  via-indexer:   Indexer-specific logic
+  via-prover:    Prover-specific logic
+  via-structural: Structural rules and linting (ast-grep)
+  via:           Cross-cutting Via-only changes (use sparingly)
+  upstream-sync: Merging upstream ZKsync changes (not Via-specific)

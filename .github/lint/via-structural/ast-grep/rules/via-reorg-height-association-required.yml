@@ -1,0 +1,43 @@
+id: via-reorg-height-association-required
+language: Rust
+severity: warning
+message: |
+  Positional zip detected in reorg detector code.
+  After `buffer_unordered` fetches, Vec order reflects async completion order,
+  not Bitcoin block height order. Zipping two Vecs positionally silently assumes
+  index correspondence that is not guaranteed.
+  Re-associate by height explicitly: use a BTreeMap<u64, _> keyed on block.height,
+  or zip only over structures you can prove are height-sorted at the call site.
+
+note: |
+  Advisory rule scoped to reorg detector crates via sgconfig.yml.
+  If the positional association is intentional, add a reviewer-facing comment
+  `// height-order-guaranteed: <reason>` near the zip expression and document
+  WHY ordering is safe (e.g. "input was sorted by height before this point",
+  not "buffer_unordered happened to return in order"). This annotation does not
+  automatically suppress the rule; strict mode still requires a baseline update.
+
+rule:
+  any:
+    - pattern: ($R..).zip($B)
+    - pattern: $A.iter().zip($B)
+    - pattern: $A.into_iter().zip($B)
+    - pattern: $A.iter_mut().zip($B)
+metadata:
+  category: correctness
+  related:
+    - ordering
+    - reorg-detector
+    - async
+    - identity
+    - bitcoin_block_height_hash
+  false_positive_guidance: |
+    Common safe patterns that will still fire and need manual review:
+      - zip over two slices that were explicitly sorted by height beforehand
+      - zip in test harnesses over deterministic fixture data
+      - zip in helper functions that are only called with height-sorted input
+    In all these cases, add `// height-order-guaranteed: <reason>` and the
+    reviewer should verify the reason is about HEIGHT, not about Vec order.
+  harness_refs:
+    - proposals/critical/REORG-01-positional-height-comparison-rule.md
+    - components/reorg-detector.md
