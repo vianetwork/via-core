@@ -1,0 +1,13 @@
+[package]
+name = "via_reorg"
+description = "Shared, pure helpers for Via L1 reorg detectors (main-node and verifier)."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]

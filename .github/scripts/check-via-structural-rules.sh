@@ -169,6 +169,10 @@ run_scoped_rule "via-reorg-height-association-required" \
     "core/node/via_main_node_reorg_detector/**/*.rs" \
     "via_verifier/node/via_reorg_detector/**/*.rs"
 
+run_scoped_rule "via-reorg-empty-l1-blocks-nonfatal" \
+    "core/node/via_main_node_reorg_detector/**/*.rs" \
+    "via_verifier/node/via_reorg_detector/**/*.rs"
+
 run_scoped_rule "via-da-batch-before-proof" \
     "core/node/via_da_dispatcher/**/*.rs"
 

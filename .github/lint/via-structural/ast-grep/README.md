@@ -12,6 +12,7 @@ ast-grep provides fast, structural (tree-sitter based) pattern matching on Rust 
 |------------------------------|-------------------------------|-------------------------------------------------------------------------|-----------|
 | `reorg-ordering.yml`         | `via-reorg-buffer-unordered`  | Flags `buffer_unordered` inside reorg detector crates. Results lose request order. | Advisory  |
 | `via-reorg-height-association-required.yml` | `via-reorg-height-association-required` | Targets common dangerous zip patterns after async fetches in reorg detectors (range zips, `.iter().zip`, `.into_iter().zip`, `.iter_mut().zip`). Includes suppression guidance (`// height-order-guaranteed`). Best used together with `via-reorg-buffer-unordered`. | Advisory |
+| `via-reorg-empty-l1-blocks-nonfatal.yml` | `via-reorg-empty-l1-blocks-nonfatal` | Flags fatal `get_last_l1_block()` empty-table handling in reorg detectors. Empty `via_l1_blocks` is a valid bootstrap / inconclusive state and should lazy-bootstrap or return successfully. | Advisory |
 | `via-da-batch-before-proof.yml` | `via-da-batch-before-proof` | Flags calls to `dispatch_real_proofs` in the DA dispatcher. Advisory heuristic for batch-before-proof ordering. Requires scoping and review. | Candidate / Advisory |
 | `via-avoid-duplicate-export.yml` | `via-avoid-duplicate-export` | Flags `pub use $B::$C` when `pub mod $B` is declared in the same file. Prevents unnecessary public API duplication and multiple canonical paths to the same item. | Advisory |
 
@@ -159,6 +160,8 @@ fixtures/
   reorg/
     zip_bad.rs     # positional zip after unordered fetch on height data
     zip_good.rs    # explicit height-based re-association (HashMap or equivalent)
+    empty_l1_blocks_bad.rs   # fatal empty-table handling during detector bootstrap
+    empty_l1_blocks_good.rs  # lazy-bootstrap / inconclusive empty-table handling
 ```
 
 When adding or changing a rule, add or update the corresponding fixtures.
@@ -179,6 +182,11 @@ rules:
       - "via_verifier/node/via_reorg_detector/**/*.rs"
 
   - include: "via-reorg-height-association-required"
+    glob:
+      - "core/node/via_main_node_reorg_detector/**/*.rs"
+      - "via_verifier/node/via_reorg_detector/**/*.rs"
+
+  - include: "via-reorg-empty-l1-blocks-nonfatal"
     glob:
       - "core/node/via_main_node_reorg_detector/**/*.rs"
       - "via_verifier/node/via_reorg_detector/**/*.rs"

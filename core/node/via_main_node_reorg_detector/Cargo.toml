@@ -16,6 +16,7 @@ zksync_types.workspace = true
 zksync_config.workspace = true
 
 via_btc_client.workspace = true
+via_reorg.workspace = true
 
 tokio.workspace = true
 anyhow.workspace = true
