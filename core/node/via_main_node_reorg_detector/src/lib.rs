@@ -11,6 +11,70 @@ use crate::metrics::{ReorgType, METRICS};
 
 mod metrics;
 
+fn chain_hashes_by_height(start_height: i64, chain_blocks: &[Block]) -> Vec<(i64, String)> {
+    (start_height..)
+        .zip(chain_blocks)
+        .map(|(height, block)| (height, block.block_hash().to_string()))
+        .collect()
+}
+
+fn is_sparse_l1_block_window(
+    db_blocks: &[(i64, String)],
+    start_height: i64,
+    end_height: i64,
+) -> bool {
+    let expected_len = (end_height - start_height + 1) as usize;
+    db_blocks.len() != expected_len
+        || db_blocks
+            .windows(2)
+            .any(|blocks| blocks[1].0 != blocks[0].0 + 1)
+        || db_blocks
+            .first()
+            .is_some_and(|(height, _)| *height != start_height)
+        || db_blocks
+            .last()
+            .is_some_and(|(height, _)| *height != end_height)
+}
+
+fn find_reorg_start_block(
+    db_blocks: &[(i64, String)],
+    chain_hashes: &[(i64, String)],
+) -> anyhow::Result<Option<i64>> {
+    let Some((start_height, _)) = chain_hashes.first() else {
+        anyhow::bail!("Cannot detect reorg against an empty canonical chain window");
+    };
+    let Some((end_height, _)) = chain_hashes.last() else {
+        anyhow::bail!("Cannot detect reorg against an empty canonical chain window");
+    };
+
+    let mut previous_height = start_height - 1;
+    for (db_height, db_hash) in db_blocks {
+        if db_height < start_height || db_height > end_height {
+            anyhow::bail!(
+                "DB L1 block {db_height} is outside canonical comparison window {start_height}..={end_height}"
+            );
+        }
+        if *db_height <= previous_height {
+            anyhow::bail!("DB L1 blocks are not strictly ordered by height");
+        }
+
+        let chain_index = (*db_height - start_height) as usize;
+        let (chain_height, chain_hash) = &chain_hashes[chain_index];
+        if chain_height != db_height {
+            anyhow::bail!(
+                "Canonical L1 block window is not indexed by expected height {db_height}; found {chain_height}"
+            );
+        }
+        if chain_hash != db_hash {
+            return Ok(Some(*db_height));
+        }
+
+        previous_height = *db_height;
+    }
+
+    Ok(None)
+}
+
 #[derive(Debug)]
 pub struct ViaMainNodeReorgDetector {
     config: ViaReorgDetectorConfig,
@@ -86,13 +150,21 @@ impl ViaMainNodeReorgDetector {
         let heights: Vec<i64> = (from_block_height..=to_block_height).collect();
 
         let results = stream::iter(heights)
-            .map(|height| async move { self.btc_client.fetch_block(height as u128).await })
+            .map(
+                |height| async move { (height, self.btc_client.fetch_block(height as u128).await) },
+            )
             .buffer_unordered(self.config.max_concurrent_fetches())
             .collect::<Vec<_>>()
             .await;
 
-        let blocks: Result<Vec<_>, _> = results.into_iter().collect();
-        blocks.context("Failed to fetch blocks")
+        let mut blocks = results
+            .into_iter()
+            .map(|(height, block)| block.map(|block| (height, block)))
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to fetch blocks")?;
+        blocks.sort_by_key(|(height, _)| *height);
+
+        Ok(blocks.into_iter().map(|(_, block)| block).collect())
     }
 
     async fn init(&mut self) -> anyhow::Result<()> {
@@ -109,12 +181,19 @@ impl ViaMainNodeReorgDetector {
                     .get_last_processed_l1_block("via_btc_watch")
                     .await? as i64;
 
-                let block = self.btc_client.fetch_block(block_height as u128).await?;
+                let start_height = block_height
+                    .saturating_sub(self.config.reorg_window() - 1)
+                    .max(1);
+                let blocks = self.fetch_blocks(start_height, block_height).await?;
 
-                storage
-                    .via_l1_block_dal()
-                    .insert_l1_block(block_height, block.block_hash().to_string())
-                    .await?;
+                let mut transaction = storage.start_transaction().await?;
+                for (height, block) in (start_height..=block_height).zip(blocks) {
+                    transaction
+                        .via_l1_block_dal()
+                        .insert_l1_block(height, block.block_hash().to_string())
+                        .await?;
+                }
+                transaction.commit().await?;
             }
         };
 
@@ -199,14 +278,17 @@ impl ViaMainNodeReorgDetector {
         // Fetch chain blocks in batch
         let chain_blocks = self.fetch_blocks(start_height, block_height).await?;
 
-        let mut reorg_start_block_height_opt = None;
+        if is_sparse_l1_block_window(&db_blocks, start_height, block_height) {
+            tracing::warn!(
+                "L1 block reorg detection window {start_height}..={block_height} is sparse in DB; comparing only explicit heights"
+            );
+        }
 
-        for ((db_number, db_hash), chain_block) in db_blocks.iter().zip(chain_blocks.iter()) {
-            if chain_block.block_hash().to_string() != *db_hash {
-                tracing::warn!("Reorg detected at block {}", db_number);
-                reorg_start_block_height_opt = Some(*db_number);
-                break;
-            }
+        let chain_hashes = chain_hashes_by_height(start_height, &chain_blocks);
+        let reorg_start_block_height_opt = find_reorg_start_block(&db_blocks, &chain_hashes)?;
+
+        if let Some(db_number) = reorg_start_block_height_opt {
+            tracing::warn!("Reorg detected at block {}", db_number);
         }
 
         if reorg_start_block_height_opt.is_none() {
@@ -312,5 +394,39 @@ impl ViaMainNodeReorgDetector {
         }
 
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chain_hashes(start: i64, end: i64) -> Vec<(i64, String)> {
+        (start..=end)
+            .map(|height| (height, format!("hash-{height}")))
+            .collect()
+    }
+
+    #[test]
+    fn sparse_db_window_compares_by_explicit_height() {
+        let chain_hashes = chain_hashes(100_792, 100_891);
+        let db_blocks = vec![(100_891, "hash-100891".to_string())];
+
+        assert!(is_sparse_l1_block_window(&db_blocks, 100_792, 100_891));
+        assert_eq!(
+            find_reorg_start_block(&db_blocks, &chain_hashes).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn mismatch_at_explicit_height_detects_reorg_at_that_height() {
+        let chain_hashes = chain_hashes(100_792, 100_891);
+        let db_blocks = vec![(100_891, "stale-hash-100891".to_string())];
+
+        assert_eq!(
+            find_reorg_start_block(&db_blocks, &chain_hashes).unwrap(),
+            Some(100_891)
+        );
     }
 }
