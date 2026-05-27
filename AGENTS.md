@@ -109,6 +109,60 @@ When merging upstream ZKsync changes that are **not** Via-specific, use the `ups
 
 Reuse and duplication rules are defined in the dedicated section above.
 
+## Source comment discipline
+
+Source comments describe durable runtime truth: invariants, contracts, and
+why the obvious alternative is wrong. They are not a log of how the code
+was produced.
+
+**Allowed:** contract/doc comments on `pub` items, non-obvious invariants,
+footgun/sentinel values, why-not-alternative reasoning, cross-component
+coupling (stated once on the governing type), performance/ordering
+constraints a refactor would violate, external references (BIP, RFC, CVE).
+
+**Not allowed in `.rs` files** — put in commit messages, PR descriptions,
+or the issue tracker instead:
+
+- Debugging history, "how we found it" narratives, pre/post-fix comparisons.
+- Private environment names, host names, customer names, dates,
+  incident-specific block heights or addresses.
+- References to `AGENTS.md`, lint rule filenames, or PR numbers.
+- Strategy jargon ("defense-in-depth", "future-proofing", "belt-and-suspenders").
+- Narration of the next statement. If unclear, rename or restructure.
+
+**Style:** declarative present tense; one idea per comment; state each
+contract once; prefer stating consequences over shouting prohibitions;
+on `pub` items and critical internal functions in shared or high-risk crates,
+lead with plain-language meaning and the required operator action before
+internal terminology;
+aim ≤15 % comment lines in high-risk files (20 % ceiling).
+
+### High-risk-change checklist
+
+Before pushing to BTC, DA, reorg, verifier, prover, or sibling paths
+(`.github/sibling-paths.yml`): review the comment diff separately and
+ask of every added comment:
+
+> *Does this state a durable invariant, contract, footgun, why-not, or
+> cross-component coupling? If not, move it to the PR description.*
+
+### Anti-pattern → required pattern
+
+```rust
+// ✗  Regression for the Hetzner private external-node rehearsal:
+//    The pre-fix positional `zip` paired DB row 0 (height 100_891) with
+//    canonical row 0 (height 100_792) and reported a false reorg.
+//    Caller MUST treat SparseAt as inconclusive and skip — never demote the
+//    `via_btc_watch` cursor. See AGENTS.md §Reuse and the structural rule
+//    via-reorg-height-association-required.yml (defense-in-depth).
+
+// ✓  Not a reorg. Canonical data for this height was missing, so the
+//    comparison is incomplete. Do not demote or move the `via_btc_watch`
+//    cursor; do not trigger reorg handling.
+```
+
+Incident details belong in commit messages and PR descriptions.
+
 ## Review Expectations
 
 When making changes, consider both correctness **and** performance.

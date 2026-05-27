@@ -46,7 +46,7 @@ mappings:
   - path: ".githooks/pre-push"
     area: structural
 
+  - path: "core/lib/via_reorg/**"
+    area: reorg
+
   # Add more mappings as needed
-  # Example for future shared crates:
-  # - path: "core/lib/via_reorg_detector/**"
-  #   area: reorg

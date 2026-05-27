@@ -1,0 +1,43 @@
+id: via-reorg-empty-l1-blocks-nonfatal
+language: Rust
+severity: warning
+message: |
+  Empty `via_l1_blocks` is a valid bootstrap / inconclusive state in Via reorg
+  detectors.
+
+  Do not `bail!` when `get_last_l1_block()` returns `None` in these detectors.
+  Lazy-bootstrap from `via_btc_watch`, return `Ok(())` / `Ok(false)`, or add a
+  reviewer-facing justification if this is a deliberately fatal post-bootstrap
+  invariant.
+note: |
+  Advisory rule scoped to the main-node and verifier reorg detector crates.
+  `init()` may legitimately leave `via_l1_blocks` empty when
+  `via_btc_watch.last_processed_l1_block <= 0`; fatal empty-table handling can
+  wedge the detector loop before sync code gets a chance to self-heal.
+rule:
+  any:
+    - pattern: |
+        let Some($ROW) = $DAL.get_last_l1_block().await? else {
+            anyhow::bail!($$$ARGS)
+        };
+    - pattern: |
+        let Some($ROW) = $DAL.get_last_l1_block().await? else {
+            bail!($$$ARGS)
+        };
+    - pattern: |
+        match $DAL.get_last_l1_block().await? {
+            Some($ROW) => $VALUE,
+            None => anyhow::bail!($$$ARGS),
+        }
+    - pattern: |
+        match $DAL.get_last_l1_block().await? {
+            Some($ROW) => $VALUE,
+            None => bail!($$$ARGS),
+        }
+metadata:
+  category: correctness
+  related:
+    - bootstrap
+    - reorg-detector
+    - availability
+    - via_l1_blocks

@@ -20,6 +20,11 @@ rules:
       - "core/node/via_main_node_reorg_detector/**/*.rs"
       - "via_verifier/node/via_reorg_detector/**/*.rs"
 
+  - include: "via-reorg-empty-l1-blocks-nonfatal"
+    glob:
+      - "core/node/via_main_node_reorg_detector/**/*.rs"
+      - "via_verifier/node/via_reorg_detector/**/*.rs"
+
   - include: "via-da-batch-before-proof"
     glob:
       - "core/node/via_da_dispatcher/**/*.rs"
