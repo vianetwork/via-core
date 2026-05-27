@@ -8,6 +8,9 @@ on:
       DOCKERHUB_TOKEN:
         description: "DOCKERHUB_TOKEN"
         required: true
+      GAR_JSON_KEY:
+        description: "Google Artifact Registry service account JSON key"
+        required: false
     inputs:
       image_tag_suffix:
         description: "Optional suffix to override tag name generation"
@@ -22,11 +25,12 @@ on:
 jobs:
   prepare-contracts:
     name: Prepare contracts
-    runs-on: [self-hosted, cpu]
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4.1.7
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: "recursive"
+          persist-credentials: false
 
       - name: Prepare ENV
         shell: bash
@@ -45,7 +49,7 @@ jobs:
           yarn workspace system-contracts build
 
       - name: Upload contracts
-        uses: actions/upload-artifact@v4.4.0
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         with:
           name: contacts
           path: |
@@ -56,7 +60,7 @@ jobs:
     needs: prepare-contracts
     env:
       IMAGE_TAG_SUFFIX: ${{ inputs.image_tag_suffix }}
-    runs-on: ${{ fromJSON('["cpu", "cpu-arm"]')[contains(matrix.platforms, 'arm')] }}
+    runs-on: ${{ fromJSON('["ubuntu-24.04", "ubuntu-24.04-arm"]')[contains(matrix.platforms, 'arm')] }}
     strategy:
       matrix:
         components:
@@ -70,12 +74,13 @@ jobs:
             platforms: linux/arm64
 
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: "recursive"
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.6.1
+        uses: docker/setup-buildx-action@988b5a0280414f521da01fcc63a27aeeb4b104db # v3.6.1
 
       - name: Setup env
         shell: bash
@@ -88,16 +93,19 @@ jobs:
 
       - name: Set env vars
         shell: bash
+        env:
+          MATRIX_PLATFORM: ${{ matrix.platforms }}
+          IMAGE_TAG_SUFFIX: ${{ inputs.image_tag_suffix }}
         run: |
-          echo PLATFORM=$(echo ${{ matrix.platforms }} | tr '/' '-') >> $GITHUB_ENV
-          if [ -n "${{ inputs.image_tag_suffix }}" ]; then
-            echo IMAGE_TAG_SHA_TS="${{ env.IMAGE_TAG_SUFFIX }}" >> $GITHUB_ENV
+          echo PLATFORM=$(echo "$MATRIX_PLATFORM" | tr '/' '-') >> $GITHUB_ENV
+          if [ -n "$IMAGE_TAG_SUFFIX" ]; then
+            echo IMAGE_TAG_SHA_TS="$IMAGE_TAG_SUFFIX" >> $GITHUB_ENV
           else
             echo IMAGE_TAG_SHA_TS=$(git rev-parse --short HEAD)-$(date +%s) >> $GITHUB_ENV
           fi
 
       - name: Download contracts
-        uses: actions/download-artifact@v4.1.8
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
           name: contacts
           path: |
@@ -106,11 +114,20 @@ jobs:
       - name: login to Docker registries
         if: ${{ inputs.action == 'push' }}
         shell: bash
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          GAR_JSON_KEY: ${{ secrets.GAR_JSON_KEY }}
         run: |
-          docker login -u ${{ secrets.DOCKERHUB_USER }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+          if [ -z "$GAR_JSON_KEY" ]; then
+            echo "GAR_JSON_KEY is required when publishing images to Artifact Registry" >&2
+            exit 1
+          fi
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
+          printf '%s' "$GAR_JSON_KEY" | docker login -u _json_key --password-stdin https://europe-west3-docker.pkg.dev
 
       - name: Build docker image
-        uses: docker/build-push-action@v6.7.0
+        uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85 # v6.7.0
         with:
           context: .
           load: true
@@ -122,13 +139,15 @@ jobs:
 
       - name: Push docker image
         if: ${{ inputs.action == 'push' }}
+        env:
+          COMPONENT: ${{ matrix.components }}
         run: |
-          docker push europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}
-          docker push vianetwork/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}      
+          docker push "europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${COMPONENT}:${IMAGE_TAG_SHA_TS}-${PLATFORM}"
+          docker push "vianetwork/${COMPONENT}:${IMAGE_TAG_SHA_TS}-${PLATFORM}"
 
   create_manifest:
     name: Create release manifest
-    runs-on: [self-hosted, cpu]
+    runs-on: ubuntu-24.04
     needs: build-images
     if: ${{ inputs.action == 'push' }}
     strategy:
@@ -144,11 +163,23 @@ jobs:
     env:
       IMAGE_TAG_SUFFIX: ${{ inputs.image_tag_suffix }}
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: login to Docker registries
+        shell: bash
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          GAR_JSON_KEY: ${{ secrets.GAR_JSON_KEY }}
         run: |
-          docker login -u ${{ secrets.DOCKERHUB_USER }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+          if [ -z "$GAR_JSON_KEY" ]; then
+            echo "GAR_JSON_KEY is required when publishing manifests to Artifact Registry" >&2
+            exit 1
+          fi
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
+          printf '%s' "$GAR_JSON_KEY" | docker login -u _json_key --password-stdin https://europe-west3-docker.pkg.dev
 
       - name: Create Docker manifest
         run: |

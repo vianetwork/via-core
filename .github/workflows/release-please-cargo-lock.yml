@@ -4,12 +4,16 @@ on:
       - release-please--branches--main--components--core
 
 name: release-please-update-cargo-lock
+
+permissions:
+  contents: read
+
 jobs:
   update_cargo_lock:
-    runs-on: [self-hosted, cpu]
+    runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: "recursive"
           persist-credentials: false
