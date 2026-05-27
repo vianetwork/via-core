@@ -101,9 +101,12 @@ applying address aliasing leaves room for future EVM compatibility.
 
 The L1 -> L2 communication is also used for bridging ether. The user should include a `msg.value` when initiating a
 transaction request on the L1 contract. Before executing a transaction on L2, the specified address will be credited
-with the funds. To withdraw funds user should call `withdraw` function on the `L2EtherToken` system contracts. This will
-burn the funds on L2, allowing the user to reclaim them through the `finalizeEthWithdrawal` function on the
-`MailboxFacet`.
+with the funds. To withdraw funds, the user should call the `withdraw` function on the `L2EtherToken` system contract.
+
+Deprecation note: `finalizeEthWithdrawal` on `MailboxFacet` is deprecated. The replacement flow is
+`L1Nullifier.finalizeDeposit`.
+
+This will burn the funds on L2, allowing the user to reclaim them on L1 through the finalize flow.
 
 More about L1->L2 operations can be found
 [here](https://github.com/code-423n4/2023-10-zksync/blob/main/docs/Smart%20contract%20Section/Handling%20L1→L2%20ops%20on%20zkSync.md).
