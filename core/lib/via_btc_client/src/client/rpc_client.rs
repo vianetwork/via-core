@@ -35,11 +35,11 @@ impl BitcoinRpcClient {
         })
     }
 
-    async fn retry_rpc<F, T>(f: F) -> BitcoinRpcResult<T>
+    async fn retry_rpc<F, T>(operation_name: &'static str, f: F) -> BitcoinRpcResult<T>
     where
         F: Fn() -> BitcoinRpcResult<T> + Send + Sync,
     {
-        with_retry(f, RPC_MAX_RETRIES, RPC_RETRY_DELAY_MS, "RPC call").await
+        with_retry(f, RPC_MAX_RETRIES, RPC_RETRY_DELAY_MS, operation_name).await
     }
 }
 
@@ -47,7 +47,7 @@ impl BitcoinRpcClient {
 impl BitcoinRpc for BitcoinRpcClient {
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_balance(&self, address: &Address) -> BitcoinRpcResult<u64> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("list_unspent", || {
             debug!("Getting balance");
             let result = self.client.list_unspent(
                 Some(1),          // minconf
@@ -83,7 +83,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self, tx_hex), target = "bitcoin_client::rpc_client")]
     async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinRpcResult<Txid> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("send_raw_transaction", || {
             debug!("Sending raw transaction");
             self.client
                 .send_raw_transaction(tx_hex)
@@ -97,7 +97,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         &self,
         address: &Address,
     ) -> BitcoinRpcResult<Vec<OutPoint>> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("list_unspent_based_on_node_wallet", || {
             debug!("Listing unspent outputs based on node wallet");
             let result = self.client.list_unspent(
                 Some(1),          // minconf
@@ -122,7 +122,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn list_unspent(&self, address: &Address) -> BitcoinRpcResult<Vec<OutPoint>> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("scan_tx_out_set_blocking", || {
             debug!("Listing unspent outputs");
             let descriptor = format!("addr({})", address);
             let request = vec![ScanTxOutRequest::Single(descriptor)];
@@ -142,7 +142,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_transaction(&self, txid: &Txid) -> BitcoinRpcResult<Transaction> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("get_raw_transaction", || {
             debug!("Getting transaction");
             self.client
                 .get_raw_transaction(txid, None)
@@ -153,7 +153,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_block_count(&self) -> BitcoinRpcResult<u64> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("get_block_count", || {
             debug!("Getting block count");
             self.client.get_block_count().map_err(|e| e.into())
         })
@@ -162,7 +162,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_block_by_height(&self, block_height: u128) -> BitcoinRpcResult<Block> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("get_block_by_height", || {
             debug!("Getting block by height");
             let block_hash = self.client.get_block_hash(block_height as u64)?;
             self.client.get_block(&block_hash).map_err(|e| e.into())
@@ -172,7 +172,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinRpcResult<Block> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("get_block_by_hash", || {
             debug!("Getting block by hash");
             self.client.get_block(block_hash).map_err(|e| e.into())
         })
@@ -181,7 +181,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_best_block_hash(&self) -> BitcoinRpcResult<BlockHash> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("get_best_block_hash", || {
             debug!("Getting best block hash");
             self.client.get_best_block_hash().map_err(|e| e.into())
         })
@@ -193,7 +193,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         &self,
         txid: &Txid,
     ) -> BitcoinRpcResult<bitcoincore_rpc::json::GetRawTransactionResult> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("get_raw_transaction_info", || {
             debug!("Getting raw transaction info");
             self.client
                 .get_raw_transaction_info(txid, None)
@@ -208,7 +208,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         conf_target: u16,
         estimate_mode: Option<EstimateMode>,
     ) -> BitcoinRpcResult<EstimateSmartFeeResult> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("estimate_smart_fee", || {
             debug!("Estimating smart fee");
             self.client
                 .estimate_smart_fee(conf_target, estimate_mode)
@@ -219,7 +219,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("get_blockchain_info", || {
             debug!("Getting blockchain info");
             self.client.get_blockchain_info().map_err(|e| e.into())
         })
@@ -228,7 +228,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_block_stats(&self, height: u64) -> BitcoinRpcResult<GetBlockStatsResult> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("get_block_stats", || {
             debug!("Getting block stats");
             self.client.get_block_stats(height).map_err(|e| e.into())
         })
@@ -237,7 +237,7 @@ impl BitcoinRpc for BitcoinRpcClient {
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_mempool_info(&self) -> BitcoinRpcResult<GetMempoolInfoResult> {
-        Self::retry_rpc(|| {
+        Self::retry_rpc("get_mempool_info", || {
             debug!("Getting mempool info");
             self.client.get_mempool_info().map_err(|e| e.into())
         })
