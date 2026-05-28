@@ -6,6 +6,16 @@ on:
         description: "Tag of an image to built"
         type: string
         required: true
+    secrets:
+      DOCKERHUB_USER:
+        description: "DOCKERHUB_USER"
+        required: true
+      DOCKERHUB_TOKEN:
+        description: "DOCKERHUB_TOKEN"
+        required: true
+      GAR_JSON_KEY:
+        description: "Google Artifact Registry service account JSON key"
+        required: false
   workflow_dispatch:
     inputs:
       tag_name:
@@ -20,6 +30,9 @@ on:
 
 concurrency: docker-build
 
+permissions:
+  contents: read
+
 jobs:
   setup:
     name: Setup
@@ -28,18 +41,23 @@ jobs:
       image_tag_suffix: ${{ steps.set.outputs.image_tag_suffix }}
       prover_fri_gpu_key_id: ${{ steps.extract-prover-fri-setup-key-ids.outputs.gpu_short_commit_sha }}
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
       - name: Generate output with git tag
         id: set
+        env:
+          INPUT_TAG_NAME: ${{ inputs.tag_name }}
         run: |
           git_tag=""
-          if [[ -z "${{ inputs.tag_name }}" ]]; then
+          if [[ -z "$INPUT_TAG_NAME" ]]; then
             git_tag="${GITHUB_REF#refs/*/}"
           else
-            git_tag="${{ inputs.tag_name }}"
+            git_tag="$INPUT_TAG_NAME"
           fi
-          version=$(cut -d "-" -f2 <<< ${git_tag})
-          echo "image_tag_suffix=${version}" >> $GITHUB_OUTPUT
+          version=$(cut -d "-" -f2 <<< "$git_tag")
+          echo "image_tag_suffix=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Generate outputs with Prover FRI setup data keys IDs
         id: extract-prover-fri-setup-key-ids
@@ -54,6 +72,7 @@ jobs:
     secrets:
       DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      GAR_JSON_KEY: ${{ secrets.GAR_JSON_KEY }}
     with:
       image_tag_suffix: ${{ needs.setup.outputs.image_tag_suffix }}
       action: "push"
