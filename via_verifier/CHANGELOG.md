@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/vianetwork/via-core/compare/via_verifier-v1.1.2...via_verifier-v1.2.0) (2026-05-28)
+
+
+### Features
+
+* **via-structural:** add Via structural review tooling ([5fb3a53](https://github.com/vianetwork/via-core/commit/5fb3a53b2f2216e0775bf71033d7321cb8c88ff6))
+
 ## [1.1.2](https://github.com/vianetwork/via-core/compare/via_verifier-v1.1.1...via_verifier-v1.1.2) (2026-03-26)
 
 
