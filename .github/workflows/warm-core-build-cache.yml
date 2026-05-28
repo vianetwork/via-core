@@ -1,0 +1,25 @@
+name: Warm core image build cache
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+concurrency:
+  group: warm-core-image-build-cache
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  warm-core-build-cache:
+    name: Warm core build cache
+    if: ${{ github.ref == 'refs/heads/main' }}
+    uses: ./.github/workflows/build-core-template.yml
+    with:
+      action: "build"
+      export_build_cache: true
+    secrets:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

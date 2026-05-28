@@ -21,6 +21,11 @@ on:
         type: string
         required: false
         default: "do nothing"
+      export_build_cache:
+        description: "Export BuildKit cache from trusted build-only callers"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -116,6 +121,20 @@ jobs:
             ./contracts
 
       - name: Build docker image
+        if: ${{ !inputs.export_build_cache }}
+        uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85 # v6.7.0
+        with:
+          context: .
+          load: true
+          platforms: ${{ matrix.platforms }}
+          file: docker/${{ matrix.components }}/Dockerfile
+          tags: |
+            europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}
+            vianetwork/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}
+          cache-from: type=gha,scope=core-${{ matrix.components }}-${{ env.PLATFORM }}
+
+      - name: Build docker image and refresh cache
+        if: ${{ inputs.export_build_cache }}
         uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85 # v6.7.0
         with:
           context: .
