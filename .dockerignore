@@ -1,8 +1,13 @@
 *
+# Keep the Docker build context as an allowlist. Core image builds copy broad
+# repository paths, so add only files and directories required by Dockerfiles.
 !docker/prover/prover-entry.sh
 !docker/local-node/entrypoint.sh
 !docker/external-node/entrypoint.sh
 !docker/contract-verifier/install-all-solc.sh
+!docker/via-server/Dockerfile
+!docker/via-external-node/Dockerfile
+!docker/snapshots-creator/Dockerfile
 !etc/test_config
 !etc/env/target/dev.env.example
 !etc/env/target/docker.env
