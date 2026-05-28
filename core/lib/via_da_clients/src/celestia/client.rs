@@ -77,6 +77,38 @@ impl CelestiaClient {
 
         Ok((commitment, block_height))
     }
+
+    /// Verifies that the blob data matches the expected commitment.
+    /// Returns an error if the commitment doesn't match.
+    /// 
+    /// This is a static method to allow unit testing without requiring
+    /// a full CelestiaClient instance with network connections.
+    fn verify_blob_commitment(
+        namespace: Namespace,
+        blob_data: &[u8],
+        expected_commitment: &Commitment,
+    ) -> Result<(), types::DAError> {
+        let share_version = celestia_types::consts::appconsts::SHARE_VERSION_ZERO;
+
+        let computed_commitment = Commitment::from_blob(namespace, share_version, blob_data)
+            .map_err(|error| types::DAError {
+            error: anyhow!("Failed to compute commitment: {}", error),
+            is_retriable: false,
+        })?;
+
+        if computed_commitment != *expected_commitment {
+            return Err(types::DAError {
+                error: anyhow!(
+                    "Commitment mismatch: expected {}, computed {}",
+                    hex::encode(&expected_commitment.0),
+                    hex::encode(&computed_commitment.0)
+                ),
+                is_retriable: false,
+            });
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -152,6 +184,9 @@ impl DataAvailabilityClient for CelestiaClient {
                 is_retriable: true,
             })?;
 
+        // Verify the blob commitment before processing
+        Self::verify_blob_commitment(self.namespace, &blob.data, &commitment)?;
+
         let data = match ViaDaBlob::from_bytes(&blob.data) {
             Some(blob) => {
                 if blob.chunks == 1 {
@@ -192,6 +227,9 @@ impl DataAvailabilityClient for CelestiaClient {
                                 is_retriable: true,
                             })?;
 
+                        // Verify each chunk's commitment
+                        Self::verify_blob_commitment(self.namespace, &blob.data, &commitment)?;
+
                         batch_blob.extend_from_slice(&blob.data);
                     }
 
@@ -220,5 +258,131 @@ impl Debug for CelestiaClient {
         f.debug_struct("CelestiaClient")
             .field("light_node_url", &self.light_node_url)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use celestia_types::{nmt::Namespace, Commitment};
+
+    /// Helper to create the VIA namespace used in tests
+    fn test_namespace() -> Namespace {
+        let namespace_bytes = [b'V', b'I', b'A', 0, 0, 0, 0, 0];
+        Namespace::new_v0(&namespace_bytes).expect("Failed to create test namespace")
+    }
+
+    #[test]
+    fn test_commitment_computation_is_deterministic() {
+        let namespace = test_namespace();
+        let share_version = celestia_types::consts::appconsts::SHARE_VERSION_ZERO;
+        let blob_data = b"test blob data for commitment verification";
+
+        // Compute commitment twice
+        let commitment1 =
+            Commitment::from_blob(namespace, share_version, blob_data).expect("First commitment");
+        let commitment2 =
+            Commitment::from_blob(namespace, share_version, blob_data).expect("Second commitment");
+
+        // Same data should produce same commitment
+        assert_eq!(
+            commitment1, commitment2,
+            "Commitment computation should be deterministic"
+        );
+    }
+
+    #[test]
+    fn test_commitment_differs_for_different_data() {
+        let namespace = test_namespace();
+        let share_version = celestia_types::consts::appconsts::SHARE_VERSION_ZERO;
+        let original_data = b"original data";
+        let tampered_data = b"tampered data";
+
+        let original_commitment = Commitment::from_blob(namespace, share_version, original_data)
+            .expect("Original commitment");
+        let tampered_commitment = Commitment::from_blob(namespace, share_version, tampered_data)
+            .expect("Tampered commitment");
+
+        // Different data should produce different commitments
+        assert_ne!(
+            original_commitment, tampered_commitment,
+            "Different data should produce different commitments"
+        );
+    }
+
+    #[test]
+    fn test_commitment_differs_for_different_namespaces() {
+        let namespace1 = test_namespace();
+        let namespace2 = Namespace::new_v0(&[b'T', b'E', b'S', b'T', 0, 0, 0, 0])
+            .expect("Failed to create second namespace");
+        let share_version = celestia_types::consts::appconsts::SHARE_VERSION_ZERO;
+        let blob_data = b"same data";
+
+        let commitment1 =
+            Commitment::from_blob(namespace1, share_version, blob_data).expect("Commitment 1");
+        let commitment2 =
+            Commitment::from_blob(namespace2, share_version, blob_data).expect("Commitment 2");
+
+        // Same data in different namespaces should produce different commitments
+        assert_ne!(
+            commitment1, commitment2,
+            "Same data in different namespaces should produce different commitments"
+        );
+    }
+
+    #[test]
+    fn test_verify_blob_commitment_logic_valid() {
+        let namespace = test_namespace();
+        let blob_data = b"test data for verification";
+
+        // Compute the expected commitment
+        let expected_commitment = Commitment::from_blob(
+            namespace,
+            celestia_types::consts::appconsts::SHARE_VERSION_ZERO,
+            blob_data,
+        )
+        .expect("Failed to compute commitment");
+
+        // Verification should succeed for valid data
+        let result =
+            CelestiaClient::verify_blob_commitment(namespace, blob_data, &expected_commitment);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_blob_commitment_logic_mismatch() {
+        let namespace = test_namespace();
+        let original_data = b"original data";
+        let tampered_data = b"tampered data";
+
+        // Compute commitment for original data
+        let expected_commitment = Commitment::from_blob(
+            namespace,
+            celestia_types::consts::appconsts::SHARE_VERSION_ZERO,
+            original_data,
+        )
+        .expect("Failed to compute original commitment");
+
+        // Verification should fail for tampered data
+        let result =
+            CelestiaClient::verify_blob_commitment(namespace, tampered_data, &expected_commitment);
+        assert!(result.is_err());
+
+        // Assert on the error message
+        let error = result.unwrap_err();
+        assert!(error.error.to_string().contains("Commitment mismatch"));
+    }
+
+    #[test]
+    fn test_commitment_is_32_bytes() {
+        let namespace = test_namespace();
+        let share_version = celestia_types::consts::appconsts::SHARE_VERSION_ZERO;
+        let blob_data = b"any data";
+
+        let commitment =
+            Commitment::from_blob(namespace, share_version, blob_data).expect("Commitment");
+
+        // Commitment should be exactly 32 bytes
+        assert_eq!(commitment.0.len(), 32, "Commitment should be 32 bytes");
     }
 }
