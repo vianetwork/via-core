@@ -15,9 +15,9 @@ ENV RUSTC_WRAPPER=${RUSTC_WRAPPER}
 
 WORKDIR /usr/src/via
 
+RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev git && rm -rf /var/lib/apt/lists/*
 COPY . .
 
-RUN apt-get update && apt-get install -y protobuf-compiler git && rm -rf /var/lib/apt/lists/*
 RUN cargo build --release --bin via_server --bin via_block_reverter_cli --bin merkle_tree_consistency_checker
 
 FROM debian:bookworm-slim
