@@ -37,6 +37,12 @@ jobs:
           echo $(pwd)/bin >> $GITHUB_PATH
           echo IN_DOCKER=1 >> .env
 
+      - name: Install cargo check dependencies
+        if: steps.condition.outputs.skip_steps != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
       - name: Cargo check
         if: steps.condition.outputs.skip_steps != 'true'
         run: cargo check
