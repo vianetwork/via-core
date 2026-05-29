@@ -21,6 +21,10 @@ on:
         type: string
         required: false
         default: "do nothing"
+      source_ref:
+        description: "Git ref, tag, or SHA to checkout for the image build"
+        type: string
+        required: false
       export_build_cache:
         description: "Export BuildKit cache from trusted build-only callers"
         type: boolean
@@ -37,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           submodules: "recursive"
           persist-credentials: false
 
@@ -85,6 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           submodules: "recursive"
           persist-credentials: false
 
@@ -179,6 +185,7 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           submodules: "recursive"
           persist-credentials: false
 
@@ -221,12 +228,41 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           GAR_JSON_KEY: ${{ secrets.GAR_JSON_KEY }}
         run: |
-          if [ -z "$GAR_JSON_KEY" ]; then
-            echo "GAR_JSON_KEY is required when publishing images to Artifact Registry" >&2
+          set -euo pipefail
+
+          if [ -z "$DOCKERHUB_USER" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "DOCKERHUB_USER and DOCKERHUB_TOKEN are required when publishing images" >&2
             exit 1
           fi
+
           printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
-          printf '%s' "$GAR_JSON_KEY" | docker login -u _json_key --password-stdin https://europe-west3-docker.pkg.dev
+
+          if [ -n "$GAR_JSON_KEY" ]; then
+            printf '%s' "$GAR_JSON_KEY" | docker login -u _json_key --password-stdin https://europe-west3-docker.pkg.dev
+          else
+            echo "GAR_JSON_KEY not set; publishing Docker Hub images only."
+          fi
+
+      - name: Set image publish tags
+        shell: bash
+        env:
+          COMPONENT: ${{ matrix.components }}
+          GAR_JSON_KEY: ${{ secrets.GAR_JSON_KEY }}
+        run: |
+          set -euo pipefail
+
+          tags="vianetwork/${COMPONENT}:${IMAGE_TAG_SHA_TS}-${PLATFORM}"
+          if [ -n "$GAR_JSON_KEY" ]; then
+            tags="${tags}"$'\n'"europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${COMPONENT}:${IMAGE_TAG_SHA_TS}-${PLATFORM}"
+          else
+            echo "GAR_JSON_KEY not set; publishing Docker Hub image only for ${COMPONENT} ${PLATFORM}."
+          fi
+
+          {
+            echo "IMAGE_TAGS<<EOF"
+            echo "$tags"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       - name: Build and push docker image
         uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85 # v6.7.0
@@ -235,9 +271,7 @@ jobs:
           push: true
           platforms: ${{ matrix.platforms }}
           file: docker/${{ matrix.components }}/Dockerfile
-          tags: |
-            europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}
-            vianetwork/${{ matrix.components }}:${{ env.IMAGE_TAG_SHA_TS }}-${{ env.PLATFORM }}
+          tags: ${{ env.IMAGE_TAGS }}
           # Release manifests are assembled from these platform tags with
           # `docker manifest create`; keep tags free of Buildx attestation
           # descriptors. SBOM generation is controlled separately.
@@ -267,6 +301,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           persist-credentials: false
 
       - name: login to Docker registries
@@ -276,25 +311,45 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           GAR_JSON_KEY: ${{ secrets.GAR_JSON_KEY }}
         run: |
-          if [ -z "$GAR_JSON_KEY" ]; then
-            echo "GAR_JSON_KEY is required when publishing manifests to Artifact Registry" >&2
+          set -euo pipefail
+
+          if [ -z "$DOCKERHUB_USER" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "DOCKERHUB_USER and DOCKERHUB_TOKEN are required when publishing manifests" >&2
             exit 1
           fi
+
           printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
-          printf '%s' "$GAR_JSON_KEY" | docker login -u _json_key --password-stdin https://europe-west3-docker.pkg.dev
+
+          if [ -n "$GAR_JSON_KEY" ]; then
+            printf '%s' "$GAR_JSON_KEY" | docker login -u _json_key --password-stdin https://europe-west3-docker.pkg.dev
+          else
+            echo "GAR_JSON_KEY not set; publishing Docker Hub manifests only."
+          fi
 
       - name: Create Docker manifest
+        env:
+          COMPONENT: ${{ matrix.component.name }}
+          GAR_JSON_KEY: ${{ secrets.GAR_JSON_KEY }}
+          MATRIX_PLATFORMS: ${{ matrix.component.platform }}
         run: |
-          docker_repositories=("vianetwork/${{ matrix.component.name }}" "europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.component.name }}")
-          platforms=${{ matrix.component.platform }}
+          set -euo pipefail
+
+          docker_repositories=("vianetwork/${COMPONENT}")
+          if [ -n "$GAR_JSON_KEY" ]; then
+            docker_repositories+=("europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${COMPONENT}")
+          else
+            echo "GAR_JSON_KEY not set; creating Docker Hub manifest only for ${COMPONENT}."
+          fi
+
+          platforms="${MATRIX_PLATFORMS}"
           for repo in "${docker_repositories[@]}"; do
-            platform_tags=""
+            platform_tags=()
             for platform in ${platforms//,/ }; do
-              platform=$(echo $platform | tr '/' '-')
-              platform_tags+=" --amend ${repo}:${IMAGE_TAG_SUFFIX}-${platform}"
+              platform=$(echo "$platform" | tr '/' '-')
+              platform_tags+=(--amend "${repo}:${IMAGE_TAG_SUFFIX}-${platform}")
             done
             for manifest in "${repo}:${IMAGE_TAG_SUFFIX}"; do
-              docker manifest create ${manifest} ${platform_tags}
-              docker manifest push ${manifest}
+              docker manifest create "${manifest}" "${platform_tags[@]}"
+              docker manifest push "${manifest}"
             done
           done
