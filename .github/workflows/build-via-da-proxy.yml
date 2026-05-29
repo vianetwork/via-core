@@ -11,6 +11,9 @@ on:
         type: string
         required: false
 
+permissions:
+  contents: read
+
 jobs:
   build-and-push:
     name: Build and Push Docker Images
@@ -18,41 +21,58 @@ jobs:
 
     steps:
       - name: Set reference and fetch repo
+        env:
+          DEFAULT_REF: ${{ github.ref_name }}
+          INPUT_REF: ${{ inputs.ref }}
         run: |
-          if [[ -n "${{ inputs.ref }}" ]]; then
-            echo "REF=${{ inputs.ref }}" >> $GITHUB_ENV
+          if [[ -n "${INPUT_REF}" ]]; then
+            REF="${INPUT_REF}"
           else
-            REF="$(git rev-parse --abbrev-ref HEAD)"  # Get the current branch if not provided
+            REF="${DEFAULT_REF}"
           fi
+          if [[ "${REF}" == *$'\n'* || "${REF}" == *$'\r'* || "${REF}" == -* ]] || ! git check-ref-format --allow-onelevel "${REF}"; then
+            echo "::error::Invalid git ref: ${REF}"
+            exit 1
+          fi
+          printf 'REF=%s\n' "${REF}" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.REF }}
+          persist-credentials: false
           submodules: 'recursive'
 
       - name: Determine Docker tag
+        env:
+          IMAGE_TAG_SUFFIX: ${{ inputs.image_tag_suffix }}
         run: |
-          if [[ -n "${{ inputs.image_tag_suffix }}" ]]; then
-            TAG="${{ inputs.image_tag_suffix }}"
+          if [[ -n "${IMAGE_TAG_SUFFIX}" ]]; then
+            if [[ ! "${IMAGE_TAG_SUFFIX}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+              echo "::error::Invalid Docker tag suffix: ${IMAGE_TAG_SUFFIX}"
+              exit 1
+            fi
+            TAG="${IMAGE_TAG_SUFFIX}"
           else
             TAG=$(git rev-parse --short HEAD)
           fi
-          echo "DOCKER_TAG=$TAG" >> $GITHUB_ENV
+          printf 'DOCKER_TAG=%s\n' "${TAG}" >> "$GITHUB_ENV"
 
       - name: Setup env
         run: |
-          echo VIA_HOME=$(pwd) >> $GITHUB_ENV
-          echo CI=1 >> $GITHUB_ENV
-          echo $(pwd)/bin >> $GITHUB_PATH
+          echo "VIA_HOME=$(pwd)" >> "$GITHUB_ENV"
+          echo "CI=1" >> "$GITHUB_ENV"
+          echo "$(pwd)/bin" >> "$GITHUB_PATH"
           echo CI=1 >> .env
           echo IN_DOCKER=1 >> .env
 
       - name: Build image
         run: |
-          docker buildx build -t via-da-proxy:${{ env.DOCKER_TAG }} -f via-core-ext/Dockerfile via-core-ext
+          docker buildx build -t "via-da-proxy:${DOCKER_TAG}" -f via-core-ext/Dockerfile via-core-ext
 
       - name: Publish image to registry
-        run: | 
-          docker tag via-da-proxy:${{ env.DOCKER_TAG }} europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-da-proxy:${{ env.DOCKER_TAG }}
-          docker push europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-da-proxy:${{ env.DOCKER_TAG }}
-          echo "Image: europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-da-proxy:${{ env.DOCKER_TAG }}"
+        env:
+          REMOTE_IMAGE: europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/via-da-proxy
+        run: |
+          docker tag "via-da-proxy:${DOCKER_TAG}" "${REMOTE_IMAGE}:${DOCKER_TAG}"
+          docker push "${REMOTE_IMAGE}:${DOCKER_TAG}"
+          echo "Image: ${REMOTE_IMAGE}:${DOCKER_TAG}"
