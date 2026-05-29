@@ -7,6 +7,9 @@ on:
         type: string
         required: false
 
+permissions:
+  contents: read
+
 jobs:
   tests:
     name: Run tests
@@ -14,23 +17,36 @@ jobs:
 
     steps:
       - name: Set reference and fetch repo
+        env:
+          DEFAULT_REF: ${{ github.ref_name }}
+          INPUT_REF: ${{ inputs.ref }}
         run: |
-          if [[ -n "${{ inputs.ref }}" ]]; then
-            echo "REF=${{ inputs.ref }}" >> $GITHUB_ENV
-          else
-            REF="$(git rev-parse --abbrev-ref HEAD)"  # Get the current branch if not provided
-          fi  
+          set -euo pipefail
 
-      - uses: actions/checkout@v4.2.2
+          if [[ -n "${INPUT_REF}" ]]; then
+            REF="${INPUT_REF}"
+          else
+            REF="${DEFAULT_REF}"
+          fi
+
+          if [[ "${REF}" == *$'\n'* || "${REF}" == *$'\r'* || "${REF}" == -* ]] || ! git check-ref-format --allow-onelevel "${REF}"; then
+            echo "::error::Invalid git ref: ${REF}"
+            exit 1
+          fi
+
+          printf 'REF=%s\n' "${REF}" >> "${GITHUB_ENV}"
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.REF }}
           submodules: 'recursive'
+          persist-credentials: false
 
       - name: Setup env
         run: |
-          echo VIA_HOME=$(pwd) >> $GITHUB_ENV
-          echo CI=1 >> $GITHUB_ENV
-          echo $(pwd)/bin >> $GITHUB_PATH
+          printf 'VIA_HOME=%s\n' "$(pwd)" >> "${GITHUB_ENV}"
+          echo CI=1 >> "${GITHUB_ENV}"
+          printf '%s/bin\n' "$(pwd)" >> "${GITHUB_PATH}"
           echo CI=1 >> .env
           echo IN_DOCKER=1 >> .env
 

@@ -30,6 +30,9 @@ on:
           - proof-fri-gpu-compressor
           - prover-autoscaler
 
+permissions:
+  contents: read
+
 jobs:
   setup-components:
     runs-on: [self-hosted, cpu]
@@ -37,13 +40,17 @@ jobs:
       components: ${{ steps.set-components.outputs.components }}
     steps:
       - id: set-components
+        env:
+          COMPONENT: ${{ inputs.component }}
         run: |
-          ALL='["witness-generator","circuit-prover-gpu","prover-fri-gateway","prover-job-monitor","proof-fri-gpu-compressor", "prover-autoscaler"]'
-          
-          if [ "${{ github.event.inputs.component }}" = "all" ]; then
-            echo "components=$ALL" >> $GITHUB_OUTPUT
+          set -euo pipefail
+
+          ALL='["witness-generator","circuit-prover-gpu","prover-fri-gateway","prover-job-monitor","proof-fri-gpu-compressor","prover-autoscaler"]'
+
+          if [[ "${COMPONENT}" == "all" ]]; then
+            printf 'components=%s\n' "${ALL}" >> "${GITHUB_OUTPUT}"
           else
-            echo "components=[\"${{ github.event.inputs.component }}\"]" >> $GITHUB_OUTPUT
+            printf 'components=["%s"]\n' "${COMPONENT}" >> "${GITHUB_OUTPUT}"
           fi
 
   build-and-push:
@@ -58,33 +65,53 @@ jobs:
 
     steps:
       - name: Set reference and fetch repo
+        env:
+          DEFAULT_REF: ${{ github.ref_name }}
+          INPUT_REF: ${{ inputs.ref }}
         run: |
-          if [[ -n "${{ github.event.inputs.ref }}" ]]; then
-            echo "REF=${{ github.event.inputs.ref }}" >> $GITHUB_ENV
-          else
-            REF="$(git rev-parse --abbrev-ref HEAD)"
-            echo "REF=$REF" >> $GITHUB_ENV
-          fi  
+          set -euo pipefail
 
-      - uses: actions/checkout@v4.2.2
+          if [[ -n "${INPUT_REF}" ]]; then
+            REF="${INPUT_REF}"
+          else
+            REF="${DEFAULT_REF}"
+          fi
+
+          if [[ "${REF}" == *$'\n'* || "${REF}" == *$'\r'* || "${REF}" == -* ]] || ! git check-ref-format --allow-onelevel "${REF}"; then
+            echo "::error::Invalid git ref: ${REF}"
+            exit 1
+          fi
+
+          printf 'REF=%s\n' "${REF}" >> "${GITHUB_ENV}"
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.REF }}
           submodules: 'recursive'
+          persist-credentials: false
 
       - name: Determine Docker tag
+        env:
+          IMAGE_TAG_SUFFIX: ${{ inputs.image_tag_suffix }}
         run: |
-          if [[ -n "${{ github.event.inputs.image_tag_suffix }}" ]]; then
-            TAG="${{ github.event.inputs.image_tag_suffix }}"
+          set -euo pipefail
+
+          if [[ -n "${IMAGE_TAG_SUFFIX}" ]]; then
+            if [[ ! "${IMAGE_TAG_SUFFIX}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+              echo "::error::Invalid Docker tag suffix: ${IMAGE_TAG_SUFFIX}"
+              exit 1
+            fi
+            TAG="${IMAGE_TAG_SUFFIX}"
           else
             TAG=$(git rev-parse --short HEAD)
           fi
-          echo "DOCKER_TAG=$TAG" >> $GITHUB_ENV
+          printf 'DOCKER_TAG=%s\n' "${TAG}" >> "${GITHUB_ENV}"
 
       - name: Setup env
         run: |
-          echo VIA_HOME=$(pwd) >> $GITHUB_ENV
-          echo CI=1 >> $GITHUB_ENV
-          echo $(pwd)/bin >> $GITHUB_PATH
+          printf 'VIA_HOME=%s\n' "$(pwd)" >> "${GITHUB_ENV}"
+          echo CI=1 >> "${GITHUB_ENV}"
+          printf '%s/bin\n' "$(pwd)" >> "${GITHUB_PATH}"
           echo CI=1 >> .env
           echo IN_DOCKER=1 >> .env
 
@@ -94,20 +121,29 @@ jobs:
           run_retried curl -LO https://storage.googleapis.com/matterlabs-setup-keys-us/setup-keys/setup_2\^24.key
 
       - name: Build image
+        env:
+          COMPONENT: ${{ matrix.component }}
         run: |
-          if [[ "${{ matrix.component }}" == "circuit-prover-gpu" || "${{ matrix.component }}" == "proof-fri-gpu-compressor" ]]; then
-            EXTRA_BUILD_ARGS="--build-arg CUDA_ARCH=${{ env.CUDA_ARCH }}"
+          set -euo pipefail
+
+          EXTRA_BUILD_ARGS=()
+          if [[ "${COMPONENT}" == "circuit-prover-gpu" || "${COMPONENT}" == "proof-fri-gpu-compressor" ]]; then
+            EXTRA_BUILD_ARGS+=(--build-arg "CUDA_ARCH=${CUDA_ARCH}")
           fi
 
           docker buildx build \
-            -t ${{ matrix.component }}:${{ env.DOCKER_TAG }} \
-            -f docker/${{ matrix.component }}/Dockerfile \
-            $EXTRA_BUILD_ARGS \
+            -t "${COMPONENT}:${DOCKER_TAG}" \
+            -f "docker/${COMPONENT}/Dockerfile" \
+            "${EXTRA_BUILD_ARGS[@]}" \
             .
 
       - name: Publish image to registry
+        env:
+          COMPONENT: ${{ matrix.component }}
+          REMOTE_IMAGE: europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.component }}
         run: |
-          docker tag ${{ matrix.component }}:${{ env.DOCKER_TAG }} \
-            europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.component }}:${{ env.DOCKER_TAG }}
-          docker push europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.component }}:${{ env.DOCKER_TAG }}
-          echo "Image: europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/${{ matrix.component }}:${{ env.DOCKER_TAG }}"
+          set -euo pipefail
+
+          docker tag "${COMPONENT}:${DOCKER_TAG}" "${REMOTE_IMAGE}:${DOCKER_TAG}"
+          docker push "${REMOTE_IMAGE}:${DOCKER_TAG}"
+          printf 'Image: %s:%s\n' "${REMOTE_IMAGE}" "${DOCKER_TAG}"
