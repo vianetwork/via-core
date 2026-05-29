@@ -108,11 +108,17 @@ The pipeline has three phases:
    per-platform tags with `docker manifest create`. This is why Buildx `provenance` is
    **disabled** on the push step: attestation descriptors would break `manifest create`.
 
-Images publish to **both** registries with identical tags:
-`vianetwork/<component>` (Docker Hub) and
-`europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/<component>` (Google
-Artifact Registry). Publishing requires the `GAR_JSON_KEY` secret; the push and
-manifest jobs fail fast without it.
+Images always publish Docker Hub tags as `vianetwork/<component>`. When
+`GAR_JSON_KEY` is set, the same run also publishes matching Google Artifact Registry
+tags as
+`europe-west3-docker.pkg.dev/viaorg-prod-net-landing-0/via/<component>`. When
+`GAR_JSON_KEY` is absent, the push and manifest jobs skip Artifact Registry login,
+tags, and manifests and continue with Docker Hub only.
+
+Publishing still requires the Docker Hub secrets `DOCKERHUB_USER` and
+`DOCKERHUB_TOKEN`. `build-and-push-images` computes the Buildx `IMAGE_TAGS` list from
+the available registry credentials, so missing `GAR_JSON_KEY` is not a workflow
+failure by itself.
 
 ### Base images
 
@@ -267,7 +273,8 @@ For any change to this path, verify:
 - Runners stay GitHub-hosted (`ubuntu-24.04` / `ubuntu-24.04-arm`).
 - Any new workspace path the build needs is allow-listed in `.dockerignore`.
 - Runtime images copy only the intended binaries and runtime assets.
-- Publishing still targets both registries and still guards on `GAR_JSON_KEY`.
+- Publishing still targets Docker Hub, and still targets Artifact Registry when
+  `GAR_JSON_KEY` is available.
 
 If a change *intentionally* invalidates the dependency cache, say so in the PR
 description and weigh the cold-build cost against the benefit.
