@@ -69,11 +69,8 @@ jobs:
 
           while IFS= read -r changed_file; do
             case "${changed_file}" in
-              .github/workflows/ci.yml|\
-              .github/workflows/build-core-template.yml|\
-              .github/workflows/build-docker-from-tag.yml|\
-              .github/workflows/release-please-cargo-lock.yml|\
-              .github/workflows/zizmor-audit.yml)
+              .github/workflows/*.yml|\
+              .github/workflows/*.yaml)
                 should_run=true
                 break
                 ;;
@@ -93,6 +90,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mapfile -t workflows < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
+
           docker run \
             --rm \
             --volume "${GITHUB_WORKSPACE}:/workspace:ro" \
@@ -103,8 +102,4 @@ jobs:
             --strict-collection \
             --format=plain \
             -- \
-            .github/workflows/ci.yml \
-            .github/workflows/build-core-template.yml \
-            .github/workflows/build-docker-from-tag.yml \
-            .github/workflows/release-please-cargo-lock.yml \
-            .github/workflows/zizmor-audit.yml
+            "${workflows[@]}"

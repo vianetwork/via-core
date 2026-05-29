@@ -11,6 +11,3 @@ via-da-batch-before-proof|core/node/via_da_dispatcher/src/da_dispatcher.rs
 via-avoid-duplicate-export|core/lib/types/src/lib.rs
 via-avoid-duplicate-export|core/lib/types/src/lib.rs
 via-avoid-duplicate-export|core/lib/types/src/lib.rs
-via-workflow-ref-env-write-validation|.github/workflows/build-prover-components.yml
-via-workflow-ref-env-write-validation|.github/workflows/tests-via.yml
-via-workflow-docker-tag-validation|.github/workflows/build-prover-components.yml

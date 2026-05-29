@@ -8,44 +8,67 @@ on:
         type: string
         required: true
 
+permissions: {}
+
 jobs:
   release:
     runs-on: [matterlabs-ci-runner]
     steps:
       - name: Login to Docker registries
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
         run: |
-          docker login -u ${{ secrets.DOCKERHUB_USER }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+          set -euo pipefail
+
+          printf '%s' "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USER}" --password-stdin
           gcloud auth configure-docker us-docker.pkg.dev -q
 
       - name: Check if alpha image exists
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
         run: |
-          set +e
-          docker manifest inspect matterlabs/external-node:${{ inputs.tag_name }}-alpha >/dev/null 2>&1
-          exitcode=$?
-          set -e
-          if [[ "$exitcode" -eq "1" ]]; then
-            echo "Image matterlabs/external-node:${{ inputs.tag_name }}-alpha doesn't exist"
+          set -euo pipefail
+
+          if [[ ! "${TAG_NAME}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::Invalid Docker tag name: ${TAG_NAME}"
+            exit 1
+          fi
+
+          alpha_manifest="matterlabs/external-node:${TAG_NAME}-alpha"
+          if ! docker manifest inspect "${alpha_manifest}" >/dev/null 2>&1; then
+            echo "Image ${alpha_manifest} doesn't exist"
             exit 1
           fi
 
       - name: Push stable image
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
         run: |
+          set -euo pipefail
+
+          if [[ ! "${TAG_NAME}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::Invalid Docker tag name: ${TAG_NAME}"
+            exit 1
+          fi
+
           docker_repositories=("matterlabs/external-node")
           platforms=("linux/amd64" "linux/arm64")
-          tag_name="${{ inputs.tag_name }}"
+          tag_name="${TAG_NAME}"
           for repo in "${docker_repositories[@]}"; do
-            platform_tags=""
+            platform_tags=()
             for platform in "${platforms[@]}"; do
-              platform=$(echo $platform | tr '/' '-')
+              platform=$(echo "${platform}" | tr '/' '-')
+              alpha_tag="${repo}:${tag_name}-alpha-${platform}"
               tag="${repo}:${tag_name}-${platform}"
-              docker pull $alpha_tag
-              docker tag $alpha_tag $tag
-              docker push $tag
-               
-              platform_tags+=" --amend $tag"
+              docker pull "${alpha_tag}"
+              docker tag "${alpha_tag}" "${tag}"
+              docker push "${tag}"
+
+              platform_tags+=(--amend "${tag}")
             done
             for manifest in "${repo}:${tag_name}" "${repo}:2.0-${tag_name}"; do
-              docker manifest create ${manifest} ${platform_tags}
-              docker manifest push ${manifest}
+              docker manifest create "${manifest}" "${platform_tags[@]}"
+              docker manifest push "${manifest}"
             done
           done
