@@ -30,10 +30,11 @@ COPY --from=planner /usr/src/via/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json --bin via_server --bin via_block_reverter_cli --bin merkle_tree_consistency_checker
 
 FROM chef AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends mold && rm -rf /var/lib/apt/lists/*
 COPY . .
 COPY --from=cacher /usr/local/cargo /usr/local/cargo
 COPY --from=cacher /usr/src/via/target target
-RUN cargo build --release --bin via_server --bin via_block_reverter_cli --bin merkle_tree_consistency_checker
+RUN mold -run cargo build --release --bin via_server --bin via_block_reverter_cli --bin merkle_tree_consistency_checker
 
 FROM debian:bookworm-slim
 

@@ -29,10 +29,11 @@ COPY --from=planner /usr/src/zksync/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json --bin snapshots_creator
 
 FROM chef AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends mold && rm -rf /var/lib/apt/lists/*
 COPY . .
 COPY --from=cacher /usr/local/cargo /usr/local/cargo
 COPY --from=cacher /usr/src/zksync/target target
-RUN cargo build --release --bin snapshots_creator
+RUN mold -run cargo build --release --bin snapshots_creator
 
 FROM debian:bookworm-slim
 

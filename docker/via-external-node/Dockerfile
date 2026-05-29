@@ -29,10 +29,11 @@ COPY --from=planner /usr/src/via/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json --bin via_external_node
 
 FROM chef AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends mold && rm -rf /var/lib/apt/lists/*
 COPY . .
 COPY --from=cacher /usr/local/cargo /usr/local/cargo
 COPY --from=cacher /usr/src/via/target target
-RUN cargo build --release --bin via_external_node
+RUN mold -run cargo build --release --bin via_external_node
 
 FROM debian:bookworm-slim
 
