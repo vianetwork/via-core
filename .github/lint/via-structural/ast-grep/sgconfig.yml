@@ -35,3 +35,13 @@ rules:
       - "via_verifier/**/*.rs"
       - "core/lib/via_*/**/*.rs"
       - "core/lib/types/src/**/*.rs"
+
+  - include: "via-workflow-ref-env-write-validation"
+    glob:
+      - ".github/workflows/*.yml"
+      - ".github/workflows/*.yaml"
+
+  - include: "via-workflow-docker-tag-validation"
+    glob:
+      - ".github/workflows/*.yml"
+      - ".github/workflows/*.yaml"

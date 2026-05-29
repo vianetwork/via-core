@@ -110,7 +110,7 @@ run_scoped_rule() {
     local rule_id="$1"
     shift
 
-    local args=("scan" "--config" "$SGCONFIG" "--filter" "$rule_id" "--report-style" "short" "--color=never")
+    local args=("scan" "--no-ignore" "hidden" "--config" "$SGCONFIG" "--filter" "$rule_id" "--report-style" "short" "--color=never")
     local glob
     for glob in "$@"; do
         args+=("--globs" "$glob")
@@ -181,6 +181,14 @@ run_scoped_rule "via-avoid-duplicate-export" \
     "via_verifier/**/*.rs" \
     "core/lib/via_*/**/*.rs" \
     "core/lib/types/src/**/*.rs"
+
+run_scoped_rule "via-workflow-ref-env-write-validation" \
+    ".github/workflows/*.yml" \
+    ".github/workflows/*.yaml"
+
+run_scoped_rule "via-workflow-docker-tag-validation" \
+    ".github/workflows/*.yml" \
+    ".github/workflows/*.yaml"
 
 if [[ -n "$OUTPUT" ]]; then
     echo "$OUTPUT"

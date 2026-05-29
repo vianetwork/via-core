@@ -1,0 +1,29 @@
+id: via-workflow-ref-env-write-validation
+language: Yaml
+severity: warning
+message: |
+  Manual workflow ref input reaches GITHUB_ENV without local git-ref validation.
+
+  Validate workflow-dispatch ref input before writing the selected ref to GITHUB_ENV.
+  Ref validation prevents environment-file injection through newlines and rejects
+  unexpected ref syntax before actions/checkout consumes the value.
+note: |
+  This rule is scoped to GitHub Actions workflow YAML. It is intentionally narrow:
+  it targets run blocks that combine ref input with a REF write to GITHUB_ENV and
+  either do not run git check-ref-format or write REF before that validation.
+rule:
+  all:
+    - pattern: |
+        run: |
+          $$$BODY
+    - regex: '(?s)((INPUT_REF|\$\{\{[[:space:]]*(github\.event\.)?inputs\.ref[[:space:]]*\}\}).*REF=.*>>[[:space:]]*"?\$GITHUB_ENV"?|REF=.*(INPUT_REF|\$\{\{[[:space:]]*(github\.event\.)?inputs\.ref[[:space:]]*\}\}).*>>[[:space:]]*"?\$GITHUB_ENV"?)'
+    - any:
+        - not:
+            regex: 'git check-ref-format'
+        - regex: '(?s)REF=.*>>[[:space:]]*"?\$GITHUB_ENV"?.*git check-ref-format'
+metadata:
+  category: ci-security
+  related:
+    - github-actions
+    - environment-files
+    - git-refs

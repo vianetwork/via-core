@@ -1,0 +1,28 @@
+id: via-workflow-docker-tag-validation
+language: Yaml
+severity: warning
+message: |
+  Manual workflow image tag input reaches a Docker tag exported through GITHUB_ENV.
+
+  Validate workflow-dispatch image tag input before writing the resulting Docker tag
+  to GITHUB_ENV. Docker tags should reject environment-file control characters and
+  stay within the Docker tag character set before later docker build/tag/push steps
+  consume them.
+note: |
+  This rule is scoped to GitHub Actions workflow YAML. It is intentionally narrow:
+  it targets run blocks that combine image_tag_suffix input with a DOCKER_TAG write
+  to GITHUB_ENV and do not include the local Docker tag validation pattern.
+rule:
+  all:
+    - pattern: |
+        run: |
+          $$$BODY
+    - regex: '(?s)((IMAGE_TAG_SUFFIX|\$\{\{[[:space:]]*(github\.event\.)?inputs\.image_tag_suffix[[:space:]]*\}\}).*DOCKER_TAG=.*>>[[:space:]]*"?\$GITHUB_ENV"?|DOCKER_TAG=.*(IMAGE_TAG_SUFFIX|\$\{\{[[:space:]]*(github\.event\.)?inputs\.image_tag_suffix[[:space:]]*\}\}).*>>[[:space:]]*"?\$GITHUB_ENV"?)'
+    - not:
+        regex: '(A-Za-z0-9_|a-zA-Z0-9_).*0,127'
+metadata:
+  category: ci-security
+  related:
+    - github-actions
+    - environment-files
+    - docker-tags
