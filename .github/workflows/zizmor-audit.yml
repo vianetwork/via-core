@@ -1,0 +1,110 @@
+name: Zizmor
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    name: Audit core workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine audit scope
+        id: audit-scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          should_run=false
+          changed_files=""
+
+          list_changed_paths() {
+            git diff --name-status --find-renames "$1" "$2" | awk '
+              $1 ~ /^R/ || $1 ~ /^C/ { print $2; print $3; next }
+              NF >= 2 { print $2 }
+            '
+          }
+
+          case "${EVENT_NAME}" in
+            push)
+              if [[ -z "${BASE_SHA}" || "${BASE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
+                should_run=true
+              elif ! changed_files="$(list_changed_paths "${BASE_SHA}" "${HEAD_SHA}")"; then
+                echo "Could not determine changed files for push; running audit."
+                should_run=true
+              fi
+              ;;
+            pull_request)
+              if ! changed_files="$(list_changed_paths "${BASE_SHA}" "${HEAD_SHA}")"; then
+                echo "Could not determine changed files for pull request; running audit."
+                should_run=true
+              fi
+              ;;
+            merge_group|workflow_dispatch)
+              should_run=true
+              ;;
+          esac
+
+          while IFS= read -r changed_file; do
+            case "${changed_file}" in
+              .github/workflows/ci.yml|\
+              .github/workflows/build-core-template.yml|\
+              .github/workflows/build-docker-from-tag.yml|\
+              .github/workflows/release-please-cargo-lock.yml|\
+              .github/workflows/zizmor-audit.yml)
+                should_run=true
+                break
+                ;;
+            esac
+          done <<< "${changed_files}"
+
+          echo "should_run=${should_run}" >> "${GITHUB_OUTPUT}"
+
+          if [[ "${should_run}" == "true" ]]; then
+            echo "Zizmor audit will run."
+          else
+            echo "No audited workflow files changed; skipping scan."
+          fi
+
+      - name: Run zizmor
+        if: steps.audit-scope.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          docker run \
+            --rm \
+            --volume "${GITHUB_WORKSPACE}:/workspace:ro" \
+            --workdir /workspace \
+            --env GH_TOKEN \
+            ghcr.io/zizmorcore/zizmor:1.25.2@sha256:14ea7f5cc7c67933394a35b5a38a277397818d232602635edb2010b313afb110 \
+            --no-config \
+            --strict-collection \
+            --format=plain \
+            -- \
+            .github/workflows/ci.yml \
+            .github/workflows/build-core-template.yml \
+            .github/workflows/build-docker-from-tag.yml \
+            .github/workflows/release-please-cargo-lock.yml \
+            .github/workflows/zizmor-audit.yml
