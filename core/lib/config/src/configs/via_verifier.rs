@@ -27,22 +27,22 @@ pub struct ViaVerifierConfig {
     pub poll_interval: u64,
 
     /// Port to which the coordinator server is listening.
-    pub coordinator_port: u16,
+    pub coordinator_port: Option<u16>,
 
     /// The coordinator url.
-    pub coordinator_http_url: String,
+    pub coordinator_http_url: Option<String>,
 
     /// Verifier Request Timeout (in seconds)
-    pub verifier_request_timeout: u8,
+    pub verifier_request_timeout: Option<u8>,
 
     /// The verifier btc wallet address.
-    pub wallet_address: String,
+    pub wallet_address: Option<String>,
 
     /// The bridge address merkle root.
     pub bridge_address_merkle_root: Option<String>,
 
     /// The session timeout.
-    pub session_timeout: u64,
+    pub session_timeout: Option<u64>,
 
     /// Transaction weight limit.
     pub max_tx_weight: Option<u64>,
@@ -54,13 +54,16 @@ impl ViaVerifierConfig {
     }
 
     pub fn wallet_address(&self) -> anyhow::Result<Address> {
-        Ok(Address::from_str(&self.wallet_address)?.assume_checked())
+        Ok(Address::from_str(&self.wallet_address.clone().unwrap())?.assume_checked())
     }
 }
 
 impl ViaVerifierConfig {
     pub fn bind_addr(&self) -> SocketAddr {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), self.coordinator_port)
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            self.coordinator_port(),
+        )
     }
 
     pub fn max_tx_weight(&self) -> u64 {
@@ -72,15 +75,31 @@ impl ViaVerifierConfig {
             .unwrap_or((MAX_STANDARD_TX_WEIGHT - 20000).into())
     }
 
+    pub fn coordinator_port(&self) -> u16 {
+        self.coordinator_port.unwrap_or_default()
+    }
+
+    pub fn coordinator_http_url(&self) -> String {
+        self.coordinator_http_url.clone().unwrap_or_default()
+    }
+
+    pub fn verifier_request_timeout(&self) -> u8 {
+        self.verifier_request_timeout.unwrap_or(60)
+    }
+
+    pub fn session_timeout(&self) -> u64 {
+        self.session_timeout.unwrap_or(300)
+    }
+
     pub fn for_tests() -> Self {
         Self {
             role: ViaNodeRole::Verifier,
             poll_interval: 1000,
-            coordinator_http_url: "http://localhost:3000".into(),
-            coordinator_port: 3000,
-            verifier_request_timeout: 10,
-            wallet_address: "".into(),
-            session_timeout: 30,
+            coordinator_http_url: None,
+            coordinator_port: None,
+            verifier_request_timeout: None,
+            wallet_address: None,
+            session_timeout: None,
             max_tx_weight: None,
             bridge_address_merkle_root: None,
         }
