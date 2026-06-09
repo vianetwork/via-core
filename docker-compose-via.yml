@@ -241,7 +241,7 @@ services:
       - POSTGRES_PASSWORD=notsecurepassword
 
   celestia-node-init:
-    image: &celestia-image "ghcr.io/celestiaorg/celestia-node:v0.29.3-mocha"
+    image: &celestia-image "ghcr.io/celestiaorg/celestia-node:v0.31.1-mocha"
     volumes:
       - ./etc/docker-data/celestia/keys:/keys
       - celestia:/home/celestia
