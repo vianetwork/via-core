@@ -39,8 +39,10 @@ Port approach:
 2. Audit how the v29 node boots when settlement-related layers are simply not wired:
    enumerate `SettlementLayer`/`SettlementLayerClient` consumers
    (`git grep -l 'SettlementLayer' core-v29.20.0 -- core/`) and record, per consumer,
-   whether via omits the layer (preferred) or feeds it a static
-   `SettlementLayer::L1(via_chain_id)` placeholder. This audit is the first Smithers
+   whether via omits the layer (preferred) or needs a via-specific adapter with an
+   explicit invariant proving the ETH path stays inert. No static
+   `SettlementLayer::L1(...)` placeholder — that would route bootstrap logic through
+   ETH-only settlement paths that must stay unwired. This audit is the first Smithers
    task of the unit and a deliverable in itself.
 3. The verifier-side senders (`via_verifier/node/via_btc_sender`, MuSig2 withdrawal
    broadcasting) depend on this unit plus `via_musig2`; they port in wave 4.

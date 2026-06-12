@@ -8,7 +8,7 @@
   is exactly what makes a merge impossible.
 - ~2,649 added LOC of via DAL modules inside `core/lib/dal` (via queries/models) plus
   29 real B/feature modifications to upstream DAL files and 262 generated `.sqlx`
-  entries. (Via's history also cherry-picked 32 upstream migration files; the
+  entries. (Via's history also cherry-picked 31 upstream migration files; the
   inventory classes those `backported-migration` — already in v29's schema, not
   port work.)
 - Separate DALs that are clean crates already: `via_verifier/lib/verifier_dal`
@@ -36,7 +36,7 @@
    eth_sender-adjacent queries; check each against the parallel-stack decision
    (seam 02): if via_btc_sender has its own tables, the upstream file may not need
    modification at all in v29.
-4. `verifier_dal` and `via_indexer_dal` port as whole crates (they share only
+4. `via_verifier_dal` and `via_indexer_dal` port as whole crates (they share only
    `zksync_db_connection`/`zksync_basic_types`); renumber their migrations too for a
    clean genesis.
 

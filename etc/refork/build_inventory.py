@@ -12,6 +12,7 @@ Run from the repo root after `git fetch upstream tag core-v29.20.0 --no-tags`:
 
 import csv
 import os
+import re
 import subprocess
 from collections import Counter, defaultdict
 
@@ -45,15 +46,22 @@ def is_via_named(path):
     return path.startswith("docs/via_guides/")
 
 
+CRATE_NAMES = {}  # via crate dir -> Cargo.toml package name; filled in main()
+
+
 def via_crate_root(path):
-    """Return the via crate directory a path belongs to, or None."""
+    """Return the via crate unit a path belongs to, or None.
+
+    A unit is only a crate if its directory has a Cargo.toml with a package
+    name (tooling/CI/docker dirs that merely contain "via" are not crates),
+    and the unit key is that package name so it matches the docs' waves."""
     parts = path.split("/")
     for i, seg in enumerate(parts[:-1]):
         if seg.startswith(("via_", "via-")) and seg not in ("via_guides",):
             # top-level workspaces keep their inner crate as the unit
             if seg in ("via_verifier", "via_indexer") and len(parts) > i + 2:
-                return parts[i + 2]
-            return seg
+                return CRATE_NAMES.get("/".join(parts[: i + 3]))
+            return CRATE_NAMES.get("/".join(parts[: i + 1]))
     return None
 
 
@@ -111,6 +119,11 @@ def main():
     v29_blobs = tree_blobs(UPSTREAM_PIN)
     head_blobs = tree_blobs("HEAD")
     base_blobs = tree_blobs(MERGE_BASE)
+    for p in head_blobs:
+        if p.endswith("/Cargo.toml") and is_via_named(p):
+            m = re.search(r'^name\s*=\s*"([^"]+)"', git("show", f"HEAD:{p}"), re.M)
+            if m:
+                CRATE_NAMES[p[: -len("/Cargo.toml")]] = m.group(1)
     v29_tree = set(v29_blobs)
     v29_by_blob = defaultdict(list)
     for p, h in v29_blobs.items():
@@ -141,6 +154,9 @@ def main():
         # backport of upstream work; nothing to port after the refork.
         if v29_blobs.get(new_path) is not None and v29_blobs.get(new_path) == head_blobs.get(new_path):
             return "identical-to-v29"
+        # the post-rename path existing in v29 beats old-path lineage.
+        if new_path in v29_tree:
+            return "present"
         path = old_path or new_path
         if path in v29_tree:
             return "present"
@@ -174,7 +190,9 @@ def main():
         if status == "A" and path.endswith(".sql") and "/migrations/" in path:
             # via's history cherry-picked upstream migrations; only via-owned
             # ones are port work, backports already sit in the v29 schema.
-            if path in v29_tree or head_blobs.get(path) in v29_by_blob:
+            # Path-level match only: generic down-script placeholders blob-match
+            # unrelated migrations.
+            if path in v29_tree:
                 cat, sub = "A", "backported-migration"
             else:
                 cat, sub = "D", "via-migration"
@@ -206,7 +224,7 @@ def main():
     fieldnames = ["path", "old_path", "status", "category", "subclass",
                   "v29_fate", "loc_added", "loc_deleted", "port_unit"]
     with open(OUT_CSV, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=fieldnames)
+        w = csv.DictWriter(fh, fieldnames=fieldnames, lineterminator="\n")
         w.writeheader()
         w.writerows(rows)
 

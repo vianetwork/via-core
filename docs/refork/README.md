@@ -28,7 +28,7 @@ mapping, and the orchestration specs that the port executes against.
 1. **The refork is additive.** Via never deleted the ETH stack — of 371 deleted files,
    only 12 still exist in v29 (CI/docker noise). No surgical-removal pass is needed.
 2. **A large share of the diff is backports.** 622 diverged paths are byte-identical
-   to v29 (via cherry-picked upstream work after the fork, including 32 SQL
+   to v29 (via cherry-picked upstream work after the fork, including 31 SQL
    migrations): zero port cost.
 3. **Forked via crates carry small deltas** (e.g. `via_state_keeper` is ±1.8k over its
    base while upstream moved that crate ±11k). The port re-applies deltas onto v29

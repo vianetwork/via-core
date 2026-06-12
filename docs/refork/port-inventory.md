@@ -15,16 +15,16 @@ git fetch upstream tag core-v29.20.0 --no-tags`.
 
 | Category | Subclass | Paths | Meaning |
 |---|---|---:|---|
-| A | via-crate | 477 | Files inside the 39 standalone via crates (~97k added LOC total with embedded files) |
-| A | via-named-embedded | 112 | Via-named files added *inside* upstream crates (node_framework layers, config structs, DAL modules) |
+| A | via-crate | 403 | Files inside the 39 standalone via crates (~97k added LOC total with embedded files). A crate = directory with a named `Cargo.toml`; unit keys are the package names |
+| A | via-named-embedded | 186 | Via-named files added *inside* upstream crates (node_framework layers, config structs, DAL modules) plus via-named tooling (CI lint, docker, playground, protocol-upgrade scripts) |
 | A | unmarked-addition | 593 | Files via added without a `via` name — **120 are byte-identical to v29** (backports); rest need triage |
 | A | generated | 262 | Added `.sqlx` query metadata — regenerates from queries |
-| A | backported-migration | 32 | Upstream migrations via cherry-picked after the fork — already in the v29 schema, zero port work |
+| A | backported-migration | 31 | Upstream migrations via cherry-picked after the fork (path-level match in v29) — already in the v29 schema, zero port work |
 | B | feature | 583 | Hand-modified upstream files. **110 byte-identical to v29** (pure backports) → 473 real |
 | B | wiring | 837 | Small/mechanical edits (Cargo.toml, mod exports, configs) — 306 identical to v29 |
 | B | generated / noise / submodule | 151 | Lockfiles, `.sqlx`, CI templates, `contracts` submodule pointer |
 | C | deleted-upstream-file | 371 | See below — almost all are backported *upstream* deletions, not via surgery |
-| D | via-migration | 39 | Via-owned SQL migrations (see seam doc 06) |
+| D | via-migration | 40 | Via-owned SQL migrations (see seam doc 06) |
 
 ### The `v29_fate` column
 
@@ -39,7 +39,7 @@ Every B/C row (and unmarked additions) is joined against the pin's tree:
   (path recorded). Confirmed code reorganization; re-derive against the new location.
 - **moved?** — no content match, but the basename is unique in v29 (weak hint,
   candidate recorded). Confirm before trusting.
-- **gone** — no counterpart in v29. 127 B/feature files; each needs an explicit
+- **gone** — no counterpart in v29. 71 B/feature files; each needs an explicit
   decision (usually the surrounding subsystem was redesigned). Ambiguous basename
   matches are deliberately left here rather than guessed.
 
@@ -99,6 +99,9 @@ Genuinely novel code (no upstream base; lift-and-adapt):
 From `Cargo.toml` graphs of the 39 via crates (via→via edges only; all also depend on
 `zksync_*` crates, which the refork provides):
 
+0. **Wave 0**: the `config` unit — via's smart-config structs and secrets registration
+   in `core/lib/config` (seam 03). Every via crate reads these; nothing builds before
+   they land.
 1. **Wave 1**: `via_btc_client`, `via_da_clients`, `via_da_client`, `via_mempool`, `via_reorg`, `via_consensus`, `via_block_reverter`, `via_da_dispatcher_lib`, `via_indexer_dal`
 2. **Wave 2**: `via_fee_model`, `via_consistency_checker`, `via_da_dispatcher`, `via_node_storage_init`, `via_main_node_reorg_detector`, `via_verification`, `via_verifier_types`, `via_test_utils`, `via_server`*, `via_loadnext`, …
 3. **Wave 3**: `via_state_keeper`, `via_btc_watch`, `via_btc_sender`†, `via_external_node`, `via_verifier_dal`, `via_withdrawal_client`, `via_indexer`
