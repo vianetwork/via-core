@@ -38,7 +38,7 @@ Port approach:
    including moving the wiring layers into `via_btc_sender/src/node/`.
 2. Audit how the v29 node boots when settlement-related layers are simply not wired:
    enumerate `SettlementLayer`/`SettlementLayerClient` consumers
-   (`git grep -l 'SettlementLayer' core-v29.19.2 -- core/`) and record, per consumer,
+   (`git grep -l 'SettlementLayer' core-v29.20.0 -- core/`) and record, per consumer,
    whether via omits the layer (preferred) or feeds it a static
    `SettlementLayer::L1(via_chain_id)` placeholder. This audit is the first Smithers
    task of the unit and a deliverable in itself.

@@ -1,12 +1,12 @@
 # Refork port inventory
 
 Status: Phase 0 deliverable. Generated against fork point `f37b84ac75` (core-v24.22.0,
-2024-08-28) and refork pin **`core-v29.19.2`** (2026-06-03).
+2024-08-28) and refork pin **`core-v29.20.0`** (2026-06-04).
 
 Machine-readable companion: [`etc/refork/inventory.csv`](../../etc/refork/inventory.csv),
 regenerable with [`etc/refork/build_inventory.py`](../../etc/refork/build_inventory.py)
 after `git remote add upstream https://github.com/matter-labs/zksync-era.git &&
-git fetch upstream tag core-v29.19.2 --no-tags`.
+git fetch upstream tag core-v29.20.0 --no-tags`.
 
 ## Headline numbers
 
@@ -19,11 +19,12 @@ git fetch upstream tag core-v29.19.2 --no-tags`.
 | A | via-named-embedded | 112 | Via-named files added *inside* upstream crates (node_framework layers, config structs, DAL modules) |
 | A | unmarked-addition | 593 | Files via added without a `via` name — **120 are byte-identical to v29** (backports); rest need triage |
 | A | generated | 262 | Added `.sqlx` query metadata — regenerates from queries |
-| B | feature | 504 | Hand-modified upstream files. **108 byte-identical to v29** (pure backports) → 396 real |
-| B | wiring | 916 | Small/mechanical edits (Cargo.toml, mod exports, configs) — 308 identical to v29 |
+| A | backported-migration | 32 | Upstream migrations via cherry-picked after the fork — already in the v29 schema, zero port work |
+| B | feature | 583 | Hand-modified upstream files. **110 byte-identical to v29** (pure backports) → 473 real |
+| B | wiring | 837 | Small/mechanical edits (Cargo.toml, mod exports, configs) — 306 identical to v29 |
 | B | generated / noise / submodule | 151 | Lockfiles, `.sqlx`, CI templates, `contracts` submodule pointer |
 | C | deleted-upstream-file | 371 | See below — almost all are backported *upstream* deletions, not via surgery |
-| D | via-migration | 71 | Via-added SQL migrations (see seam doc 06) |
+| D | via-migration | 39 | Via-owned SQL migrations (see seam doc 06) |
 
 ### The `v29_fate` column
 
@@ -34,10 +35,13 @@ Every B/C row (and unmarked additions) is joined against the pin's tree:
   zk_toolbox→zkstack_cli, multivm versions, prover updates). **Zero port work.**
 - **present** — file exists at the same path in v29 with different content. Re-derive the
   via delta against the v29 version.
-- **moved?** — basename found elsewhere in v29 (candidate path recorded). Mostly code
-  reorganization; confirm the move, then as above.
-- **gone** — no counterpart in v29. Only 26 B/feature files; each needs an explicit
-  decision (usually the surrounding subsystem was redesigned).
+- **moved** — the file's pre-fork content exists byte-for-byte at another v29 path
+  (path recorded). Confirmed code reorganization; re-derive against the new location.
+- **moved?** — no content match, but the basename is unique in v29 (weak hint,
+  candidate recorded). Confirm before trusting.
+- **gone** — no counterpart in v29. 127 B/feature files; each needs an explicit
+  decision (usually the surrounding subsystem was redesigned). Ambiguous basename
+  matches are deliberately left here rather than guessed.
 
 ## Finding 1: via never deleted the ETH stack
 
@@ -109,9 +113,10 @@ state keeper.
 
 ## Remaining triage debt (manual pass)
 
-- **396 B/feature rows** not identical to v29: biggest units `multivm` (53 — verify
-  these are partial backports), `dal` (28), `api_server` (24), `state_keeper` (21),
-  `prover` (21), `node_framework` (20 — superseded by seam 01), `types` (17).
+- **473 B/feature rows** not identical to v29: biggest units `multivm` (63 — verify
+  these are partial backports), `zkstack_cli` (40), `dal` (29), `prover` (28),
+  `api_server` (25), `node_framework` (21 — superseded by seam 01),
+  `state_keeper` (21), `types` (17).
 - **473 unmarked additions** not identical to v29: `zkstack_cli` (104), `prover` (58),
   `config+docker` (41), `multivm` (37), `ci` (33), `infra:via` (31). Expect most
   `zkstack_cli`/`prover`/`multivm` rows to be partial backports; `infra:via` and

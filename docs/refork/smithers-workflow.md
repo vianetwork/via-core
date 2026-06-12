@@ -53,7 +53,7 @@ Seeded from Phase 0 before the first unit runs:
 - the forked-crate strategy table (thin-crate-over-upstream preferred; fork-with-delta
   fallback recorded per unit),
 - regenesis rules (latest protocol version only; migrations renumbered after
-  `20260519000000`).
+  `20260602000000`).
 
 Each completed unit appends: surprises, v29 API facts discovered, blockers filed
 against later units.

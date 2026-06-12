@@ -5,7 +5,7 @@ Compares the via fork (HEAD) against the fork point (MERGE_BASE) and joins
 every diverged path against the upstream refork pin (UPSTREAM_PIN) to record
 its "v29 fate". Output is etc/refork/inventory.csv plus a summary on stdout.
 
-Run from the repo root after `git fetch upstream tag core-v29.19.2 --no-tags`:
+Run from the repo root after `git fetch upstream tag core-v29.20.0 --no-tags`:
 
     python3 etc/refork/build_inventory.py
 """
@@ -13,11 +13,10 @@ Run from the repo root after `git fetch upstream tag core-v29.19.2 --no-tags`:
 import csv
 import os
 import subprocess
-import sys
 from collections import Counter, defaultdict
 
 MERGE_BASE = "f37b84ac75"
-UPSTREAM_PIN = "core-v29.19.2"
+UPSTREAM_PIN = os.environ.get("REFORK_PIN", "core-v29.20.0")
 OUT_CSV = "etc/refork/inventory.csv"
 
 # Paths whose diffs are tool-generated artifacts, not hand-written changes.
@@ -27,6 +26,8 @@ NOISE_BASENAMES = {"CHANGELOG.md", "renovate.json", ".gitignore", "CODEOWNERS"}
 WIRING_BASENAMES = {"Cargo.toml", "justfile", "Makefile", "rust-toolchain", "package.json"}
 WIRING_PREFIXES = ("etc/env/", "configs/", "chains/", "docker/", "bin/", "etc/lint-config/")
 SUBMODULES = {"contracts", "via-core-ext"}
+# Phase 0 artifacts themselves; not port surface.
+EXCLUDE_PREFIXES = ("docs/refork/", "etc/refork/")
 SMALL_DIFF_LINES = 12  # at or below this, an M to an upstream file is "wiring"
 
 
@@ -109,17 +110,31 @@ def main():
 
     v29_blobs = tree_blobs(UPSTREAM_PIN)
     head_blobs = tree_blobs("HEAD")
+    base_blobs = tree_blobs(MERGE_BASE)
     v29_tree = set(v29_blobs)
+    v29_by_blob = defaultdict(list)
+    for p, h in v29_blobs.items():
+        v29_by_blob[h].append(p)
     v29_by_base = defaultdict(list)
-    for p in v29_tree:
+    for p in sorted(v29_tree):
         v29_by_base[os.path.basename(p)].append(p)
+
+    def resolve_renamed(p):
+        """numstat -M prints renames brace-compressed ('pre{old => new}post')
+        or plain ('old => new'); resolve to the post-rename path."""
+        if " => " not in p:
+            return p
+        if "{" in p and "}" in p:
+            prefix, rest = p.split("{", 1)
+            rename, suffix = rest.split("}", 1)
+            _, new = rename.split(" => ", 1)
+            return (prefix + new + suffix).replace("//", "/")
+        return p.split(" => ", 1)[1]
 
     loc = {}
     for line in numstat.splitlines():
         add, dele, rest = line.split("\t", 2)
-        if "=>" in rest:  # rename: "old => new" possibly with {…} braces
-            rest = rest.split("\t")[-1]
-        loc[rest] = (add, dele)
+        loc[resolve_renamed(rest)] = (add, dele)
 
     def fate(old_path, new_path):
         # via's final content already equals upstream v29 -> the diff was a
@@ -129,8 +144,14 @@ def main():
         path = old_path or new_path
         if path in v29_tree:
             return "present"
+        # exact-content move: the file's pre-fork (or current) blob exists
+        # verbatim at another v29 path.
+        hits = v29_by_blob.get(base_blobs.get(path) or head_blobs.get(new_path))
+        if hits:
+            return f"moved:{min(hits)}"
+        # a basename match is only a hint; ambiguous names stay unresolved.
         cands = v29_by_base.get(os.path.basename(path))
-        if cands:
+        if cands and len(cands) == 1:
             return f"moved?:{cands[0]}"
         return "gone"
 
@@ -142,14 +163,21 @@ def main():
             old_path, path = parts[1], parts[2]
         else:
             old_path, path = "", parts[1]
-        add, dele = loc.get(path, loc.get(f"{old_path} => {path}", ("0", "0")))
+        if path.startswith(EXCLUDE_PREFIXES):
+            continue
+        add, dele = loc.get(path, ("0", "0"))
         try:
             changed = int(add) + int(dele)
         except ValueError:  # binary files report "-"
             changed = 0
 
         if status == "A" and path.endswith(".sql") and "/migrations/" in path:
-            cat, sub = "D", "via-migration"
+            # via's history cherry-picked upstream migrations; only via-owned
+            # ones are port work, backports already sit in the v29 schema.
+            if path in v29_tree or head_blobs.get(path) in v29_by_blob:
+                cat, sub = "A", "backported-migration"
+            else:
+                cat, sub = "D", "via-migration"
         elif status == "A":
             if "/.sqlx/" in path:
                 cat, sub = "A", "generated"
@@ -167,15 +195,18 @@ def main():
 
         # Fate matters for modified/deleted upstream files, and also exposes
         # backported additions (via-added file that exists verbatim in v29).
-        f = fate(old_path, path) if cat in ("B", "C") or sub == "unmarked-addition" else ""
+        needs_fate = cat in ("B", "C", "D") or sub in ("unmarked-addition", "backported-migration")
+        f = fate(old_path, path) if needs_fate else ""
         rows.append(
             dict(path=path, old_path=old_path, status=status, category=cat,
                  subclass=sub, v29_fate=f, loc_added=add, loc_deleted=dele,
                  port_unit=port_unit(path))
         )
 
+    fieldnames = ["path", "old_path", "status", "category", "subclass",
+                  "v29_fate", "loc_added", "loc_deleted", "port_unit"]
     with open(OUT_CSV, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        w = csv.DictWriter(fh, fieldnames=fieldnames)
         w.writeheader()
         w.writerows(rows)
 
@@ -184,7 +215,7 @@ def main():
     for (cat, sub), n in sorted(summary.items()):
         print(f"  {cat:>2} {sub:<22} {n}")
     fates = Counter(r["v29_fate"].split(":")[0] for r in rows if r["v29_fate"])
-    print("v29 fate (B+C):", dict(fates))
+    print("v29 fate:", dict(fates))
 
 
 if __name__ == "__main__":

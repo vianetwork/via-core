@@ -30,7 +30,7 @@
 2. `via_wallets` and `via_secrets` should be mapped onto v29's wallets/secrets
    equivalents rather than ported as parallel files — flag for the interactive pass.
 3. The file-based config tree under `etc/env`/`configs/` changed shape upstream
-   (916 B/wiring rows are dominated by config plumbing); regenerate via's example
+   (837 B/wiring rows are dominated by config plumbing); regenerate via's example
    configs from the new schema (`smart-config-commands` powers a CLI for this behind
    the `cli` feature) instead of porting old YAML/env files.
 
