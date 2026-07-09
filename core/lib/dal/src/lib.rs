@@ -27,10 +27,10 @@ use crate::{
     sync_dal::SyncDal, system_dal::SystemDal, tee_proof_generation_dal::TeeProofGenerationDal,
     tokens_dal::TokensDal, tokens_web3_dal::TokensWeb3Dal, transactions_dal::TransactionsDal,
     transactions_web3_dal::TransactionsWeb3Dal, via_blocks_dal::ViaBlocksDal,
-    via_btc_sender_dal::ViaBtcSenderDal, via_data_availability_dal::ViaDataAvailabilityDal,
-    via_indexer_dal::ViaIndexerDal, via_l1_block_dal::ViaL1BlockDal,
-    via_transactions_dal::ViaTransactionsDal, via_votes_dal::ViaVotesDal,
-    via_wallet_dal::ViaWalletDal, vm_runner_dal::VmRunnerDal,
+    via_btc_sender_dal::ViaBtcSenderDal, via_btc_tx_locator_dal::ViaBtcTxLocatorDal,
+    via_data_availability_dal::ViaDataAvailabilityDal, via_indexer_dal::ViaIndexerDal,
+    via_l1_block_dal::ViaL1BlockDal, via_transactions_dal::ViaTransactionsDal,
+    via_votes_dal::ViaVotesDal, via_wallet_dal::ViaWalletDal, vm_runner_dal::VmRunnerDal,
 };
 
 pub mod base_token_dal;
@@ -69,6 +69,7 @@ pub mod transactions_web3_dal;
 pub mod via_blocks_dal;
 pub mod via_blocks_web3_dal;
 pub mod via_btc_sender_dal;
+pub mod via_btc_tx_locator_dal;
 pub mod via_data_availability_dal;
 pub mod via_indexer_dal;
 pub mod via_l1_block_dal;
@@ -117,6 +118,8 @@ where
     fn eth_sender_dal(&mut self) -> EthSenderDal<'_, 'a>;
 
     fn btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a>;
+
+    fn via_btc_tx_locator_dal(&mut self) -> ViaBtcTxLocatorDal<'_, 'a>;
 
     fn events_dal(&mut self) -> EventsDal<'_, 'a>;
 
@@ -232,6 +235,10 @@ impl<'a> CoreDal<'a> for Connection<'a, Core> {
 
     fn btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a> {
         ViaBtcSenderDal { storage: self }
+    }
+
+    fn via_btc_tx_locator_dal(&mut self) -> ViaBtcTxLocatorDal<'_, 'a> {
+        ViaBtcTxLocatorDal { storage: self }
     }
 
     fn events_dal(&mut self) -> EventsDal<'_, 'a> {

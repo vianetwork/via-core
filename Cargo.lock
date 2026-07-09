@@ -11883,6 +11883,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
@@ -12096,6 +12097,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
@@ -12456,6 +12458,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
@@ -12632,6 +12635,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bincode",
+ "bitcoin",
  "circuit_sequencer_api",
  "serde",
  "sqlx",
@@ -14288,6 +14292,7 @@ dependencies = [
  "anyhow",
  "envy",
  "serde",
+ "serde_json",
  "zksync_basic_types",
  "zksync_config",
  "zksync_system_constants",

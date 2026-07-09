@@ -4,15 +4,13 @@ use via_btc_client::{
     client::BitcoinClient,
     indexer::{BitcoinInscriptionIndexer, MessageParser},
     traits::BitcoinOps,
-    types::{
-        BitcoinAddress, FullInscriptionMessage, UpdateBridge, UpdateGovernance, UpdateSequencer,
-    },
+    types::{BitcoinAddress, FullInscriptionMessage, UpdateBridge, UpdateGovernance, UpdateSequencer},
 };
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
 use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails, WalletInfo, WalletRole};
 
 use crate::{
-    message_processors::{MessageProcessor, MessageProcessorError},
+    message_processors::{load_tx_locator, MessageProcessor, MessageProcessorError},
     metrics::METRICS,
 };
 
@@ -31,24 +29,16 @@ impl SystemWalletProcessor {
 #[async_trait::async_trait]
 impl MessageProcessor for SystemWalletProcessor {
     async fn process_messages(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-        msgs: Vec<FullInscriptionMessage>,
+        &mut self, storage: &mut Connection<'_, Verifier>, msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         let mut l1_block_number: Option<u32> = None;
 
         for msg in FullInscriptionMessage::sort_messages(msgs) {
             let l1_block_number_opt = match msg {
-                FullInscriptionMessage::UpdateGovernance(m) => {
-                    self.handle_update_governance(storage, m).await?
-                }
-                FullInscriptionMessage::UpdateSequencer(m) => {
-                    self.handle_update_sequencer(storage, m).await?
-                }
-                FullInscriptionMessage::UpdateBridge(m) => {
-                    self.handle_update_bridge_proposal(storage, m).await?
-                }
+                FullInscriptionMessage::UpdateGovernance(m) => self.handle_update_governance(storage, m).await?,
+                FullInscriptionMessage::UpdateSequencer(m) => self.handle_update_sequencer(storage, m).await?,
+                FullInscriptionMessage::UpdateBridge(m) => self.handle_update_bridge_proposal(storage, m).await?,
                 _ => None,
             };
 
@@ -66,29 +56,35 @@ impl MessageProcessor for SystemWalletProcessor {
 
 impl SystemWalletProcessor {
     async fn handle_update_bridge_proposal(
-        &self,
-        storage: &mut Connection<'_, Verifier>,
-        update_bridge_msg: UpdateBridge,
+        &self, storage: &mut Connection<'_, Verifier>, update_bridge_msg: UpdateBridge,
     ) -> Result<Option<u32>, MessageProcessorError> {
         let proposal_tx_id = update_bridge_msg.input.proposal_tx_id;
+        let Some(proposal_locator) = load_tx_locator(storage, &proposal_tx_id).await? else {
+            tracing::warn!(
+                "Failed to fetch update bridge proposal transaction: {}, missing Bitcoin locator",
+                proposal_tx_id
+            );
+            return Ok(None);
+        };
 
-        let proposal_tx = match self.btc_client.get_transaction(&proposal_tx_id).await {
+        let proposal_tx = match self
+            .btc_client
+            .get_transaction_in_block(&proposal_tx_id, &proposal_locator.block_hash)
+            .await
+        {
             Ok(proposal_tx) => proposal_tx,
             Err(err) => {
-                tracing::warn!(
-                    "Failed to fetch update bridge proposal transaction: {}, error {}",
-                    proposal_tx_id,
-                    err
-                );
+                tracing::warn!("Failed to fetch update bridge proposal transaction: {}, error {}", proposal_tx_id, err);
                 return Ok(None);
             }
         };
 
         let mut message_parser = MessageParser::new(self.btc_client.get_network());
 
-        let messages = message_parser.parse_system_transaction(
+        let messages = message_parser.parse_system_transaction_with_block_hash(
             &proposal_tx,
-            update_bridge_msg.common.block_height,
+            proposal_locator.block_height,
+            Some(proposal_locator.block_hash),
             None,
         );
 
@@ -151,18 +147,13 @@ impl SystemWalletProcessor {
 
                     storage
                         .via_wallet_dal()
-                        .insert_wallets(
-                            &wallets_details,
-                            update_bridge_msg.common.block_height as i64,
-                        )
+                        .insert_wallets(&wallets_details, update_bridge_msg.common.block_height as i64)
                         .await?;
 
                     tracing::info!("New bridge address updated: {:?}", &wallets_details);
 
-                    METRICS.system_wallets[&(
-                        WalletRole::Bridge.to_string().into(),
-                        new_bridge_address.to_string().into(),
-                    )]
+                    METRICS.system_wallets
+                        [&(WalletRole::Bridge.to_string().into(), new_bridge_address.to_string().into())]
                         .inc();
 
                     return Ok(Some(update_bridge_msg.common.block_height));
@@ -174,9 +165,7 @@ impl SystemWalletProcessor {
     }
 
     async fn handle_update_sequencer(
-        &self,
-        storage: &mut Connection<'_, Verifier>,
-        update_sequencer_msg: UpdateSequencer,
+        &self, storage: &mut Connection<'_, Verifier>, update_sequencer_msg: UpdateSequencer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         tracing::info!("Received UpdateSequencer message");
 
@@ -212,27 +201,19 @@ impl SystemWalletProcessor {
 
         storage
             .via_wallet_dal()
-            .insert_wallets(
-                &wallets_details,
-                update_sequencer_msg.common.block_height as i64,
-            )
+            .insert_wallets(&wallets_details, update_sequencer_msg.common.block_height as i64)
             .await?;
 
         tracing::info!("New sequencer address updated: {:?}", &wallets_details);
 
-        METRICS.system_wallets[&(
-            WalletRole::Sequencer.to_string().into(),
-            new_sequencer_address.to_string().into(),
-        )]
+        METRICS.system_wallets[&(WalletRole::Sequencer.to_string().into(), new_sequencer_address.to_string().into())]
             .inc();
 
         Ok(Some(update_sequencer_msg.common.block_height))
     }
 
     async fn handle_update_governance(
-        &self,
-        storage: &mut Connection<'_, Verifier>,
-        update_governance_msg: UpdateGovernance,
+        &self, storage: &mut Connection<'_, Verifier>, update_governance_msg: UpdateGovernance,
     ) -> Result<Option<u32>, MessageProcessorError> {
         tracing::info!("Received UpdateGovernance message");
 
@@ -268,19 +249,12 @@ impl SystemWalletProcessor {
 
         storage
             .via_wallet_dal()
-            .insert_wallets(
-                &wallets_details,
-                update_governance_msg.common.block_height as i64,
-            )
+            .insert_wallets(&wallets_details, update_governance_msg.common.block_height as i64)
             .await?;
 
         tracing::info!("New governance address updated: {:?}", &wallets_details);
 
-        METRICS.system_wallets[&(
-            WalletRole::Gov.to_string().into(),
-            new_governance_address.to_string().into(),
-        )]
-            .inc();
+        METRICS.system_wallets[&(WalletRole::Gov.to_string().into(), new_governance_address.to_string().into())].inc();
 
         Ok(Some(update_governance_msg.common.block_height))
     }

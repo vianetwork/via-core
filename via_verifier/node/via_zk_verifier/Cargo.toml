@@ -35,6 +35,7 @@ async-trait.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
 serde.workspace = true
+bitcoin.workspace = true
 
 via_verification.workspace = true
 via_verifier_dal.workspace = true

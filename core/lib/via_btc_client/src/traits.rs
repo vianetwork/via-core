@@ -17,7 +17,7 @@ use secp256k1::{
 };
 use types::BitcoinRpcResult;
 
-use crate::{types, types::BitcoinClientResult};
+use crate::types::{self, BitcoinClientResult, BitcoinTxLocator, BitcoinUtxo};
 
 #[async_trait]
 pub trait BitcoinOps: Send + Sync {
@@ -41,7 +41,24 @@ pub trait BitcoinOps: Send + Sync {
     async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
 
     async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
+    async fn get_transaction_in_block(
+        &self,
+        txid: &Txid,
+        block_hash: &BlockHash,
+    ) -> BitcoinClientResult<Transaction>;
+    async fn check_tx_confirmation_in_block(
+        &self,
+        txid: &Txid,
+        block_hash: &BlockHash,
+        conf_num: u32,
+    ) -> types::BitcoinClientResult<bool>;
     async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
+    async fn find_transaction_locator(
+        &self,
+        txid: &Txid,
+        from_block_height: u64,
+        to_block_height: u64,
+    ) -> BitcoinClientResult<Option<BitcoinTxLocator>>;
     async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
     async fn get_fee_history(
         &self,
@@ -64,9 +81,14 @@ pub trait BitcoinRpc: Send + Sync + Debug {
     async fn list_unspent_based_on_node_wallet(
         &self,
         address: &Address,
-    ) -> BitcoinRpcResult<Vec<OutPoint>>;
-    async fn list_unspent(&self, address: &Address) -> BitcoinRpcResult<Vec<OutPoint>>;
+    ) -> BitcoinRpcResult<Vec<BitcoinUtxo>>;
+    async fn list_unspent(&self, address: &Address) -> BitcoinRpcResult<Vec<BitcoinUtxo>>;
     async fn get_transaction(&self, tx_id: &Txid) -> BitcoinRpcResult<Transaction>;
+    async fn get_transaction_in_block(
+        &self,
+        tx_id: &Txid,
+        block_hash: &BlockHash,
+    ) -> BitcoinRpcResult<Transaction>;
     async fn get_block_count(&self) -> BitcoinRpcResult<u64>;
     async fn get_block_by_height(&self, block_height: u128) -> BitcoinRpcResult<Block>;
 
@@ -76,6 +98,11 @@ pub trait BitcoinRpc: Send + Sync + Debug {
     async fn get_raw_transaction_info(
         &self,
         txid: &Txid,
+    ) -> BitcoinRpcResult<bitcoincore_rpc::json::GetRawTransactionResult>;
+    async fn get_raw_transaction_info_in_block(
+        &self,
+        txid: &Txid,
+        block_hash: &BlockHash,
     ) -> BitcoinRpcResult<bitcoincore_rpc::json::GetRawTransactionResult>;
     async fn estimate_smart_fee(
         &self,

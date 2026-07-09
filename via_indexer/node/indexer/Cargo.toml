@@ -24,6 +24,7 @@ thiserror.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
+bitcoin.workspace = true
 
 via_indexer_dal.workspace = true
 

@@ -5,7 +5,8 @@ use bitcoin::{
     hashes::Hash,
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, TxOut, Txid, Witness,
+    Address, Amount, BlockHash, CompressedPublicKey, Network, ScriptBuf, Transaction, TxOut, Txid,
+    Witness,
 };
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
@@ -61,6 +62,17 @@ impl MessageParser {
         block_height: u32,
         wallets: Option<&SystemWallets>,
     ) -> Vec<FullInscriptionMessage> {
+        self.parse_system_transaction_with_block_hash(tx, block_height, None, wallets)
+    }
+
+    #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
+    pub fn parse_system_transaction_with_block_hash(
+        &mut self,
+        tx: &Transaction,
+        block_height: u32,
+        block_hash: Option<BlockHash>,
+        wallets: Option<&SystemWallets>,
+    ) -> Vec<FullInscriptionMessage> {
         // parsing btc address
         let mut sender_addresses: Option<Address> = None;
         for input in tx.input.iter() {
@@ -76,7 +88,14 @@ impl MessageParser {
                 tx.input
                     .iter()
                     .filter_map(|input| {
-                        self.parse_system_input(input, tx, block_height, address.clone(), wallets)
+                        self.parse_system_input(
+                            input,
+                            tx,
+                            block_height,
+                            block_hash,
+                            address.clone(),
+                            wallets,
+                        )
                     })
                     .collect()
             }
@@ -92,23 +111,38 @@ impl MessageParser {
         tx: &TransactionWithMetadata,
         block_height: u32,
     ) -> Vec<FullInscriptionMessage> {
+        self.parse_protocol_upgrade_transactions_with_block_hash(tx, block_height, None)
+    }
+
+    #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
+    pub fn parse_protocol_upgrade_transactions_with_block_hash(
+        &mut self,
+        tx: &TransactionWithMetadata,
+        block_height: u32,
+        block_hash: Option<BlockHash>,
+    ) -> Vec<FullInscriptionMessage> {
         let mut messages = Vec::new();
 
-        if let Some(update_sequencer) = self.parse_op_return_update_governance(&tx.tx, block_height)
+        if let Some(update_sequencer) =
+            self.parse_op_return_update_governance(&tx.tx, block_height, block_hash)
         {
             messages.push(update_sequencer);
         }
 
-        if let Some(upgrade_protocol) = self.parse_op_return_protocol_upgrade(&tx.tx, block_height)
+        if let Some(upgrade_protocol) =
+            self.parse_op_return_protocol_upgrade(&tx.tx, block_height, block_hash)
         {
             messages.push(upgrade_protocol);
         }
 
-        if let Some(update_bridge) = self.parse_op_return_update_bridge(&tx.tx, block_height) {
+        if let Some(update_bridge) =
+            self.parse_op_return_update_bridge(&tx.tx, block_height, block_hash)
+        {
             messages.push(update_bridge);
         }
 
-        if let Some(update_sequencer) = self.parse_op_return_update_sequencer(&tx.tx, block_height)
+        if let Some(update_sequencer) =
+            self.parse_op_return_update_sequencer(&tx.tx, block_height, block_hash)
         {
             messages.push(update_sequencer);
         }
@@ -121,6 +155,17 @@ impl MessageParser {
         &mut self,
         tx: &mut TransactionWithMetadata,
         block_height: u32,
+        wallets: &SystemWallets,
+    ) -> Vec<FullInscriptionMessage> {
+        self.parse_bridge_transaction_with_block_hash(tx, block_height, None, wallets)
+    }
+
+    #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
+    pub fn parse_bridge_transaction_with_block_hash(
+        &mut self,
+        tx: &mut TransactionWithMetadata,
+        block_height: u32,
+        block_hash: Option<BlockHash>,
         wallets: &SystemWallets,
     ) -> Vec<FullInscriptionMessage> {
         let mut messages = Vec::new();
@@ -142,21 +187,22 @@ impl MessageParser {
         let bridge_output = &tx.tx.output[vout];
 
         // Try to parse as inscription-based deposit first
-        if let Some(inscription_message) = self.parse_inscription_deposit(tx, block_height, wallets)
+        if let Some(inscription_message) =
+            self.parse_inscription_deposit(tx, block_height, block_hash, wallets)
         {
             messages.push(inscription_message);
         }
 
         // If not an inscription, try to parse as OP_RETURN based deposit
         if let Some(op_return_message) =
-            self.parse_op_return_deposit(tx, block_height, bridge_output)
+            self.parse_op_return_deposit(tx, block_height, block_hash, bridge_output)
         {
             messages.push(op_return_message);
         }
 
         // Try to parse withdrawals processed by the bridge address.
         if let Some(bridge_withdrawals) =
-            self.parse_op_return_withdrawal(&tx.tx, block_height, wallets)
+            self.parse_op_return_withdrawal(&tx.tx, block_height, block_hash, wallets)
         {
             messages.push(bridge_withdrawals);
         }
@@ -170,6 +216,7 @@ impl MessageParser {
         input: &bitcoin::TxIn,
         tx: &Transaction,
         block_height: u32,
+        block_hash: Option<BlockHash>,
         address: Address,
         wallets: Option<&SystemWallets>,
     ) -> Option<FullInscriptionMessage> {
@@ -208,7 +255,8 @@ impl MessageParser {
             schnorr_signature: signature,
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
             block_height,
-            tx_id: tx.compute_ntxid().into(),
+            block_hash,
+            tx_id: tx.compute_txid(),
             p2wpkh_address: Some(address),
             tx_index: None,
             output_vout: None,
@@ -738,6 +786,7 @@ impl MessageParser {
         &self,
         tx: &TransactionWithMetadata,
         block_height: u32,
+        block_hash: Option<BlockHash>,
         wallets: &SystemWallets,
     ) -> Option<FullInscriptionMessage> {
         // Try to find any witness data that contains a valid inscription
@@ -762,7 +811,8 @@ impl MessageParser {
                 schnorr_signature: signature,
                 encoded_public_key: PushBytesBuf::from(control_block.internal_key.serialize()),
                 block_height,
-                tx_id: tx.tx.compute_ntxid().into(),
+                block_hash,
+                tx_id: tx.tx.compute_txid(),
                 p2wpkh_address,
                 tx_index: Some(tx.tx_index),
                 output_vout: tx.output_vout,
@@ -784,6 +834,7 @@ impl MessageParser {
         &self,
         tx: &TransactionWithMetadata,
         block_height: u32,
+        block_hash: Option<BlockHash>,
         bridge_output: &TxOut,
     ) -> Option<FullInscriptionMessage> {
         // Find OP_RETURN output
@@ -836,7 +887,8 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
-                tx_id: tx.tx.compute_ntxid().into(),
+                block_hash,
+                tx_id: tx.tx.compute_txid(),
                 p2wpkh_address,
                 tx_index: Some(tx.tx_index),
                 output_vout: tx.output_vout,
@@ -856,6 +908,7 @@ impl MessageParser {
         &self,
         tx: &Transaction,
         block_height: u32,
+        block_hash: Option<BlockHash>,
         wallets: &SystemWallets,
     ) -> Option<FullInscriptionMessage> {
         // Find OP_RETURN output
@@ -920,7 +973,7 @@ impl MessageParser {
 
                 withdrawals.push(L1Withdrawal {
                     l2_meta: withdrawals_meta[i].clone(),
-                    receiver: receiver,
+                    receiver,
                     value: output.value,
                 });
             }
@@ -939,7 +992,8 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
-                tx_id: tx.compute_ntxid().into(),
+                block_hash,
+                tx_id: tx.compute_txid(),
                 p2wpkh_address: None,
                 tx_index: None,
                 output_vout: None,
@@ -957,6 +1011,7 @@ impl MessageParser {
         &self,
         tx: &Transaction,
         block_height: u32,
+        block_hash: Option<BlockHash>,
     ) -> Option<FullInscriptionMessage> {
         // Find OP_RETURN output
         let op_return_output = tx
@@ -991,7 +1046,8 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
-                tx_id: tx.compute_ntxid().into(),
+                block_hash,
+                tx_id: tx.compute_txid(),
                 p2wpkh_address: None,
                 tx_index: None,
                 output_vout: None,
@@ -1011,6 +1067,7 @@ impl MessageParser {
         &self,
         tx: &Transaction,
         block_height: u32,
+        block_hash: Option<BlockHash>,
     ) -> Option<FullInscriptionMessage> {
         // Find OP_RETURN output
         let op_return_output = tx
@@ -1045,7 +1102,8 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
-                tx_id: tx.compute_ntxid().into(),
+                block_hash,
+                tx_id: tx.compute_txid(),
                 p2wpkh_address: None,
                 tx_index: None,
                 output_vout: None,
@@ -1063,6 +1121,7 @@ impl MessageParser {
         &self,
         tx: &Transaction,
         block_height: u32,
+        block_hash: Option<BlockHash>,
     ) -> Option<FullInscriptionMessage> {
         // Find OP_RETURN output
         let op_return_output = tx
@@ -1095,7 +1154,8 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
-                tx_id: tx.compute_ntxid().into(),
+                block_hash,
+                tx_id: tx.compute_txid(),
                 p2wpkh_address: None,
                 tx_index: None,
                 output_vout: None,
@@ -1113,6 +1173,7 @@ impl MessageParser {
         &self,
         tx: &Transaction,
         block_height: u32,
+        block_hash: Option<BlockHash>,
     ) -> Option<FullInscriptionMessage> {
         // Find OP_RETURN output
         let op_return_output = tx
@@ -1145,7 +1206,8 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
-                tx_id: tx.compute_ntxid().into(),
+                block_hash,
+                tx_id: tx.compute_txid(),
                 p2wpkh_address: None,
                 tx_index: None,
                 output_vout: None,

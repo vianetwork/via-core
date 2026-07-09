@@ -8,6 +8,8 @@ use crate::metrics::METRICS;
 
 mod metrics;
 
+const BTC_TX_LOCATOR_BACKFILL_MODULE_NAME: &str = "via_btc_tx_locator_backfill";
+
 #[derive(Debug)]
 pub struct ViaVerifierBlockReverter {
     config: ViaReorgDetectorConfig,
@@ -82,6 +84,24 @@ impl ViaVerifierBlockReverter {
         transaction
             .via_l1_block_dal()
             .delete_l1_reorg(l1_block_number_to_keep)
+            .await?;
+        transaction
+            .via_btc_tx_locator_dal()
+            .delete_tx_locators_after(l1_block_number_to_keep)
+            .await?;
+        transaction
+            .via_indexer_dal()
+            .init_indexer_metadata(
+                BTC_TX_LOCATOR_BACKFILL_MODULE_NAME,
+                l1_block_number_to_keep as u32,
+            )
+            .await?;
+        transaction
+            .via_indexer_dal()
+            .update_last_processed_l1_block(
+                BTC_TX_LOCATOR_BACKFILL_MODULE_NAME,
+                l1_block_number_to_keep as u32,
+            )
             .await?;
         transaction
             .via_indexer_dal()

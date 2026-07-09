@@ -5,6 +5,7 @@ use tokio::sync::RwLock;
 use via_btc_client::traits::BitcoinOps;
 
 const CTX_REQUIRED_CONFIRMATIONS: u32 = 1;
+const CTX_CONFIRMATION_LOOKBACK_BLOCKS: u64 = 10_000;
 const DEFAULT_CAPACITY: usize = 100;
 
 #[derive(Debug, Clone)]
@@ -132,6 +133,9 @@ impl UtxoManager {
     }
 
     pub async fn sync_context_with_blockchain(&self) -> anyhow::Result<()> {
+        let current_block = self.btc_client.fetch_block_height().await?;
+        let from_block_height = current_block.saturating_sub(CTX_CONFIRMATION_LOOKBACK_BLOCKS);
+
         loop {
             let tx = {
                 match self.context.read().await.front() {
@@ -141,10 +145,21 @@ impl UtxoManager {
             };
 
             let txid = tx.compute_txid();
-            let is_confirmed = self
+            let locator = self
                 .btc_client
-                .check_tx_confirmation(&txid, CTX_REQUIRED_CONFIRMATIONS)
+                .find_transaction_locator(&txid, from_block_height, current_block)
                 .await?;
+            let is_confirmed = if let Some(locator) = locator {
+                self.btc_client
+                    .check_tx_confirmation_in_block(
+                        &txid,
+                        &locator.block_hash,
+                        CTX_REQUIRED_CONFIRMATIONS,
+                    )
+                    .await?
+            } else {
+                false
+            };
 
             if is_confirmed {
                 self.context.write().await.pop_front();
@@ -338,7 +353,7 @@ mod tests {
         let client = Arc::new(MockBitcoinOps::new(config));
         let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
         let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
-        let expected_utxos = vec![utxos[1].clone(), utxos[2].clone()];
+        let expected_utxos = vec![utxos[2].clone(), utxos[1].clone()];
         assert_eq!(expected_utxos, utxos_out);
     }
 

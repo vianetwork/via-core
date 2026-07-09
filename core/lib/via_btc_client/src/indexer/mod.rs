@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use bitcoin::{Address, Amount, BlockHash, OutPoint, Transaction as BitcoinTransaction, Txid};
 use tracing::{debug, info, instrument, warn};
 
@@ -12,12 +13,18 @@ use crate::{
     client::BitcoinClient,
     traits::BitcoinOps,
     types::{
-        BitcoinIndexerResult, BridgeWithdrawal, FullInscriptionMessage, L1ToL2Message,
-        SystemTransactions, TransactionWithMetadata,
+        BitcoinIndexerResult, BitcoinTxLocator, BridgeWithdrawal, FullInscriptionMessage,
+        L1ToL2Message, SystemTransactions, TransactionWithMetadata,
     },
 };
 
 pub mod withdrawal;
+
+#[async_trait]
+pub trait BitcoinTxLocatorStore: Send {
+    async fn insert_tx_locator(&mut self, locator: &BitcoinTxLocator) -> anyhow::Result<()>;
+    async fn get_tx_locator(&mut self, txid: &Txid) -> anyhow::Result<Option<BitcoinTxLocator>>;
+}
 
 /// The main indexer struct for processing Bitcoin inscriptions
 #[derive(Debug, Clone)]
@@ -58,6 +65,61 @@ impl BitcoinInscriptionIndexer {
         Ok(res)
     }
 
+    #[instrument(skip(self, locator_store), target = "bitcoin_indexer")]
+    pub async fn process_blocks_with_locator_store(
+        &mut self,
+        starting_block: u32,
+        ending_block: u32,
+        locator_store: &mut dyn BitcoinTxLocatorStore,
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
+        info!(
+            "Processing blocks from {} to {}",
+            starting_block, ending_block
+        );
+        let mut res = Vec::with_capacity((ending_block - starting_block + 1) as usize);
+        for block in starting_block..=ending_block {
+            res.extend(
+                self.process_block_inner(block, Some(&mut *locator_store))
+                    .await?,
+            );
+        }
+        debug!("Processed {} blocks", ending_block - starting_block + 1);
+        Ok(res)
+    }
+
+    #[instrument(skip(self, locator_store), target = "bitcoin_indexer")]
+    pub async fn backfill_transaction_locators(
+        &mut self,
+        starting_block: u32,
+        ending_block: u32,
+        locator_store: &mut dyn BitcoinTxLocatorStore,
+    ) -> BitcoinIndexerResult<()> {
+        if starting_block > ending_block {
+            return Ok(());
+        }
+
+        info!(
+            "Backfilling Bitcoin transaction locators from {} to {}",
+            starting_block, ending_block
+        );
+        for block_height in starting_block..=ending_block {
+            let block = self.client.fetch_block(block_height as u128).await?;
+            let block_hash = block.block_hash();
+            for (tx_index, tx) in block.txdata.iter().enumerate() {
+                locator_store
+                    .insert_tx_locator(&BitcoinTxLocator {
+                        txid: tx.compute_txid(),
+                        block_height,
+                        block_hash,
+                        tx_index: Some(tx_index),
+                    })
+                    .await
+                    .map_err(|err| crate::types::IndexerError::Internal(err.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+
     #[instrument(skip(self), target = "bitcoin_indexer")]
     pub fn update_system_wallets(
         &mut self,
@@ -94,15 +156,29 @@ impl BitcoinInscriptionIndexer {
         &mut self,
         block_height: u32,
     ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
+        self.process_block_inner(block_height, None).await
+    }
+
+    async fn process_block_inner(
+        &mut self,
+        block_height: u32,
+        mut locator_store: Option<&mut dyn BitcoinTxLocatorStore>,
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
         debug!("Processing block at height {}", block_height);
 
         let block = self.client.fetch_block(block_height as u128).await?;
+        let block_hash = block.block_hash();
         // TODO: check block header is belong to a valid chain of blocks (reorg detection and management)
         // TODO: deal with malicious sequencer, verifiers from being able to make trouble by sending invalid messages / valid messages with invalid data
 
         let mut valid_messages = Vec::new();
 
         let mut system_txs = self.extract_important_transactions(&block.txdata);
+        if let Some(locator_store) = locator_store.as_deref_mut() {
+            Self::store_transaction_locators(locator_store, block_height, block_hash, &system_txs)
+                .await
+                .map_err(|err| crate::types::IndexerError::Internal(err.to_string()))?;
+        }
 
         // Parse protocol upgrade messages (Upgrade system contracts, bridge addresses, sequencer address)
         if !system_txs.governance_txs.is_empty() {
@@ -111,13 +187,24 @@ impl BitcoinInscriptionIndexer {
                 .iter()
                 .flat_map(|tx| {
                     self.parser
-                        .parse_protocol_upgrade_transactions(tx, block_height)
+                        .parse_protocol_upgrade_transactions_with_block_hash(
+                            tx,
+                            block_height,
+                            Some(block_hash),
+                        )
                 })
                 .collect();
 
             let mut messages = vec![];
             for message in parsed_messages {
-                if self.is_valid_gov_message(&message).await {
+                let is_valid = if let Some(locator_store) = locator_store.as_deref_mut() {
+                    self.is_valid_gov_message_with_locator_store(&message, locator_store)
+                        .await
+                } else {
+                    self.is_valid_gov_message(&message).await
+                };
+
+                if is_valid {
                     messages.push(message);
                 }
             }
@@ -130,8 +217,12 @@ impl BitcoinInscriptionIndexer {
                 .system_txs
                 .iter()
                 .flat_map(|tx| {
-                    self.parser
-                        .parse_system_transaction(&tx.tx, block_height, Some(&self.wallets))
+                    self.parser.parse_system_transaction_with_block_hash(
+                        &tx.tx,
+                        block_height,
+                        Some(block_hash),
+                        Some(&self.wallets),
+                    )
                 })
                 .collect();
 
@@ -148,14 +239,25 @@ impl BitcoinInscriptionIndexer {
                 .bridge_txs
                 .iter_mut()
                 .flat_map(|tx| {
-                    self.parser
-                        .parse_bridge_transaction(tx, block_height, &self.wallets)
+                    self.parser.parse_bridge_transaction_with_block_hash(
+                        tx,
+                        block_height,
+                        Some(block_hash),
+                        &self.wallets,
+                    )
                 })
                 .collect();
 
             let mut messages = vec![];
             for message in parsed_messages {
-                if self.is_valid_bridge_message(&message).await {
+                let is_valid = if let Some(locator_store) = locator_store.as_deref_mut() {
+                    self.is_valid_bridge_message_with_locator_store(&message, locator_store)
+                        .await
+                } else {
+                    self.is_valid_bridge_message(&message).await
+                };
+
+                if is_valid {
                     messages.push(message);
                 }
             }
@@ -169,6 +271,31 @@ impl BitcoinInscriptionIndexer {
             block_height
         );
         Ok(valid_messages)
+    }
+
+    async fn store_transaction_locators(
+        locator_store: &mut dyn BitcoinTxLocatorStore,
+        block_height: u32,
+        block_hash: BlockHash,
+        system_txs: &SystemTransactions,
+    ) -> anyhow::Result<()> {
+        for tx in system_txs
+            .system_txs
+            .iter()
+            .chain(system_txs.bridge_txs.iter())
+            .chain(system_txs.governance_txs.iter())
+        {
+            locator_store
+                .insert_tx_locator(&BitcoinTxLocator {
+                    txid: tx.tx.compute_txid(),
+                    block_height,
+                    block_hash,
+                    tx_index: Some(tx.tx_index),
+                })
+                .await?;
+        }
+
+        Ok(())
     }
 
     fn extract_important_transactions(
@@ -292,6 +419,22 @@ impl BitcoinInscriptionIndexer {
             .parser
             .parse_system_transaction(&tx, 0, Some(&self.wallets)))
     }
+
+    pub async fn parse_transaction_with_locator(
+        &mut self,
+        locator: &BitcoinTxLocator,
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
+        let tx = self
+            .client
+            .get_transaction_in_block(&locator.txid, &locator.block_hash)
+            .await?;
+        Ok(self.parser.parse_system_transaction_with_block_hash(
+            &tx,
+            locator.block_height,
+            Some(locator.block_hash),
+            Some(&self.wallets),
+        ))
+    }
 }
 
 impl BitcoinInscriptionIndexer {
@@ -331,6 +474,21 @@ impl BitcoinInscriptionIndexer {
         }
     }
 
+    async fn is_valid_bridge_message_with_locator_store(
+        &self,
+        message: &FullInscriptionMessage,
+        locator_store: &mut dyn BitcoinTxLocatorStore,
+    ) -> bool {
+        match message {
+            FullInscriptionMessage::L1ToL2Message(m) => self.is_valid_l1_to_l2_transfer(m),
+            FullInscriptionMessage::BridgeWithdrawal(m) => self
+                .is_valid_bridge_withdrawal_with_locator_store(m, locator_store)
+                .await
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
     async fn is_valid_gov_message(&self, message: &FullInscriptionMessage) -> bool {
         let maybe_input = match message {
             FullInscriptionMessage::SystemContractUpgrade(m) => m.input.inputs.first(),
@@ -341,6 +499,24 @@ impl BitcoinInscriptionIndexer {
         };
 
         self.is_valid_gov_upgrade(maybe_input)
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn is_valid_gov_message_with_locator_store(
+        &self,
+        message: &FullInscriptionMessage,
+        locator_store: &mut dyn BitcoinTxLocatorStore,
+    ) -> bool {
+        let maybe_input = match message {
+            FullInscriptionMessage::SystemContractUpgrade(m) => m.input.inputs.first(),
+            FullInscriptionMessage::UpdateBridge(m) => m.input.inputs.first(),
+            FullInscriptionMessage::UpdateSequencer(m) => m.input.inputs.first(),
+            FullInscriptionMessage::UpdateGovernance(m) => m.input.inputs.first(),
+            _ => return false,
+        };
+
+        self.is_valid_gov_upgrade_with_locator_store(maybe_input, locator_store)
             .await
             .unwrap_or(false)
     }
@@ -380,6 +556,22 @@ impl BitcoinInscriptionIndexer {
         Ok(false)
     }
 
+    async fn is_valid_bridge_withdrawal_with_locator_store(
+        &self,
+        message: &BridgeWithdrawal,
+        locator_store: &mut dyn BitcoinTxLocatorStore,
+    ) -> anyhow::Result<bool> {
+        if let Some(outpoint) = message.input.inputs.first() {
+            let tx = self
+                .get_transaction_for_validation_with_locator_store(&outpoint.txid, locator_store)
+                .await?;
+            if let Some(txout) = tx.output.get(outpoint.vout as usize) {
+                return Ok(txout.script_pubkey == self.wallets.bridge.script_pubkey());
+            }
+        }
+        Ok(false)
+    }
+
     #[instrument(skip(self, outpoint_opt), target = "bitcoin_indexer")]
     async fn is_valid_gov_upgrade(&self, outpoint_opt: Option<&OutPoint>) -> anyhow::Result<bool> {
         if let Some(outpoint) = outpoint_opt {
@@ -389,6 +581,38 @@ impl BitcoinInscriptionIndexer {
             }
         }
         Ok(false)
+    }
+
+    async fn is_valid_gov_upgrade_with_locator_store(
+        &self,
+        outpoint_opt: Option<&OutPoint>,
+        locator_store: &mut dyn BitcoinTxLocatorStore,
+    ) -> anyhow::Result<bool> {
+        if let Some(outpoint) = outpoint_opt {
+            let tx = self
+                .get_transaction_for_validation_with_locator_store(&outpoint.txid, locator_store)
+                .await?;
+            if let Some(txout) = tx.output.get(outpoint.vout as usize) {
+                return Ok(txout.script_pubkey == self.wallets.governance.script_pubkey());
+            }
+        }
+        Ok(false)
+    }
+
+    async fn get_transaction_for_validation_with_locator_store(
+        &self,
+        txid: &Txid,
+        locator_store: &mut dyn BitcoinTxLocatorStore,
+    ) -> anyhow::Result<BitcoinTransaction> {
+        let locator = locator_store
+            .get_tx_locator(txid)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("missing Bitcoin block locator for txid {}", txid))?;
+
+        Ok(self
+            .client
+            .get_transaction_in_block(txid, &locator.block_hash)
+            .await?)
     }
 
     async fn get_l1_batch_number_from_proof_tx_id(
@@ -436,8 +660,8 @@ mod tests {
 
     use async_trait::async_trait;
     use bitcoin::{
-        block::Header, hashes::Hash, Address, Amount, Block, Network, OutPoint, ScriptBuf,
-        Transaction, TxMerkleNode, TxOut,
+        absolute, block::Header, hashes::Hash, transaction, Address, Amount, Block, Network,
+        OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxMerkleNode, TxOut, Witness,
     };
     use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
@@ -454,12 +678,15 @@ mod tests {
         #[async_trait]
         impl BitcoinOps for BitcoinOps {
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
+            async fn get_transaction_in_block(&self, txid: &Txid, block_hash: &BlockHash) -> BitcoinClientResult<Transaction>;
             async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
             async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
+            async fn find_transaction_locator(&self, txid: &Txid, from_block_height: u64, to_block_height: u64) -> BitcoinClientResult<Option<BitcoinTxLocator>>;
             async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
             async fn broadcast_signed_transaction(&self, signed_transaction: &str) -> BitcoinClientResult<Txid>;
             async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>>;
             async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool>;
+            async fn check_tx_confirmation_in_block(&self, txid: &Txid, block_hash: &BlockHash, conf_num: u32) -> BitcoinClientResult<bool>;
             async fn fetch_block_height(&self) -> BitcoinClientResult<u64>;
             async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
             fn get_network(&self) -> Network;
@@ -479,15 +706,46 @@ mod tests {
             .unwrap()
     }
 
+    fn get_other_test_addr() -> Address {
+        let secp = bitcoin::secp256k1::Secp256k1::new();
+        let private_key = bitcoin::PrivateKey {
+            compressed: true,
+            network: Network::Testnet.into(),
+            inner: bitcoin::secp256k1::SecretKey::from_slice(&[2; 32]).unwrap(),
+        };
+        let compressed_public_key =
+            bitcoin::CompressedPublicKey::from_private_key(&secp, &private_key).unwrap();
+
+        Address::p2wpkh(&compressed_public_key, Network::Testnet)
+    }
+
     fn get_test_common_fields() -> CommonFields {
         CommonFields {
             schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
             encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
             block_height: 0,
+            block_hash: None,
             tx_id: Txid::all_zeros(),
             p2wpkh_address: Some(get_test_addr()),
             tx_index: None,
             output_vout: None,
+        }
+    }
+
+    fn get_test_transaction(output_script: ScriptBuf) -> Transaction {
+        Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint::null(),
+                script_sig: ScriptBuf::from_bytes(vec![1, 2, 3]),
+                sequence: Sequence::MAX,
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(1_000),
+                script_pubkey: output_script,
+            }],
         }
     }
 
@@ -503,6 +761,30 @@ mod tests {
             client: Arc::new(mock_client),
             parser: MessageParser::new(Network::Testnet),
             wallets,
+        }
+    }
+
+    #[derive(Default)]
+    struct InMemoryLocatorStore {
+        locators: Vec<BitcoinTxLocator>,
+    }
+
+    #[async_trait]
+    impl BitcoinTxLocatorStore for InMemoryLocatorStore {
+        async fn insert_tx_locator(&mut self, locator: &BitcoinTxLocator) -> anyhow::Result<()> {
+            self.locators.push(locator.clone());
+            Ok(())
+        }
+
+        async fn get_tx_locator(
+            &mut self,
+            txid: &Txid,
+        ) -> anyhow::Result<Option<BitcoinTxLocator>> {
+            Ok(self
+                .locators
+                .iter()
+                .find(|locator| locator.txid == *txid)
+                .cloned())
         }
     }
 
@@ -573,6 +855,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_parse_transaction_with_locator_uses_block_hash() {
+        let tx = get_test_transaction(ScriptBuf::new());
+        let txid = tx.compute_txid();
+        let block_hash = BlockHash::all_zeros();
+
+        let mut mock_client = MockBitcoinOps::new();
+        mock_client
+            .expect_get_transaction_in_block()
+            .with(eq(txid), eq(block_hash))
+            .returning(move |_, _| Ok(tx.clone()))
+            .once();
+
+        let mut indexer = get_indexer_with_mock(mock_client);
+        let messages = indexer
+            .parse_transaction_with_locator(&BitcoinTxLocator {
+                txid,
+                block_height: 10,
+                block_hash,
+                tx_index: Some(0),
+            })
+            .await
+            .unwrap();
+
+        assert!(messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_process_blocks_with_locator_store_persists_real_txid() {
+        let tx = get_test_transaction(get_test_addr().script_pubkey());
+        assert_ne!(
+            tx.compute_txid().to_string(),
+            tx.compute_ntxid().to_string()
+        );
+
+        let block = Block {
+            header: Header {
+                version: Default::default(),
+                prev_blockhash: BlockHash::all_zeros(),
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0,
+                bits: Default::default(),
+                nonce: 0,
+            },
+            txdata: vec![tx.clone()],
+        };
+        let block_hash = block.block_hash();
+
+        let mut mock_client = MockBitcoinOps::new();
+        mock_client
+            .expect_fetch_block()
+            .with(eq(42_u128))
+            .returning(move |_| Ok(block.clone()))
+            .once();
+
+        let mut indexer = get_indexer_with_mock(mock_client);
+        indexer.update_system_wallets(None, None, None, Some(get_other_test_addr()));
+        let mut locator_store = InMemoryLocatorStore::default();
+        let messages = indexer
+            .process_blocks_with_locator_store(42, 42, &mut locator_store)
+            .await
+            .unwrap();
+
+        assert!(messages.is_empty());
+        assert_eq!(
+            locator_store.locators,
+            vec![BitcoinTxLocator {
+                txid: tx.compute_txid(),
+                block_height: 42,
+                block_hash,
+                tx_index: Some(0),
+            }]
+        );
+    }
+
+    #[tokio::test]
     async fn test_is_valid_message() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
@@ -592,6 +949,7 @@ mod tests {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                     block_height: 0,
+                    block_hash: None,
                     tx_id: Txid::all_zeros(),
                     p2wpkh_address: Some(get_test_addr()),
                     tx_index: None,

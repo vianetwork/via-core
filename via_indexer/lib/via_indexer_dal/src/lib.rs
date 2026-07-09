@@ -4,6 +4,7 @@
 #![warn(clippy::cast_lossless)]
 
 pub use sqlx::{types::BigDecimal, Error as SqlxError};
+use via_btc_tx_locator_dal::ViaBtcTxLocatorDal;
 use via_transactions_dal::ViaTransactionsDal;
 use zksync_db_connection::connection::DbMarker;
 pub use zksync_db_connection::{
@@ -15,6 +16,7 @@ pub use zksync_db_connection::{
 use crate::{via_indexer_dal::ViaIndexerDal, via_wallet_dal::ViaWalletDal};
 
 pub mod models;
+pub mod via_btc_tx_locator_dal;
 pub mod via_indexer_dal;
 pub mod via_transactions_dal;
 pub mod via_wallet_dal;
@@ -31,6 +33,7 @@ where
     Self: 'a,
 {
     fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a>;
+    fn via_btc_tx_locator_dal(&mut self) -> ViaBtcTxLocatorDal<'_, 'a>;
     fn via_indexer_dal(&mut self) -> ViaIndexerDal<'_, 'a>;
     fn via_wallet_dal(&mut self) -> ViaWalletDal<'_, 'a>;
 }
@@ -46,6 +49,10 @@ impl private::Sealed for Connection<'_, Indexer> {}
 impl<'a> IndexerDal<'a> for Connection<'a, Indexer> {
     fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a> {
         ViaTransactionsDal { storage: self }
+    }
+
+    fn via_btc_tx_locator_dal(&mut self) -> ViaBtcTxLocatorDal<'_, 'a> {
+        ViaBtcTxLocatorDal { storage: self }
     }
 
     fn via_indexer_dal(&mut self) -> ViaIndexerDal<'_, 'a> {

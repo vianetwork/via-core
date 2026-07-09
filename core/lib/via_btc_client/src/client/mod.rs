@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::{EstimateMode, GetBlockStatsResult};
 use futures::future::join_all;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, warn};
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
 mod fee_limits;
@@ -14,7 +14,7 @@ use crate::{
     client::{fee_limits::FeeRateLimits, rpc_client::BitcoinRpcClient},
     metrics::{RpcMethodLabel, METRICS},
     traits::{BitcoinOps, BitcoinRpc},
-    types::{BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth},
+    types::{BitcoinClientResult, BitcoinError, BitcoinNetwork, BitcoinTxLocator, NodeAuth},
 };
 
 #[derive(Debug)]
@@ -76,29 +76,43 @@ impl BitcoinOps for BitcoinClient {
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>> {
         debug!("Fetching UTXOs");
-        let outpoints = match self.config.network() {
+        let utxos = match self.config.network() {
             Network::Regtest => self.rpc.list_unspent(address).await?,
             _ => self.rpc.list_unspent_based_on_node_wallet(address).await?,
         };
-        let mut utxos = Vec::with_capacity(outpoints.len());
-
-        for outpoint in outpoints {
-            debug!("Fetching transaction for outpoint");
-            let tx = self.rpc.get_transaction(&outpoint.txid).await?;
-            let txout = tx.output.get(outpoint.vout as usize).ok_or_else(|| {
-                error!("Invalid outpoint");
-                BitcoinError::InvalidOutpoint(outpoint.to_string())
-            })?;
-            utxos.push((outpoint, txout.clone()));
-        }
-
-        Ok(utxos)
+        Ok(utxos
+            .into_iter()
+            .map(|unspent| (unspent.outpoint, unspent.txout))
+            .collect())
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool> {
         debug!("Checking transaction confirmation");
         let tx_info = self.rpc.get_raw_transaction_info(txid).await?;
+
+        match tx_info.confirmations {
+            Some(confirmations) => Ok(confirmations >= conf_num),
+            None => Ok(false),
+        }
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client")]
+    async fn check_tx_confirmation_in_block(
+        &self,
+        txid: &Txid,
+        block_hash: &BlockHash,
+        conf_num: u32,
+    ) -> BitcoinClientResult<bool> {
+        debug!("Checking transaction confirmation in block");
+        let tx_info = self
+            .rpc
+            .get_raw_transaction_info_in_block(txid, block_hash)
+            .await?;
+
+        if tx_info.in_active_chain == Some(false) {
+            return Ok(false);
+        }
 
         match tx_info.confirmations {
             Some(confirmations) => Ok(confirmations >= conf_num),
@@ -191,10 +205,26 @@ impl BitcoinOps for BitcoinClient {
             }
         }
 
-        // If no fee estimate was obtained
-        let mut fee_rate_sat_kb = fee_rate_sat_kb.ok_or_else(|| {
-            BitcoinError::FeeEstimationFailed("All fee estimation methods failed".into())
-        })?;
+        let network = self.config.network();
+        let limits = FeeRateLimits::from_network(network);
+
+        // Fresh regtest/testnet nodes can legitimately have no estimator data yet.
+        let mut fee_rate_sat_kb = match fee_rate_sat_kb {
+            Some(fee_rate) => fee_rate,
+            None if network != Network::Bitcoin => {
+                let fallback = limits.min_fee_rate() * 1000;
+                warn!(
+                    "No Bitcoin fee estimate available for {:?}; using fallback {} sat/kB",
+                    network, fallback
+                );
+                fallback
+            }
+            None => {
+                return Err(BitcoinError::FeeEstimationFailed(
+                    "All fee estimation methods failed".into(),
+                ));
+            }
+        };
 
         // Add a small buffer to avoid precision loss
         fee_rate_sat_kb += 1000;
@@ -210,7 +240,6 @@ impl BitcoinOps for BitcoinClient {
         })?;
 
         // Apply network-specific caps
-        let limits = FeeRateLimits::from_network(self.config.network());
         let capped = std::cmp::min(fee_rate_sat_vb, limits.max_fee_rate());
         let final_rate = std::cmp::max(capped, limits.min_fee_rate());
 
@@ -235,9 +264,56 @@ impl BitcoinOps for BitcoinClient {
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
+    async fn get_transaction_in_block(
+        &self,
+        txid: &Txid,
+        block_hash: &BlockHash,
+    ) -> BitcoinClientResult<Transaction> {
+        debug!("Getting transaction in block");
+        self.rpc.get_transaction_in_block(txid, block_hash).await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client")]
     async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block> {
         debug!("Fetching block by hash");
         self.rpc.get_block_by_hash(block_hash).await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client")]
+    async fn find_transaction_locator(
+        &self,
+        txid: &Txid,
+        from_block_height: u64,
+        to_block_height: u64,
+    ) -> BitcoinClientResult<Option<BitcoinTxLocator>> {
+        debug!(
+            "Finding transaction locator for {} from block {} to {}",
+            txid, from_block_height, to_block_height
+        );
+
+        if from_block_height > to_block_height {
+            return Ok(None);
+        }
+
+        for block_height in from_block_height..=to_block_height {
+            let block = self.fetch_block(u128::from(block_height)).await?;
+            let Some(tx_index) = block
+                .txdata
+                .iter()
+                .position(|tx| tx.compute_txid() == *txid)
+            else {
+                continue;
+            };
+
+            return Ok(Some(BitcoinTxLocator {
+                txid: *txid,
+                block_height: block_height as u32,
+                block_hash: block.block_hash(),
+                tx_index: Some(tx_index),
+            }));
+        }
+
+        Ok(None)
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
@@ -290,7 +366,7 @@ impl Clone for BitcoinClient {
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin::{absolute::LockTime, hashes::Hash, transaction::Version, Amount, Wtxid};
+    use bitcoin::{hashes::Hash, Amount, Wtxid};
     use bitcoincore_rpc::{
         bitcoincore_rpc_json::GetBlockchainInfoResult,
         json::{EstimateSmartFeeResult, GetMempoolInfoResult, GetRawTransactionResult},
@@ -298,7 +374,7 @@ mod tests {
     use mockall::{mock, predicate::*};
 
     use super::*;
-    use crate::types::BitcoinRpcResult;
+    use crate::types::{BitcoinRpcResult, BitcoinUtxo};
 
     mock! {
         #[derive(Debug)]
@@ -308,14 +384,16 @@ mod tests {
             async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u64>;
             async fn get_balance_scan(&self, address: &Address) -> BitcoinClientResult<u64>;
             async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinClientResult<Txid>;
-            async fn list_unspent_based_on_node_wallet(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
-            async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
+            async fn list_unspent_based_on_node_wallet(&self, address: &Address) -> BitcoinClientResult<Vec<BitcoinUtxo>>;
+            async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<BitcoinUtxo>>;
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
+            async fn get_transaction_in_block(&self, txid: &Txid, block_hash: &BlockHash) -> BitcoinClientResult<Transaction>;
             async fn get_block_count(&self) -> BitcoinClientResult<u64>;
             async fn get_block_by_height(&self, block_height: u128) -> BitcoinClientResult<Block>;
             async fn get_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
             async fn get_best_block_hash(&self) -> BitcoinClientResult<BlockHash>;
             async fn get_raw_transaction_info(&self, txid: &Txid) -> BitcoinClientResult<GetRawTransactionResult>;
+            async fn get_raw_transaction_info_in_block(&self, txid: &Txid, block_hash: &BlockHash) -> BitcoinClientResult<GetRawTransactionResult>;
             async fn estimate_smart_fee(&self, conf_target: u16, estimate_mode: Option<EstimateMode>) -> BitcoinClientResult<EstimateSmartFeeResult>;
             async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
             async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
@@ -336,6 +414,8 @@ mod tests {
         mock_rpc.expect_get_balance().return_once(|_| Ok(1000000));
 
         let client = get_client_with_mock(mock_rpc);
+        let mut client = client;
+        client.config.network = BitcoinNetwork::Bitcoin.to_string();
         let address = Address::from_str("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")
             .unwrap()
             .require_network(BitcoinNetwork::Bitcoin)
@@ -370,19 +450,14 @@ mod tests {
             txid: Txid::all_zeros(),
             vout: 0,
         };
-        mock_rpc
-            .expect_list_unspent_based_on_node_wallet()
-            .return_once(move |_| Ok(vec![outpoint]));
-        mock_rpc.expect_get_transaction().return_once(|_| {
-            Ok(Transaction {
-                version: Version::TWO,
-                lock_time: LockTime::from_height(0u32).unwrap(),
-                input: vec![],
-                output: vec![TxOut {
+        mock_rpc.expect_list_unspent().return_once(move |_| {
+            Ok(vec![BitcoinUtxo {
+                outpoint,
+                txout: TxOut {
                     value: Amount::from_sat(50000),
                     script_pubkey: Default::default(),
-                }],
-            })
+                },
+            }])
         });
 
         let client = get_client_with_mock(mock_rpc);
@@ -428,6 +503,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_check_tx_confirmation_in_block() {
+        let mut mock_rpc = MockBitcoinRpc::new();
+        let block_hash = BlockHash::all_zeros();
+        mock_rpc
+            .expect_get_raw_transaction_info_in_block()
+            .with(eq(Txid::all_zeros()), eq(block_hash))
+            .return_once(|_, _| {
+                Ok(GetRawTransactionResult {
+                    in_active_chain: Some(true),
+                    hex: vec![],
+                    txid: Txid::all_zeros(),
+                    hash: Wtxid::all_zeros(),
+                    size: 0,
+                    vsize: 0,
+                    version: 0,
+                    locktime: 0,
+                    vin: vec![],
+                    vout: vec![],
+                    blockhash: Some(BlockHash::all_zeros()),
+                    confirmations: Some(3),
+                    time: None,
+                    blocktime: None,
+                })
+            });
+
+        let client = get_client_with_mock(mock_rpc);
+
+        let txid = Txid::all_zeros();
+        let confirmed = client
+            .check_tx_confirmation_in_block(&txid, &block_hash, 2)
+            .await
+            .unwrap();
+        assert!(confirmed);
+    }
+
+    #[tokio::test]
+    async fn test_check_tx_confirmation_in_block_returns_false_for_inactive_chain() {
+        let mut mock_rpc = MockBitcoinRpc::new();
+        let block_hash = BlockHash::all_zeros();
+        mock_rpc
+            .expect_get_raw_transaction_info_in_block()
+            .with(eq(Txid::all_zeros()), eq(block_hash))
+            .return_once(|_, _| {
+                Ok(GetRawTransactionResult {
+                    in_active_chain: Some(false),
+                    hex: vec![],
+                    txid: Txid::all_zeros(),
+                    hash: Wtxid::all_zeros(),
+                    size: 0,
+                    vsize: 0,
+                    version: 0,
+                    locktime: 0,
+                    vin: vec![],
+                    vout: vec![],
+                    blockhash: Some(BlockHash::all_zeros()),
+                    confirmations: Some(3),
+                    time: None,
+                    blocktime: None,
+                })
+            });
+
+        let client = get_client_with_mock(mock_rpc);
+
+        let txid = Txid::all_zeros();
+        let confirmed = client
+            .check_tx_confirmation_in_block(&txid, &block_hash, 2)
+            .await
+            .unwrap();
+        assert!(!confirmed);
+    }
+
+    #[tokio::test]
     async fn test_fetch_block_height() {
         let mut mock_rpc = MockBitcoinRpc::new();
         mock_rpc.expect_get_block_count().return_once(|| Ok(654321));
@@ -448,11 +595,57 @@ mod tests {
                 blocks: 0,
             })
         });
+        mock_rpc.expect_get_mempool_info().return_once(|| {
+            Ok(GetMempoolInfoResult {
+                loaded: Some(true),
+                size: 0,
+                bytes: 0,
+                usage: 0,
+                total_fee: None,
+                max_mempool: 0,
+                mempool_min_fee: Amount::from_sat(1000),
+                min_relay_tx_fee: Amount::from_sat(1000),
+                incremental_relay_fee: None,
+                unbroadcast_count: None,
+                full_rbf: None,
+            })
+        });
 
         let client = get_client_with_mock(mock_rpc);
 
         let fee_rate = client.get_fee_rate(6).await.unwrap();
-        // 1000 sat/kb = 1 sat/byte
-        assert_eq!(fee_rate, 1);
+        assert_eq!(fee_rate, 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_uses_regtest_fallback_when_estimator_has_no_data() {
+        let mut mock_rpc = MockBitcoinRpc::new();
+        mock_rpc.expect_estimate_smart_fee().return_once(|_, _| {
+            Ok(EstimateSmartFeeResult {
+                fee_rate: None,
+                errors: Some(vec!["Insufficient data or no feerate found".to_string()]),
+                blocks: 0,
+            })
+        });
+        mock_rpc.expect_get_mempool_info().return_once(|| {
+            Ok(GetMempoolInfoResult {
+                loaded: Some(true),
+                size: 0,
+                bytes: 0,
+                usage: 0,
+                total_fee: None,
+                max_mempool: 0,
+                mempool_min_fee: Amount::from_sat(1000),
+                min_relay_tx_fee: Amount::from_sat(1000),
+                incremental_relay_fee: None,
+                unbroadcast_count: None,
+                full_rbf: None,
+            })
+        });
+
+        let client = get_client_with_mock(mock_rpc);
+
+        let fee_rate = client.get_fee_rate(6).await.unwrap();
+        assert_eq!(fee_rate, 2);
     }
 }

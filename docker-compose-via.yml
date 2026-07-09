@@ -8,7 +8,7 @@ x-bitcoind-common: &bitcoind-common
     - -rpcuser=rpcuser
     - -rpcpassword=rpcpassword
     - -fallbackfee=0.0002
-    - -txindex
+    - -prune=550
     - -printtoconsole
     - -dustrelayfee=0.0
     - -minrelaytxfee=0
@@ -164,7 +164,7 @@ services:
       - -rpcuser=rpcuser
       - -rpcpassword=rpcpassword
       - -fallbackfee=0.0002
-      - -txindex
+      - -prune=550
       - -printtoconsole
       - -dustrelayfee=0.0
       - -minrelaytxfee=0

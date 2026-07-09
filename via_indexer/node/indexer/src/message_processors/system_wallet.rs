@@ -11,7 +11,7 @@ use via_btc_client::{
 use via_indexer_dal::{Connection, Indexer, IndexerDal};
 use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails, WalletInfo, WalletRole};
 
-use crate::message_processors::MessageProcessor;
+use crate::message_processors::{load_tx_locator, MessageProcessor};
 
 #[derive(Debug)]
 pub struct SystemWalletProcessor {
@@ -75,8 +75,19 @@ impl SystemWalletProcessor {
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> anyhow::Result<bool> {
         let proposal_tx_id = update_bridge_msg.input.proposal_tx_id;
+        let Some(proposal_locator) = load_tx_locator(storage, &proposal_tx_id).await? else {
+            tracing::warn!(
+                "Failed to fetch update bridge proposal transaction: {}, missing Bitcoin locator",
+                proposal_tx_id
+            );
+            return Ok(false);
+        };
 
-        let proposal_tx = match self.btc_client.get_transaction(&proposal_tx_id).await {
+        let proposal_tx = match self
+            .btc_client
+            .get_transaction_in_block(&proposal_tx_id, &proposal_locator.block_hash)
+            .await
+        {
             Ok(proposal_tx) => proposal_tx,
             Err(err) => {
                 tracing::warn!(
@@ -90,9 +101,10 @@ impl SystemWalletProcessor {
 
         let mut message_parser = MessageParser::new(self.btc_client.get_network());
 
-        let messages = message_parser.parse_system_transaction(
+        let messages = message_parser.parse_system_transaction_with_block_hash(
             &proposal_tx,
-            update_bridge_msg.common.block_height,
+            proposal_locator.block_height,
+            Some(proposal_locator.block_hash),
             None,
         );
 
