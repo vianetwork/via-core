@@ -189,16 +189,42 @@ pub struct TrackedOutputSpend {
     pub input_index: u32,
 }
 
+/// Which carrier inside a transaction holds a message. Inputs order before
+/// outputs, so `Ord` on this type (inputs first, then outputs, each by
+/// index) is the total message order inside one transaction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum MessageLocation {
+    /// Witness-encoded message: the input index carrying the inscription.
+    Input(u32),
+    /// Output-encoded message: the lowest output index carrying the
+    /// message's encoding.
+    Output(u32),
+}
+
+impl MessageLocation {
+    pub fn wire_tag(self) -> u32 {
+        match self {
+            MessageLocation::Input(_) => 0,
+            MessageLocation::Output(_) => 1,
+        }
+    }
+
+    pub fn index(self) -> u32 {
+        match self {
+            MessageLocation::Input(i) | MessageLocation::Output(i) => i,
+        }
+    }
+}
+
 /// Where a message sits inside a block: transaction index first, then the
-/// message's position inside that transaction. For a message encoded in
-/// outputs, `message_ordinal` is the lowest output index carrying the
-/// message; for future witness-encoded messages, the input index carrying
-/// the inscription. Always derived from physical placement, never from
-/// enum or map ordering.
+/// message's physical location in that transaction, never enum or map
+/// ordering. A deposit encoded both ways (witness inscription plus an
+/// agreeing OP_RETURN) is owned by its witness `Input` location; the
+/// OP_RETURN copy is agreement evidence, not a second message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EventOrdinal {
     pub tx_index: u32,
-    pub message_ordinal: u32,
+    pub location: MessageLocation,
 }
 
 /// Closed set of event kinds with stable wire tags.
@@ -302,8 +328,30 @@ pub struct WalletSet {
     pub sequencer: ScriptBuf,
     pub bridge: ScriptBuf,
     pub governance: ScriptBuf,
-    /// Registration order; the order is part of the context identity.
+    /// Registration order; the order is part of the context identity, and
+    /// entries must be unique (votes are counted per verifier identity).
     pub verifiers: Vec<ScriptBuf>,
+}
+
+impl WalletSet {
+    /// All role scripts set. Before bootstrap every script is empty.
+    pub fn is_bootstrapped(&self) -> bool {
+        !self.sequencer.is_empty() && !self.bridge.is_empty() && !self.governance.is_empty()
+    }
+
+    /// Structural validity: verifier identities unique; a bootstrapped set
+    /// has no empty verifier script.
+    pub fn validate(&self) -> Result<(), String> {
+        for (i, a) in self.verifiers.iter().enumerate() {
+            if self.is_bootstrapped() && a.is_empty() {
+                return Err(format!("verifier {i} has an empty script"));
+            }
+            if self.verifiers[..i].contains(a) {
+                return Err(format!("duplicate verifier script at position {i}"));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// One deposit per bridge-paying output, keyed by that output's `OutPoint`,
@@ -313,12 +361,16 @@ pub struct DepositObserved {
     pub ordinal: EventOrdinal,
     pub subject: OutPoint,
     pub amount: Amount,
-    /// L2 receiver address bytes as parsed from the encoding.
-    pub receiver: Vec<u8>,
-    /// Target L2 contract; empty means the protocol default bridge target.
-    pub l2_contract: Vec<u8>,
+    /// L2 receiver address as parsed from the encoding.
+    pub receiver: Address20,
+    /// Target L2 contract; all-zero means the protocol default bridge
+    /// target.
+    pub l2_contract: Address20,
     /// L2 call data; empty for plain value transfers.
     pub call_data: Vec<u8>,
+    /// Script of the depositor's P2WPKH input when one is identifiable
+    /// (the standalone indexer projects it as the deposit sender).
+    pub sender_script: Option<ScriptBuf>,
     pub encoding: DepositEncoding,
 }
 
@@ -334,19 +386,33 @@ pub struct L1BatchDAReferenceObserved {
     pub prev_l1_batch_hash: Hash32,
 }
 
-/// Sequencer commitment of one proof to the DA layer, referencing the
-/// batch's reveal transaction.
+/// The resolved identity of the L1 batch a proof or attestation is about,
+/// copied out of the locally stored batch DA reference.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProofDAReferenceObserved {
-    pub ordinal: EventOrdinal,
-    pub subject_txid: Txid,
-    pub l1_batch_reveal_txid: Txid,
+pub struct BatchReferenceSnapshot {
+    pub reveal_txid: Txid,
+    pub l1_batch_hash: Hash32,
+    pub l1_batch_index: u64,
+    pub prev_l1_batch_hash: Hash32,
     pub da_identifier: String,
     pub blob_id: String,
 }
 
+/// Sequencer commitment of one proof to the DA layer. Projection-closed:
+/// carries the resolved snapshot of the batch it references.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProofDAReferenceObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub da_identifier: String,
+    pub blob_id: String,
+    pub batch: BatchReferenceSnapshot,
+}
+
 /// A verifier's vote on a referenced proof transaction. `attester_script`
-/// identifies which verifier wallet voted.
+/// identifies which verifier wallet voted. Carries the resolved batch
+/// identity (attestation to proof to batch) so adapters never reparse
+/// history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidatorAttestationObserved {
     pub ordinal: EventOrdinal,
@@ -354,6 +420,7 @@ pub struct ValidatorAttestationObserved {
     pub reference_txid: Txid,
     pub ok: bool,
     pub attester_script: ScriptBuf,
+    pub batch: BatchReferenceSnapshot,
 }
 
 /// The genesis message: initial wallets, protocol version, and code hashes.
@@ -370,11 +437,11 @@ pub struct SystemBootstrappingObserved {
     pub wallets: WalletSet,
 }
 
-/// A proposed system-contract upgrade (not yet activated).
+/// The semantic content of a system-contract upgrade proposal.
+/// `system_contracts` preserves inscription order; that order feeds
+/// canonical upgrade-transaction construction and is identity-bearing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SystemContractUpgradeProposalObserved {
-    pub ordinal: EventOrdinal,
-    pub subject_txid: Txid,
+pub struct UpgradePayload {
     pub version: ProtocolVersionTag,
     pub bootloader_code_hash: Hash32,
     pub default_account_code_hash: Hash32,
@@ -383,30 +450,46 @@ pub struct SystemContractUpgradeProposalObserved {
     pub system_contracts: Vec<(Address20, Hash32)>,
 }
 
-/// Governance activation of a previously proposed upgrade.
+/// A proposed system-contract upgrade (not yet activated).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemContractUpgradeProposalObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub proposal: UpgradePayload,
+}
+
+/// Governance activation of a previously proposed upgrade. Carries the
+/// resolved proposal content so adapters write protocol versions from the
+/// plan alone. Folding advances the context's protocol version to
+/// `proposal.version`, which must exceed the current one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SystemContractUpgradeActivationObserved {
     pub ordinal: EventOrdinal,
     pub subject_txid: Txid,
     pub proposal_txid: Txid,
+    pub proposal: UpgradePayload,
 }
 
 /// One L1 payout inside a bridge withdrawal transaction.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WithdrawalOutput {
-    /// First 8 bytes of the L2 withdrawal hash, hex-encoded (16 chars).
-    pub l2_id: String,
+    /// First 8 raw bytes of the L2 withdrawal hash.
+    pub l2_id: [u8; 8],
     /// Index of the L2 log where the withdrawal was executed.
-    pub l2_tx_event_index: u32,
+    pub l2_tx_event_index: u16,
     pub receiver_script: ScriptBuf,
     pub amount: Amount,
 }
 
 /// A bridge withdrawal transaction: bridge inputs spent, L1 payouts made.
+/// `inputs` preserves transaction input order; `withdrawals` preserves
+/// output order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BridgeWithdrawalObserved {
     pub ordinal: EventOrdinal,
     pub subject_txid: Txid,
+    /// Stable tag of the withdrawal wire version the message used.
+    pub withdrawal_version: u32,
     pub total_size: u64,
     pub v_size: u64,
     pub inputs: Vec<OutPoint>,
@@ -537,6 +620,17 @@ pub enum RejectionCode {
     MalformedMessage,
     ConflictingReceiverEncodings,
     ConflictingRoleUpdate,
+    /// Recognized message whose signer is not the wallet the context
+    /// authorizes for that message kind.
+    Unauthorized,
+    /// A bootstrap message while the context is already bootstrapped.
+    InvalidBootstrap,
+    /// An upgrade activation whose version does not increase the context's
+    /// protocol version.
+    NonMonotonicUpgrade,
+    /// An activation whose referenced proposal is known-absent or does not
+    /// parse as a proposal.
+    InvalidProposal,
 }
 
 impl RejectionCode {
@@ -545,6 +639,10 @@ impl RejectionCode {
             RejectionCode::MalformedMessage => 0,
             RejectionCode::ConflictingReceiverEncodings => 1,
             RejectionCode::ConflictingRoleUpdate => 2,
+            RejectionCode::Unauthorized => 3,
+            RejectionCode::InvalidBootstrap => 4,
+            RejectionCode::NonMonotonicUpgrade => 5,
+            RejectionCode::InvalidProposal => 6,
         }
     }
 }
@@ -600,6 +698,40 @@ fn put_wallet_set(out: &mut Vec<u8>, w: &WalletSet) {
     }
 }
 
+/// The normative context transition. Every engine derives `next_context`
+/// with exactly this function.
+///
+/// `events` must be the plan's valid events in ordinal order. The whole
+/// block is authorized against the input context; a rotation never
+/// re-authorizes later transactions in its own block. The engine rejects,
+/// before folding: a bootstrap when already bootstrapped, a second
+/// rotation of the same role in one block, and a non-monotonic upgrade.
+/// The fold applies the surviving transitions in order.
+pub fn fold_context(input: &ProtocolContext, events: &[ProtocolEvent]) -> ProtocolContext {
+    let mut ctx = input.clone();
+    for e in events {
+        match e {
+            ProtocolEvent::SystemBootstrapping(b) => {
+                ctx.wallets = b.wallets.clone();
+                ctx.protocol_version = b.protocol_version;
+            }
+            ProtocolEvent::SystemContractUpgradeActivation(a) => {
+                ctx.protocol_version = a.proposal.version;
+            }
+            ProtocolEvent::WalletRotation(r) => match &r.rotation {
+                WalletRotation::Sequencer { new_script } => ctx.wallets.sequencer = new_script.clone(),
+                WalletRotation::Governance { new_script } => ctx.wallets.governance = new_script.clone(),
+                WalletRotation::Bridge { new_bridge_script, new_verifier_scripts, .. } => {
+                    ctx.wallets.bridge = new_bridge_script.clone();
+                    ctx.wallets.verifiers = new_verifier_scripts.clone();
+                }
+            },
+            _ => {}
+        }
+    }
+    ctx
+}
+
 impl ProtocolContext {
     /// Canonical fingerprint of this context (double-SHA256 over a
     /// length-delimited encoding with a domain prefix).
@@ -618,7 +750,7 @@ impl ProtocolContext {
 /// [`KernelVersion`]: that versions interpretation rules, this versions the
 /// byte grammar itself.
 pub const PLAN_WIRE_MAGIC: &[u8; 12] = b"VIA_BLKPLAN\0";
-pub const PLAN_WIRE_FORMAT_VERSION: u32 = 2;
+pub const PLAN_WIRE_FORMAT_VERSION: u32 = 3;
 
 /// Why a plan failed structural validation. An adapter must reject an
 /// invalid plan before writing anything.
@@ -639,10 +771,14 @@ pub enum PlanValidationError {
 /// plans for the same envelope, context, and dependencies.
 ///
 /// Canonical byte grammar (see `canonical_bytes`): integers big-endian;
-/// byte strings length-prefixed with u64; collections count-prefixed with
-/// u64 and sorted by their canonical key; 32-byte identities in Bitcoin
-/// internal byte order, NOT the reversed order shown in txid strings; enum
-/// tags are the explicit `wire_tag` constants.
+/// byte strings length-prefixed with u64; top-level collections
+/// count-prefixed with u64 and sorted by their canonical key; enum tags
+/// are the explicit `wire_tag` constants. Nested vectors in event
+/// payloads keep their source order (input, inscription, or output
+/// order); that order carries meaning and is never sorted. Bitcoin
+/// identities (txid, wtxid, block hash) are written in Bitcoin internal
+/// byte order, not the reversed display order; protocol hashes (`Hash32`)
+/// are opaque bytes written exactly as parsed, never reversed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockPlan {
     pub kernel_version: KernelVersion,
@@ -697,8 +833,9 @@ impl BlockPlan {
         }
         for e in &self.events {
             let subject_txid = e.subject_txid();
-            if !self.inclusions.iter().any(|i| i.txid == subject_txid) {
-                return Err(PlanValidationError::EventWithoutInclusion { tx_index: e.ordinal().tx_index });
+            let tx_index = e.ordinal().tx_index;
+            if !self.inclusions.iter().any(|i| i.txid == subject_txid && i.tx_index == tx_index) {
+                return Err(PlanValidationError::EventWithoutInclusion { tx_index });
             }
         }
         Ok(())
@@ -766,18 +903,54 @@ impl BlockPlan {
             put_hash32(&mut out, s.spending_wtxid.as_ref());
             put_u32(&mut out, s.input_index);
         }
+        let put_batch_snapshot = |out: &mut Vec<u8>, b: &BatchReferenceSnapshot| {
+            out.extend_from_slice(b.reveal_txid.as_ref());
+            out.extend_from_slice(&b.l1_batch_hash);
+            out.extend_from_slice(&b.l1_batch_index.to_be_bytes());
+            put_len_bytes(out, b.da_identifier.as_bytes());
+            put_len_bytes(out, b.blob_id.as_bytes());
+            out.extend_from_slice(&b.prev_l1_batch_hash);
+        };
+        let put_upgrade_payload = |out: &mut Vec<u8>, p: &UpgradePayload| {
+            out.extend_from_slice(&p.version.minor.to_be_bytes());
+            out.extend_from_slice(&p.version.patch.to_be_bytes());
+            out.extend_from_slice(&p.bootloader_code_hash);
+            out.extend_from_slice(&p.default_account_code_hash);
+            match &p.evm_emulator_code_hash {
+                Some(h) => {
+                    out.extend_from_slice(&1u32.to_be_bytes());
+                    out.extend_from_slice(h);
+                }
+                None => out.extend_from_slice(&0u32.to_be_bytes()),
+            }
+            out.extend_from_slice(&p.recursion_scheduler_level_vk_hash);
+            out.extend_from_slice(&(p.system_contracts.len() as u64).to_be_bytes());
+            for (addr, hash) in &p.system_contracts {
+                out.extend_from_slice(addr);
+                out.extend_from_slice(hash);
+            }
+        };
+
         put_u64(&mut out, self.events.len() as u64);
         for e in &self.events {
             put_u32(&mut out, e.kind().wire_tag());
             put_u32(&mut out, e.ordinal().tx_index);
-            put_u32(&mut out, e.ordinal().message_ordinal);
+            put_u32(&mut out, e.ordinal().location.wire_tag());
+            put_u32(&mut out, e.ordinal().location.index());
             match e {
                 ProtocolEvent::DepositObserved(d) => {
                     put_outpoint(&mut out, &d.subject);
                     put_u64(&mut out, d.amount.to_sat());
-                    put_bytes(&mut out, &d.receiver);
-                    put_bytes(&mut out, &d.l2_contract);
+                    out.extend_from_slice(&d.receiver);
+                    out.extend_from_slice(&d.l2_contract);
                     put_bytes(&mut out, &d.call_data);
+                    match &d.sender_script {
+                        Some(s) => {
+                            put_u32(&mut out, 1);
+                            put_bytes(&mut out, s.as_bytes());
+                        }
+                        None => put_u32(&mut out, 0),
+                    }
                     put_u32(&mut out, d.encoding.wire_tag());
                 }
                 ProtocolEvent::L1BatchDAReference(v) => {
@@ -790,15 +963,16 @@ impl BlockPlan {
                 }
                 ProtocolEvent::ProofDAReference(v) => {
                     put_hash32(&mut out, v.subject_txid.as_ref());
-                    put_hash32(&mut out, v.l1_batch_reveal_txid.as_ref());
                     put_bytes(&mut out, v.da_identifier.as_bytes());
                     put_bytes(&mut out, v.blob_id.as_bytes());
+                    put_batch_snapshot(&mut out, &v.batch);
                 }
                 ProtocolEvent::ValidatorAttestation(v) => {
                     put_hash32(&mut out, v.subject_txid.as_ref());
                     put_hash32(&mut out, v.reference_txid.as_ref());
                     put_u32(&mut out, u32::from(v.ok));
                     put_bytes(&mut out, v.attester_script.as_bytes());
+                    put_batch_snapshot(&mut out, &v.batch);
                 }
                 ProtocolEvent::SystemBootstrapping(v) => {
                     put_hash32(&mut out, v.subject_txid.as_ref());
@@ -813,30 +987,16 @@ impl BlockPlan {
                 }
                 ProtocolEvent::SystemContractUpgradeProposal(v) => {
                     put_hash32(&mut out, v.subject_txid.as_ref());
-                    put_u32(&mut out, v.version.minor);
-                    put_u32(&mut out, v.version.patch);
-                    put_hash32(&mut out, &v.bootloader_code_hash);
-                    put_hash32(&mut out, &v.default_account_code_hash);
-                    match &v.evm_emulator_code_hash {
-                        Some(h) => {
-                            put_u32(&mut out, 1);
-                            put_hash32(&mut out, h);
-                        }
-                        None => put_u32(&mut out, 0),
-                    }
-                    put_hash32(&mut out, &v.recursion_scheduler_level_vk_hash);
-                    put_u64(&mut out, v.system_contracts.len() as u64);
-                    for (addr, hash) in &v.system_contracts {
-                        out.extend_from_slice(addr);
-                        put_hash32(&mut out, hash);
-                    }
+                    put_upgrade_payload(&mut out, &v.proposal);
                 }
                 ProtocolEvent::SystemContractUpgradeActivation(v) => {
                     put_hash32(&mut out, v.subject_txid.as_ref());
                     put_hash32(&mut out, v.proposal_txid.as_ref());
+                    put_upgrade_payload(&mut out, &v.proposal);
                 }
                 ProtocolEvent::BridgeWithdrawal(v) => {
                     put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_u32(&mut out, v.withdrawal_version);
                     put_u64(&mut out, v.total_size);
                     put_u64(&mut out, v.v_size);
                     put_u64(&mut out, v.inputs.len() as u64);
@@ -846,8 +1006,8 @@ impl BlockPlan {
                     put_u64(&mut out, v.output_amount.to_sat());
                     put_u64(&mut out, v.withdrawals.len() as u64);
                     for w in &v.withdrawals {
-                        put_bytes(&mut out, w.l2_id.as_bytes());
-                        put_u32(&mut out, w.l2_tx_event_index);
+                        out.extend_from_slice(&w.l2_id);
+                        put_u32(&mut out, u32::from(w.l2_tx_event_index));
                         put_bytes(&mut out, w.receiver_script.as_bytes());
                         put_u64(&mut out, w.amount.to_sat());
                     }
@@ -882,7 +1042,8 @@ impl BlockPlan {
         put_u64(&mut out, self.dispositions.len() as u64);
         for d in &self.dispositions {
             put_u32(&mut out, d.ordinal.tx_index);
-            put_u32(&mut out, d.ordinal.message_ordinal);
+            put_u32(&mut out, d.ordinal.location.wire_tag());
+            put_u32(&mut out, d.ordinal.location.index());
             match &d.kind {
                 DispositionKind::RejectedInvalid { code, detail: _ } => {
                     put_u32(&mut out, 0);
@@ -920,10 +1081,27 @@ pub enum DependencyKey {
 
 /// A historical transaction as canonically observed: the inclusion selects
 /// the wtxid, the variant carries verified bytes for exactly that wtxid.
+/// The constructor enforces the binding, so a mismatched pair cannot exist.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CanonicalObservedTx {
-    pub inclusion: Inclusion,
-    pub variant: RawTxVariant,
+    inclusion: Inclusion,
+    variant: RawTxVariant,
+}
+
+impl CanonicalObservedTx {
+    pub fn new(inclusion: Inclusion, variant: RawTxVariant) -> Result<Self, String> {
+        if inclusion.txid != variant.txid() || inclusion.wtxid != variant.wtxid() {
+            return Err("inclusion and raw variant identify different transactions".into());
+        }
+        Ok(Self { inclusion, variant })
+    }
+
+    pub fn inclusion(&self) -> &Inclusion {
+        &self.inclusion
+    }
+    pub fn variant(&self) -> &RawTxVariant {
+        &self.variant
+    }
 }
 
 /// The three answers a local store can give for a dependency.
@@ -941,6 +1119,30 @@ pub enum Resolution<T> {
 pub enum ResolvedDependency {
     RawTx(Resolution<CanonicalObservedTx>),
     TrackedOutput(Resolution<TrackedOutputCreate>),
+}
+
+/// Check that every resolved value actually answers its map key: a raw
+/// transaction resolution must carry that key's txid, a tracked-output
+/// resolution that key's outpoint. Engines call this before finalizing so
+/// a miswired resolver surfaces as a typed failure, not a wrong plan.
+pub fn validate_resolutions(deps: &BTreeMap<DependencyKey, ResolvedDependency>) -> Result<(), FinalizeFailure> {
+    for (key, value) in deps {
+        let ok = match (key, value) {
+            (DependencyKey::RawTx(txid), ResolvedDependency::RawTx(r)) => match r {
+                Resolution::Present(obs) => obs.variant().txid() == *txid,
+                _ => true,
+            },
+            (DependencyKey::TrackedOutput(op), ResolvedDependency::TrackedOutput(r)) => match r {
+                Resolution::Present(create) => create.outpoint == *op,
+                _ => true,
+            },
+            _ => false,
+        };
+        if !ok {
+            return Err(FinalizeFailure::CorruptDependency(key.clone()));
+        }
+    }
+    Ok(())
 }
 
 /// Why plan finalization halted. Missing data is never treated as invalid
@@ -989,6 +1191,23 @@ pub trait ObservationReader: Send + Sync {
 #[error("infrastructure: {0}")]
 pub struct InfraError(pub String);
 
+/// Result of one finalization round. Some dependencies are only
+/// discoverable after resolving earlier ones (an attestation names a proof
+/// transaction, whose content names the batch transaction), so
+/// finalization iterates until closure.
+pub enum FinalizeOutcome<D> {
+    Complete(Box<BlockPlan>),
+    /// More dependencies are needed. `keys` is sorted, deduplicated, and
+    /// only holds keys missing from the resolved map. The caller resolves
+    /// them, merges, and calls `finalize` again with this draft. Discovery
+    /// is deterministic and currently at most two rounds deep; a runner
+    /// may cap rounds and fail an overflow as infrastructure.
+    NeedDependencies {
+        draft: D,
+        keys: Vec<DependencyKey>,
+    },
+}
+
 /// The deterministic protocol engine: two stages, no I/O in either.
 pub trait ProtocolEngine {
     type Draft;
@@ -1002,10 +1221,12 @@ pub trait ProtocolEngine {
     /// impure.
     fn inspect(&self, envelope: &BitcoinBlockEnvelope, context: &ProtocolContext) -> (Self::Draft, Vec<DependencyKey>);
 
-    /// Pure finalization against pre-resolved dependencies.
+    /// Pure finalization against the dependencies resolved so far.
+    /// Implementations must check the map with [`validate_resolutions`]
+    /// and must derive the plan's `next_context` with [`fold_context`].
     fn finalize(
         &self, draft: Self::Draft, dependencies: &BTreeMap<DependencyKey, ResolvedDependency>,
-    ) -> Result<BlockPlan, FinalizeFailure>;
+    ) -> Result<FinalizeOutcome<Self::Draft>, FinalizeFailure>;
 }
 
 /// Which node shell is projecting.
@@ -1228,9 +1449,218 @@ mod tests {
             s
         });
         assert_eq!(
-            hex, "ce72338666ff9275d43781527a85259733442afae4627e5f9f6f18b3187eaa58",
+            hex, "429456345217e6e8a19c59116e987fcd993e1ef6ad9e79a7f2d50df896769958",
             "canonical wire format changed: if intentional, bump PLAN_WIRE_FORMAT_VERSION and refreeze"
         );
+    }
+
+    fn tx_n(n: u32) -> Transaction {
+        Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::from_consensus(n),
+            input: vec![],
+            output: vec![],
+        }
+    }
+
+    fn script_n(n: u8) -> ScriptBuf {
+        ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::from_byte_array([n; 20]))
+    }
+
+    /// One plan carrying every event kind, both `Option` arms, and all
+    /// wallet-rotation tags, so no v3 encoding path is left unfrozen.
+    fn exhaustive_plan() -> BlockPlan {
+        let txs: Vec<Transaction> = (0..10).map(tx_n).collect();
+        let mut variants: Vec<RawTxVariant> = txs.iter().map(RawTxVariant::from_transaction).collect();
+        let anchor = anchor();
+        let inclusions: Vec<Inclusion> = variants
+            .iter()
+            .enumerate()
+            .map(|(i, v)| Inclusion {
+                block_hash: anchor.hash,
+                height: anchor.height,
+                tx_index: i as u32,
+                txid: v.txid(),
+                wtxid: v.wtxid(),
+            })
+            .collect();
+        let txids: Vec<Txid> = inclusions.iter().map(|i| i.txid).collect();
+        let txid = |i: usize| txids[i];
+        let ord = |i: usize| EventOrdinal { tx_index: i as u32, location: MessageLocation::Output(0) };
+        let batch = BatchReferenceSnapshot {
+            reveal_txid: txid(1),
+            l1_batch_hash: [3; 32],
+            l1_batch_index: 7,
+            prev_l1_batch_hash: [2; 32],
+            da_identifier: "celestia".into(),
+            blob_id: "blob-1".into(),
+        };
+        let upgrade = UpgradePayload {
+            version: ProtocolVersionTag { minor: 27, patch: 0 },
+            bootloader_code_hash: [4; 32],
+            default_account_code_hash: [5; 32],
+            evm_emulator_code_hash: Some([6; 32]),
+            recursion_scheduler_level_vk_hash: [7; 32],
+            system_contracts: vec![([8; 20], [9; 32]), ([10; 20], [11; 32])],
+        };
+        let upgrade_no_emu = UpgradePayload { evm_emulator_code_hash: None, ..upgrade.clone() };
+        let wallets = WalletSet {
+            sequencer: script_n(0x11),
+            bridge: script_n(0x12),
+            governance: script_n(0x13),
+            verifiers: vec![script_n(0x14), script_n(0x15)],
+        };
+        let events = vec![
+            ProtocolEvent::DepositObserved(DepositObserved {
+                ordinal: ord(0),
+                subject: OutPoint { txid: txid(0), vout: 0 },
+                amount: Amount::from_sat(50_000),
+                receiver: [0xAA; 20],
+                l2_contract: [0; 20],
+                call_data: vec![1, 2, 3],
+                sender_script: Some(script_n(0x16)),
+                encoding: DepositEncoding::Both,
+            }),
+            ProtocolEvent::L1BatchDAReference(L1BatchDAReferenceObserved {
+                ordinal: ord(1),
+                subject_txid: txid(1),
+                l1_batch_hash: [3; 32],
+                l1_batch_index: 7,
+                da_identifier: "celestia".into(),
+                blob_id: "blob-1".into(),
+                prev_l1_batch_hash: [2; 32],
+            }),
+            ProtocolEvent::ProofDAReference(ProofDAReferenceObserved {
+                ordinal: ord(2),
+                subject_txid: txid(2),
+                da_identifier: "celestia".into(),
+                blob_id: "blob-2".into(),
+                batch: batch.clone(),
+            }),
+            ProtocolEvent::ValidatorAttestation(ValidatorAttestationObserved {
+                ordinal: ord(3),
+                subject_txid: txid(3),
+                reference_txid: txid(2),
+                ok: true,
+                attester_script: script_n(0x14),
+                batch,
+            }),
+            ProtocolEvent::SystemBootstrapping(SystemBootstrappingObserved {
+                ordinal: ord(4),
+                subject_txid: txid(4),
+                start_block_height: 100,
+                protocol_version: ProtocolVersionTag { minor: 26, patch: 0 },
+                bootloader_hash: [12; 32],
+                abstract_account_hash: [13; 32],
+                snark_wrapper_vk_hash: [14; 32],
+                evm_emulator_hash: [15; 32],
+                wallets: wallets.clone(),
+            }),
+            ProtocolEvent::SystemContractUpgradeProposal(SystemContractUpgradeProposalObserved {
+                ordinal: ord(5),
+                subject_txid: txid(5),
+                proposal: upgrade_no_emu,
+            }),
+            ProtocolEvent::SystemContractUpgradeActivation(SystemContractUpgradeActivationObserved {
+                ordinal: ord(6),
+                subject_txid: txid(6),
+                proposal_txid: txid(5),
+                proposal: upgrade,
+            }),
+            ProtocolEvent::BridgeWithdrawal(BridgeWithdrawalObserved {
+                ordinal: ord(7),
+                subject_txid: txid(7),
+                withdrawal_version: 1,
+                total_size: 400,
+                v_size: 200,
+                inputs: vec![OutPoint { txid: txid(0), vout: 0 }],
+                output_amount: Amount::from_sat(49_000),
+                withdrawals: vec![WithdrawalOutput {
+                    l2_id: [1, 2, 3, 4, 5, 6, 7, 8],
+                    l2_tx_event_index: 3,
+                    receiver_script: script_n(0x17),
+                    amount: Amount::from_sat(49_000),
+                }],
+            }),
+            ProtocolEvent::UpdateBridgeProposal(UpdateBridgeProposalObserved {
+                ordinal: ord(8),
+                subject_txid: txid(8),
+                bridge_script: script_n(0x18),
+                verifier_scripts: vec![script_n(0x19)],
+            }),
+            ProtocolEvent::WalletRotation(WalletRotationObserved {
+                ordinal: ord(9),
+                subject_txid: txid(9),
+                rotation: WalletRotation::Bridge {
+                    proposal_txid: txid(8),
+                    new_bridge_script: script_n(0x18),
+                    new_verifier_scripts: vec![script_n(0x19)],
+                },
+            }),
+        ];
+        let input_context =
+            ProtocolContext { version: 1, wallets, protocol_version: ProtocolVersionTag { minor: 26, patch: 0 } };
+        let next_context = fold_context(&input_context, &events);
+        variants.sort_by_key(|v| (v.txid(), v.wtxid()));
+        BlockPlan {
+            kernel_version: KernelVersion(1),
+            observation_rule_version: ObservationRuleVersion(1),
+            network: Network::Regtest,
+            anchor,
+            input_context_hash: input_context.context_hash(),
+            raw_variants: variants,
+            inclusions,
+            tracked_creates: vec![TrackedOutputCreate {
+                outpoint: OutPoint { txid: txid(0), vout: 0 },
+                value: Amount::from_sat(50_000),
+                script_pubkey: script_n(0x12),
+                role: TrackedRole::Bridge,
+            }],
+            tracked_spends: vec![],
+            events,
+            dispositions: vec![
+                Disposition {
+                    ordinal: EventOrdinal { tx_index: 0, location: MessageLocation::Input(0) },
+                    kind: DispositionKind::RejectedInvalid {
+                        code: RejectionCode::Unauthorized,
+                        detail: "excluded from hash".into(),
+                    },
+                },
+                Disposition {
+                    ordinal: EventOrdinal { tx_index: 1, location: MessageLocation::Output(1) },
+                    kind: DispositionKind::Duplicate,
+                },
+            ],
+            next_context,
+        }
+    }
+
+    /// Frozen golden over the exhaustive plan: freezes every v3 event
+    /// encoding, not just the empty-plan header.
+    #[test]
+    fn exhaustive_plan_hash_matches_frozen_golden() {
+        use std::fmt::Write;
+        let plan = exhaustive_plan();
+        plan.validate().expect("exhaustive plan must be structurally valid");
+        let hash = plan.plan_hash().unwrap();
+        let hex = hash.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        });
+        assert_eq!(
+            hex, "811e334ba720e566e3b078f603124f57884b90031bef05cdbac6b14d899602cd",
+            "canonical wire format changed: if intentional, bump PLAN_WIRE_FORMAT_VERSION and refreeze"
+        );
+    }
+
+    #[test]
+    fn fold_context_applies_bootstrap_rotation_and_upgrade() {
+        let plan = exhaustive_plan();
+        let next = &plan.next_context;
+        assert_eq!(next.protocol_version, ProtocolVersionTag { minor: 27, patch: 0 });
+        assert_eq!(next.wallets.bridge, script_n(0x18), "bridge rotation folded");
+        assert_eq!(next.wallets.verifiers, vec![script_n(0x19)], "verifier set folded");
+        assert_eq!(next.wallets.sequencer, script_n(0x11), "sequencer untouched");
     }
 
     #[test]
@@ -1252,7 +1682,7 @@ mod tests {
         let mk = |detail: &str| {
             let mut p = dummy_plan();
             p.dispositions = vec![Disposition {
-                ordinal: EventOrdinal { tx_index: 0, message_ordinal: 0 },
+                ordinal: EventOrdinal { tx_index: 0, location: MessageLocation::Output(0) },
                 kind: DispositionKind::RejectedInvalid { code: RejectionCode::MalformedMessage, detail: detail.into() },
             }];
             p.plan_hash().unwrap()
@@ -1264,8 +1694,14 @@ mod tests {
     fn unsorted_plan_has_no_canonical_form() {
         let mut p = dummy_plan();
         p.dispositions = vec![
-            Disposition { ordinal: EventOrdinal { tx_index: 1, message_ordinal: 0 }, kind: DispositionKind::Duplicate },
-            Disposition { ordinal: EventOrdinal { tx_index: 0, message_ordinal: 0 }, kind: DispositionKind::Duplicate },
+            Disposition {
+                ordinal: EventOrdinal { tx_index: 1, location: MessageLocation::Output(0) },
+                kind: DispositionKind::Duplicate,
+            },
+            Disposition {
+                ordinal: EventOrdinal { tx_index: 0, location: MessageLocation::Output(0) },
+                kind: DispositionKind::Duplicate,
+            },
         ];
         assert!(matches!(p.canonical_bytes(), Err(PlanValidationError::NotSortedOrDuplicate { .. })));
     }
@@ -1308,12 +1744,13 @@ mod tests {
     fn events_must_reference_an_included_transaction() {
         let mut p = dummy_plan();
         p.events = vec![ProtocolEvent::DepositObserved(DepositObserved {
-            ordinal: EventOrdinal { tx_index: 0, message_ordinal: 0 },
+            ordinal: EventOrdinal { tx_index: 0, location: MessageLocation::Output(0) },
             subject: OutPoint { txid: Txid::all_zeros(), vout: 0 },
             amount: Amount::from_sat(1),
-            receiver: vec![0; 20],
-            l2_contract: vec![],
+            receiver: [0; 20],
+            l2_contract: [0; 20],
             call_data: vec![],
+            sender_script: None,
             encoding: DepositEncoding::OpReturn,
         })];
         assert!(matches!(p.validate(), Err(PlanValidationError::EventWithoutInclusion { .. })));
@@ -1361,7 +1798,7 @@ mod tests {
         let phantom = ProjectionReceipt {
             applied: vec![EffectId {
                 block_hash: BlockHash::all_zeros(),
-                ordinal: EventOrdinal { tx_index: 0, message_ordinal: 0 },
+                ordinal: EventOrdinal { tx_index: 0, location: MessageLocation::Output(0) },
                 kind: EventKind::Deposit,
                 subject: EffectSubject::Output(OutPoint { txid: Txid::all_zeros(), vout: 0 }),
             }],

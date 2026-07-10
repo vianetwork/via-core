@@ -37,9 +37,9 @@ use async_trait::async_trait;
 use bitcoin::{hashes::Hash, Amount, OutPoint, Txid, Wtxid};
 use via_btc_ingestion::{
     AggregateAdapter, ApplyError, BitcoinBlockEnvelope, BlockAnchor, BlockPlan, Checkpoint, DependencyKey,
-    DispositionKind, EffectId, FinalizeFailure, Hash32, Inclusion, ObservationReadError, ObservationReader,
-    ProtocolContext, ProtocolEngine, RejectionCode, ReorgImpact, Resolution, ResolvedDependency, Role,
-    TrackedOutputCreate,
+    DispositionKind, EffectId, FinalizeFailure, FinalizeOutcome, Hash32, Inclusion, MessageLocation,
+    ObservationReadError, ObservationReader, ProtocolContext, ProtocolEngine, RejectionCode, ReorgImpact, Resolution,
+    ResolvedDependency, Role, TrackedOutputCreate,
 };
 
 /// Semantic crash boundaries of `apply_block` every adapter must be able to
@@ -429,6 +429,34 @@ fn all_unavailable(keys: &[DependencyKey]) -> BTreeMap<DependencyKey, ResolvedDe
         .collect()
 }
 
+/// Cap on finalize rounds. The protocol's reference depth is 2; anything
+/// deeper is an engine bug, not a longer chain.
+pub const MAX_FINALIZE_ROUNDS: usize = 4;
+
+/// Drive iterative finalization to completion against the production
+/// reader. Panics if the engine exceeds the round cap or re-requests a key
+/// it was already given.
+pub async fn finalize_with_reader<E: ProtocolEngine, R: ObservationReader>(
+    engine: &E, reader: &R, draft: E::Draft, initial_keys: &[DependencyKey],
+) -> Result<BlockPlan, FinalizeFailure> {
+    let mut resolved =
+        resolve_deps(reader, initial_keys).await.expect("fixture dependency resolution must not fail here");
+    let mut draft = draft;
+    for _ in 0..MAX_FINALIZE_ROUNDS {
+        match engine.finalize(draft, &resolved)? {
+            FinalizeOutcome::Complete(plan) => return Ok(*plan),
+            FinalizeOutcome::NeedDependencies { draft: d, keys } => {
+                assert!(!keys.is_empty(), "NeedDependencies with no keys");
+                assert!(keys.iter().all(|k| !resolved.contains_key(k)), "engine re-requested a resolved key");
+                let more = resolve_deps(reader, &keys).await.expect("fixture dependency resolution must not fail here");
+                resolved.extend(more);
+                draft = d;
+            }
+        }
+    }
+    panic!("finalize did not converge within {MAX_FINALIZE_ROUNDS} rounds");
+}
+
 /// Plan a block, resolving dependencies through the production reader.
 /// Panics on finalize failure (fixture inputs are expected to be plannable
 /// unless a fixture states otherwise).
@@ -438,8 +466,7 @@ pub async fn plan_block<H: TestHarness>(
     let engine = harness.engine().await;
     let reader = harness.observation_reader(adapter).await;
     let (draft, keys) = engine.inspect(envelope, context);
-    let deps = resolve_deps(&reader, &keys).await.expect("fixture dependency resolution must not fail here");
-    let plan = engine.finalize(draft, &deps).expect("fixture envelope must finalize");
+    let plan = finalize_with_reader(&engine, &reader, draft, &keys).await.expect("fixture envelope must finalize");
     assert_eq!(plan.input_context_hash, context.context_hash(), "plan must record the context it was built from");
     plan
 }
@@ -489,7 +516,18 @@ pub async fn deposit_plan_golden<H: TestHarness>(harness: &H) {
         let (draft, keys) = engine.inspect(env, ctx);
         let (_, keys_again) = engine.inspect(env, ctx);
         assert_eq!(keys, keys_again, "dependency discovery must be deterministic");
-        engine.finalize(draft, &all_known_absent(&keys)).expect("finalize")
+        let mut resolved = all_known_absent(&keys);
+        let mut draft = draft;
+        for _ in 0..MAX_FINALIZE_ROUNDS {
+            match engine.finalize(draft, &resolved).expect("finalize") {
+                FinalizeOutcome::Complete(plan) => return *plan,
+                FinalizeOutcome::NeedDependencies { draft: d, keys } => {
+                    resolved.extend(all_known_absent(&keys));
+                    draft = d;
+                }
+            }
+        }
+        panic!("finalize did not converge");
     };
 
     let a = plan(&envelope, &context);
@@ -813,11 +851,11 @@ pub async fn checkpoint_parent_version_and_adjacent_block_guard<H: TestHarness>(
     let mut plan_invalid = plan_block(harness, &adapter, &next, &default_context()).await;
     plan_invalid.dispositions = vec![
         via_btc_ingestion::Disposition {
-            ordinal: via_btc_ingestion::EventOrdinal { tx_index: 1, message_ordinal: 0 },
+            ordinal: via_btc_ingestion::EventOrdinal { tx_index: 1, location: MessageLocation::Output(0) },
             kind: DispositionKind::Duplicate,
         },
         via_btc_ingestion::Disposition {
-            ordinal: via_btc_ingestion::EventOrdinal { tx_index: 0, message_ordinal: 0 },
+            ordinal: via_btc_ingestion::EventOrdinal { tx_index: 0, location: MessageLocation::Output(0) },
             kind: DispositionKind::Duplicate,
         },
     ];
@@ -904,7 +942,8 @@ pub async fn mixed_failure_taxonomy<H: TestHarness>(harness: &H) {
     );
     match engine.finalize(draft, &all_unavailable(&keys)) {
         Err(FinalizeFailure::MissingDependency(_)) => {}
-        other => panic!("unavailable dependency must halt as MissingDependency, got {other:?}"),
+        Err(other) => panic!("unavailable dependency must halt as MissingDependency, got {other:?}"),
+        Ok(_) => panic!("unavailable dependency must not finalize"),
     }
     let probe = harness.probe(&adapter).await;
     assert_eq!(probe.checkpoint().await.unwrap(), cp, "no cursor movement past uninterpreted data");
@@ -1142,8 +1181,8 @@ pub async fn same_txid_different_witness_remine<H: TestHarness>(harness: &H) {
     // The production reader must select the canonical variant atomically.
     let reader = harness.observation_reader(&adapter).await;
     let observed = reader.canonical_observed_tx(&txid).await.expect("read").expect("canonically observed");
-    assert_eq!(observed.inclusion.block_hash, anchor_b2.hash);
-    assert_eq!(observed.variant.wtxid(), variant_b.compute_wtxid());
+    assert_eq!(observed.inclusion().block_hash, anchor_b2.hash);
+    assert_eq!(observed.variant().wtxid(), variant_b.compute_wtxid());
 }
 
 /// When competing branches spend the same tracked output with different
@@ -1324,8 +1363,8 @@ pub async fn pruned_restart_has_zero_historical_fallback<H: TestHarness>(harness
     // Production reader path.
     let reader = harness.observation_reader(&adapter).await;
     let observed = reader.canonical_observed_tx(&deposit_txid).await.expect("read").expect("deposit resolves locally");
-    assert_eq!(observed.variant.wtxid(), deposit_wtxid);
-    assert_eq!(observed.inclusion.block_hash, anchor.hash);
+    assert_eq!(observed.variant().wtxid(), deposit_wtxid);
+    assert_eq!(observed.inclusion().block_hash, anchor.hash);
     let tracked = reader.tracked_output(&funded).await.expect("read").expect("tracked TxOut resolves locally");
     assert_eq!(tracked.value, Amount::from_sat(70_000));
 
@@ -1371,7 +1410,8 @@ pub async fn pruned_restart_has_zero_historical_fallback<H: TestHarness>(harness
     // answer is Unavailable, which must halt.
     match engine.finalize(draft, &all_unavailable(&keys)) {
         Err(FinalizeFailure::MissingDependency(_)) => {}
-        other => panic!("lost local data must halt as MissingDependency, got {other:?}"),
+        Err(other) => panic!("lost local data must halt as MissingDependency, got {other:?}"),
+        Ok(_) => panic!("lost local data must not finalize"),
     }
     assert_eq!(harness.historical_rpc_count().await, 0, "missing local data must never trigger an RPC fallback");
 }
