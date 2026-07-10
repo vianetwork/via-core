@@ -110,7 +110,7 @@ impl ProtocolEngine for ViaProtocolEngine {
             let outcomes = parser.parse_transaction(
                 tx,
                 tx_index as u32,
-                envelope.anchor.height as u32,
+                envelope.anchor.height.min(u64::from(u32::MAX)) as u32,
                 wallets.as_ref(),
             );
             let draft = TxDraft {
@@ -292,6 +292,10 @@ impl<'a> Finalizer<'a> {
     }
 
     /// Parse a historically observed transaction and return its messages.
+    /// A malformed or unsupported carrier inside a referenced historical
+    /// transaction is dropped here on purpose: the referring event then
+    /// rejects as InvalidProposal. The historical transaction's own
+    /// taxonomy was already recorded when its block was processed.
     fn parse_observed(
         &self,
         obs: &CanonicalObservedTx,
@@ -379,6 +383,17 @@ impl<'a> Finalizer<'a> {
     }
 
     fn run(mut self) -> Result<FinalizeOutcome<EngineDraft>, FinalizeFailure> {
+        if self.draft.network != self.engine.network {
+            return Err(FinalizeFailure::Infrastructure(format!(
+                "envelope network {:?} does not match engine network {:?}",
+                self.draft.network, self.engine.network
+            )));
+        }
+        if u32::try_from(self.draft.anchor.height).is_err() {
+            return Err(FinalizeFailure::Infrastructure(
+                "block height exceeds u32".into(),
+            ));
+        }
         let context = self.draft.context.clone();
         let bootstrapped = context.wallets.is_bootstrapped();
         let txs = self.draft.txs.clone();
@@ -622,7 +637,7 @@ impl<'a> Finalizer<'a> {
 
         match &msg.message {
             FullInscriptionMessage::SystemBootstrapping(b) => {
-                if bootstrapped {
+                if bootstrapped || !self.rotated.insert("bootstrap") {
                     self.reject(
                         ordinal,
                         RejectionCode::InvalidBootstrap,
@@ -1821,6 +1836,27 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn second_bootstrap_in_same_block_is_rejected() {
+        let engine = ViaProtocolEngine::new(Network::Regtest);
+        let first = inscribed_tx(50, 51, bootstrap_message(), vec![]);
+        let second = inscribed_tx(50, 52, bootstrap_message(), vec![]);
+        let env = envelope(130, vec![first, second]);
+        let plan = complete_plan(&engine, &env, &unbootstrapped_context(), []);
+        assert!(
+            matches!(&plan.events[..], [ProtocolEvent::SystemBootstrapping(_)]),
+            "only the first bootstrap may become an event"
+        );
+        assert!(matches!(
+            &plan.dispositions[0].kind,
+            DispositionKind::RejectedInvalid {
+                code: RejectionCode::InvalidBootstrap,
+                ..
+            }
+        ));
+        assert!(plan.next_context.wallets.is_bootstrapped());
     }
 
     fn upgrade_proposal(version: ProtocolVersionId, seed: u8) -> Transaction {
