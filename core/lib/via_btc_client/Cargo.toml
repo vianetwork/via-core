@@ -16,6 +16,7 @@ zksync_types.workspace = true
 zksync_config.workspace = true
 zksync_basic_types.workspace = true
 zksync_object_store.workspace = true
+via_btc_ingestion.workspace = true
 
 
 thiserror.workspace = true

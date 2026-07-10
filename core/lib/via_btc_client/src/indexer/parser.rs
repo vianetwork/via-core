@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
@@ -47,6 +45,23 @@ const MIN_UPDATE_BRIDGE_PROPOSAL: usize = 5;
 #[derive(Debug, Clone)]
 pub struct MessageParser {
     network: Network,
+}
+
+#[derive(Debug)]
+pub(super) enum CarrierParse<T> {
+    Irrelevant,
+    Malformed(String),
+    Unsupported(Vec<u8>),
+    ContextRequired,
+    Valid(T),
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CarrierMetadata {
+    pub block_height: u32,
+    pub signer: Option<Address>,
+    pub tx_index: Option<usize>,
+    pub output_vout: Option<usize>,
 }
 
 impl MessageParser {
@@ -173,48 +188,87 @@ impl MessageParser {
         address: Address,
         wallets: Option<&SystemWallets>,
     ) -> Option<FullInscriptionMessage> {
-        let witness = &input.witness;
-        if witness.len() < MIN_WITNESS_LENGTH {
-            return None;
-        }
-
-        let signature = match TaprootSignature::from_slice(&witness[0]) {
-            Ok(sig) => sig,
-            Err(e) => {
-                warn!("Failed to parse Taproot signature: {}", e);
-                return None;
-            }
-        };
-        let script = ScriptBuf::from_bytes(witness[1].to_vec());
-        let control_block = match ControlBlock::decode(&witness[2]) {
-            Ok(cb) => cb,
-            Err(e) => {
-                warn!("Failed to decode control block: {}", e);
-                return None;
-            }
-        };
-
-        let instructions: Vec<_> = script.instructions().filter_map(Result::ok).collect();
-        let via_index = match find_via_inscription_protocol(&instructions) {
-            Some(index) => index,
-            None => {
-                debug!("VIA inscription protocol not found in script");
-                return None;
-            }
-        };
-
-        let public_key = control_block.internal_key;
-        let common_fields = CommonFields {
-            schnorr_signature: signature,
-            encoded_public_key: PushBytesBuf::from(public_key.serialize()),
+        let metadata = CarrierMetadata {
             block_height,
-            tx_id: tx.compute_ntxid().into(),
-            p2wpkh_address: Some(address),
+            signer: Some(address),
             tx_index: None,
             output_vout: None,
         };
+        match self.parse_system_carrier(input, tx, metadata, wallets) {
+            CarrierParse::Valid(message) => Some(message),
+            CarrierParse::Irrelevant
+            | CarrierParse::Malformed(_)
+            | CarrierParse::Unsupported(_)
+            | CarrierParse::ContextRequired => None,
+        }
+    }
 
-        self.parse_system_message(tx, &instructions[via_index..], &common_fields, wallets)
+    pub(super) fn parse_system_carrier(
+        &mut self,
+        input: &bitcoin::TxIn,
+        tx: &Transaction,
+        metadata: CarrierMetadata,
+        wallets: Option<&SystemWallets>,
+    ) -> CarrierParse<FullInscriptionMessage> {
+        let witness = &input.witness;
+        if witness.len() < MIN_WITNESS_LENGTH {
+            return CarrierParse::Irrelevant;
+        }
+        let script = ScriptBuf::from_bytes(witness[1].to_vec());
+        if !script
+            .as_bytes()
+            .windows(types::VIA_INSCRIPTION_PROTOCOL.len())
+            .any(|window| window == types::VIA_INSCRIPTION_PROTOCOL.as_bytes())
+        {
+            return CarrierParse::Irrelevant;
+        }
+        let instructions = match script.instructions().collect::<Result<Vec<_>, _>>() {
+            Ok(instructions) => instructions,
+            Err(err) => {
+                return CarrierParse::Malformed(format!("invalid inscription script: {err}"))
+            }
+        };
+        let Some(via_index) = find_via_inscription_protocol(&instructions) else {
+            return CarrierParse::Irrelevant;
+        };
+        let signature = match TaprootSignature::from_slice(&witness[0]) {
+            Ok(signature) => signature,
+            Err(err) => {
+                return CarrierParse::Malformed(format!("invalid Taproot signature: {err}"))
+            }
+        };
+        let control_block = match ControlBlock::decode(&witness[2]) {
+            Ok(control_block) => control_block,
+            Err(err) => return CarrierParse::Malformed(format!("invalid control block: {err}")),
+        };
+        let message_instructions = &instructions[via_index..];
+        let message_type = match message_instructions.get(1) {
+            Some(Instruction::PushBytes(bytes)) => bytes.as_bytes(),
+            Some(Instruction::Op(_)) => {
+                return CarrierParse::Malformed("message type is not push data".into())
+            }
+            None => return CarrierParse::Malformed("missing message type".into()),
+        };
+        if !is_known_system_message_type(message_type) {
+            return CarrierParse::Unsupported(message_type.to_vec());
+        }
+        if message_type == types::L1_TO_L2_MSG.as_bytes() && wallets.is_none() {
+            return CarrierParse::ContextRequired;
+        }
+
+        let common_fields = CommonFields {
+            schnorr_signature: signature,
+            encoded_public_key: PushBytesBuf::from(control_block.internal_key.serialize()),
+            block_height: metadata.block_height,
+            tx_id: tx.compute_ntxid().into(),
+            p2wpkh_address: metadata.signer,
+            tx_index: metadata.tx_index,
+            output_vout: metadata.output_vout,
+        };
+        match self.parse_system_message(tx, message_instructions, &common_fields, wallets) {
+            Some(message) => CarrierParse::Valid(message),
+            None => CarrierParse::Malformed("recognized inscription payload is malformed".into()),
+        }
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer::parser")]
@@ -323,21 +377,21 @@ impl MessageParser {
         );
         debug!("Parsed start block height: {}", start_block_height);
 
-        let protocol_version = ProtocolSemanticVersion::try_from_packed(U256::from_big_endian(
+        let protocol_version = ProtocolSemanticVersion::try_from_packed(parse_u256(
             instructions.get(3)?.push_bytes()?.as_bytes(),
-        ))
+        )?)
         .ok()?;
         debug!("Parsed protocol version");
 
-        let bootloader_hash = H256::from_slice(instructions.get(4)?.push_bytes()?.as_bytes());
+        let bootloader_hash = parse_h256(instructions.get(4)?.push_bytes()?.as_bytes())?;
         debug!("Parsed bootloader hash");
 
-        let abstract_account_hash = H256::from_slice(instructions.get(5)?.push_bytes()?.as_bytes());
+        let abstract_account_hash = parse_h256(instructions.get(5)?.push_bytes()?.as_bytes())?;
         debug!("Parsed abstract account hash");
 
-        let snark_wrapper_vk_hash = H256::from_slice(instructions.get(6)?.push_bytes()?.as_bytes());
+        let snark_wrapper_vk_hash = parse_h256(instructions.get(6)?.push_bytes()?.as_bytes())?;
 
-        let evm_emulator_hash = H256::from_slice(instructions.get(7)?.push_bytes()?.as_bytes());
+        let evm_emulator_hash = parse_h256(instructions.get(7)?.push_bytes()?.as_bytes())?;
 
         let network_unchecked_governance_address = instructions.get(8).and_then(|instr| {
             if let Instruction::PushBytes(bytes) = instr {
@@ -486,7 +540,7 @@ impl MessageParser {
             return None;
         }
 
-        let l1_batch_hash = H256::from_slice(instructions.get(2)?.push_bytes()?.as_bytes());
+        let l1_batch_hash = parse_h256(instructions.get(2)?.push_bytes()?.as_bytes())?;
         debug!("Parsed L1 batch hash");
 
         let l1_batch_index = L1BatchNumber(u32::from_be_bytes(
@@ -509,7 +563,7 @@ impl MessageParser {
             .to_string();
         debug!("Parsed blob ID: {}", blob_id);
 
-        let prev_l1_batch_hash = H256::from_slice(instructions.get(6)?.push_bytes()?.as_bytes());
+        let prev_l1_batch_hash = parse_h256(instructions.get(6)?.push_bytes()?.as_bytes())?;
         debug!("Parsed previous L1 batch hash");
 
         Some(FullInscriptionMessage::L1BatchDAReference(
@@ -590,12 +644,10 @@ impl MessageParser {
             return None;
         }
 
-        let receiver_l2_address =
-            EVMAddress::from_slice(instructions.get(2)?.push_bytes()?.as_bytes());
+        let receiver_l2_address = parse_evm_address(instructions.get(2)?.push_bytes()?.as_bytes())?;
         debug!("Parsed receiver L2 address");
 
-        let l2_contract_address =
-            EVMAddress::from_slice(instructions.get(3)?.push_bytes()?.as_bytes());
+        let l2_contract_address = parse_evm_address(instructions.get(3)?.push_bytes()?.as_bytes())?;
         debug!("Parsed L2 contract address");
 
         let call_data = instructions.get(4)?.push_bytes()?.as_bytes().to_vec();
@@ -637,29 +689,28 @@ impl MessageParser {
             return None;
         }
 
-        let version = ProtocolSemanticVersion::try_from_packed(U256::from_big_endian(
+        let version = ProtocolSemanticVersion::try_from_packed(parse_u256(
             instructions.get(2)?.push_bytes()?.as_bytes(),
-        ))
+        )?)
         .ok()?;
         debug!("Parsed protocol version");
 
-        let bootloader_code_hash = H256::from_slice(instructions.get(3)?.push_bytes()?.as_bytes());
+        let bootloader_code_hash = parse_h256(instructions.get(3)?.push_bytes()?.as_bytes())?;
         debug!("Parsed bootloader code hash");
 
-        let default_account_code_hash =
-            H256::from_slice(instructions.get(4)?.push_bytes()?.as_bytes());
+        let default_account_code_hash = parse_h256(instructions.get(4)?.push_bytes()?.as_bytes())?;
         debug!("Parsed default account code hash");
 
         let recursion_scheduler_level_vk_hash =
-            H256::from_slice(instructions.get(5)?.push_bytes()?.as_bytes());
+            parse_h256(instructions.get(5)?.push_bytes()?.as_bytes())?;
         debug!("Parsed recursion scheduler level vk hash");
 
-        let len = instructions.len() - 7;
+        let len = instructions.len().checked_sub(7)?;
         let mut system_contracts = Vec::with_capacity(len / 2);
 
         for i in (6..len).step_by(2) {
-            let address = EVMAddress::from_slice(instructions.get(i)?.push_bytes()?.as_bytes());
-            let hash = H256::from_slice(instructions.get(i + 1)?.push_bytes()?.as_bytes());
+            let address = parse_evm_address(instructions.get(i)?.push_bytes()?.as_bytes())?;
+            let hash = parse_h256(instructions.get(i + 1)?.push_bytes()?.as_bytes())?;
             system_contracts.push((address, hash))
         }
         debug!("Parsed system contracts");
@@ -740,43 +791,27 @@ impl MessageParser {
         block_height: u32,
         wallets: &SystemWallets,
     ) -> Option<FullInscriptionMessage> {
-        // Try to find any witness data that contains a valid inscription
-        for input in tx.tx.input.iter() {
-            let witness = &input.witness;
-            if witness.len() < MIN_WITNESS_LENGTH {
+        let mut parser = self.clone();
+        for input in &tx.tx.input {
+            if input.witness.len() < MIN_WITNESS_LENGTH {
                 continue;
             }
-
-            // Parse signature and control block
-            let signature = TaprootSignature::from_slice(&witness[0]).ok()?;
-            let script = ScriptBuf::from_bytes(witness[1].to_vec());
-            let control_block = ControlBlock::decode(&witness[2]).ok()?;
-
-            let instructions: Vec<_> = script.instructions().filter_map(Result::ok).collect();
-            let via_index = find_via_inscription_protocol(&instructions)?;
-
-            // Try to parse p2wpkh address if possible, but make it optional
-            let p2wpkh_address = self.parse_p2wpkh(witness);
-
-            let common_fields = CommonFields {
-                schnorr_signature: signature,
-                encoded_public_key: PushBytesBuf::from(control_block.internal_key.serialize()),
+            let signer = self.parse_p2wpkh(&input.witness);
+            let metadata = CarrierMetadata {
                 block_height,
-                tx_id: tx.tx.compute_ntxid().into(),
-                p2wpkh_address,
+                signer,
                 tx_index: Some(tx.tx_index),
                 output_vout: tx.output_vout,
             };
-
-            // Parse L1ToL2Message from instructions
-            return self.parse_l1_to_l2_message(
-                &tx.tx,
-                &instructions[via_index..],
-                &common_fields,
-                Some(wallets),
-            );
+            return match parser.parse_system_carrier(input, &tx.tx, metadata, Some(wallets)) {
+                CarrierParse::Valid(message)
+                    if matches!(message, FullInscriptionMessage::L1ToL2Message(_)) =>
+                {
+                    Some(message)
+                }
+                _ => None,
+            };
         }
-
         None
     }
 
@@ -786,70 +821,24 @@ impl MessageParser {
         block_height: u32,
         bridge_output: &TxOut,
     ) -> Option<FullInscriptionMessage> {
-        // Find OP_RETURN output
-        let op_return_output = tx
+        let output = tx
             .tx
             .output
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
-
-        // Parse OP_RETURN data
-        let op_return_data = op_return_output.script_pubkey.as_bytes();
-        if op_return_data.len() < 2 {
-            return None;
-        }
-
-        let mut start_index = 2;
-        if op_return_data.len() > 75 {
-            start_index += 1;
-        }
-
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(start_index..) {
-            if op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX)
-                || op_return_data.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX)
-                || op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX)
-                || op_return_data.starts_with(OP_RETURN_UPDATE_BRIDGE_PREFIX)
-                || op_return_data.starts_with(OP_RETURN_UPDATE_GOVERNANCE_PREFIX)
-            {
-                return None;
-            }
-            // Parse receiver address from OP_RETURN data
-
-            let receiver_l2_address = EVMAddress::from_slice(&op_return_data[0..20]);
-
-            let input = L1ToL2MessageInput {
-                receiver_l2_address,
-                l2_contract_address: EVMAddress::zero(),
-                call_data: vec![],
-            };
-
-            // Try to parse p2wpkh address from the first input if possible
-            let p2wpkh_address = tx
-                .tx
-                .input
-                .first()
-                .and_then(|input| self.parse_p2wpkh(&input.witness));
-
-            // Create common fields with empty signature for OP_RETURN
-            let common_fields = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                tx_id: tx.tx.compute_ntxid().into(),
-                p2wpkh_address,
-                tx_index: Some(tx.tx_index),
-                output_vout: tx.output_vout,
-            };
-
-            return Some(FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
-                common: common_fields,
-                amount: bridge_output.value,
-                input,
-                tx_outputs: tx.tx.output.clone(),
-            }));
-        }
-        None
+        let payload = op_return_payload(output).ok()?;
+        let signer = tx
+            .tx
+            .input
+            .first()
+            .and_then(|input| self.parse_p2wpkh(&input.witness));
+        let metadata = CarrierMetadata {
+            block_height,
+            signer,
+            tx_index: Some(tx.tx_index),
+            output_vout: tx.output_vout,
+        };
+        self.parse_op_return_deposit_payload(&tx.tx, payload, bridge_output, metadata)
     }
 
     fn parse_op_return_withdrawal(
@@ -858,99 +847,12 @@ impl MessageParser {
         block_height: u32,
         wallets: &SystemWallets,
     ) -> Option<FullInscriptionMessage> {
-        // Find OP_RETURN output
-        let op_return_output = tx
+        let output = tx
             .output
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
-
-        let mut start_index = 2;
-        // When data > 75 OP_PUSHDATA1 is used which requires additional byte.
-        if op_return_output.script_pubkey.as_bytes().len() > 75 {
-            start_index += 1;
-        }
-
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(start_index..) {
-            if !op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX) {
-                return None;
-            }
-
-            let version_start = OP_RETURN_WITHDRAW_PREFIX.len();
-            let version: u8 = op_return_data[version_start];
-
-            let version = match WithdrawalVersion::try_from(version) {
-                Ok(version) => version,
-                Err(_) => {
-                    tracing::warn!("Failed to parse the withdrawal version");
-                    return None;
-                }
-            };
-
-            let msg_start = version_start + 1;
-
-            let withdrawals_meta =
-                match parse_withdrawals(version.clone(), &op_return_data[msg_start..]) {
-                    Ok(result) => result,
-                    Err(err) => {
-                        tracing::warn!(
-                            "Failed to parse the withdrawals, version: {:?}, error: {}",
-                            version,
-                            err
-                        );
-                        return None;
-                    }
-                };
-
-            let mut withdrawals = Vec::new();
-            for (i, output) in tx.output.iter().enumerate() {
-                let receiver =
-                    match Address::from_script(&output.script_pubkey.clone(), self.network) {
-                        Ok(receiver) => receiver,
-                        Err(_) => continue,
-                    };
-
-                if receiver == wallets.bridge {
-                    continue;
-                }
-
-                if output.value == Amount::ZERO {
-                    continue;
-                }
-
-                withdrawals.push(L1Withdrawal {
-                    l2_meta: withdrawals_meta[i].clone(),
-                    receiver: receiver,
-                    value: output.value,
-                });
-            }
-
-            let input = BridgeWithdrawalInput {
-                version,
-                v_size: tx.vsize() as i64,
-                total_size: tx.total_size() as i64,
-                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
-                output_amount: tx.output.iter().map(|out| out.value.to_sat()).sum(),
-                withdrawals,
-            };
-
-            // Create common fields with empty signature for OP_RETURN
-            let common_fields = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                tx_id: tx.compute_ntxid().into(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
-
-            return Some(FullInscriptionMessage::BridgeWithdrawal(BridgeWithdrawal {
-                common: common_fields,
-                input,
-            }));
-        }
-        None
+        let payload = op_return_payload(output).ok()?;
+        self.parse_op_return_withdrawal_payload(tx, payload, block_height, wallets, None, None)
     }
 
     fn parse_op_return_protocol_upgrade(
@@ -958,53 +860,12 @@ impl MessageParser {
         tx: &Transaction,
         block_height: u32,
     ) -> Option<FullInscriptionMessage> {
-        // Find OP_RETURN output
-        let op_return_output = tx
+        let output = tx
             .output
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
-
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
-            if !op_return_data.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX) {
-                return None;
-            }
-
-            let start = OP_RETURN_UPGRADE_PROTOCOL_PREFIX.len() + 1;
-            if op_return_data.len() < start + 32 {
-                return None;
-            }
-
-            // Parse proposal_tx_id from OP_RETURN data
-            let proposal_tx_id = match Txid::from_slice(&op_return_data[start..start + 32]) {
-                Ok(tx_id) => tx_id,
-                Err(_) => return None,
-            };
-
-            let input = SystemContractUpgradeInput {
-                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
-                proposal_tx_id,
-            };
-
-            // Create common fields with empty signature for OP_RETURN
-            let common_fields = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                tx_id: tx.compute_ntxid().into(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
-
-            return Some(FullInscriptionMessage::SystemContractUpgrade(
-                SystemContractUpgrade {
-                    common: common_fields,
-                    input,
-                },
-            ));
-        }
-        None
+        let payload = op_return_payload(output).ok()?;
+        self.parse_op_return_protocol_upgrade_payload(tx, payload, block_height, None, None)
     }
 
     fn parse_op_return_update_bridge(
@@ -1012,51 +873,12 @@ impl MessageParser {
         tx: &Transaction,
         block_height: u32,
     ) -> Option<FullInscriptionMessage> {
-        // Find OP_RETURN output
-        let op_return_output = tx
+        let output = tx
             .output
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
-
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
-            if !op_return_data.starts_with(OP_RETURN_UPDATE_BRIDGE_PREFIX) {
-                return None;
-            }
-
-            let start = OP_RETURN_UPDATE_BRIDGE_PREFIX.len() + 1;
-            if op_return_data.len() < start + 32 {
-                return None;
-            }
-
-            // Parse proposal_tx_id from OP_RETURN data
-            let proposal_tx_id = match Txid::from_slice(&op_return_data[start..start + 32]) {
-                Ok(tx_id) => tx_id,
-                Err(_) => return None,
-            };
-
-            let input = UpdateBridgeInput {
-                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
-                proposal_tx_id,
-            };
-
-            // Create common fields with empty signature for OP_RETURN
-            let common = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                tx_id: tx.compute_ntxid().into(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
-
-            return Some(FullInscriptionMessage::UpdateBridge(UpdateBridge {
-                common,
-                input,
-            }));
-        }
-        None
+        let payload = op_return_payload(output).ok()?;
+        self.parse_op_return_update_bridge_payload(tx, payload, block_height, None, None)
     }
 
     fn parse_op_return_update_sequencer(
@@ -1064,49 +886,12 @@ impl MessageParser {
         tx: &Transaction,
         block_height: u32,
     ) -> Option<FullInscriptionMessage> {
-        // Find OP_RETURN output
-        let op_return_output = tx
+        let output = tx
             .output
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
-
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
-            if !op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX) {
-                return None;
-            }
-
-            let start = OP_RETURN_UPDATE_SEQUENCER_PREFIX.len() + 1;
-
-            // Parse sequencer address from OP_RETURN data
-            let address_str = std::str::from_utf8(&op_return_data[start..]).ok()?;
-            let address = match Address::from_str(address_str) {
-                Ok(address) => address,
-                Err(_) => return None,
-            };
-
-            let input = UpdateSequencerInput {
-                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
-                address,
-            };
-
-            // Create common fields with empty signature for OP_RETURN
-            let common = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                tx_id: tx.compute_ntxid().into(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
-
-            return Some(FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
-                common,
-                input,
-            }));
-        }
-        None
+        let payload = op_return_payload(output).ok()?;
+        self.parse_op_return_update_sequencer_payload(tx, payload, block_height, None, None)
     }
 
     fn parse_op_return_update_governance(
@@ -1114,50 +899,335 @@ impl MessageParser {
         tx: &Transaction,
         block_height: u32,
     ) -> Option<FullInscriptionMessage> {
-        // Find OP_RETURN output
-        let op_return_output = tx
+        let output = tx
             .output
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
+        let payload = op_return_payload(output).ok()?;
+        self.parse_op_return_update_governance_payload(tx, payload, block_height, None, None)
+    }
 
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
-            if !op_return_data.starts_with(OP_RETURN_UPDATE_GOVERNANCE_PREFIX) {
-                return None;
-            }
+    pub(super) fn parse_output_carrier(
+        &self,
+        tx: &Transaction,
+        output_index: usize,
+        tx_index: usize,
+        block_height: u32,
+        wallets: Option<&SystemWallets>,
+        signer: Option<Address>,
+    ) -> CarrierParse<FullInscriptionMessage> {
+        let Some(output) = tx.output.get(output_index) else {
+            return CarrierParse::Malformed("output index is outside transaction".into());
+        };
+        if !output.script_pubkey.is_op_return() {
+            return CarrierParse::Irrelevant;
+        }
+        let payload = match op_return_payload(output) {
+            Ok(payload) => payload,
+            Err(detail) => return CarrierParse::Malformed(detail),
+        };
 
-            let start = OP_RETURN_UPDATE_GOVERNANCE_PREFIX.len() + 1;
-
-            // Parse sequencer address from OP_RETURN data
-            let address_str = std::str::from_utf8(&op_return_data[start..]).ok()?;
-            let address = match Address::from_str(address_str) {
-                Ok(address) => address,
-                Err(_) => return None,
+        let bridge_output = wallets.and_then(|wallets| {
+            tx.output
+                .iter()
+                .enumerate()
+                .find(|(_, candidate)| candidate.script_pubkey == wallets.bridge.script_pubkey())
+        });
+        let parsed = if payload.starts_with(OP_RETURN_WITHDRAW_PREFIX) {
+            let Some(wallets) = wallets else {
+                return CarrierParse::ContextRequired;
             };
+            self.parse_op_return_withdrawal_payload(
+                tx,
+                payload,
+                block_height,
+                wallets,
+                signer,
+                Some(tx_index),
+            )
+        } else if payload.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX) {
+            self.parse_op_return_protocol_upgrade_payload(
+                tx,
+                payload,
+                block_height,
+                signer,
+                Some(tx_index),
+            )
+        } else if payload.starts_with(OP_RETURN_UPDATE_BRIDGE_PREFIX) {
+            self.parse_op_return_update_bridge_payload(
+                tx,
+                payload,
+                block_height,
+                signer,
+                Some(tx_index),
+            )
+        } else if payload.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX) {
+            self.parse_op_return_update_sequencer_payload(
+                tx,
+                payload,
+                block_height,
+                signer,
+                Some(tx_index),
+            )
+        } else if payload.starts_with(OP_RETURN_UPDATE_GOVERNANCE_PREFIX) {
+            self.parse_op_return_update_governance_payload(
+                tx,
+                payload,
+                block_height,
+                signer,
+                Some(tx_index),
+            )
+        } else if let Some((bridge_vout, bridge_output)) = bridge_output {
+            let metadata = CarrierMetadata {
+                block_height,
+                signer,
+                tx_index: Some(tx_index),
+                output_vout: Some(bridge_vout),
+            };
+            self.parse_op_return_deposit_payload(tx, payload, bridge_output, metadata)
+        } else if payload.starts_with(b"VIA_") || payload.starts_with(b"VIA_PROTOCOL:") {
+            return CarrierParse::Unsupported(payload.to_vec());
+        } else {
+            return CarrierParse::Irrelevant;
+        };
 
-            let input = UpdateGovernanceInput {
+        match parsed {
+            Some(message) => CarrierParse::Valid(message),
+            None => CarrierParse::Malformed("recognized OP_RETURN payload is malformed".into()),
+        }
+    }
+
+    fn parse_op_return_deposit_payload(
+        &self,
+        tx: &Transaction,
+        payload: &[u8],
+        bridge_output: &TxOut,
+        metadata: CarrierMetadata,
+    ) -> Option<FullInscriptionMessage> {
+        if payload.starts_with(OP_RETURN_WITHDRAW_PREFIX)
+            || payload.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX)
+            || payload.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX)
+            || payload.starts_with(OP_RETURN_UPDATE_BRIDGE_PREFIX)
+            || payload.starts_with(OP_RETURN_UPDATE_GOVERNANCE_PREFIX)
+        {
+            return None;
+        }
+        let receiver_l2_address = parse_evm_address(payload.get(..20)?)?;
+        let common = op_return_common_fields(
+            tx,
+            metadata.block_height,
+            metadata.signer,
+            metadata.tx_index,
+            metadata.output_vout,
+        )?;
+        Some(FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
+            common,
+            amount: bridge_output.value,
+            input: L1ToL2MessageInput {
+                receiver_l2_address,
+                l2_contract_address: EVMAddress::zero(),
+                call_data: vec![],
+            },
+            tx_outputs: tx.output.clone(),
+        }))
+    }
+
+    fn parse_op_return_withdrawal_payload(
+        &self,
+        tx: &Transaction,
+        payload: &[u8],
+        block_height: u32,
+        wallets: &SystemWallets,
+        signer: Option<Address>,
+        tx_index: Option<usize>,
+    ) -> Option<FullInscriptionMessage> {
+        if !payload.starts_with(OP_RETURN_WITHDRAW_PREFIX) {
+            return None;
+        }
+        let version_start = OP_RETURN_WITHDRAW_PREFIX.len();
+        let version = WithdrawalVersion::try_from(*payload.get(version_start)?).ok()?;
+        let withdrawals_meta = parse_withdrawals(
+            version.clone(),
+            payload.get(version_start + 1..).unwrap_or_default(),
+        )
+        .ok()?;
+        let mut withdrawals = Vec::new();
+        for (index, output) in tx.output.iter().enumerate() {
+            let Ok(receiver) = Address::from_script(&output.script_pubkey, self.network) else {
+                continue;
+            };
+            if receiver == wallets.bridge || output.value == Amount::ZERO {
+                continue;
+            }
+            withdrawals.push(L1Withdrawal {
+                l2_meta: withdrawals_meta.get(index)?.clone(),
+                receiver,
+                value: output.value,
+            });
+        }
+        Some(FullInscriptionMessage::BridgeWithdrawal(BridgeWithdrawal {
+            common: op_return_common_fields(tx, block_height, signer, tx_index, None)?,
+            input: BridgeWithdrawalInput {
+                version,
+                v_size: tx.vsize() as i64,
+                total_size: tx.total_size() as i64,
+                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
+                output_amount: tx.output.iter().try_fold(0_u64, |total, output| {
+                    total.checked_add(output.value.to_sat())
+                })?,
+                withdrawals,
+            },
+        }))
+    }
+
+    fn parse_op_return_protocol_upgrade_payload(
+        &self,
+        tx: &Transaction,
+        payload: &[u8],
+        block_height: u32,
+        signer: Option<Address>,
+        tx_index: Option<usize>,
+    ) -> Option<FullInscriptionMessage> {
+        let proposal_tx_id = parse_prefixed_txid(payload, OP_RETURN_UPGRADE_PROTOCOL_PREFIX)?;
+        Some(FullInscriptionMessage::SystemContractUpgrade(
+            SystemContractUpgrade {
+                common: op_return_common_fields(tx, block_height, signer, tx_index, None)?,
+                input: SystemContractUpgradeInput {
+                    inputs: tx.input.iter().map(|input| input.previous_output).collect(),
+                    proposal_tx_id,
+                },
+            },
+        ))
+    }
+
+    fn parse_op_return_update_bridge_payload(
+        &self,
+        tx: &Transaction,
+        payload: &[u8],
+        block_height: u32,
+        signer: Option<Address>,
+        tx_index: Option<usize>,
+    ) -> Option<FullInscriptionMessage> {
+        let proposal_tx_id = parse_prefixed_txid(payload, OP_RETURN_UPDATE_BRIDGE_PREFIX)?;
+        Some(FullInscriptionMessage::UpdateBridge(UpdateBridge {
+            common: op_return_common_fields(tx, block_height, signer, tx_index, None)?,
+            input: UpdateBridgeInput {
+                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
+                proposal_tx_id,
+            },
+        }))
+    }
+
+    fn parse_op_return_update_sequencer_payload(
+        &self,
+        tx: &Transaction,
+        payload: &[u8],
+        block_height: u32,
+        signer: Option<Address>,
+        tx_index: Option<usize>,
+    ) -> Option<FullInscriptionMessage> {
+        let address = parse_prefixed_address(payload, OP_RETURN_UPDATE_SEQUENCER_PREFIX)?;
+        Some(FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
+            common: op_return_common_fields(tx, block_height, signer, tx_index, None)?,
+            input: UpdateSequencerInput {
                 inputs: tx.input.iter().map(|input| input.previous_output).collect(),
                 address,
-            };
-
-            // Create common fields with empty signature for OP_RETURN
-            let common = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                tx_id: tx.compute_ntxid().into(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
-
-            return Some(FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
-                common,
-                input,
-            }));
-        }
-        None
+            },
+        }))
     }
+
+    fn parse_op_return_update_governance_payload(
+        &self,
+        tx: &Transaction,
+        payload: &[u8],
+        block_height: u32,
+        signer: Option<Address>,
+        tx_index: Option<usize>,
+    ) -> Option<FullInscriptionMessage> {
+        let address = parse_prefixed_address(payload, OP_RETURN_UPDATE_GOVERNANCE_PREFIX)?;
+        Some(FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
+            common: op_return_common_fields(tx, block_height, signer, tx_index, None)?,
+            input: UpdateGovernanceInput {
+                inputs: tx.input.iter().map(|input| input.previous_output).collect(),
+                address,
+            },
+        }))
+    }
+}
+
+fn is_known_system_message_type(message_type: &[u8]) -> bool {
+    message_type == types::SYSTEM_BOOTSTRAPPING_MSG.as_bytes()
+        || message_type == types::VALIDATOR_ATTESTATION_MSG.as_bytes()
+        || message_type == types::L1_BATCH_DA_REFERENCE_MSG.as_bytes()
+        || message_type == types::PROOF_DA_REFERENCE_MSG.as_bytes()
+        || message_type == types::L1_TO_L2_MSG.as_bytes()
+        || message_type == types::SYSTEM_CONTRACT_UPGRADE_MSG.as_bytes()
+        || message_type == types::UPGRADE_BRIDGE_MSG.as_bytes()
+}
+
+fn parse_h256(bytes: &[u8]) -> Option<H256> {
+    (bytes.len() == 32).then(|| H256::from_slice(bytes))
+}
+
+fn parse_evm_address(bytes: &[u8]) -> Option<EVMAddress> {
+    (bytes.len() == 20).then(|| EVMAddress::from_slice(bytes))
+}
+
+fn parse_u256(bytes: &[u8]) -> Option<U256> {
+    (bytes.len() <= 32).then(|| U256::from_big_endian(bytes))
+}
+
+fn op_return_payload(output: &TxOut) -> Result<&[u8], String> {
+    let mut instructions = output.script_pubkey.instructions();
+    match instructions.next() {
+        Some(Ok(Instruction::Op(op))) if op == bitcoin::opcodes::all::OP_RETURN => {}
+        Some(Ok(_)) => return Err("output is not an OP_RETURN carrier".into()),
+        Some(Err(err)) => return Err(format!("invalid OP_RETURN script: {err}")),
+        None => return Err("empty OP_RETURN script".into()),
+    }
+    match instructions.next() {
+        Some(Ok(Instruction::PushBytes(bytes))) => Ok(bytes.as_bytes()),
+        Some(Ok(Instruction::Op(_))) => Err("OP_RETURN payload is not push data".into()),
+        Some(Err(err)) => Err(format!("invalid OP_RETURN payload: {err}")),
+        None => Err("missing OP_RETURN payload".into()),
+    }
+}
+
+fn op_return_common_fields(
+    tx: &Transaction,
+    block_height: u32,
+    signer: Option<Address>,
+    tx_index: Option<usize>,
+    output_vout: Option<usize>,
+) -> Option<CommonFields> {
+    Some(CommonFields {
+        schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
+        encoded_public_key: PushBytesBuf::new(),
+        block_height,
+        tx_id: tx.compute_ntxid().into(),
+        p2wpkh_address: signer,
+        tx_index,
+        output_vout,
+    })
+}
+
+fn parse_prefixed_txid(payload: &[u8], prefix: &[u8]) -> Option<Txid> {
+    if !payload.starts_with(prefix) {
+        return None;
+    }
+    let start = prefix.len().checked_add(1)?;
+    Txid::from_slice(payload.get(start..start.checked_add(32)?)?).ok()
+}
+
+fn parse_prefixed_address(payload: &[u8], prefix: &[u8]) -> Option<Address<NetworkUnchecked>> {
+    if !payload.starts_with(prefix) {
+        return None;
+    }
+    let start = prefix.len().checked_add(1)?;
+    std::str::from_utf8(payload.get(start..)?)
+        .ok()?
+        .parse::<Address<NetworkUnchecked>>()
+        .ok()
 }
 
 #[instrument(skip(instructions), target = "bitcoin_indexer::parser")]
@@ -1191,6 +1261,8 @@ pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use bitcoin::{consensus::encode::deserialize, hashes::hex::FromHex};
 
     use super::*;

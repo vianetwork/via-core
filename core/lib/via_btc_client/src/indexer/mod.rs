@@ -5,6 +5,7 @@ use tracing::{debug, info, instrument, warn};
 
 mod parser;
 pub use parser::{get_eth_address, MessageParser};
+pub mod positioned;
 use zksync_basic_types::L1BatchNumber;
 use zksync_types::via_wallet::SystemWallets;
 
