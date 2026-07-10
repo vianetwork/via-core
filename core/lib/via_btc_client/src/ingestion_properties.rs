@@ -4,6 +4,16 @@ use std::{
     panic::{catch_unwind, AssertUnwindSafe},
 };
 
+use crate::{
+    indexer::positioned::PositionedMessageParser,
+    ingestion_engine::ViaProtocolEngine,
+    test_message_encoder::{
+        external_input, inscription_witness_for_script, keypair, op_return, p2tr, p2wpkh, push,
+        rotation_tx, seeded_outpoint, transaction, BRIDGE_SEED, GOVERNANCE_SEED, SEQUENCER_SEED,
+        VERIFIER_SEED,
+    },
+    types,
+};
 use bitcoin::{
     absolute::LockTime,
     hashes::Hash,
@@ -12,17 +22,12 @@ use bitcoin::{
         all::{OP_CHECKSIG, OP_ENDIF, OP_IF, OP_RETURN},
         OP_FALSE, OP_TRUE,
     },
-    script::{Builder, PushBytesBuf},
-    secp256k1::{Keypair, Secp256k1, SecretKey},
-    taproot::{LeafVersion, TaprootBuilder},
+    script::Builder,
     transaction::Version,
-    Address, Amount, BlockHash, CompressedPublicKey, Network, OutPoint, ScriptBuf, Sequence,
-    Transaction, TxIn, TxOut, Txid, Witness,
+    Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
+    Txid, Witness,
 };
 use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
-use via_btc_client::{
-    indexer::positioned::PositionedMessageParser, ingestion_engine::ViaProtocolEngine, types,
-};
 use via_btc_ingestion::{
     BitcoinBlockEnvelope, BlockAnchor, DependencyKey, FinalizeOutcome, ProtocolContext,
     ProtocolEngine, ProtocolVersionTag, Resolution, ResolvedDependency, WalletSet,
@@ -41,11 +46,6 @@ const STRUCTURE_SEED: u64 = 0x5649_4150_524f_5033;
 const RANDOM_COUNT: usize = 5_000;
 const MUTATION_COUNT: usize = 4_000;
 const STRUCTURE_COUNT: usize = 1_000;
-
-const SEQUENCER_SEED: u8 = 11;
-const GOVERNANCE_SEED: u8 = 12;
-const VERIFIER_SEED: u8 = 13;
-const BRIDGE_SEED: u8 = 14;
 
 #[derive(Clone, Copy, Debug)]
 enum ContextKind {
@@ -82,35 +82,12 @@ enum EngineResult {
     DependencyCap(Vec<DependencyKey>),
 }
 
-fn keypair(seed: u8) -> Keypair {
-    let secp = Secp256k1::new();
-    let secret = SecretKey::from_slice(&[seed.max(1); 32]).unwrap();
-    Keypair::from_secret_key(&secp, &secret)
-}
-
-fn p2wpkh(seed: u8) -> (Address, Witness) {
-    let public_key = keypair(seed).public_key();
-    let address = Address::p2wpkh(&CompressedPublicKey(public_key), Network::Regtest);
-    let witness = Witness::from_slice(&[vec![0; 71], public_key.serialize().to_vec()]);
-    (address, witness)
-}
-
-fn p2tr(seed: u8) -> Address {
-    let secp = Secp256k1::new();
-    Address::p2tr(
-        &secp,
-        keypair(seed).x_only_public_key().0,
-        None,
-        Network::Regtest,
-    )
-}
-
 fn wallets() -> SystemWallets {
     SystemWallets {
-        sequencer: p2wpkh(SEQUENCER_SEED).0,
-        bridge: p2tr(BRIDGE_SEED),
-        governance: p2wpkh(GOVERNANCE_SEED).0,
-        verifiers: vec![p2wpkh(VERIFIER_SEED).0],
+        sequencer: p2wpkh(SEQUENCER_SEED, Network::Regtest).0,
+        bridge: p2tr(BRIDGE_SEED, Network::Regtest),
+        governance: p2wpkh(GOVERNANCE_SEED, Network::Regtest).0,
+        verifiers: vec![p2wpkh(VERIFIER_SEED, Network::Regtest).0],
     }
 }
 
@@ -149,31 +126,6 @@ fn protocol_context(kind: ContextKind) -> ProtocolContext {
     }
 }
 
-fn external_input(tag: u8, witness: Witness) -> TxIn {
-    TxIn {
-        previous_output: OutPoint {
-            txid: Txid::from_byte_array([tag; 32]),
-            vout: u32::from(tag),
-        },
-        script_sig: ScriptBuf::new(),
-        sequence: Sequence::MAX,
-        witness,
-    }
-}
-
-fn transaction(input: Vec<TxIn>, output: Vec<TxOut>) -> Transaction {
-    Transaction {
-        version: Version::TWO,
-        lock_time: LockTime::ZERO,
-        input,
-        output,
-    }
-}
-
-fn push(data: impl AsRef<[u8]>) -> PushBytesBuf {
-    PushBytesBuf::try_from(data.as_ref().to_vec()).unwrap()
-}
-
 fn base_inscription(internal_key: UntweakedPublicKey) -> Builder {
     Builder::new()
         .push_slice(internal_key.serialize())
@@ -183,41 +135,21 @@ fn base_inscription(internal_key: UntweakedPublicKey) -> Builder {
         .push_slice(push(b"via_inscription_protocol"))
 }
 
-fn inscription_witness(script: ScriptBuf, internal_key: UntweakedPublicKey) -> Witness {
-    let secp = Secp256k1::new();
-    let spend_info = TaprootBuilder::new()
-        .add_leaf(0, script.clone())
-        .unwrap()
-        .finalize(&secp, internal_key)
-        .unwrap();
-    let control = spend_info
-        .control_block(&(script.clone(), LeafVersion::TapScript))
-        .unwrap();
-    Witness::from_slice(&[vec![0; 64], script.into_bytes(), control.serialize()])
-}
-
 fn inscribed_transaction(script: ScriptBuf, signer_seed: u8, inscription_seed: u8) -> Transaction {
     let internal_key = keypair(inscription_seed).x_only_public_key().0;
     transaction(
         vec![
-            external_input(inscription_seed, p2wpkh(signer_seed).1),
             external_input(
-                inscription_seed.wrapping_add(1),
-                inscription_witness(script, internal_key),
+                seeded_outpoint(inscription_seed),
+                p2wpkh(signer_seed, Network::Regtest).1,
+            ),
+            external_input(
+                seeded_outpoint(inscription_seed.wrapping_add(1)),
+                inscription_witness_for_script(script, internal_key),
             ),
         ],
         vec![],
     )
-}
-
-fn op_return(payload: impl AsRef<[u8]>) -> TxOut {
-    TxOut {
-        value: Amount::ZERO,
-        script_pubkey: Builder::new()
-            .push_opcode(OP_RETURN)
-            .push_slice(push(payload))
-            .into_script(),
-    }
 }
 
 fn huge_op_return(size: usize, fill: u8) -> ScriptBuf {
@@ -303,27 +235,28 @@ fn carrier_templates() -> Vec<CarrierTemplate> {
     withdrawal_payload.push(0);
     withdrawal_payload.extend_from_slice(&[0xa1; 10]);
     let withdrawal_tx = transaction(
-        vec![external_input(36, Witness::new())],
+        vec![external_input(seeded_outpoint(36), Witness::new())],
         vec![
             TxOut {
                 value: Amount::from_sat(10_000),
-                script_pubkey: p2wpkh(44).0.script_pubkey(),
+                script_pubkey: p2wpkh(44, Network::Regtest).0.script_pubkey(),
             },
             op_return(withdrawal_payload),
         ],
     );
 
-    let rotation_tx = |tag: u8, prefix: &[u8], new_address: Address| {
-        let mut payload = prefix.to_vec();
-        payload.push(b':');
-        payload.extend_from_slice(new_address.to_string().as_bytes());
-        transaction(
-            vec![external_input(tag, Witness::new())],
-            vec![op_return(payload)],
-        )
-    };
-    let sequencer_rotation = rotation_tx(37, b"VIA_PROTOCOL:SEQ", p2wpkh(45).0);
-    let governance_rotation = rotation_tx(38, b"VIA_PROTOCOL:GOV", p2wpkh(46).0);
+    let sequencer_address = p2wpkh(45, Network::Regtest).0;
+    let sequencer_rotation = rotation_tx(
+        seeded_outpoint(37),
+        b"VIA_PROTOCOL:SEQ",
+        sequencer_address.to_string().as_bytes(),
+    );
+    let governance_address = p2wpkh(46, Network::Regtest).0;
+    let governance_rotation = rotation_tx(
+        seeded_outpoint(38),
+        b"VIA_PROTOCOL:GOV",
+        governance_address.to_string().as_bytes(),
+    );
 
     vec![
         CarrierTemplate {
@@ -466,7 +399,9 @@ fn random_script(rng: &mut StdRng, wallets: &SystemWallets) -> ScriptBuf {
         2 => wallets.sequencer.script_pubkey(),
         3 => wallets.governance.script_pubkey(),
         4 => wallets.verifiers[0].script_pubkey(),
-        5 => p2wpkh(rng.gen_range(1..=200)).0.script_pubkey(),
+        5 => p2wpkh(rng.gen_range(1..=200), Network::Regtest)
+            .0
+            .script_pubkey(),
         6 => {
             let mut payload = vec![0; rng.gen_range(0..=64)];
             rng.fill_bytes(&mut payload);
@@ -555,7 +490,7 @@ fn structure_case(index: usize, rng: &mut StdRng) -> CorpusCase {
         },
         2 => {
             let inputs = (0..96)
-                .map(|i| external_input((i + 1) as u8, random_witness(rng)))
+                .map(|i| external_input(seeded_outpoint((i + 1) as u8), random_witness(rng)))
                 .collect();
             CorpusCase {
                 tx: transaction(inputs, vec![bridge_output(1)]),
@@ -585,8 +520,14 @@ fn structure_case(index: usize, rng: &mut StdRng) -> CorpusCase {
         4 => CorpusCase {
             tx: transaction(
                 vec![
-                    external_input(0xe1, Witness::from_slice(&[Vec::<u8>::new()])),
-                    external_input(0xe2, Witness::from_slice(&[vec![0], vec![1]])),
+                    external_input(
+                        seeded_outpoint(0xe1),
+                        Witness::from_slice(&[Vec::<u8>::new()]),
+                    ),
+                    external_input(
+                        seeded_outpoint(0xe2),
+                        Witness::from_slice(&[vec![0], vec![1]]),
+                    ),
                 ],
                 vec![op_return(Vec::<u8>::new())],
             ),
@@ -606,7 +547,10 @@ fn structure_case(index: usize, rng: &mut StdRng) -> CorpusCase {
                 })
                 .collect();
             CorpusCase {
-                tx: transaction(vec![external_input(0xf1, Witness::new())], outputs),
+                tx: transaction(
+                    vec![external_input(seeded_outpoint(0xf1), Witness::new())],
+                    outputs,
+                ),
                 context: ContextKind::Bootstrapped,
                 description: "many-outputs".into(),
             }

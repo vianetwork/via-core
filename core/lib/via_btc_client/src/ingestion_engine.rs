@@ -1130,19 +1130,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use bitcoin::{
-        absolute::LockTime,
-        hashes::Hash,
-        key::UntweakedPublicKey,
-        opcodes::{
-            all::{OP_CHECKSIG, OP_ENDIF, OP_IF, OP_RETURN},
-            OP_FALSE, OP_TRUE,
-        },
-        script::{Builder, PushBytesBuf},
-        secp256k1::{Keypair, Secp256k1, SecretKey},
-        taproot::{LeafVersion, TaprootBuilder},
-        transaction::Version,
-        Address, Amount, BlockHash, CompressedPublicKey, Network, OutPoint, ScriptBuf, Sequence,
-        Transaction, TxIn, TxOut, Txid, Witness,
+        hashes::Hash, Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxOut,
+        Txid,
     };
     use via_btc_ingestion::{
         BlockAnchor, CanonicalObservedTx, DependencyKey, DepositEncoding, DispositionKind,
@@ -1151,54 +1140,32 @@ mod tests {
         ResolvedDependency, TrackedOutputCreate, TrackedRole, WalletRotation,
     };
     use zksync_types::{
-        ethabi::ethereum_types::BigEndianHash,
         protocol_version::{ProtocolSemanticVersion, ProtocolVersionId, VersionPatch},
         Address as EvmAddress, L1BatchNumber, H256,
     };
 
     use super::ViaProtocolEngine;
-    use crate::types::{
-        self, InscriptionMessage, L1BatchDAReferenceInput, L1ToL2MessageInput,
-        ProofDAReferenceInput, SystemBootstrappingInput, SystemContractUpgradeProposalInput,
-        ValidatorAttestationInput, Vote,
+    use crate::{
+        test_message_encoder::{
+            activation_tx, external_input, inscribed_tx, op_return, p2tr, p2wpkh, rotation_tx,
+            seeded_outpoint, transaction, BRIDGE_SEED, GOVERNANCE_SEED, SEQUENCER_SEED,
+            VERIFIER_SEED,
+        },
+        types::{
+            InscriptionMessage, L1BatchDAReferenceInput, L1ToL2MessageInput, ProofDAReferenceInput,
+            SystemBootstrappingInput, SystemContractUpgradeProposalInput,
+            ValidatorAttestationInput, Vote,
+        },
     };
-
-    const SEQUENCER_SEED: u8 = 11;
-    const GOVERNANCE_SEED: u8 = 12;
-    const VERIFIER_SEED: u8 = 13;
-    const BRIDGE_SEED: u8 = 14;
-
-    fn keypair(seed: u8) -> Keypair {
-        let secp = Secp256k1::new();
-        let secret = SecretKey::from_slice(&[seed; 32]).unwrap();
-        Keypair::from_secret_key(&secp, &secret)
-    }
-
-    fn p2wpkh(seed: u8) -> (Address, Witness) {
-        let public_key = keypair(seed).public_key();
-        let address = Address::p2wpkh(&CompressedPublicKey(public_key), Network::Regtest);
-        let witness = Witness::from_slice(&[vec![0; 71], public_key.serialize().to_vec()]);
-        (address, witness)
-    }
-
-    fn p2tr(seed: u8) -> Address {
-        let secp = Secp256k1::new();
-        Address::p2tr(
-            &secp,
-            keypair(seed).x_only_public_key().0,
-            None,
-            Network::Regtest,
-        )
-    }
 
     fn context() -> ProtocolContext {
         ProtocolContext {
             version: 1,
             wallets: via_btc_ingestion::WalletSet {
-                sequencer: p2wpkh(SEQUENCER_SEED).0.script_pubkey(),
-                bridge: p2tr(BRIDGE_SEED).script_pubkey(),
-                governance: p2wpkh(GOVERNANCE_SEED).0.script_pubkey(),
-                verifiers: vec![p2wpkh(VERIFIER_SEED).0.script_pubkey()],
+                sequencer: p2wpkh(SEQUENCER_SEED, Network::Regtest).0.script_pubkey(),
+                bridge: p2tr(BRIDGE_SEED, Network::Regtest).script_pubkey(),
+                governance: p2wpkh(GOVERNANCE_SEED, Network::Regtest).0.script_pubkey(),
+                verifiers: vec![p2wpkh(VERIFIER_SEED, Network::Regtest).0.script_pubkey()],
             },
             protocol_version: ProtocolVersionTag {
                 minor: 26,
@@ -1238,160 +1205,6 @@ mod tests {
             anchor: anchor(height),
             transactions,
         }
-    }
-
-    fn external_input(tag: u8, witness: Witness) -> TxIn {
-        TxIn {
-            previous_output: OutPoint {
-                txid: Txid::from_byte_array([tag; 32]),
-                vout: u32::from(tag),
-            },
-            script_sig: ScriptBuf::new(),
-            sequence: Sequence::MAX,
-            witness,
-        }
-    }
-
-    fn transaction(input: Vec<TxIn>, output: Vec<TxOut>) -> Transaction {
-        Transaction {
-            version: Version::TWO,
-            lock_time: LockTime::ZERO,
-            input,
-            output,
-        }
-    }
-
-    fn op_return(payload: Vec<u8>) -> TxOut {
-        TxOut {
-            value: Amount::ZERO,
-            script_pubkey: Builder::new()
-                .push_opcode(OP_RETURN)
-                .push_slice(PushBytesBuf::try_from(payload).unwrap())
-                .into_script(),
-        }
-    }
-
-    fn push(data: impl AsRef<[u8]>) -> PushBytesBuf {
-        PushBytesBuf::try_from(data.as_ref().to_vec()).unwrap()
-    }
-
-    fn checked_address_string(address: &Address<bitcoin::address::NetworkUnchecked>) -> String {
-        address
-            .clone()
-            .require_network(Network::Regtest)
-            .unwrap()
-            .to_string()
-    }
-
-    fn inscription_script(
-        message: &InscriptionMessage,
-        internal_key: UntweakedPublicKey,
-    ) -> ScriptBuf {
-        let mut builder = Builder::new()
-            .push_slice(internal_key.serialize())
-            .push_opcode(OP_CHECKSIG)
-            .push_opcode(OP_FALSE)
-            .push_opcode(OP_IF)
-            .push_slice(push(types::VIA_INSCRIPTION_PROTOCOL));
-        builder = match message {
-            InscriptionMessage::L1BatchDAReference(input) => builder
-                .push_slice(&*types::L1_BATCH_DA_REFERENCE_MSG)
-                .push_slice(push(input.l1_batch_hash.as_bytes()))
-                .push_slice(push(input.l1_batch_index.to_be_bytes()))
-                .push_slice(push(input.da_identifier.as_bytes()))
-                .push_slice(push(input.blob_id.as_bytes()))
-                .push_slice(push(input.prev_l1_batch_hash.as_bytes())),
-            InscriptionMessage::ProofDAReference(input) => builder
-                .push_slice(&*types::PROOF_DA_REFERENCE_MSG)
-                .push_slice(push(input.l1_batch_reveal_txid.as_byte_array()))
-                .push_slice(push(input.da_identifier.as_bytes()))
-                .push_slice(push(input.blob_id.as_bytes())),
-            InscriptionMessage::ValidatorAttestation(input) => {
-                let builder = builder
-                    .push_slice(&*types::VALIDATOR_ATTESTATION_MSG)
-                    .push_slice(push(input.reference_txid.as_byte_array()));
-                match input.attestation {
-                    Vote::Ok => builder.push_opcode(OP_TRUE),
-                    Vote::NotOk => builder.push_opcode(OP_FALSE),
-                }
-            }
-            InscriptionMessage::SystemBootstrapping(input) => {
-                let mut builder = builder
-                    .push_slice(&*types::SYSTEM_BOOTSTRAPPING_MSG)
-                    .push_slice(push(input.start_block_height.to_be_bytes()))
-                    .push_slice(push(
-                        H256::from_uint(&input.protocol_version.pack()).as_bytes(),
-                    ))
-                    .push_slice(push(input.bootloader_hash.as_bytes()))
-                    .push_slice(push(input.abstract_account_hash.as_bytes()))
-                    .push_slice(push(input.snark_wrapper_vk_hash.as_bytes()))
-                    .push_slice(push(input.evm_emulator_hash.as_bytes()))
-                    .push_slice(push(checked_address_string(&input.governance_address)))
-                    .push_slice(push(checked_address_string(&input.sequencer_address)))
-                    .push_slice(push(checked_address_string(&input.bridge_musig2_address)));
-                for verifier in &input.verifier_p2wpkh_addresses {
-                    builder = builder.push_slice(push(checked_address_string(verifier)));
-                }
-                builder
-            }
-            InscriptionMessage::L1ToL2Message(input) => builder
-                .push_slice(&*types::L1_TO_L2_MSG)
-                .push_slice(push(input.receiver_l2_address.as_bytes()))
-                .push_slice(push(input.l2_contract_address.as_bytes()))
-                .push_slice(push(&input.call_data)),
-            InscriptionMessage::SystemContractUpgradeProposal(input) => {
-                let mut builder = builder
-                    .push_slice(&*types::SYSTEM_CONTRACT_UPGRADE_MSG)
-                    .push_slice(push(H256::from_uint(&input.version.pack()).as_bytes()))
-                    .push_slice(push(input.bootloader_code_hash.as_bytes()))
-                    .push_slice(push(input.default_account_code_hash.as_bytes()))
-                    .push_slice(push(input.recursion_scheduler_level_vk_hash.as_bytes()));
-                for (address, hash) in &input.system_contracts {
-                    builder = builder
-                        .push_slice(push(address.as_bytes()))
-                        .push_slice(push(hash.as_bytes()));
-                }
-                builder
-            }
-            InscriptionMessage::UpdateBridgeProposal(_) => {
-                panic!("update bridge proposals are not used by these engine tests")
-            }
-        };
-        builder.push_opcode(OP_ENDIF).into_script()
-    }
-
-    fn inscription_witness(message: &InscriptionMessage, seed: u8) -> Witness {
-        let secp = Secp256k1::new();
-        let internal_key: UntweakedPublicKey = keypair(seed).x_only_public_key().0;
-        let script = inscription_script(message, internal_key);
-        let spend_info = TaprootBuilder::new()
-            .add_leaf(0, script.clone())
-            .unwrap()
-            .finalize(&secp, internal_key)
-            .unwrap();
-        let control = spend_info
-            .control_block(&(script.clone(), LeafVersion::TapScript))
-            .unwrap();
-        Witness::from_slice(&[vec![0; 64], script.into_bytes(), control.serialize()])
-    }
-
-    fn inscribed_tx(
-        signer_seed: u8,
-        inscription_seed: u8,
-        message: InscriptionMessage,
-        outputs: Vec<TxOut>,
-    ) -> Transaction {
-        let signer = p2wpkh(signer_seed).1;
-        transaction(
-            vec![
-                external_input(inscription_seed, signer),
-                external_input(
-                    inscription_seed.wrapping_add(1),
-                    inscription_witness(&message, inscription_seed),
-                ),
-            ],
-            outputs,
-        )
     }
 
     fn bridge_output(value: u64) -> TxOut {
@@ -1480,7 +1293,10 @@ mod tests {
         let engine = ViaProtocolEngine::new(Network::Regtest);
         let receiver = [0x41; 20];
         let single_tx = transaction(
-            vec![external_input(1, p2wpkh(21).1)],
+            vec![external_input(
+                seeded_outpoint(1),
+                p2wpkh(21, Network::Regtest).1,
+            )],
             vec![bridge_output(10_000), op_return(receiver.to_vec())],
         );
         let single = complete_plan(&engine, &envelope(100, vec![single_tx]), &context(), []);
@@ -1491,7 +1307,10 @@ mod tests {
         assert_eq!(single_deposits[0].encoding, DepositEncoding::OpReturn);
 
         let multi_tx = transaction(
-            vec![external_input(2, p2wpkh(22).1)],
+            vec![external_input(
+                seeded_outpoint(2),
+                p2wpkh(22, Network::Regtest).1,
+            )],
             vec![
                 bridge_output(11_000),
                 bridge_output(12_000),
@@ -1517,6 +1336,7 @@ mod tests {
             call_data: vec![1, 2, 3],
         });
         let agreeing_tx = inscribed_tx(
+            seeded_outpoint(24),
             23,
             24,
             message.clone(),
@@ -1524,6 +1344,7 @@ mod tests {
                 bridge_output(20_000),
                 op_return(receiver.as_bytes().to_vec()),
             ],
+            Network::Regtest,
         );
         let agreeing = complete_plan(&engine, &envelope(102, vec![agreeing_tx]), &context(), []);
         let agreeing_deposits = deposits(&agreeing);
@@ -1536,10 +1357,12 @@ mod tests {
         );
 
         let disagreeing_tx = inscribed_tx(
+            seeded_outpoint(26),
             25,
             26,
             message,
             vec![bridge_output(21_000), op_return(vec![0x71; 20])],
+            Network::Regtest,
         );
         let disagreeing = complete_plan(
             &engine,
@@ -1562,6 +1385,7 @@ mod tests {
 
     fn batch_tx() -> Transaction {
         inscribed_tx(
+            seeded_outpoint(31),
             SEQUENCER_SEED,
             31,
             InscriptionMessage::L1BatchDAReference(L1BatchDAReferenceInput {
@@ -1572,11 +1396,13 @@ mod tests {
                 prev_l1_batch_hash: H256::from([0x80; 32]),
             }),
             vec![],
+            Network::Regtest,
         )
     }
 
     fn proof_tx(batch_txid: Txid) -> Transaction {
         inscribed_tx(
+            seeded_outpoint(33),
             SEQUENCER_SEED,
             33,
             InscriptionMessage::ProofDAReference(ProofDAReferenceInput {
@@ -1585,11 +1411,13 @@ mod tests {
                 blob_id: "proof-blob".into(),
             }),
             vec![],
+            Network::Regtest,
         )
     }
 
     fn attestation_tx(proof_txid: Txid) -> Transaction {
         inscribed_tx(
+            seeded_outpoint(35),
             VERIFIER_SEED,
             35,
             InscriptionMessage::ValidatorAttestation(ValidatorAttestationInput {
@@ -1597,6 +1425,7 @@ mod tests {
                 attestation: Vote::Ok,
             }),
             vec![],
+            Network::Regtest,
         )
     }
 
@@ -1668,19 +1497,6 @@ mod tests {
         ));
     }
 
-    fn rotation_tx(input: OutPoint, new_sequencer: &Address) -> Transaction {
-        let payload = format!("VIA_PROTOCOL:SEQ:{new_sequencer}").into_bytes();
-        transaction(
-            vec![TxIn {
-                previous_output: input,
-                script_sig: ScriptBuf::new(),
-                sequence: Sequence::MAX,
-                witness: Witness::new(),
-            }],
-            vec![op_return(payload)],
-        )
-    }
-
     #[test]
     fn sequencer_rotation_requires_governance_and_folds_context() {
         let engine = ViaProtocolEngine::new(Network::Regtest);
@@ -1688,8 +1504,12 @@ mod tests {
             txid: Txid::from_byte_array([0x91; 32]),
             vout: 0,
         };
-        let new_sequencer = p2wpkh(45).0;
-        let tx = rotation_tx(governance_outpoint, &new_sequencer);
+        let new_sequencer = p2wpkh(45, Network::Regtest).0;
+        let tx = rotation_tx(
+            governance_outpoint,
+            b"VIA_PROTOCOL:SEQ",
+            new_sequencer.to_string().as_bytes(),
+        );
         let env = envelope(120, vec![tx]);
         let ctx = context();
         let authorized = complete_plan(
@@ -1738,13 +1558,21 @@ mod tests {
             txid: Txid::from_byte_array([0x93; 32]),
             vout: 0,
         };
-        let first_address = p2wpkh(46).0;
-        let second_address = p2wpkh(47).0;
+        let first_address = p2wpkh(46, Network::Regtest).0;
+        let second_address = p2wpkh(47, Network::Regtest).0;
         let env = envelope(
             121,
             vec![
-                rotation_tx(first_outpoint, &first_address),
-                rotation_tx(second_outpoint, &second_address),
+                rotation_tx(
+                    first_outpoint,
+                    b"VIA_PROTOCOL:SEQ",
+                    first_address.to_string().as_bytes(),
+                ),
+                rotation_tx(
+                    second_outpoint,
+                    b"VIA_PROTOCOL:SEQ",
+                    second_address.to_string().as_bytes(),
+                ),
             ],
         );
         let ctx = context();
@@ -1800,17 +1628,24 @@ mod tests {
             abstract_account_hash: H256::from([2; 32]),
             snark_wrapper_vk_hash: H256::from([3; 32]),
             evm_emulator_hash: H256::from([4; 32]),
-            governance_address: unchecked(&p2wpkh(GOVERNANCE_SEED).0),
-            sequencer_address: unchecked(&p2wpkh(SEQUENCER_SEED).0),
-            bridge_musig2_address: unchecked(&p2tr(BRIDGE_SEED)),
-            verifier_p2wpkh_addresses: vec![unchecked(&p2wpkh(VERIFIER_SEED).0)],
+            governance_address: unchecked(&p2wpkh(GOVERNANCE_SEED, Network::Regtest).0),
+            sequencer_address: unchecked(&p2wpkh(SEQUENCER_SEED, Network::Regtest).0),
+            bridge_musig2_address: unchecked(&p2tr(BRIDGE_SEED, Network::Regtest)),
+            verifier_p2wpkh_addresses: vec![unchecked(&p2wpkh(VERIFIER_SEED, Network::Regtest).0)],
         })
     }
 
     #[test]
     fn bootstrap_is_valid_once() {
         let engine = ViaProtocolEngine::new(Network::Regtest);
-        let tx = inscribed_tx(50, 51, bootstrap_message(), vec![]);
+        let tx = inscribed_tx(
+            seeded_outpoint(51),
+            50,
+            51,
+            bootstrap_message(),
+            vec![],
+            Network::Regtest,
+        );
         let env = envelope(130, vec![tx]);
         let initial = unbootstrapped_context();
         let first = complete_plan(&engine, &env, &initial, []);
@@ -1841,8 +1676,22 @@ mod tests {
     #[test]
     fn second_bootstrap_in_same_block_is_rejected() {
         let engine = ViaProtocolEngine::new(Network::Regtest);
-        let first = inscribed_tx(50, 51, bootstrap_message(), vec![]);
-        let second = inscribed_tx(50, 52, bootstrap_message(), vec![]);
+        let first = inscribed_tx(
+            seeded_outpoint(51),
+            50,
+            51,
+            bootstrap_message(),
+            vec![],
+            Network::Regtest,
+        );
+        let second = inscribed_tx(
+            seeded_outpoint(52),
+            50,
+            52,
+            bootstrap_message(),
+            vec![],
+            Network::Regtest,
+        );
         let env = envelope(130, vec![first, second]);
         let plan = complete_plan(&engine, &env, &unbootstrapped_context(), []);
         assert!(
@@ -1861,6 +1710,7 @@ mod tests {
 
     fn upgrade_proposal(version: ProtocolVersionId, seed: u8) -> Transaction {
         inscribed_tx(
+            seeded_outpoint(seed),
             52,
             seed,
             InscriptionMessage::SystemContractUpgradeProposal(SystemContractUpgradeProposalInput {
@@ -1872,20 +1722,7 @@ mod tests {
                 system_contracts: vec![],
             }),
             vec![],
-        )
-    }
-
-    fn activation_tx(governance_outpoint: OutPoint, proposal_txid: Txid) -> Transaction {
-        let mut payload = b"VIA_PROTOCOL:UPGRADE:".to_vec();
-        payload.extend_from_slice(proposal_txid.as_byte_array());
-        transaction(
-            vec![TxIn {
-                previous_output: governance_outpoint,
-                script_sig: ScriptBuf::new(),
-                sequence: Sequence::MAX,
-                witness: Witness::new(),
-            }],
-            vec![op_return(payload)],
+            Network::Regtest,
         )
     }
 
@@ -1955,7 +1792,10 @@ mod tests {
         let env = envelope(
             150,
             vec![transaction(
-                vec![external_input(70, p2wpkh(71).1)],
+                vec![external_input(
+                    seeded_outpoint(70),
+                    p2wpkh(71, Network::Regtest).1,
+                )],
                 vec![bridge_output(30_000), op_return(receiver.to_vec())],
             )],
         );

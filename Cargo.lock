@@ -11844,6 +11844,7 @@ dependencies = [
  "tracing-subscriber",
  "tracing-test",
  "via_btc_ingestion",
+ "via_btc_ingestion_tests",
  "vise",
  "zksync_basic_types",
  "zksync_config",
