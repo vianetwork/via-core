@@ -12193,7 +12193,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bitcoin",
- "rand 0.8.5",
  "serde_json",
  "sqlx",
  "tokio",

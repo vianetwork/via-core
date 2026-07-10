@@ -1572,7 +1572,7 @@ pub async fn bootstrap_exactly_once<H: TestHarness>(harness: &H) {
 
     let again = builder.bootstrap_tx(
         &builder.wallet_set(),
-        via_btc_ingestion::ProtocolVersionTag { minor: 30, patch: 0 },
+        via_btc_ingestion::ProtocolVersionTag { minor: 27, patch: 0 },
         envelopes::seed_outpoint(0xB1),
     );
     let plan =
