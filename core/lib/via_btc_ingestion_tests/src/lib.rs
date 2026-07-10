@@ -361,7 +361,16 @@ pub fn bridge_script() -> bitcoin::ScriptBuf {
 }
 
 pub fn default_context() -> ProtocolContext {
-    ProtocolContext { version: 1, bridge_script_pubkey: bridge_script() }
+    ProtocolContext {
+        version: 1,
+        wallets: via_btc_ingestion::WalletSet {
+            sequencer: bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::from_byte_array([0x11; 20])),
+            bridge: bridge_script(),
+            governance: bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::from_byte_array([0x22; 20])),
+            verifiers: vec![],
+        },
+        protocol_version: via_btc_ingestion::ProtocolVersionTag { minor: 26, patch: 0 },
+    }
 }
 
 fn plan_hash(plan: &BlockPlan) -> Hash32 {

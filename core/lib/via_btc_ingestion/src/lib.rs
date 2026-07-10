@@ -205,12 +205,30 @@ pub struct EventOrdinal {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum EventKind {
     Deposit,
+    L1BatchDAReference,
+    ProofDAReference,
+    ValidatorAttestation,
+    SystemBootstrapping,
+    SystemContractUpgradeProposal,
+    SystemContractUpgradeActivation,
+    BridgeWithdrawal,
+    UpdateBridgeProposal,
+    WalletRotation,
 }
 
 impl EventKind {
     pub fn wire_tag(self) -> u32 {
         match self {
             EventKind::Deposit => 0,
+            EventKind::L1BatchDAReference => 1,
+            EventKind::ProofDAReference => 2,
+            EventKind::ValidatorAttestation => 3,
+            EventKind::SystemBootstrapping => 4,
+            EventKind::SystemContractUpgradeProposal => 5,
+            EventKind::SystemContractUpgradeActivation => 6,
+            EventKind::BridgeWithdrawal => 7,
+            EventKind::UpdateBridgeProposal => 8,
+            EventKind::WalletRotation => 9,
         }
     }
 }
@@ -218,15 +236,18 @@ impl EventKind {
 /// What an event is about. One message can govern several subjects (a
 /// receiver message covering several bridge-paying outputs produces one
 /// deposit per output), so the subject is part of the effect identity.
+/// Events scoped to a whole message use the message transaction's txid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum EffectSubject {
     Output(OutPoint),
+    Tx(Txid),
 }
 
 impl EffectSubject {
     pub fn wire_tag(self) -> u32 {
         match self {
             EffectSubject::Output(_) => 0,
+            EffectSubject::Tx(_) => 1,
         }
     }
 }
@@ -263,6 +284,28 @@ impl DepositEncoding {
     }
 }
 
+/// An L2 (EVM-style) address as plain bytes.
+pub type Address20 = [u8; 20];
+
+/// Protocol semantic version, decoupled from any L2 framework type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ProtocolVersionTag {
+    pub minor: u32,
+    pub patch: u32,
+}
+
+/// The system wallets in force, as script pubkeys. Scripts, not address
+/// strings, so identity is byte-exact and network-independent. Empty
+/// scripts mean "not yet bootstrapped" and match no transaction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletSet {
+    pub sequencer: ScriptBuf,
+    pub bridge: ScriptBuf,
+    pub governance: ScriptBuf,
+    /// Registration order; the order is part of the context identity.
+    pub verifiers: Vec<ScriptBuf>,
+}
+
 /// One deposit per bridge-paying output, keyed by that output's `OutPoint`,
 /// with the amount equal to that output's value.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,7 +315,141 @@ pub struct DepositObserved {
     pub amount: Amount,
     /// L2 receiver address bytes as parsed from the encoding.
     pub receiver: Vec<u8>,
+    /// Target L2 contract; empty means the protocol default bridge target.
+    pub l2_contract: Vec<u8>,
+    /// L2 call data; empty for plain value transfers.
+    pub call_data: Vec<u8>,
     pub encoding: DepositEncoding,
+}
+
+/// Sequencer commitment of one L1 batch to the DA layer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct L1BatchDAReferenceObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub l1_batch_hash: Hash32,
+    pub l1_batch_index: u64,
+    pub da_identifier: String,
+    pub blob_id: String,
+    pub prev_l1_batch_hash: Hash32,
+}
+
+/// Sequencer commitment of one proof to the DA layer, referencing the
+/// batch's reveal transaction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProofDAReferenceObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub l1_batch_reveal_txid: Txid,
+    pub da_identifier: String,
+    pub blob_id: String,
+}
+
+/// A verifier's vote on a referenced proof transaction. `attester_script`
+/// identifies which verifier wallet voted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidatorAttestationObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub reference_txid: Txid,
+    pub ok: bool,
+    pub attester_script: ScriptBuf,
+}
+
+/// The genesis message: initial wallets, protocol version, and code hashes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemBootstrappingObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub start_block_height: u64,
+    pub protocol_version: ProtocolVersionTag,
+    pub bootloader_hash: Hash32,
+    pub abstract_account_hash: Hash32,
+    pub snark_wrapper_vk_hash: Hash32,
+    pub evm_emulator_hash: Hash32,
+    pub wallets: WalletSet,
+}
+
+/// A proposed system-contract upgrade (not yet activated).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemContractUpgradeProposalObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub version: ProtocolVersionTag,
+    pub bootloader_code_hash: Hash32,
+    pub default_account_code_hash: Hash32,
+    pub evm_emulator_code_hash: Option<Hash32>,
+    pub recursion_scheduler_level_vk_hash: Hash32,
+    pub system_contracts: Vec<(Address20, Hash32)>,
+}
+
+/// Governance activation of a previously proposed upgrade.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemContractUpgradeActivationObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub proposal_txid: Txid,
+}
+
+/// One L1 payout inside a bridge withdrawal transaction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WithdrawalOutput {
+    /// First 8 bytes of the L2 withdrawal hash, hex-encoded (16 chars).
+    pub l2_id: String,
+    /// Index of the L2 log where the withdrawal was executed.
+    pub l2_tx_event_index: u32,
+    pub receiver_script: ScriptBuf,
+    pub amount: Amount,
+}
+
+/// A bridge withdrawal transaction: bridge inputs spent, L1 payouts made.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeWithdrawalObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub total_size: u64,
+    pub v_size: u64,
+    pub inputs: Vec<OutPoint>,
+    pub output_amount: Amount,
+    pub withdrawals: Vec<WithdrawalOutput>,
+}
+
+/// A proposed bridge rotation (new bridge wallet plus verifier set), not
+/// yet activated.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateBridgeProposalObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub bridge_script: ScriptBuf,
+    pub verifier_scripts: Vec<ScriptBuf>,
+}
+
+/// Which system wallet a rotation replaces, with its new value. Bridge
+/// rotations activate a prior proposal and carry the new verifier set.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WalletRotation {
+    Sequencer { new_script: ScriptBuf },
+    Governance { new_script: ScriptBuf },
+    Bridge { proposal_txid: Txid, new_bridge_script: ScriptBuf, new_verifier_scripts: Vec<ScriptBuf> },
+}
+
+impl WalletRotation {
+    pub fn wire_tag(&self) -> u32 {
+        match self {
+            WalletRotation::Sequencer { .. } => 0,
+            WalletRotation::Governance { .. } => 1,
+            WalletRotation::Bridge { .. } => 2,
+        }
+    }
+}
+
+/// An activated system-wallet rotation. The engine also folds it into the
+/// plan's `next_context`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletRotationObserved {
+    pub ordinal: EventOrdinal,
+    pub subject_txid: Txid,
+    pub rotation: WalletRotation,
 }
 
 /// Typed protocol events, ordered by [`EventOrdinal`]. The enum is
@@ -281,24 +458,68 @@ pub struct DepositObserved {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProtocolEvent {
     DepositObserved(DepositObserved),
+    L1BatchDAReference(L1BatchDAReferenceObserved),
+    ProofDAReference(ProofDAReferenceObserved),
+    ValidatorAttestation(ValidatorAttestationObserved),
+    SystemBootstrapping(SystemBootstrappingObserved),
+    SystemContractUpgradeProposal(SystemContractUpgradeProposalObserved),
+    SystemContractUpgradeActivation(SystemContractUpgradeActivationObserved),
+    BridgeWithdrawal(BridgeWithdrawalObserved),
+    UpdateBridgeProposal(UpdateBridgeProposalObserved),
+    WalletRotation(WalletRotationObserved),
 }
 
 impl ProtocolEvent {
     pub fn ordinal(&self) -> EventOrdinal {
         match self {
             ProtocolEvent::DepositObserved(e) => e.ordinal,
+            ProtocolEvent::L1BatchDAReference(e) => e.ordinal,
+            ProtocolEvent::ProofDAReference(e) => e.ordinal,
+            ProtocolEvent::ValidatorAttestation(e) => e.ordinal,
+            ProtocolEvent::SystemBootstrapping(e) => e.ordinal,
+            ProtocolEvent::SystemContractUpgradeProposal(e) => e.ordinal,
+            ProtocolEvent::SystemContractUpgradeActivation(e) => e.ordinal,
+            ProtocolEvent::BridgeWithdrawal(e) => e.ordinal,
+            ProtocolEvent::UpdateBridgeProposal(e) => e.ordinal,
+            ProtocolEvent::WalletRotation(e) => e.ordinal,
         }
     }
 
     pub fn kind(&self) -> EventKind {
         match self {
             ProtocolEvent::DepositObserved(_) => EventKind::Deposit,
+            ProtocolEvent::L1BatchDAReference(_) => EventKind::L1BatchDAReference,
+            ProtocolEvent::ProofDAReference(_) => EventKind::ProofDAReference,
+            ProtocolEvent::ValidatorAttestation(_) => EventKind::ValidatorAttestation,
+            ProtocolEvent::SystemBootstrapping(_) => EventKind::SystemBootstrapping,
+            ProtocolEvent::SystemContractUpgradeProposal(_) => EventKind::SystemContractUpgradeProposal,
+            ProtocolEvent::SystemContractUpgradeActivation(_) => EventKind::SystemContractUpgradeActivation,
+            ProtocolEvent::BridgeWithdrawal(_) => EventKind::BridgeWithdrawal,
+            ProtocolEvent::UpdateBridgeProposal(_) => EventKind::UpdateBridgeProposal,
+            ProtocolEvent::WalletRotation(_) => EventKind::WalletRotation,
+        }
+    }
+
+    /// The transaction carrying this event's message.
+    pub fn subject_txid(&self) -> Txid {
+        match self {
+            ProtocolEvent::DepositObserved(e) => e.subject.txid,
+            ProtocolEvent::L1BatchDAReference(e) => e.subject_txid,
+            ProtocolEvent::ProofDAReference(e) => e.subject_txid,
+            ProtocolEvent::ValidatorAttestation(e) => e.subject_txid,
+            ProtocolEvent::SystemBootstrapping(e) => e.subject_txid,
+            ProtocolEvent::SystemContractUpgradeProposal(e) => e.subject_txid,
+            ProtocolEvent::SystemContractUpgradeActivation(e) => e.subject_txid,
+            ProtocolEvent::BridgeWithdrawal(e) => e.subject_txid,
+            ProtocolEvent::UpdateBridgeProposal(e) => e.subject_txid,
+            ProtocolEvent::WalletRotation(e) => e.subject_txid,
         }
     }
 
     pub fn subject(&self) -> EffectSubject {
         match self {
             ProtocolEvent::DepositObserved(e) => EffectSubject::Output(e.subject),
+            other => EffectSubject::Tx(other.subject_txid()),
         }
     }
 
@@ -350,16 +571,34 @@ pub struct Disposition {
     pub kind: DispositionKind,
 }
 
-/// Protocol state the engine needs to interpret a block. Each plan records
-/// the hash of the context it was built from, and the checkpoint rejects a
-/// plan built from any other.
+/// Protocol state the engine needs to interpret a block: the system
+/// wallets and protocol version in force. Each plan records the hash of
+/// the context it was built from, and the checkpoint rejects a plan built
+/// from any other.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolContext {
+    /// Context schema version (bump when this struct's shape changes).
     pub version: u32,
-    pub bridge_script_pubkey: ScriptBuf,
+    pub wallets: WalletSet,
+    pub protocol_version: ProtocolVersionTag,
 }
 
 const CONTEXT_WIRE_MAGIC: &[u8; 8] = b"VIA_CTX\0";
+
+fn put_len_bytes(out: &mut Vec<u8>, b: &[u8]) {
+    out.extend_from_slice(&(b.len() as u64).to_be_bytes());
+    out.extend_from_slice(b);
+}
+
+fn put_wallet_set(out: &mut Vec<u8>, w: &WalletSet) {
+    put_len_bytes(out, w.sequencer.as_bytes());
+    put_len_bytes(out, w.bridge.as_bytes());
+    put_len_bytes(out, w.governance.as_bytes());
+    out.extend_from_slice(&(w.verifiers.len() as u64).to_be_bytes());
+    for v in &w.verifiers {
+        put_len_bytes(out, v.as_bytes());
+    }
+}
 
 impl ProtocolContext {
     /// Canonical fingerprint of this context (double-SHA256 over a
@@ -368,8 +607,9 @@ impl ProtocolContext {
         let mut out = Vec::new();
         out.extend_from_slice(CONTEXT_WIRE_MAGIC);
         out.extend_from_slice(&self.version.to_be_bytes());
-        out.extend_from_slice(&(self.bridge_script_pubkey.as_bytes().len() as u64).to_be_bytes());
-        out.extend_from_slice(self.bridge_script_pubkey.as_bytes());
+        put_wallet_set(&mut out, &self.wallets);
+        out.extend_from_slice(&self.protocol_version.minor.to_be_bytes());
+        out.extend_from_slice(&self.protocol_version.patch.to_be_bytes());
         sha256d::Hash::hash(&out).to_byte_array()
     }
 }
@@ -378,7 +618,7 @@ impl ProtocolContext {
 /// [`KernelVersion`]: that versions interpretation rules, this versions the
 /// byte grammar itself.
 pub const PLAN_WIRE_MAGIC: &[u8; 12] = b"VIA_BLKPLAN\0";
-pub const PLAN_WIRE_FORMAT_VERSION: u32 = 1;
+pub const PLAN_WIRE_FORMAT_VERSION: u32 = 2;
 
 /// Why a plan failed structural validation. An adapter must reject an
 /// invalid plan before writing anything.
@@ -456,9 +696,7 @@ impl BlockPlan {
             }
         }
         for e in &self.events {
-            let subject_txid = match e {
-                ProtocolEvent::DepositObserved(d) => d.subject.txid,
-            };
+            let subject_txid = e.subject_txid();
             if !self.inclusions.iter().any(|i| i.txid == subject_txid) {
                 return Err(PlanValidationError::EventWithoutInclusion { tx_index: e.ordinal().tx_index });
             }
@@ -531,14 +769,113 @@ impl BlockPlan {
         put_u64(&mut out, self.events.len() as u64);
         for e in &self.events {
             put_u32(&mut out, e.kind().wire_tag());
+            put_u32(&mut out, e.ordinal().tx_index);
+            put_u32(&mut out, e.ordinal().message_ordinal);
             match e {
                 ProtocolEvent::DepositObserved(d) => {
-                    put_u32(&mut out, d.ordinal.tx_index);
-                    put_u32(&mut out, d.ordinal.message_ordinal);
                     put_outpoint(&mut out, &d.subject);
                     put_u64(&mut out, d.amount.to_sat());
                     put_bytes(&mut out, &d.receiver);
+                    put_bytes(&mut out, &d.l2_contract);
+                    put_bytes(&mut out, &d.call_data);
                     put_u32(&mut out, d.encoding.wire_tag());
+                }
+                ProtocolEvent::L1BatchDAReference(v) => {
+                    put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_hash32(&mut out, &v.l1_batch_hash);
+                    put_u64(&mut out, v.l1_batch_index);
+                    put_bytes(&mut out, v.da_identifier.as_bytes());
+                    put_bytes(&mut out, v.blob_id.as_bytes());
+                    put_hash32(&mut out, &v.prev_l1_batch_hash);
+                }
+                ProtocolEvent::ProofDAReference(v) => {
+                    put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_hash32(&mut out, v.l1_batch_reveal_txid.as_ref());
+                    put_bytes(&mut out, v.da_identifier.as_bytes());
+                    put_bytes(&mut out, v.blob_id.as_bytes());
+                }
+                ProtocolEvent::ValidatorAttestation(v) => {
+                    put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_hash32(&mut out, v.reference_txid.as_ref());
+                    put_u32(&mut out, u32::from(v.ok));
+                    put_bytes(&mut out, v.attester_script.as_bytes());
+                }
+                ProtocolEvent::SystemBootstrapping(v) => {
+                    put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_u64(&mut out, v.start_block_height);
+                    put_u32(&mut out, v.protocol_version.minor);
+                    put_u32(&mut out, v.protocol_version.patch);
+                    put_hash32(&mut out, &v.bootloader_hash);
+                    put_hash32(&mut out, &v.abstract_account_hash);
+                    put_hash32(&mut out, &v.snark_wrapper_vk_hash);
+                    put_hash32(&mut out, &v.evm_emulator_hash);
+                    put_wallet_set(&mut out, &v.wallets);
+                }
+                ProtocolEvent::SystemContractUpgradeProposal(v) => {
+                    put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_u32(&mut out, v.version.minor);
+                    put_u32(&mut out, v.version.patch);
+                    put_hash32(&mut out, &v.bootloader_code_hash);
+                    put_hash32(&mut out, &v.default_account_code_hash);
+                    match &v.evm_emulator_code_hash {
+                        Some(h) => {
+                            put_u32(&mut out, 1);
+                            put_hash32(&mut out, h);
+                        }
+                        None => put_u32(&mut out, 0),
+                    }
+                    put_hash32(&mut out, &v.recursion_scheduler_level_vk_hash);
+                    put_u64(&mut out, v.system_contracts.len() as u64);
+                    for (addr, hash) in &v.system_contracts {
+                        out.extend_from_slice(addr);
+                        put_hash32(&mut out, hash);
+                    }
+                }
+                ProtocolEvent::SystemContractUpgradeActivation(v) => {
+                    put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_hash32(&mut out, v.proposal_txid.as_ref());
+                }
+                ProtocolEvent::BridgeWithdrawal(v) => {
+                    put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_u64(&mut out, v.total_size);
+                    put_u64(&mut out, v.v_size);
+                    put_u64(&mut out, v.inputs.len() as u64);
+                    for op in &v.inputs {
+                        put_outpoint(&mut out, op);
+                    }
+                    put_u64(&mut out, v.output_amount.to_sat());
+                    put_u64(&mut out, v.withdrawals.len() as u64);
+                    for w in &v.withdrawals {
+                        put_bytes(&mut out, w.l2_id.as_bytes());
+                        put_u32(&mut out, w.l2_tx_event_index);
+                        put_bytes(&mut out, w.receiver_script.as_bytes());
+                        put_u64(&mut out, w.amount.to_sat());
+                    }
+                }
+                ProtocolEvent::UpdateBridgeProposal(v) => {
+                    put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_bytes(&mut out, v.bridge_script.as_bytes());
+                    put_u64(&mut out, v.verifier_scripts.len() as u64);
+                    for s in &v.verifier_scripts {
+                        put_bytes(&mut out, s.as_bytes());
+                    }
+                }
+                ProtocolEvent::WalletRotation(v) => {
+                    put_hash32(&mut out, v.subject_txid.as_ref());
+                    put_u32(&mut out, v.rotation.wire_tag());
+                    match &v.rotation {
+                        WalletRotation::Sequencer { new_script } | WalletRotation::Governance { new_script } => {
+                            put_bytes(&mut out, new_script.as_bytes());
+                        }
+                        WalletRotation::Bridge { proposal_txid, new_bridge_script, new_verifier_scripts } => {
+                            put_hash32(&mut out, proposal_txid.as_ref());
+                            put_bytes(&mut out, new_bridge_script.as_bytes());
+                            put_u64(&mut out, new_verifier_scripts.len() as u64);
+                            for s in new_verifier_scripts {
+                                put_bytes(&mut out, s.as_bytes());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -555,7 +892,9 @@ impl BlockPlan {
             }
         }
         put_u32(&mut out, self.next_context.version);
-        put_bytes(&mut out, self.next_context.bridge_script_pubkey.as_bytes());
+        put_wallet_set(&mut out, &self.next_context.wallets);
+        put_u32(&mut out, self.next_context.protocol_version.minor);
+        put_u32(&mut out, self.next_context.protocol_version.patch);
         Ok(out)
     }
 
@@ -844,7 +1183,16 @@ mod tests {
     }
 
     fn context() -> ProtocolContext {
-        ProtocolContext { version: 1, bridge_script_pubkey: ScriptBuf::new() }
+        ProtocolContext {
+            version: 1,
+            wallets: WalletSet {
+                sequencer: ScriptBuf::new(),
+                bridge: ScriptBuf::new(),
+                governance: ScriptBuf::new(),
+                verifiers: vec![],
+            },
+            protocol_version: ProtocolVersionTag { minor: 26, patch: 0 },
+        }
     }
 
     fn dummy_plan() -> BlockPlan {
@@ -880,7 +1228,7 @@ mod tests {
             s
         });
         assert_eq!(
-            hex, "e0cab6ea11d174351ace38d0a82ec48e6301cc80d6984649c3602a77593ff3fb",
+            hex, "ce72338666ff9275d43781527a85259733442afae4627e5f9f6f18b3187eaa58",
             "canonical wire format changed: if intentional, bump PLAN_WIRE_FORMAT_VERSION and refreeze"
         );
     }
@@ -964,6 +1312,8 @@ mod tests {
             subject: OutPoint { txid: Txid::all_zeros(), vout: 0 },
             amount: Amount::from_sat(1),
             receiver: vec![0; 20],
+            l2_contract: vec![],
+            call_data: vec![],
             encoding: DepositEncoding::OpReturn,
         })];
         assert!(matches!(p.validate(), Err(PlanValidationError::EventWithoutInclusion { .. })));
