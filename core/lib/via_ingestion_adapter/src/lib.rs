@@ -1,11 +1,10 @@
 //! Postgres implementation of the ingestion kernel's [`AggregateAdapter`].
 //!
-//! One adapter serves all three node databases: the shadow schema
-//! (`via_ingestion_*` tables) is identical per family, and only the role's
-//! projection set and downstream boundary differ. Every write of a block is
-//! one database transaction guarded by a compare-and-swap on the checkpoint
-//! row; reverts restore state from the chain table and never delete raw
-//! transaction bytes or inclusion history.
+//! One adapter serves all three node databases. The shadow schema is the
+//! same per family; only the role's projection set and downstream boundary
+//! differ. Each block commits in one transaction guarded by the checkpoint
+//! row. Reverts restore from the chain table; raw bytes and inclusion
+//! history are never deleted.
 
 use async_trait::async_trait;
 use bitcoin::{hashes::Hash, Amount, BlockHash, OutPoint, ScriptBuf, Txid, Wtxid};
@@ -17,8 +16,8 @@ use via_btc_ingestion::{
     RevertReceipt, Role, TrackedOutputCreate, TrackedRole,
 };
 
-/// Stages of `apply_block` and `revert_to` where tests may inject faults.
-/// Production constructs the adapter without hooks; the checks are no-ops.
+/// Stages where tests may inject faults. Without a hook the checks cost
+/// nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
     AfterRawVariants,
@@ -37,8 +36,8 @@ pub enum Stage {
     RevertAfterCommitBeforeAck,
 }
 
-/// Test-only fault hook: return true to trip at this stage. The adapter
-/// records the last stage it reached so harnesses can prove reachability.
+/// Test-only fault hook: return true to trip at this stage. The closure
+/// itself is where a harness records which stages were reached.
 pub type FaultHook = std::sync::Arc<dyn Fn(Stage) -> bool + Send + Sync>;
 
 pub struct PgIngestionAdapter {
@@ -47,8 +46,8 @@ pub struct PgIngestionAdapter {
     fault: Option<FaultHook>,
 }
 
-/// Which event kinds a role projects into fact tables; everything else is
-/// reported as irrelevant in the projection receipt.
+/// Event kinds this role projects into fact tables. The rest are reported
+/// as irrelevant in the receipt.
 fn projected(role: Role, kind: EventKind) -> bool {
     use EventKind::*;
     match role {
@@ -807,9 +806,8 @@ impl ObservationReader for PgObservationReader {
     }
 }
 
-/// Marks effects as consumed downstream; production hooks call this when a
-/// deposit is sealed into a batch or a vote is finalized. Test harnesses
-/// call it directly.
+/// Marks an effect as consumed downstream (sealed into a batch, finalized
+/// vote). Production hooks and test harnesses both call this.
 pub async fn mark_consumed(pool: &PgPool, effect: &EffectId) -> Result<(), InfraError> {
     sqlx::query(
         "INSERT INTO via_ingestion_consumed_effects (block_hash, effect_key) VALUES ($1, $2) \
