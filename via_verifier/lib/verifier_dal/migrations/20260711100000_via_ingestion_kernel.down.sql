@@ -1,0 +1,16 @@
+DROP TABLE IF EXISTS via_ingestion_hard_reorg_halt;
+DROP TABLE IF EXISTS via_ingestion_consumed_effects;
+DROP TABLE IF EXISTS via_ingestion_rejections;
+DROP TABLE IF EXISTS via_ingestion_protocol_versions;
+DROP TABLE IF EXISTS via_ingestion_wallet_history;
+DROP TABLE IF EXISTS via_ingestion_withdrawals;
+DROP TABLE IF EXISTS via_ingestion_votes;
+DROP TABLE IF EXISTS via_ingestion_proof_refs;
+DROP TABLE IF EXISTS via_ingestion_batch_refs;
+DROP TABLE IF EXISTS via_ingestion_deposits;
+DROP TABLE IF EXISTS via_ingestion_tracked_spends;
+DROP TABLE IF EXISTS via_ingestion_tracked_outputs;
+DROP TABLE IF EXISTS via_ingestion_inclusions;
+DROP TABLE IF EXISTS via_ingestion_raw_variants;
+DROP TABLE IF EXISTS via_ingestion_chain;
+DROP TABLE IF EXISTS via_ingestion_checkpoint;
