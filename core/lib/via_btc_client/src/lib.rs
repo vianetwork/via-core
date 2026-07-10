@@ -4,6 +4,7 @@ pub mod types;
 pub mod bootstrap;
 pub mod client;
 pub mod indexer;
+pub mod ingestion_engine;
 pub mod inscriber;
 mod metrics;
 #[cfg(feature = "regtest")]
