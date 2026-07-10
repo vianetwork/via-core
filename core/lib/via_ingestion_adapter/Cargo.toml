@@ -18,6 +18,7 @@ sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "json"] }
 via_btc_ingestion.workspace = true
 
 [dev-dependencies]
+via_btc_client = { workspace = true, features = ["testonly"] }
 rand.workspace = true
 tokio = { workspace = true, features = ["full"] }
 via_btc_ingestion_tests.workspace = true

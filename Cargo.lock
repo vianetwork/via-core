@@ -12197,6 +12197,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "via_btc_client",
  "via_btc_ingestion",
  "via_btc_ingestion_tests",
 ]
