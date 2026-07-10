@@ -76,29 +76,43 @@ impl BitcoinOps for BitcoinClient {
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>> {
         debug!("Fetching UTXOs");
-        let outpoints = match self.config.network() {
+        let utxos = match self.config.network() {
             Network::Regtest => self.rpc.list_unspent(address).await?,
             _ => self.rpc.list_unspent_based_on_node_wallet(address).await?,
         };
-        let mut utxos = Vec::with_capacity(outpoints.len());
-
-        for outpoint in outpoints {
-            debug!("Fetching transaction for outpoint");
-            let tx = self.rpc.get_transaction(&outpoint.txid).await?;
-            let txout = tx.output.get(outpoint.vout as usize).ok_or_else(|| {
-                error!("Invalid outpoint");
-                BitcoinError::InvalidOutpoint(outpoint.to_string())
-            })?;
-            utxos.push((outpoint, txout.clone()));
-        }
-
-        Ok(utxos)
+        Ok(utxos
+            .into_iter()
+            .map(|unspent| (unspent.outpoint, unspent.txout))
+            .collect())
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
     async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool> {
         debug!("Checking transaction confirmation");
         let tx_info = self.rpc.get_raw_transaction_info(txid).await?;
+
+        match tx_info.confirmations {
+            Some(confirmations) => Ok(confirmations >= conf_num),
+            None => Ok(false),
+        }
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client")]
+    async fn check_tx_confirmation_in_block(
+        &self,
+        txid: &Txid,
+        block_hash: &BlockHash,
+        conf_num: u32,
+    ) -> BitcoinClientResult<bool> {
+        debug!("Checking transaction confirmation in block");
+        let tx_info = self
+            .rpc
+            .get_raw_transaction_info_in_block(txid, block_hash)
+            .await?;
+
+        if tx_info.in_active_chain == Some(false) {
+            return Ok(false);
+        }
 
         match tx_info.confirmations {
             Some(confirmations) => Ok(confirmations >= conf_num),
@@ -235,6 +249,16 @@ impl BitcoinOps for BitcoinClient {
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
+    async fn get_transaction_in_block(
+        &self,
+        txid: &Txid,
+        block_hash: &BlockHash,
+    ) -> BitcoinClientResult<Transaction> {
+        debug!("Getting transaction in block");
+        self.rpc.get_transaction_in_block(txid, block_hash).await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client")]
     async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block> {
         debug!("Fetching block by hash");
         self.rpc.get_block_by_hash(block_hash).await
@@ -290,7 +314,7 @@ impl Clone for BitcoinClient {
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin::{absolute::LockTime, hashes::Hash, transaction::Version, Amount, Wtxid};
+    use bitcoin::{hashes::Hash, Amount, Wtxid};
     use bitcoincore_rpc::{
         bitcoincore_rpc_json::GetBlockchainInfoResult,
         json::{EstimateSmartFeeResult, GetMempoolInfoResult, GetRawTransactionResult},
@@ -298,7 +322,7 @@ mod tests {
     use mockall::{mock, predicate::*};
 
     use super::*;
-    use crate::types::BitcoinRpcResult;
+    use crate::types::{BitcoinRpcResult, BitcoinUtxo};
 
     mock! {
         #[derive(Debug)]
@@ -308,14 +332,16 @@ mod tests {
             async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u64>;
             async fn get_balance_scan(&self, address: &Address) -> BitcoinClientResult<u64>;
             async fn send_raw_transaction(&self, tx_hex: &str) -> BitcoinClientResult<Txid>;
-            async fn list_unspent_based_on_node_wallet(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
-            async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
+            async fn list_unspent_based_on_node_wallet(&self, address: &Address) -> BitcoinClientResult<Vec<BitcoinUtxo>>;
+            async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<BitcoinUtxo>>;
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
+            async fn get_transaction_in_block(&self, txid: &Txid, block_hash: &BlockHash) -> BitcoinClientResult<Transaction>;
             async fn get_block_count(&self) -> BitcoinClientResult<u64>;
             async fn get_block_by_height(&self, block_height: u128) -> BitcoinClientResult<Block>;
             async fn get_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
             async fn get_best_block_hash(&self) -> BitcoinClientResult<BlockHash>;
             async fn get_raw_transaction_info(&self, txid: &Txid) -> BitcoinClientResult<GetRawTransactionResult>;
+            async fn get_raw_transaction_info_in_block(&self, txid: &Txid, block_hash: &BlockHash) -> BitcoinClientResult<GetRawTransactionResult>;
             async fn estimate_smart_fee(&self, conf_target: u16, estimate_mode: Option<EstimateMode>) -> BitcoinClientResult<EstimateSmartFeeResult>;
             async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
             async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
@@ -370,19 +396,16 @@ mod tests {
             txid: Txid::all_zeros(),
             vout: 0,
         };
-        mock_rpc
-            .expect_list_unspent_based_on_node_wallet()
-            .return_once(move |_| Ok(vec![outpoint]));
-        mock_rpc.expect_get_transaction().return_once(|_| {
-            Ok(Transaction {
-                version: Version::TWO,
-                lock_time: LockTime::from_height(0u32).unwrap(),
-                input: vec![],
-                output: vec![TxOut {
+        // ViaBtcClientConfig::for_tests() is regtest, so fetch_utxos takes the
+        // list_unspent (scantxoutset) path.
+        mock_rpc.expect_list_unspent().return_once(move |_| {
+            Ok(vec![BitcoinUtxo {
+                outpoint,
+                txout: TxOut {
                     value: Amount::from_sat(50000),
                     script_pubkey: Default::default(),
-                }],
-            })
+                },
+            }])
         });
 
         let client = get_client_with_mock(mock_rpc);
@@ -425,6 +448,78 @@ mod tests {
         let txid = Txid::all_zeros();
         let confirmed = client.check_tx_confirmation(&txid, 2).await.unwrap();
         assert!(confirmed);
+    }
+
+    #[tokio::test]
+    async fn test_check_tx_confirmation_in_block() {
+        let mut mock_rpc = MockBitcoinRpc::new();
+        let block_hash = BlockHash::all_zeros();
+        mock_rpc
+            .expect_get_raw_transaction_info_in_block()
+            .with(eq(Txid::all_zeros()), eq(block_hash))
+            .return_once(|_, _| {
+                Ok(GetRawTransactionResult {
+                    in_active_chain: Some(true),
+                    hex: vec![],
+                    txid: Txid::all_zeros(),
+                    hash: Wtxid::all_zeros(),
+                    size: 0,
+                    vsize: 0,
+                    version: 0,
+                    locktime: 0,
+                    vin: vec![],
+                    vout: vec![],
+                    blockhash: Some(BlockHash::all_zeros()),
+                    confirmations: Some(3),
+                    time: None,
+                    blocktime: None,
+                })
+            });
+
+        let client = get_client_with_mock(mock_rpc);
+
+        let txid = Txid::all_zeros();
+        let confirmed = client
+            .check_tx_confirmation_in_block(&txid, &block_hash, 2)
+            .await
+            .unwrap();
+        assert!(confirmed);
+    }
+
+    #[tokio::test]
+    async fn test_check_tx_confirmation_in_block_returns_false_for_inactive_chain() {
+        let mut mock_rpc = MockBitcoinRpc::new();
+        let block_hash = BlockHash::all_zeros();
+        mock_rpc
+            .expect_get_raw_transaction_info_in_block()
+            .with(eq(Txid::all_zeros()), eq(block_hash))
+            .return_once(|_, _| {
+                Ok(GetRawTransactionResult {
+                    in_active_chain: Some(false),
+                    hex: vec![],
+                    txid: Txid::all_zeros(),
+                    hash: Wtxid::all_zeros(),
+                    size: 0,
+                    vsize: 0,
+                    version: 0,
+                    locktime: 0,
+                    vin: vec![],
+                    vout: vec![],
+                    blockhash: Some(BlockHash::all_zeros()),
+                    confirmations: Some(3),
+                    time: None,
+                    blocktime: None,
+                })
+            });
+
+        let client = get_client_with_mock(mock_rpc);
+
+        let txid = Txid::all_zeros();
+        let confirmed = client
+            .check_tx_confirmation_in_block(&txid, &block_hash, 2)
+            .await
+            .unwrap();
+        assert!(!confirmed);
     }
 
     #[tokio::test]

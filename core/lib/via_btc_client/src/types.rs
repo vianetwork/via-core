@@ -25,6 +25,15 @@ use crate::{
     traits::Serializable,
 };
 
+/// An unspent output together with the `TxOut` returned by the listing RPC
+/// (`listunspent`/`scantxoutset`), so callers do not need a per-UTXO
+/// transaction lookup to recover value and script.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BitcoinUtxo {
+    pub outpoint: OutPoint,
+    pub txout: TxOut,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {
     Ok,

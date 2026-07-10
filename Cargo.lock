@@ -11851,6 +11851,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_btc_ingestion"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitcoin",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "via_btc_ingestion_tests"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitcoin",
+ "futures 0.3.31",
+ "tokio",
+ "via_btc_ingestion",
+]
+
+[[package]]
 name = "via_btc_sender"
 version = "0.1.0"
 dependencies = [

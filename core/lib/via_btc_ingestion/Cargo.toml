@@ -1,0 +1,20 @@
+[package]
+name = "via_btc_ingestion"
+description = "Shared types and traits for interpreting Bitcoin blocks in Via. Each block is turned into one deterministic, versioned plan describing what it means for Via (deposits, tracked bridge outputs, protocol events), which the sequencer, verifier, and indexer then commit to their own databases atomically, with defined behavior for failures and reorgs."
+version.workspace = true
+edition.workspace = true
+authors = ["Via Network"]
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bitcoin.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
