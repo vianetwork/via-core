@@ -12187,6 +12187,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_ingestion_adapter"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitcoin",
+ "rand 0.8.5",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "via_btc_ingestion",
+ "via_btc_ingestion_tests",
+]
+
+[[package]]
 name = "via_loadnext"
 version = "0.1.0"
 dependencies = [
