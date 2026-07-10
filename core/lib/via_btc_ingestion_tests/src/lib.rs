@@ -116,6 +116,12 @@ pub struct DepositFact {
     pub subject: OutPoint,
     pub amount_sat: u64,
     pub receiver: Vec<u8>,
+    /// Target L2 contract; all-zero means the protocol default.
+    pub l2_contract: [u8; 20],
+    /// L2 call data; empty for plain value transfers.
+    pub call_data: Vec<u8>,
+    /// The depositor's identifiable P2WPKH input script, when there is one.
+    pub sender_script: Option<bitcoin::ScriptBuf>,
     pub block_height: u64,
     pub block_hash: bitcoin::BlockHash,
     pub tx_index: u32,
@@ -134,6 +140,40 @@ pub struct RejectionRecord {
     pub code: RejectionCode,
 }
 
+/// One recorded attestation vote, normalized across schema families.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VoteFact {
+    pub l1_batch_index: u64,
+    pub attester_script: bitcoin::ScriptBuf,
+    pub ok: bool,
+    pub block_hash: bitcoin::BlockHash,
+}
+
+/// One committed proof DA reference, normalized.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProofFact {
+    pub subject_txid: Txid,
+    pub l1_batch_index: u64,
+    pub blob_id: String,
+}
+
+/// One committed batch DA reference, normalized.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BatchFact {
+    pub subject_txid: Txid,
+    pub l1_batch_index: u64,
+    pub l1_batch_hash: Hash32,
+}
+
+/// One projected bridge withdrawal, normalized.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WithdrawalFact {
+    pub subject_txid: Txid,
+    pub l2_id: [u8; 8],
+    pub receiver_script: bitcoin::ScriptBuf,
+    pub amount_sat: u64,
+}
+
 /// Read-back surface over one adapter's durable state. Implementations back
 /// this with plain queries against their own schema; fixtures use it for
 /// assertions only, never to drive state.
@@ -146,9 +186,51 @@ pub trait StateProbe: Send + Sync {
     async fn tracked_output(&self, outpoint: &OutPoint) -> Option<TrackedOutputState>;
     async fn canonical_deposits(&self) -> Vec<DepositFact>;
     async fn rejections(&self) -> Vec<RejectionRecord>;
+    async fn attestation_votes(&self) -> Vec<VoteFact>;
+    async fn proof_references(&self) -> Vec<ProofFact>;
+    async fn batch_references(&self) -> Vec<BatchFact>;
+    /// Every protocol version ever applied, in application order.
+    async fn applied_protocol_versions(&self) -> Vec<via_btc_ingestion::ProtocolVersionTag>;
+    async fn bridge_withdrawals(&self) -> Vec<WithdrawalFact>;
     /// Monotonic counter bumped by every completed revert (the reader-visible
     /// revision signal; must match the last `RevertReceipt`).
     async fn canonical_revision(&self) -> u64;
+}
+
+/// Concrete Via message transactions for the family fixtures. The suite
+/// stays free of inscription encoding; each harness supplies real encodings
+/// through this trait. Every method returns a transaction spending `prev`
+/// whose first message carrier decodes to the described message.
+pub trait MessageTxBuilder: Send + Sync {
+    /// Genesis message establishing `wallets` and `version`.
+    fn bootstrap_tx(
+        &self, wallets: &via_btc_ingestion::WalletSet, version: via_btc_ingestion::ProtocolVersionTag, prev: OutPoint,
+    ) -> bitcoin::Transaction;
+    /// Sequencer-signed batch DA reference.
+    fn batch_da_reference_tx(
+        &self, l1_batch_index: u64, l1_batch_hash: Hash32, blob_id: &str, prev: OutPoint,
+    ) -> bitcoin::Transaction;
+    /// Sequencer-signed proof DA reference naming the batch reveal tx.
+    fn proof_da_reference_tx(&self, l1_batch_reveal_txid: Txid, blob_id: &str, prev: OutPoint) -> bitcoin::Transaction;
+    /// Attestation signed by the verifier at `attester_index` in the wallet set.
+    fn attestation_tx(
+        &self, reference_txid: Txid, ok: bool, attester_index: usize, prev: OutPoint,
+    ) -> bitcoin::Transaction;
+    /// Attestation signed by a wallet outside the verifier set.
+    fn unauthorized_attestation_tx(&self, reference_txid: Txid, prev: OutPoint) -> bitcoin::Transaction;
+    /// Upgrade proposal for `version`.
+    fn upgrade_proposal_tx(
+        &self, version: via_btc_ingestion::ProtocolVersionTag, prev: OutPoint,
+    ) -> bitcoin::Transaction;
+    /// Governance activation of `proposal_txid`; `gov_prev` must spend a
+    /// governance-tracked output for the activation to be authorized.
+    fn upgrade_activation_tx(&self, proposal_txid: Txid, gov_prev: OutPoint) -> bitcoin::Transaction;
+    /// Governance-authorized sequencer rotation to `new_script`.
+    fn sequencer_rotation_tx(&self, new_script: &bitcoin::ScriptBuf, gov_prev: OutPoint) -> bitcoin::Transaction;
+    /// Bridge withdrawal spending `bridge_prev`, paying `withdrawals`.
+    fn withdrawal_tx(
+        &self, withdrawals: &[(bitcoin::ScriptBuf, u64, [u8; 8])], bridge_prev: OutPoint,
+    ) -> bitcoin::Transaction;
 }
 
 /// What an implementation under test must provide to run the suite.
@@ -162,6 +244,7 @@ pub trait TestHarness: Send + Sync {
     /// gets judged.
     type Reader: ObservationReader;
     type Probe: StateProbe;
+    type Builder: MessageTxBuilder;
 
     async fn engine(&self) -> Self::Engine;
     async fn fresh_adapter(&self, role: Role) -> Self::Adapter;
@@ -170,6 +253,8 @@ pub trait TestHarness: Send + Sync {
     async fn restart(&self, adapter: Self::Adapter) -> Self::Adapter;
     async fn observation_reader(&self, adapter: &Self::Adapter) -> Self::Reader;
     async fn probe(&self, adapter: &Self::Adapter) -> Self::Probe;
+    /// Real message encodings for the family fixtures.
+    fn message_builder(&self) -> Self::Builder;
 
     /// Make the next `apply_block` fail at the given semantic stage.
     async fn arm_apply_fault(&self, point: ApplyFaultPoint);
@@ -600,6 +685,9 @@ pub async fn deposit_block_commits_atomically<H: TestHarness>(harness: &H) {
             subject,
             amount_sat: 50_000,
             receiver: RECEIVER_A.to_vec(),
+            l2_contract: [0; 20],
+            call_data: vec![],
+            sender_script: None,
             block_height: anchor.height,
             block_hash: anchor.hash,
             tx_index: 0,
