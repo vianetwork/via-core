@@ -202,6 +202,9 @@ pub trait StateProbe: Send + Sync {
 /// through this trait. Every method returns a transaction spending `prev`
 /// whose first message carrier decodes to the described message.
 pub trait MessageTxBuilder: Send + Sync {
+    /// The wallet set this builder can produce signatures for. Family
+    /// fixtures bootstrap the chain with exactly these wallets.
+    fn wallet_set(&self) -> via_btc_ingestion::WalletSet;
     /// Genesis message establishing `wallets` and `version`.
     fn bootstrap_tx(
         &self, wallets: &via_btc_ingestion::WalletSet, version: via_btc_ingestion::ProtocolVersionTag, prev: OutPoint,
@@ -325,6 +328,11 @@ macro_rules! ingestion_conformance_suite {
             $crate::__conformance_case!($harness_fn, deposit_reorg_safety_frontier);
             $crate::__conformance_case!($harness_fn, pruned_restart_has_zero_historical_fallback);
             $crate::__conformance_case!($harness_fn, three_adapter_semantic_equivalence);
+            $crate::__conformance_case!($harness_fn, bootstrap_exactly_once);
+            $crate::__conformance_case!($harness_fn, attestation_chain_commits_batch_identity);
+            $crate::__conformance_case!($harness_fn, rotation_lifecycle_and_conflicts);
+            $crate::__conformance_case!($harness_fn, upgrade_activation_is_monotonic);
+            $crate::__conformance_case!($harness_fn, withdrawal_requires_bridge_input);
         }
     };
 }
@@ -568,6 +576,49 @@ pub async fn apply_ok<H: TestHarness>(harness: &H, adapter: &H::Adapter, envelop
         .unwrap_or_else(|e| panic!("apply_block failed at height {}: {e}", envelope.anchor.height));
     receipt.validate(&plan).unwrap_or_else(|e| panic!("invalid projection receipt: {e}"));
     assert_eq!(receipt.plan_hash, plan_hash(&plan));
+    plan
+}
+
+/// Context before any bootstrap: empty wallet scripts match nothing.
+pub fn unbootstrapped_context() -> ProtocolContext {
+    ProtocolContext {
+        version: 1,
+        wallets: via_btc_ingestion::WalletSet {
+            sequencer: bitcoin::ScriptBuf::new(),
+            bridge: bitcoin::ScriptBuf::new(),
+            governance: bitcoin::ScriptBuf::new(),
+            verifiers: vec![],
+        },
+        protocol_version: via_btc_ingestion::ProtocolVersionTag { minor: 0, patch: 0 },
+    }
+}
+
+/// Apply one block against an explicit context (used for genesis, where the
+/// adapter has no stored context yet). Panics on any error.
+pub async fn apply_with_context<H: TestHarness>(
+    harness: &H, adapter: &H::Adapter, envelope: &BitcoinBlockEnvelope, context: &ProtocolContext,
+) -> BlockPlan {
+    let (checkpoint, _) = current_state(adapter).await;
+    let plan = plan_block(harness, adapter, envelope, context).await;
+    let receipt = adapter
+        .apply_block(checkpoint, &plan)
+        .await
+        .unwrap_or_else(|e| panic!("apply_block failed at height {}: {e}", envelope.anchor.height));
+    receipt.validate(&plan).unwrap_or_else(|e| panic!("invalid projection receipt: {e}"));
+    plan
+}
+
+/// Bootstrap a fresh chain with the builder's wallet set at START_HEIGHT.
+pub async fn apply_genesis<H: TestHarness>(harness: &H, adapter: &H::Adapter) -> BlockPlan {
+    let builder = harness.message_builder();
+    let tx = builder.bootstrap_tx(
+        &builder.wallet_set(),
+        via_btc_ingestion::ProtocolVersionTag { minor: 26, patch: 0 },
+        envelopes::seed_outpoint(0xB0),
+    );
+    let env = envelopes::envelope(envelopes::anchor(START_HEIGHT, T0), vec![tx]);
+    let plan = apply_with_context(harness, adapter, &env, &unbootstrapped_context()).await;
+    assert!(plan.next_context.wallets.is_bootstrapped(), "genesis bootstrap must establish the wallet set");
     plan
 }
 
@@ -1502,6 +1553,218 @@ pub async fn pruned_restart_has_zero_historical_fallback<H: TestHarness>(harness
         Ok(_) => panic!("lost local data must not finalize"),
     }
     assert_eq!(harness.historical_rpc_count().await, 0, "missing local data must never trigger an RPC fallback");
+}
+
+/// The genesis message initializes wallets and version exactly once: a
+/// second bootstrap is rejected durably and changes nothing.
+pub async fn bootstrap_exactly_once<H: TestHarness>(harness: &H) {
+    let adapter = harness.fresh_adapter(Role::CoreSequencer).await;
+    let builder = harness.message_builder();
+    apply_genesis(harness, &adapter).await;
+
+    let probe = harness.probe(&adapter).await;
+    let ctx = probe.protocol_context().await.expect("context after genesis");
+    assert_eq!(ctx.wallets, builder.wallet_set());
+    assert!(probe
+        .applied_protocol_versions()
+        .await
+        .contains(&via_btc_ingestion::ProtocolVersionTag { minor: 26, patch: 0 }));
+
+    let again = builder.bootstrap_tx(
+        &builder.wallet_set(),
+        via_btc_ingestion::ProtocolVersionTag { minor: 30, patch: 0 },
+        envelopes::seed_outpoint(0xB1),
+    );
+    let plan =
+        apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 1, T0 + 600), vec![again]))
+            .await;
+    assert!(plan.events.is_empty(), "second bootstrap must not become an event");
+    let probe = harness.probe(&adapter).await;
+    assert!(
+        probe.rejections().await.iter().any(|r| r.code == RejectionCode::InvalidBootstrap),
+        "second bootstrap must leave a durable rejection"
+    );
+    assert_eq!(probe.protocol_context().await.unwrap().wallets, builder.wallet_set(), "wallets unchanged");
+}
+
+/// The attestation chain: a batch reference, a proof referencing it, then a
+/// vote referencing the proof. The committed vote carries the resolved
+/// batch identity, and a non-verifier vote is rejected.
+pub async fn attestation_chain_commits_batch_identity<H: TestHarness>(harness: &H) {
+    let adapter = harness.fresh_adapter(Role::Verifier).await;
+    let builder = harness.message_builder();
+    apply_genesis(harness, &adapter).await;
+
+    let batch = builder.batch_da_reference_tx(7, [3; 32], "blob-batch", envelopes::seed_outpoint(2));
+    let batch_txid = batch.compute_txid();
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 1, T0 + 600), vec![batch])).await;
+
+    let proof = builder.proof_da_reference_tx(batch_txid, "blob-proof", envelopes::seed_outpoint(3));
+    let proof_txid = proof.compute_txid();
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 2, T0 + 1200), vec![proof]))
+        .await;
+
+    let vote = builder.attestation_tx(proof_txid, true, 0, envelopes::seed_outpoint(4));
+    let bad_vote = builder.unauthorized_attestation_tx(proof_txid, envelopes::seed_outpoint(5));
+    let anchor_v = envelopes::anchor(START_HEIGHT + 3, T0 + 1800);
+    let plan = apply_ok(harness, &adapter, &envelopes::envelope(anchor_v, vec![vote, bad_vote])).await;
+
+    let attn: Vec<_> = plan
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            via_btc_ingestion::ProtocolEvent::ValidatorAttestation(a) => Some(a),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(attn.len(), 1, "only the verifier-signed vote becomes an event");
+    assert_eq!(attn[0].batch.l1_batch_index, 7, "vote must carry the resolved batch identity");
+    assert_eq!(attn[0].batch.reveal_txid, batch_txid);
+
+    let probe = harness.probe(&adapter).await;
+    assert!(probe.batch_references().await.iter().any(|b| b.l1_batch_index == 7 && b.l1_batch_hash == [3; 32]));
+    assert!(probe.proof_references().await.iter().any(|p| p.subject_txid == proof_txid && p.l1_batch_index == 7));
+    let votes = probe.attestation_votes().await;
+    assert_eq!(
+        votes,
+        vec![VoteFact {
+            l1_batch_index: 7,
+            attester_script: builder.wallet_set().verifiers[0].clone(),
+            ok: true,
+            block_hash: anchor_v.hash,
+        }]
+    );
+    assert!(probe.rejections().await.iter().any(|r| r.code == RejectionCode::Unauthorized));
+}
+
+/// Wallet rotation lifecycle: a governance-authorized rotation applies, a
+/// second same-role rotation in the same block is rejected, and an
+/// unauthorized rotation changes nothing.
+pub async fn rotation_lifecycle_and_conflicts<H: TestHarness>(harness: &H) {
+    let adapter = harness.fresh_adapter(Role::CoreSequencer).await;
+    let builder = harness.message_builder();
+    apply_genesis(harness, &adapter).await;
+    let wallets = builder.wallet_set();
+
+    // Fund two governance outputs so two rotations can each spend one.
+    let g1 =
+        envelopes::payment_tx(envelopes::seed_outpoint(0x21), Amount::from_sat(10_000), wallets.governance.clone());
+    let g2 =
+        envelopes::payment_tx(envelopes::seed_outpoint(0x22), Amount::from_sat(10_000), wallets.governance.clone());
+    let gov1 = OutPoint { txid: g1.compute_txid(), vout: 0 };
+    let gov2 = OutPoint { txid: g2.compute_txid(), vout: 0 };
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 1, T0 + 600), vec![g1, g2]))
+        .await;
+
+    let new_a = bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::from_byte_array([0x77; 20]));
+    let new_b = bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::from_byte_array([0x78; 20]));
+    let r1 = builder.sequencer_rotation_tx(&new_a, gov1);
+    let r2 = builder.sequencer_rotation_tx(&new_b, gov2);
+    let plan =
+        apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 2, T0 + 1200), vec![r1, r2]))
+            .await;
+    assert_eq!(
+        plan.events.iter().filter(|e| matches!(e, via_btc_ingestion::ProtocolEvent::WalletRotation(_))).count(),
+        1,
+        "exactly one rotation per role per block"
+    );
+    let probe = harness.probe(&adapter).await;
+    assert_eq!(probe.protocol_context().await.unwrap().wallets.sequencer, new_a);
+    assert!(probe.rejections().await.iter().any(|r| r.code == RejectionCode::ConflictingRoleUpdate));
+
+    // Unauthorized: spends a plain (untracked) outpoint.
+    let r3 = builder.sequencer_rotation_tx(&new_b, envelopes::seed_outpoint(0x24));
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 3, T0 + 1800), vec![r3])).await;
+    let probe = harness.probe(&adapter).await;
+    assert_eq!(probe.protocol_context().await.unwrap().wallets.sequencer, new_a, "unauthorized rotation is inert");
+    assert!(probe.rejections().await.iter().any(|r| r.code == RejectionCode::Unauthorized));
+}
+
+/// Upgrades: a governance-activated proposal advances the protocol version;
+/// activating a lower version is rejected as non-monotonic.
+pub async fn upgrade_activation_is_monotonic<H: TestHarness>(harness: &H) {
+    let adapter = harness.fresh_adapter(Role::CoreSequencer).await;
+    let builder = harness.message_builder();
+    apply_genesis(harness, &adapter).await;
+    let wallets = builder.wallet_set();
+
+    let g1 =
+        envelopes::payment_tx(envelopes::seed_outpoint(0x31), Amount::from_sat(10_000), wallets.governance.clone());
+    let g2 =
+        envelopes::payment_tx(envelopes::seed_outpoint(0x32), Amount::from_sat(10_000), wallets.governance.clone());
+    let gov1 = OutPoint { txid: g1.compute_txid(), vout: 0 };
+    let gov2 = OutPoint { txid: g2.compute_txid(), vout: 0 };
+    let up = builder.upgrade_proposal_tx(
+        via_btc_ingestion::ProtocolVersionTag { minor: 27, patch: 0 },
+        envelopes::seed_outpoint(0x33),
+    );
+    let up_txid = up.compute_txid();
+    let down = builder.upgrade_proposal_tx(
+        via_btc_ingestion::ProtocolVersionTag { minor: 25, patch: 0 },
+        envelopes::seed_outpoint(0x34),
+    );
+    let down_txid = down.compute_txid();
+    apply_ok(
+        harness,
+        &adapter,
+        &envelopes::envelope(envelopes::anchor(START_HEIGHT + 1, T0 + 600), vec![g1, g2, up, down]),
+    )
+    .await;
+
+    let act = builder.upgrade_activation_tx(up_txid, gov1);
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 2, T0 + 1200), vec![act])).await;
+    let probe = harness.probe(&adapter).await;
+    assert_eq!(
+        probe.protocol_context().await.unwrap().protocol_version,
+        via_btc_ingestion::ProtocolVersionTag { minor: 27, patch: 0 }
+    );
+    assert!(probe
+        .applied_protocol_versions()
+        .await
+        .contains(&via_btc_ingestion::ProtocolVersionTag { minor: 27, patch: 0 }));
+
+    let act_down = builder.upgrade_activation_tx(down_txid, gov2);
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 3, T0 + 1800), vec![act_down]))
+        .await;
+    let probe = harness.probe(&adapter).await;
+    assert!(probe.rejections().await.iter().any(|r| r.code == RejectionCode::NonMonotonicUpgrade));
+    assert_eq!(
+        probe.protocol_context().await.unwrap().protocol_version,
+        via_btc_ingestion::ProtocolVersionTag { minor: 27, patch: 0 },
+        "rejected activation must not change the version"
+    );
+}
+
+/// Withdrawals are authorized by spending a bridge-tracked output; anything
+/// else is rejected and projects nothing.
+pub async fn withdrawal_requires_bridge_input<H: TestHarness>(harness: &H) {
+    let adapter = harness.fresh_adapter(Role::Verifier).await;
+    let builder = harness.message_builder();
+    apply_genesis(harness, &adapter).await;
+    let wallets = builder.wallet_set();
+
+    let funding =
+        envelopes::payment_tx(envelopes::seed_outpoint(0x41), Amount::from_sat(100_000), wallets.bridge.clone());
+    let bridge_prev = OutPoint { txid: funding.compute_txid(), vout: 0 };
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 1, T0 + 600), vec![funding]))
+        .await;
+
+    let receiver = wallets.governance.clone();
+    let w = builder.withdrawal_tx(&[(receiver.clone(), 40_000, [9u8; 8])], bridge_prev);
+    let w_txid = w.compute_txid();
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 2, T0 + 1200), vec![w])).await;
+    let probe = harness.probe(&adapter).await;
+    let facts = probe.bridge_withdrawals().await;
+    assert_eq!(
+        facts,
+        vec![WithdrawalFact { subject_txid: w_txid, l2_id: [9u8; 8], receiver_script: receiver, amount_sat: 40_000 }]
+    );
+
+    let bad = builder.withdrawal_tx(&[(wallets.governance.clone(), 1_000, [8u8; 8])], envelopes::seed_outpoint(0x42));
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 3, T0 + 1800), vec![bad])).await;
+    let probe = harness.probe(&adapter).await;
+    assert!(probe.rejections().await.iter().any(|r| r.code == RejectionCode::Unauthorized));
+    assert_eq!(probe.bridge_withdrawals().await.len(), 1, "unauthorized withdrawal projects nothing");
 }
 
 /// The sequencer, verifier, and indexer given the same block must produce
