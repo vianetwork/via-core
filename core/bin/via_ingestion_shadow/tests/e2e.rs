@@ -687,7 +687,7 @@ async fn shadow_lifecycle(client: Arc<BitcoinClient>, scenario: &Scenario) -> Re
         .collect::<Result<Vec<_>>>()?;
     let deltas = records.iter().filter(|record| record.get("side").is_some()).cloned().collect::<Vec<_>>();
     ensure!(
-        deltas.len() as u64 == summary.kernel_only + summary.legacy_only,
+        deltas.len() as u64 == summary.kernel_only + summary.legacy_only + summary.context_differences,
         "shadow summary delta count does not match its JSONL records"
     );
     Ok((serde_json::to_value(summary)?, deltas, jsonl))
