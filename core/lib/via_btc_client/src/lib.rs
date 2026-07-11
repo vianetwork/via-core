@@ -5,6 +5,7 @@ pub mod bootstrap;
 pub mod client;
 pub mod indexer;
 pub mod ingestion_engine;
+pub mod ingestion_engine_v2;
 #[cfg(test)]
 mod ingestion_properties;
 pub mod inscriber;
