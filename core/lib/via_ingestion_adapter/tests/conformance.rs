@@ -523,13 +523,17 @@ impl StateProbe for PgProbe {
     }
 
     async fn attestation_votes(&self) -> Vec<VoteFact> {
-        let rows: Vec<(Vec<u8>, Vec<u8>, bool, i64)> =
-            sqlx::query_as("SELECT block_hash, attester_script, ok, l1_batch_index FROM via_ingestion_votes")
-                .fetch_all(&self.pool)
-                .await
-                .expect("votes probe");
+        let rows: Vec<(Vec<u8>, i64, i16, i64, Vec<u8>, bool, i64)> = sqlx::query_as(
+            "SELECT block_hash, ordinal_tx_index, ordinal_location_tag, ordinal_location_index, \
+             attester_script, ok, l1_batch_index FROM via_ingestion_votes \
+             ORDER BY ordinal_tx_index, ordinal_location_tag, ordinal_location_index",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .expect("votes probe");
         rows.into_iter()
-            .map(|(block, attester, ok, index)| VoteFact {
+            .map(|(block, tx_index, tag, location_index, attester, ok, index)| VoteFact {
+                ordinal: ordinal_from(tx_index, tag, location_index),
                 l1_batch_index: index as u64,
                 attester_script: ScriptBuf::from_bytes(attester),
                 ok,

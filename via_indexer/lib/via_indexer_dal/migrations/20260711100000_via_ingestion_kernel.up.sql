@@ -96,47 +96,66 @@ CREATE INDEX via_ingestion_deposits_block ON via_ingestion_deposits (block_hash)
 CREATE TABLE via_ingestion_batch_refs (
     block_hash BYTEA NOT NULL,
     subject_txid BYTEA NOT NULL,
+    ordinal_tx_index BIGINT NOT NULL,
+    ordinal_location_tag SMALLINT NOT NULL,
+    ordinal_location_index BIGINT NOT NULL,
     l1_batch_index BIGINT NOT NULL,
     l1_batch_hash BYTEA NOT NULL,
     prev_l1_batch_hash BYTEA NOT NULL,
     da_identifier TEXT NOT NULL,
     blob_id TEXT NOT NULL,
-    PRIMARY KEY (subject_txid, block_hash)
+    PRIMARY KEY (subject_txid, ordinal_tx_index, ordinal_location_tag, ordinal_location_index, block_hash)
 );
 CREATE INDEX via_ingestion_batch_refs_block ON via_ingestion_batch_refs (block_hash);
 
 CREATE TABLE via_ingestion_proof_refs (
     block_hash BYTEA NOT NULL,
     subject_txid BYTEA NOT NULL,
+    ordinal_tx_index BIGINT NOT NULL,
+    ordinal_location_tag SMALLINT NOT NULL,
+    ordinal_location_index BIGINT NOT NULL,
     da_identifier TEXT NOT NULL,
     blob_id TEXT NOT NULL,
     batch_reveal_txid BYTEA NOT NULL,
     l1_batch_index BIGINT NOT NULL,
     l1_batch_hash BYTEA NOT NULL,
-    PRIMARY KEY (subject_txid, block_hash)
+    PRIMARY KEY (subject_txid, ordinal_tx_index, ordinal_location_tag, ordinal_location_index, block_hash)
 );
 CREATE INDEX via_ingestion_proof_refs_block ON via_ingestion_proof_refs (block_hash);
 
 CREATE TABLE via_ingestion_votes (
     block_hash BYTEA NOT NULL,
     subject_txid BYTEA NOT NULL,
+    ordinal_tx_index BIGINT NOT NULL,
+    ordinal_location_tag SMALLINT NOT NULL,
+    ordinal_location_index BIGINT NOT NULL,
     reference_txid BYTEA NOT NULL,
     attester_script BYTEA NOT NULL,
     ok BOOLEAN NOT NULL,
     l1_batch_index BIGINT NOT NULL,
-    PRIMARY KEY (subject_txid, block_hash)
+    PRIMARY KEY (subject_txid, ordinal_tx_index, ordinal_location_tag, ordinal_location_index, block_hash)
 );
 CREATE INDEX via_ingestion_votes_block ON via_ingestion_votes (block_hash);
 
 CREATE TABLE via_ingestion_withdrawals (
     block_hash BYTEA NOT NULL,
     subject_txid BYTEA NOT NULL,
+    ordinal_tx_index BIGINT NOT NULL,
+    ordinal_location_tag SMALLINT NOT NULL,
+    ordinal_location_index BIGINT NOT NULL,
     withdrawal_index BIGINT NOT NULL,
     l2_id BYTEA NOT NULL,
     l2_tx_event_index INT NOT NULL,
     receiver_script BYTEA NOT NULL,
     amount_sat BIGINT NOT NULL,
-    PRIMARY KEY (subject_txid, withdrawal_index, block_hash)
+    PRIMARY KEY (
+        subject_txid,
+        ordinal_tx_index,
+        ordinal_location_tag,
+        ordinal_location_index,
+        withdrawal_index,
+        block_hash
+    )
 );
 CREATE INDEX via_ingestion_withdrawals_block ON via_ingestion_withdrawals (block_hash);
 

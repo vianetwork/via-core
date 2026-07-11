@@ -364,6 +364,33 @@ impl TestMessageEncoder {
         self.signed_attestation_tx(reference_txid, ok, VERIFIER_SEED, prev)
     }
 
+    pub fn attestations_tx(
+        &self,
+        reference_txid: Txid,
+        attestations: &[(bool, usize, OutPoint)],
+    ) -> Transaction {
+        assert!(
+            !attestations.is_empty(),
+            "at least one attestation is required"
+        );
+        let mut inputs = Vec::with_capacity(attestations.len() * 2);
+        for (position, (ok, attester_index, prev)) in attestations.iter().enumerate() {
+            assert_eq!(*attester_index, 0, "the seeded wallet set has one verifier");
+            let message = InscriptionMessage::ValidatorAttestation(ValidatorAttestationInput {
+                reference_txid,
+                attestation: if *ok { Vote::Ok } else { Vote::NotOk },
+            });
+            let offset = u8::try_from(position).expect("test attestation count fits in u8") * 2;
+            let inscription_seed = ATTESTATION_INSCRIPTION_SEED.wrapping_add(offset);
+            inputs.push(external_input(*prev, p2wpkh(VERIFIER_SEED, self.network).1));
+            inputs.push(external_input(
+                seeded_outpoint(inscription_seed.wrapping_add(1)),
+                inscription_witness(&message, inscription_seed, self.network),
+            ));
+        }
+        transaction(inputs, vec![])
+    }
+
     pub fn unauthorized_attestation_tx(&self, reference_txid: Txid, prev: OutPoint) -> Transaction {
         self.signed_attestation_tx(reference_txid, true, UNAUTHORIZED_SEED, prev)
     }
@@ -389,7 +416,16 @@ impl TestMessageEncoder {
         )
     }
 
-    pub fn upgrade_proposal_tx(&self, version: ProtocolVersionTag, prev: OutPoint) -> Transaction {
+    pub fn upgrade_proposal_tx(
+        &self,
+        version: ProtocolVersionTag,
+        system_contracts: Vec<([u8; 20], [u8; 32])>,
+        prev: OutPoint,
+    ) -> Transaction {
+        assert!(
+            !system_contracts.is_empty(),
+            "at least one system contract is required"
+        );
         let minor = ProtocolVersionId::try_from(u16::try_from(version.minor).unwrap()).unwrap();
         let message =
             InscriptionMessage::SystemContractUpgradeProposal(SystemContractUpgradeProposalInput {
@@ -398,7 +434,10 @@ impl TestMessageEncoder {
                 default_account_code_hash: H256::from([6; 32]),
                 evm_emulator_code_hash: None,
                 recursion_scheduler_level_vk_hash: H256::from([7; 32]),
-                system_contracts: Vec::<(EvmAddress, H256)>::new(),
+                system_contracts: system_contracts
+                    .into_iter()
+                    .map(|(address, hash)| (EvmAddress::from(address), H256::from(hash)))
+                    .collect(),
             });
         inscribed_tx(
             prev,
@@ -494,12 +533,25 @@ impl via_btc_ingestion_tests::MessageTxBuilder for TestMessageEncoder {
         TestMessageEncoder::attestation_tx(self, reference_txid, ok, attester_index, prev)
     }
 
+    fn attestations_tx(
+        &self,
+        reference_txid: Txid,
+        attestations: &[(bool, usize, OutPoint)],
+    ) -> Transaction {
+        TestMessageEncoder::attestations_tx(self, reference_txid, attestations)
+    }
+
     fn unauthorized_attestation_tx(&self, reference_txid: Txid, prev: OutPoint) -> Transaction {
         TestMessageEncoder::unauthorized_attestation_tx(self, reference_txid, prev)
     }
 
-    fn upgrade_proposal_tx(&self, version: ProtocolVersionTag, prev: OutPoint) -> Transaction {
-        TestMessageEncoder::upgrade_proposal_tx(self, version, prev)
+    fn upgrade_proposal_tx(
+        &self,
+        version: ProtocolVersionTag,
+        system_contracts: Vec<([u8; 20], [u8; 32])>,
+        prev: OutPoint,
+    ) -> Transaction {
+        TestMessageEncoder::upgrade_proposal_tx(self, version, system_contracts, prev)
     }
 
     fn upgrade_activation_tx(&self, proposal_txid: Txid, gov_prev: OutPoint) -> Transaction {
@@ -521,7 +573,13 @@ impl via_btc_ingestion_tests::MessageTxBuilder for TestMessageEncoder {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{hashes::Hash, Txid};
+    use std::collections::BTreeMap;
+
+    use bitcoin::{hashes::Hash, BlockHash, Txid};
+    use via_btc_ingestion::{
+        BitcoinBlockEnvelope, BlockAnchor, DependencyKey, FinalizeOutcome, ProtocolContext,
+        ProtocolEngine, ProtocolEvent, Resolution, ResolvedDependency,
+    };
     use zksync_types::via_wallet::SystemWallets;
 
     use super::*;
@@ -609,6 +667,7 @@ mod tests {
                 minor: 27,
                 patch: 0,
             },
+            vec![([0x31; 20], [0x41; 32])],
             prev(6),
         );
         assert_eq!(proposal.input[0].previous_output, prev(6));
@@ -637,6 +696,148 @@ mod tests {
     }
 
     #[test]
+    fn upgrade_proposal_preserves_system_contract_order_through_the_engine() {
+        let encoder = TestMessageEncoder::new(Network::Regtest);
+        let version = ProtocolVersionTag {
+            minor: 27,
+            patch: 0,
+        };
+        let system_contracts = vec![
+            ([0x11; 20], [0xa1; 32]),
+            ([0x22; 20], [0xb2; 32]),
+            ([0x33; 20], [0xc3; 32]),
+        ];
+        let tx = encoder.upgrade_proposal_tx(version, system_contracts.clone(), prev(11));
+
+        let parsed = messages(&tx, &encoder);
+        let [FullInscriptionMessage::SystemContractUpgradeProposal(message)] = &parsed[..] else {
+            panic!("expected one upgrade proposal, got {parsed:?}")
+        };
+        let parsed_contracts: Vec<_> = message
+            .input
+            .system_contracts
+            .iter()
+            .map(|(address, hash)| (address.0, hash.0))
+            .collect();
+        assert_eq!(
+            parsed_contracts, system_contracts,
+            "parser must preserve inscription order"
+        );
+
+        let context = ProtocolContext {
+            version: 1,
+            wallets: encoder.wallet_set(),
+            protocol_version: ProtocolVersionTag {
+                minor: 26,
+                patch: 0,
+            },
+        };
+        let envelope = BitcoinBlockEnvelope {
+            network: Network::Regtest,
+            anchor: BlockAnchor {
+                height: 100,
+                hash: BlockHash::from_byte_array([0x64; 32]),
+                prev_hash: BlockHash::from_byte_array([0x63; 32]),
+                time: 1_700_000_000,
+            },
+            transactions: vec![tx],
+        };
+        let engine = crate::ingestion_engine::ViaProtocolEngine::new(Network::Regtest);
+        let (draft, keys) = engine.inspect(&envelope, &context);
+        let dependencies: BTreeMap<_, _> = keys
+            .into_iter()
+            .map(|key| {
+                let value = match &key {
+                    DependencyKey::RawTx(_) => ResolvedDependency::RawTx(Resolution::KnownAbsent),
+                    DependencyKey::TrackedOutput(_) => {
+                        ResolvedDependency::TrackedOutput(Resolution::KnownAbsent)
+                    }
+                };
+                (key, value)
+            })
+            .collect();
+        let FinalizeOutcome::Complete(plan) = engine.finalize(draft, &dependencies).unwrap() else {
+            panic!("proposal block unexpectedly requested more dependencies")
+        };
+        let event = plan.events.iter().find_map(|event| match event {
+            ProtocolEvent::SystemContractUpgradeProposal(event) => Some(event),
+            _ => None,
+        });
+        assert_eq!(
+            event
+                .expect("upgrade proposal event")
+                .proposal
+                .system_contracts,
+            system_contracts,
+            "engine event must preserve system-contract identity order"
+        );
+
+        let minor = ProtocolVersionId::try_from(u16::try_from(version.minor).unwrap()).unwrap();
+        let malformed_message =
+            InscriptionMessage::SystemContractUpgradeProposal(SystemContractUpgradeProposalInput {
+                version: ProtocolSemanticVersion::new(minor, VersionPatch(version.patch)),
+                bootloader_code_hash: H256::from([5; 32]),
+                default_account_code_hash: H256::from([6; 32]),
+                evm_emulator_code_hash: None,
+                recursion_scheduler_level_vk_hash: H256::from([7; 32]),
+                system_contracts: system_contracts
+                    .into_iter()
+                    .map(|(address, hash)| (EvmAddress::from(address), H256::from(hash)))
+                    .collect(),
+            });
+        let internal_key = keypair(UPGRADE_INSCRIPTION_SEED).x_only_public_key().0;
+        let valid_script =
+            inscription_script(&malformed_message, internal_key, Network::Regtest).into_bytes();
+        let outcomes_for_script = |script, outpoint_tag| {
+            let malformed_tx = transaction(
+                vec![
+                    external_input(
+                        prev(outpoint_tag),
+                        p2wpkh(SEQUENCER_SEED, Network::Regtest).1,
+                    ),
+                    external_input(
+                        seeded_outpoint(UPGRADE_INSCRIPTION_SEED.wrapping_add(1)),
+                        inscription_witness_for_script(ScriptBuf::from_bytes(script), internal_key),
+                    ),
+                ],
+                vec![],
+            );
+            PositionedMessageParser::new(Network::Regtest).parse_transaction(
+                &malformed_tx,
+                0,
+                100,
+                Some(&parser_wallets(&encoder)),
+            )
+        };
+
+        let mut malformed_script = valid_script.clone();
+        assert_eq!(malformed_script.pop(), Some(OP_ENDIF.to_u8()));
+        malformed_script.extend_from_slice(&[1, 0xdd, OP_ENDIF.to_u8()]);
+        let outcomes = outcomes_for_script(malformed_script, 12);
+        assert!(
+            outcomes.iter().any(|outcome| matches!(
+                outcome,
+                PositionedParseOutcome::Malformed(malformed)
+                    if malformed.location == via_btc_ingestion::MessageLocation::Input(1)
+            )),
+            "odd system-contract instruction counts are malformed"
+        );
+
+        let mut malformed_script = valid_script;
+        assert_eq!(malformed_script.pop(), Some(OP_ENDIF.to_u8()));
+        malformed_script.push(OP_CHECKSIG.to_u8());
+        let outcomes = outcomes_for_script(malformed_script, 13);
+        assert!(
+            outcomes.iter().any(|outcome| matches!(
+                outcome,
+                PositionedParseOutcome::Malformed(malformed)
+                    if malformed.location == via_btc_ingestion::MessageLocation::Input(1)
+            )),
+            "upgrade proposal must end with the inscription sentinel"
+        );
+    }
+
+    #[test]
     fn withdrawal_round_trips_outputs_and_metadata() {
         let encoder = TestMessageEncoder::new(Network::Regtest);
         let receiver_a = p2wpkh(81, Network::Regtest).0;
@@ -659,7 +860,9 @@ mod tests {
             .zip(withdrawals.iter())
             .enumerate()
         {
-            assert_eq!(actual.l2_meta.l2_id, hex::encode(l2_id));
+            let mut composite_id = l2_id.to_vec();
+            composite_id.extend_from_slice(&(index as u16).to_be_bytes());
+            assert_eq!(actual.l2_meta.l2_id, hex::encode(composite_id));
             assert_eq!(actual.l2_meta.l2_tx_event_index, index as u16);
             assert_eq!(actual.receiver.script_pubkey(), *receiver_script);
             assert_eq!(actual.value, Amount::from_sat(*amount));

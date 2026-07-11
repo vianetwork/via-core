@@ -705,10 +705,23 @@ impl MessageParser {
             parse_h256(instructions.get(5)?.push_bytes()?.as_bytes())?;
         debug!("Parsed recursion scheduler level vk hash");
 
-        let len = instructions.len().checked_sub(7)?;
-        let mut system_contracts = Vec::with_capacity(len / 2);
+        if !matches!(
+            instructions.last(),
+            Some(Instruction::Op(opcode)) if *opcode == bitcoin::opcodes::all::OP_ENDIF
+        ) {
+            return None;
+        }
 
-        for i in (6..len).step_by(2) {
+        // The final instruction closes the inscription envelope; only the
+        // instructions between the fixed fields and that sentinel are pairs.
+        let contract_end = instructions.len().checked_sub(1)?;
+        let contract_count = contract_end.checked_sub(6)?;
+        if contract_count % 2 != 0 {
+            return None;
+        }
+        let mut system_contracts = Vec::with_capacity(contract_count / 2);
+
+        for i in (6..contract_end).step_by(2) {
             let address = parse_evm_address(instructions.get(i)?.push_bytes()?.as_bytes())?;
             let hash = parse_h256(instructions.get(i + 1)?.push_bytes()?.as_bytes())?;
             system_contracts.push((address, hash))

@@ -143,6 +143,7 @@ pub struct RejectionRecord {
 /// One recorded attestation vote, normalized across schema families.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VoteFact {
+    pub ordinal: via_btc_ingestion::EventOrdinal,
     pub l1_batch_index: u64,
     pub attester_script: bitcoin::ScriptBuf,
     pub ok: bool,
@@ -219,11 +220,15 @@ pub trait MessageTxBuilder: Send + Sync {
     fn attestation_tx(
         &self, reference_txid: Txid, ok: bool, attester_index: usize, prev: OutPoint,
     ) -> bitcoin::Transaction;
+    /// Several verifier attestations carried by one transaction. Each tuple
+    /// supplies the vote, verifier index, and preceding signer input.
+    fn attestations_tx(&self, reference_txid: Txid, attestations: &[(bool, usize, OutPoint)]) -> bitcoin::Transaction;
     /// Attestation signed by a wallet outside the verifier set.
     fn unauthorized_attestation_tx(&self, reference_txid: Txid, prev: OutPoint) -> bitcoin::Transaction;
     /// Upgrade proposal for `version`.
     fn upgrade_proposal_tx(
-        &self, version: via_btc_ingestion::ProtocolVersionTag, prev: OutPoint,
+        &self, version: via_btc_ingestion::ProtocolVersionTag, system_contracts: Vec<([u8; 20], Hash32)>,
+        prev: OutPoint,
     ) -> bitcoin::Transaction;
     /// Governance activation of `proposal_txid`; `gov_prev` must spend a
     /// governance-tracked output for the activation to be authorized.
@@ -288,11 +293,11 @@ pub trait TestHarness: Send + Sync {
     /// `AggregateAdapter::downstream_consumed` reads.
     async fn mark_downstream_consumed(&self, adapter: &Self::Adapter, effect: EffectId);
 
-    /// Run the implementation's PRODUCTION reorg coordinator end to end
-    /// against a replacement branch (anchors from the divergence point
-    /// upward, lowest first) and return its classification. The coordinator
-    /// acts per the contract: `ProjectionOnly` reverts, `DownstreamConsumed`
-    /// records a hard-reorg halt via the adapter, others leave state
+    /// Run the harness's test coordinator end to end against a replacement
+    /// branch (anchors from the divergence point upward, lowest first) and
+    /// return its classification. It applies the production coordinator
+    /// contract: `ProjectionOnly` reverts, `DownstreamConsumed` records a
+    /// hard-reorg halt via the adapter, and other outcomes leave state
     /// untouched.
     async fn run_reorg_coordinator(&self, adapter: &Self::Adapter, replacement_branch: &[BlockAnchor]) -> ReorgImpact;
 }
@@ -331,6 +336,7 @@ macro_rules! ingestion_conformance_suite {
             $crate::__conformance_case!($harness_fn, three_adapter_semantic_equivalence);
             $crate::__conformance_case!($harness_fn, bootstrap_exactly_once);
             $crate::__conformance_case!($harness_fn, attestation_chain_commits_batch_identity);
+            $crate::__conformance_case!($harness_fn, multiple_attestations_in_one_transaction_preserve_occurrences);
             $crate::__conformance_case!($harness_fn, rotation_lifecycle_and_conflicts);
             $crate::__conformance_case!($harness_fn, upgrade_activation_is_monotonic);
             $crate::__conformance_case!($harness_fn, withdrawal_requires_bridge_input);
@@ -1672,6 +1678,7 @@ pub async fn attestation_chain_commits_batch_identity<H: TestHarness>(harness: &
     assert_eq!(
         votes,
         vec![VoteFact {
+            ordinal: via_btc_ingestion::EventOrdinal { tx_index: 0, location: MessageLocation::Input(1) },
             l1_batch_index: 7,
             attester_script: builder.wallet_set().verifiers[0].clone(),
             ok: true,
@@ -1679,6 +1686,69 @@ pub async fn attestation_chain_commits_batch_identity<H: TestHarness>(harness: &
         }]
     );
     assert!(probe.rejections().await.iter().any(|r| r.code == RejectionCode::Unauthorized));
+}
+
+/// Two attestations in one Bitcoin transaction remain distinct occurrences
+/// through planning, projection, and durable read-back.
+pub async fn multiple_attestations_in_one_transaction_preserve_occurrences<H: TestHarness>(harness: &H) {
+    let adapter = harness.fresh_adapter(Role::Verifier).await;
+    let builder = harness.message_builder();
+    apply_genesis(harness, &adapter).await;
+
+    let batch = builder.batch_da_reference_tx(8, [4; 32], "blob-batch-2", envelopes::seed_outpoint(0x51));
+    let batch_txid = batch.compute_txid();
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 1, T0 + 600), vec![batch])).await;
+
+    let proof = builder.proof_da_reference_tx(batch_txid, "blob-proof-2", envelopes::seed_outpoint(0x52));
+    let proof_txid = proof.compute_txid();
+    apply_ok(harness, &adapter, &envelopes::envelope(envelopes::anchor(START_HEIGHT + 2, T0 + 1200), vec![proof]))
+        .await;
+
+    let votes_tx = builder.attestations_tx(
+        proof_txid,
+        &[(true, 0, envelopes::seed_outpoint(0x53)), (false, 0, envelopes::seed_outpoint(0x54))],
+    );
+    let anchor = envelopes::anchor(START_HEIGHT + 3, T0 + 1800);
+    let plan = apply_ok(harness, &adapter, &envelopes::envelope(anchor, vec![votes_tx])).await;
+
+    let ordinals: Vec<_> = plan
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            via_btc_ingestion::ProtocolEvent::ValidatorAttestation(event) => Some(event.ordinal),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        ordinals,
+        vec![
+            via_btc_ingestion::EventOrdinal { tx_index: 0, location: MessageLocation::Input(1) },
+            via_btc_ingestion::EventOrdinal { tx_index: 0, location: MessageLocation::Input(3) },
+        ],
+        "input locations distinguish same-kind occurrences in one transaction"
+    );
+
+    let votes = harness.probe(&adapter).await.attestation_votes().await;
+    assert_eq!(
+        votes,
+        vec![
+            VoteFact {
+                ordinal: ordinals[0],
+                l1_batch_index: 8,
+                attester_script: builder.wallet_set().verifiers[0].clone(),
+                ok: true,
+                block_hash: anchor.hash,
+            },
+            VoteFact {
+                ordinal: ordinals[1],
+                l1_batch_index: 8,
+                attester_script: builder.wallet_set().verifiers[0].clone(),
+                ok: false,
+                block_hash: anchor.hash,
+            },
+        ],
+        "both ordinal-distinct attestations must persist and read back"
+    );
 }
 
 /// Wallet rotation lifecycle: a governance-authorized rotation applies, a
@@ -1740,11 +1810,13 @@ pub async fn upgrade_activation_is_monotonic<H: TestHarness>(harness: &H) {
     let gov2 = OutPoint { txid: g2.compute_txid(), vout: 0 };
     let up = builder.upgrade_proposal_tx(
         via_btc_ingestion::ProtocolVersionTag { minor: 27, patch: 0 },
+        vec![([0x11; 20], [0x21; 32])],
         envelopes::seed_outpoint(0x33),
     );
     let up_txid = up.compute_txid();
     let down = builder.upgrade_proposal_tx(
         via_btc_ingestion::ProtocolVersionTag { minor: 25, patch: 0 },
+        vec![([0x12; 20], [0x22; 32])],
         envelopes::seed_outpoint(0x34),
     );
     let down_txid = down.compute_txid();

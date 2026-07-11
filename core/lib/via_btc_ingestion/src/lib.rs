@@ -635,9 +635,8 @@ pub enum RejectionCode {
     /// protocol version.
     NonMonotonicUpgrade,
     /// A recognized message whose referenced transaction is authoritatively
-    /// absent or does not contain the required message (bake-off finding:
-    /// applies to proposal activations, proof references, and attestations
-    /// alike). Never used for unavailability, which halts instead.
+    /// absent or does not contain the required message. Applies to every
+    /// reference-bearing event; unavailability halts instead.
     InvalidReference,
 }
 

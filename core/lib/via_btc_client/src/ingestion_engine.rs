@@ -134,7 +134,7 @@ impl ProtocolEngine for ViaProtocolEngine {
             // Conservative discovery: whether an input spends a tracked
             // output is store knowledge, so ask about every external input.
             for (_, outpoint) in &draft.inputs {
-                if !in_envelope.contains(&outpoint.txid) {
+                if !outpoint.is_null() && !in_envelope.contains(&outpoint.txid) {
                     keys.push(DependencyKey::TrackedOutput(*outpoint));
                 }
             }
@@ -251,6 +251,10 @@ impl<'a> Finalizer<'a> {
     }
 
     fn tracked_role_of(&mut self, outpoint: OutPoint) -> Option<Option<TrackedRole>> {
+        // Coinbase's null prevout cannot identify a tracked output.
+        if outpoint.is_null() {
+            return Some(None);
+        }
         // A same-block create resolves in-envelope.
         for tx in &self.draft.txs {
             if tx.txid == outpoint.txid {
@@ -862,10 +866,10 @@ impl<'a> Finalizer<'a> {
                     .map(|wd| {
                         let mut l2_id = [0u8; 8];
                         let bytes = hex::decode(&wd.l2_meta.l2_id).map_err(|e| e.to_string())?;
-                        if bytes.len() != 8 {
-                            return Err(format!("l2_id must be 8 bytes, got {}", bytes.len()));
+                        if bytes.len() != 10 {
+                            return Err(format!("l2_id must be 10 bytes, got {}", bytes.len()));
                         }
-                        l2_id.copy_from_slice(&bytes);
+                        l2_id.copy_from_slice(&bytes[..8]);
                         Ok(WithdrawalOutput {
                             l2_id,
                             l2_tx_event_index: wd.l2_meta.l2_tx_event_index,
@@ -1130,8 +1134,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use bitcoin::{
-        hashes::Hash, Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxOut,
-        Txid,
+        hashes::Hash, Address, Amount, BlockHash, Network, OutPoint, ScriptBuf, Sequence,
+        Transaction, TxIn, TxOut, Txid, Witness,
     };
     use via_btc_ingestion::{
         BlockAnchor, CanonicalObservedTx, DependencyKey, DepositEncoding, DispositionKind,
@@ -1261,6 +1265,28 @@ mod tests {
             script_pubkey: script,
             role,
         }))
+    }
+
+    #[test]
+    fn coinbase_input_is_not_a_tracked_output_dependency() {
+        let coinbase = transaction(
+            vec![TxIn {
+                previous_output: OutPoint::null(),
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            vec![],
+        );
+        let engine = ViaProtocolEngine::new(Network::Regtest);
+        let env = envelope(100, vec![coinbase]);
+        let (_, keys) = engine.inspect(&env, &context());
+        assert!(
+            !keys.contains(&DependencyKey::TrackedOutput(OutPoint::null())),
+            "coinbase's null prevout is not a spendable dependency"
+        );
+        let plan = complete_plan(&engine, &env, &context(), []);
+        assert!(plan.tracked_spends.is_empty());
     }
 
     fn observed(tx: &Transaction, tag: u8) -> CanonicalObservedTx {

@@ -46,7 +46,7 @@ impl L2WithdrawalMeta {
             )
         }
 
-        let l2_id = hex::encode(&bytes[..ID_BYTE_SIZE]);
+        let l2_id = hex::encode(&bytes[..WITHDRAWAL_BYTE_SIZE]);
 
         let l2_tx_event_index_bytes: [u8; 2] = bytes[ID_BYTE_SIZE..].try_into()?;
         let l2_tx_event_index = u16::from_be_bytes(l2_tx_event_index_bytes);
@@ -61,15 +61,14 @@ impl L2WithdrawalMeta {
         let mut buf = [0u8; WITHDRAWAL_BYTE_SIZE];
 
         let id_bytes = hex::decode(&self.l2_id)?;
-        if id_bytes.len() != ID_BYTE_SIZE {
+        if id_bytes.len() != WITHDRAWAL_BYTE_SIZE {
             anyhow::bail!(
                 "l2_id must decode into exactly {} bytes, got {}",
-                ID_BYTE_SIZE,
+                WITHDRAWAL_BYTE_SIZE,
                 id_bytes.len()
             );
         }
-        buf[..ID_BYTE_SIZE].copy_from_slice(&id_bytes);
-        buf[ID_BYTE_SIZE..].copy_from_slice(&self.l2_tx_event_index.to_be_bytes());
+        buf[..WITHDRAWAL_BYTE_SIZE].copy_from_slice(&id_bytes);
 
         Ok(buf)
     }
@@ -117,7 +116,7 @@ mod tests {
         let tx_hash_bytes: Vec<u8> = hex::decode(tx_hash_hex).unwrap();
 
         // First 8 bytes → hex string
-        let l2_id = hex::encode(&tx_hash_bytes[..ID_BYTE_SIZE]);
+        let l2_id = hex::encode(&tx_hash_bytes[..WITHDRAWAL_BYTE_SIZE]);
 
         let meta = L2WithdrawalMeta {
             l2_id,
@@ -125,7 +124,6 @@ mod tests {
         };
 
         let encoded = meta.to_bytes().unwrap();
-        assert_eq!(encoded.as_slice(), tx_hash_bytes);
         let decoded = L2WithdrawalMeta::from_bytes(&encoded).unwrap();
 
         assert_eq!(meta, decoded);

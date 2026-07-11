@@ -1,8 +1,7 @@
 //! Cross-engine byte-identity check: two independent [`ProtocolEngine`]
 //! implementations must produce byte-identical canonical plans for the
-//! same envelope, context, and dependency answers. Until a second engine
-//! is merged, the reference engine is compared against itself, which keeps
-//! the corpus and driver compiled and honest.
+//! same envelope, context, and dependency answers. The reference engine is
+//! also compared against itself to pin determinism across repeated runs.
 
 use std::collections::BTreeMap;
 
@@ -152,6 +151,7 @@ fn corpus() -> Vec<(String, BitcoinBlockEnvelope, ProtocolContext)> {
                             minor: 27,
                             patch: 0,
                         },
+                        vec![([0x31; 20], [0x41; 32])],
                         op(6),
                     ),
                     enc.upgrade_activation_tx(bitcoin::Txid::from_byte_array([8; 32]), op(7)),
@@ -211,8 +211,8 @@ fn reference_engine_agrees_with_itself_over_the_corpus() {
     }
 }
 
-/// The bake-off verdict: the two independently written engines must agree
-/// byte for byte on every corpus case. A divergence is a spec finding.
+/// Independently implemented engines must agree byte for byte on every
+/// corpus case; otherwise at least one violates the canonical contract.
 #[test]
 fn independent_engines_are_byte_identical_over_the_corpus() {
     let reference = ViaProtocolEngine::new(Network::Regtest);

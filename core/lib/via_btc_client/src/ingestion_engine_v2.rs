@@ -1330,10 +1330,17 @@ fn withdrawal_event(
         .withdrawals
         .into_iter()
         .map(|withdrawal| {
-            let l2_id = hex::decode(&withdrawal.l2_meta.l2_id)
-                .map_err(|err| format!("withdrawal L2 id is not hex: {err}"))?
+            let bytes = hex::decode(&withdrawal.l2_meta.l2_id)
+                .map_err(|err| format!("withdrawal L2 id is not hex: {err}"))?;
+            if bytes.len() != 10 {
+                return Err(format!(
+                    "withdrawal L2 id is not 10 bytes: got {}",
+                    bytes.len()
+                ));
+            }
+            let l2_id = bytes[..8]
                 .try_into()
-                .map_err(|_| "withdrawal L2 id is not 8 bytes".to_string())?;
+                .map_err(|_| "withdrawal L2 id has fewer than 8 bytes".to_string())?;
             Ok(WithdrawalOutput {
                 l2_id,
                 l2_tx_event_index: withdrawal.l2_meta.l2_tx_event_index,
@@ -1641,6 +1648,7 @@ mod tests {
                 minor: 27,
                 patch: 0,
             },
+            vec![([0x31; 20], [0x41; 32])],
             seeded_outpoint(8),
         );
         let proposal_variant = RawTxVariant::from_transaction(&proposal);

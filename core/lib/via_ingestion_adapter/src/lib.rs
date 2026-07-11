@@ -571,6 +571,8 @@ impl AggregateAdapter for PgIngestionAdapter {
         Ok(RevertReceipt { reverted_to: ancestor, canonical_revision: nonneg(revision)? + 1 })
     }
 
+    /// Cutover hook for classifying effects consumed by downstream runtime
+    /// state. The conformance harness is the only caller before cutover.
     async fn downstream_consumed(&self, effects: &[EffectId]) -> Result<Vec<EffectId>, InfraError> {
         if self.role == Role::StandaloneIndexer {
             return Ok(vec![]);
@@ -590,6 +592,8 @@ impl AggregateAdapter for PgIngestionAdapter {
         Ok(consumed)
     }
 
+    /// Cutover hook for persisting the coordinator's hard-reorg halt. The
+    /// conformance harness is the only caller before cutover.
     async fn record_hard_reorg_halt(&self, halt: HardReorgHalt) -> Result<(), InfraError> {
         let mut tx = self.pool.begin().await.map_err(infra)?;
         self.take_lock(&mut tx).await?;
@@ -614,6 +618,8 @@ impl AggregateAdapter for PgIngestionAdapter {
         row.map(|(blob,)| serde_json::from_value(blob).map_err(infra)).transpose()
     }
 
+    /// Verifies continuity of committed chain rows only. This is not the
+    /// authoritative pruning-coverage gate; that manifest is future work.
     async fn audit_coverage(&self, from_height: u64, to_height: u64) -> Result<CoverageReport, InfraError> {
         let (count,): (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM via_ingestion_chain WHERE height BETWEEN $1 AND $2")
@@ -678,11 +684,18 @@ async fn project_event(
         ProtocolEvent::L1BatchDAReference(b) => {
             sqlx::query(
                 "INSERT INTO via_ingestion_batch_refs \
-                 (block_hash, subject_txid, l1_batch_index, l1_batch_hash, prev_l1_batch_hash, \
-                  da_identifier, blob_id) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                 (block_hash, subject_txid, ordinal_tx_index, ordinal_location_tag, \
+                  ordinal_location_index, l1_batch_index, l1_batch_hash, prev_l1_batch_hash, \
+                  da_identifier, blob_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
             )
             .bind(block)
             .bind(b.subject_txid.as_byte_array().to_vec())
+            .bind(i64::from(b.ordinal.tx_index))
+            .bind(
+                i16::try_from(b.ordinal.location.wire_tag())
+                    .map_err(|_| infra("location wire tag exceeds SMALLINT range"))?,
+            )
+            .bind(i64::from(b.ordinal.location.index()))
             .bind(to_i64(b.l1_batch_index)?)
             .bind(b.l1_batch_hash.to_vec())
             .bind(b.prev_l1_batch_hash.to_vec())
@@ -695,11 +708,18 @@ async fn project_event(
         ProtocolEvent::ProofDAReference(p) => {
             sqlx::query(
                 "INSERT INTO via_ingestion_proof_refs \
-                 (block_hash, subject_txid, da_identifier, blob_id, batch_reveal_txid, \
-                  l1_batch_index, l1_batch_hash) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                 (block_hash, subject_txid, ordinal_tx_index, ordinal_location_tag, \
+                  ordinal_location_index, da_identifier, blob_id, batch_reveal_txid, \
+                  l1_batch_index, l1_batch_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
             )
             .bind(block)
             .bind(p.subject_txid.as_byte_array().to_vec())
+            .bind(i64::from(p.ordinal.tx_index))
+            .bind(
+                i16::try_from(p.ordinal.location.wire_tag())
+                    .map_err(|_| infra("location wire tag exceeds SMALLINT range"))?,
+            )
+            .bind(i64::from(p.ordinal.location.index()))
             .bind(&p.da_identifier)
             .bind(&p.blob_id)
             .bind(p.batch.reveal_txid.as_byte_array().to_vec())
@@ -712,11 +732,18 @@ async fn project_event(
         ProtocolEvent::ValidatorAttestation(a) => {
             sqlx::query(
                 "INSERT INTO via_ingestion_votes \
-                 (block_hash, subject_txid, reference_txid, attester_script, ok, l1_batch_index) \
-                 VALUES ($1,$2,$3,$4,$5,$6)",
+                 (block_hash, subject_txid, ordinal_tx_index, ordinal_location_tag, \
+                  ordinal_location_index, reference_txid, attester_script, ok, l1_batch_index) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
             )
             .bind(block)
             .bind(a.subject_txid.as_byte_array().to_vec())
+            .bind(i64::from(a.ordinal.tx_index))
+            .bind(
+                i16::try_from(a.ordinal.location.wire_tag())
+                    .map_err(|_| infra("location wire tag exceeds SMALLINT range"))?,
+            )
+            .bind(i64::from(a.ordinal.location.index()))
             .bind(a.reference_txid.as_byte_array().to_vec())
             .bind(a.attester_script.as_bytes().to_vec())
             .bind(a.ok)
@@ -738,11 +765,18 @@ async fn project_event(
                 let index = i64::try_from(index).map_err(|_| infra("withdrawal index exceeds BIGINT range"))?;
                 sqlx::query(
                     "INSERT INTO via_ingestion_withdrawals \
-                     (block_hash, subject_txid, withdrawal_index, l2_id, l2_tx_event_index, \
-                      receiver_script, amount_sat) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                     (block_hash, subject_txid, ordinal_tx_index, ordinal_location_tag, \
+                      ordinal_location_index, withdrawal_index, l2_id, l2_tx_event_index, \
+                      receiver_script, amount_sat) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
                 )
                 .bind(block)
                 .bind(w.subject_txid.as_byte_array().to_vec())
+                .bind(i64::from(w.ordinal.tx_index))
+                .bind(
+                    i16::try_from(w.ordinal.location.wire_tag())
+                        .map_err(|_| infra("location wire tag exceeds SMALLINT range"))?,
+                )
+                .bind(i64::from(w.ordinal.location.index()))
                 .bind(index)
                 .bind(wd.l2_id.to_vec())
                 .bind(i32::from(wd.l2_tx_event_index))
@@ -913,8 +947,9 @@ impl ObservationReader for PgObservationReader {
     }
 }
 
-/// Marks an effect as consumed downstream (sealed into a batch, finalized
-/// vote). Production hooks and test harnesses both call this.
+/// Cutover hook for marking an effect consumed downstream (sealed into a
+/// batch or emitted as a vote). Only the conformance harness calls it before
+/// cutover.
 pub async fn mark_consumed(pool: &PgPool, effect: &EffectId) -> Result<(), InfraError> {
     sqlx::query(
         "INSERT INTO via_ingestion_consumed_effects (block_hash, effect_key) VALUES ($1, $2) \
