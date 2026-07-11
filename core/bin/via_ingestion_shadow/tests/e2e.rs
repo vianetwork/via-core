@@ -722,6 +722,30 @@ async fn real_lifecycle_replays_and_shadows_from_unbootstrapped_context() -> Res
     let replay_summary = replay_lifecycle(client.clone(), &scenario).await?;
     let (shadow_summary, shadow_deltas, shadow_delta_jsonl) = shadow_lifecycle(client, &scenario).await?;
 
+    // The scenario builds exactly these protocol effects; the kernel must
+    // apply all of them, reject nothing, and cover the range.
+    let events = &replay_summary["events_per_kind"];
+    assert_eq!(events["deposit"], 2);
+    assert_eq!(events["system_bootstrapping"], 1);
+    assert_eq!(events["l1_batch_da_reference"], 1);
+    assert_eq!(events["proof_da_reference"], 1);
+    assert_eq!(events["validator_attestation"], 1);
+    assert_eq!(
+        replay_summary["rejections_per_code"].as_object().map(|m| m.len()),
+        Some(0),
+        "no rejections expected: {}",
+        replay_summary["rejections_per_code"]
+    );
+    assert_eq!(replay_summary["coverage"]["contiguous"], true);
+    assert_eq!(replay_summary["coverage"]["unresolved_dependencies"].as_array().map(|a| a.len()), Some(0));
+
+    // The load-bearing shadow claim, now enforced: full-fidelity comparison
+    // against the legacy path over a real lifecycle yields no disagreement.
+    assert_eq!(shadow_summary["kernel_only"], 0, "kernel-only deltas: {shadow_deltas:?}");
+    assert_eq!(shadow_summary["legacy_only"], 0, "legacy-only deltas: {shadow_deltas:?}");
+    assert_eq!(shadow_summary["context_differences"], 0, "context-transition deltas: {shadow_deltas:?}");
+    assert!(shadow_deltas.is_empty(), "expected zero deltas, got {shadow_deltas:?}");
+
     println!(
         "E2E_SCENARIO_RESULT={}",
         json!({

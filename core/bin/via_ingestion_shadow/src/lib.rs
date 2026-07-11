@@ -1149,8 +1149,8 @@ async fn normalize_legacy_messages(
                 occurrence: occurrence(EventKind::BridgeWithdrawal),
                 payload: FactPayload::Withdrawal {
                     version: withdrawal.input.version.clone() as u32,
-                    total_size: withdrawal.input.total_size.max(0) as u64,
-                    v_size: withdrawal.input.v_size.max(0) as u64,
+                    total_size: u64::try_from(withdrawal.input.total_size).unwrap_or(0),
+                    v_size: u64::try_from(withdrawal.input.v_size).unwrap_or(0),
                     inputs: withdrawal.input.inputs.iter().copied().map(outpoint_identity).collect(),
                     output_amount_sat: withdrawal.input.output_amount,
                     payouts: withdrawal
