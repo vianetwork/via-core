@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fmt::Write as _,
     fs::File,
     io::{BufWriter, Write},
@@ -484,126 +484,152 @@ fn system_wallets_from_context(context: &ProtocolContext, network: Network) -> R
     })
 }
 
-pub fn normalize_kernel_events(events: &[ProtocolEvent]) -> BTreeSet<Fact> {
-    let mut facts = BTreeSet::new();
+pub fn normalize_kernel_events(events: &[ProtocolEvent]) -> BTreeMap<Fact, u64> {
+    let mut facts: BTreeMap<Fact, u64> = BTreeMap::new();
     for event in events {
         match event {
             ProtocolEvent::DepositObserved(deposit) => {
-                facts.insert(Fact {
-                    kind: "deposit".into(),
-                    txid: deposit.subject.txid.to_string(),
-                    key_fields: FactFields::Deposit {
-                        amount_sat: deposit.amount.to_sat(),
-                        receiver: deposit.receiver.to_vec(),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "deposit".into(),
+                        txid: deposit.subject.txid.to_string(),
+                        key_fields: FactFields::Deposit {
+                            amount_sat: deposit.amount.to_sat(),
+                            receiver: deposit.receiver.to_vec(),
+                        },
+                    })
+                    .or_default() += 1;
             }
             ProtocolEvent::L1BatchDAReference(reference) => {
-                facts.insert(Fact {
-                    kind: "l1_batch_da_reference".into(),
-                    txid: reference.subject_txid.to_string(),
-                    key_fields: FactFields::BatchReference {
-                        batch_index: reference.l1_batch_index,
-                        blob_id: reference.blob_id.clone(),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "l1_batch_da_reference".into(),
+                        txid: reference.subject_txid.to_string(),
+                        key_fields: FactFields::BatchReference {
+                            batch_index: reference.l1_batch_index,
+                            blob_id: reference.blob_id.clone(),
+                        },
+                    })
+                    .or_default() += 1;
             }
             ProtocolEvent::ProofDAReference(reference) => {
-                facts.insert(Fact {
-                    kind: "proof_da_reference".into(),
-                    txid: reference.subject_txid.to_string(),
-                    key_fields: FactFields::ProofReference {
-                        reveal_txid: reference.batch.reveal_txid.to_string(),
-                        blob_id: reference.blob_id.clone(),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "proof_da_reference".into(),
+                        txid: reference.subject_txid.to_string(),
+                        key_fields: FactFields::ProofReference {
+                            reveal_txid: reference.batch.reveal_txid.to_string(),
+                            blob_id: reference.blob_id.clone(),
+                        },
+                    })
+                    .or_default() += 1;
             }
             ProtocolEvent::ValidatorAttestation(attestation) => {
-                facts.insert(Fact {
-                    kind: "validator_attestation".into(),
-                    txid: attestation.subject_txid.to_string(),
-                    key_fields: FactFields::Attestation {
-                        reference_txid: attestation.reference_txid.to_string(),
-                        vote: attestation.ok,
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "validator_attestation".into(),
+                        txid: attestation.subject_txid.to_string(),
+                        key_fields: FactFields::Attestation {
+                            reference_txid: attestation.reference_txid.to_string(),
+                            vote: attestation.ok,
+                        },
+                    })
+                    .or_default() += 1;
             }
             ProtocolEvent::SystemBootstrapping(bootstrap) => {
-                facts.insert(Fact {
-                    kind: "system_bootstrapping".into(),
-                    txid: bootstrap.subject_txid.to_string(),
-                    key_fields: FactFields::Bootstrap {
-                        sequencer_script: bootstrap.wallets.sequencer.as_bytes().to_vec(),
-                        bridge_script: bootstrap.wallets.bridge.as_bytes().to_vec(),
-                        governance_script: bootstrap.wallets.governance.as_bytes().to_vec(),
-                        verifier_scripts: scripts(&bootstrap.wallets.verifiers),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "system_bootstrapping".into(),
+                        txid: bootstrap.subject_txid.to_string(),
+                        key_fields: FactFields::Bootstrap {
+                            sequencer_script: bootstrap.wallets.sequencer.as_bytes().to_vec(),
+                            bridge_script: bootstrap.wallets.bridge.as_bytes().to_vec(),
+                            governance_script: bootstrap.wallets.governance.as_bytes().to_vec(),
+                            verifier_scripts: scripts(&bootstrap.wallets.verifiers),
+                        },
+                    })
+                    .or_default() += 1;
             }
             ProtocolEvent::SystemContractUpgradeProposal(proposal) => {
-                facts.insert(Fact {
-                    kind: "system_contract_upgrade_proposal".into(),
-                    txid: proposal.subject_txid.to_string(),
-                    key_fields: FactFields::UpgradeProposal {
-                        contract_addresses: proposal
-                            .proposal
-                            .system_contracts
-                            .iter()
-                            .map(|(address, _)| address.to_vec())
-                            .collect(),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "system_contract_upgrade_proposal".into(),
+                        txid: proposal.subject_txid.to_string(),
+                        key_fields: FactFields::UpgradeProposal {
+                            contract_addresses: proposal
+                                .proposal
+                                .system_contracts
+                                .iter()
+                                .map(|(address, _)| address.to_vec())
+                                .collect(),
+                        },
+                    })
+                    .or_default() += 1;
             }
             ProtocolEvent::SystemContractUpgradeActivation(activation) => {
-                facts.insert(Fact {
-                    kind: "system_contract_upgrade_activation".into(),
-                    txid: activation.subject_txid.to_string(),
-                    key_fields: FactFields::ProposalReference { proposal_txid: activation.proposal_txid.to_string() },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "system_contract_upgrade_activation".into(),
+                        txid: activation.subject_txid.to_string(),
+                        key_fields: FactFields::ProposalReference {
+                            proposal_txid: activation.proposal_txid.to_string(),
+                        },
+                    })
+                    .or_default() += 1;
             }
             ProtocolEvent::BridgeWithdrawal(withdrawal) => {
                 for payout in &withdrawal.withdrawals {
-                    facts.insert(Fact {
-                        kind: "bridge_withdrawal".into(),
-                        txid: withdrawal.subject_txid.to_string(),
-                        key_fields: FactFields::Withdrawal {
-                            receiver_script: payout.receiver_script.as_bytes().to_vec(),
-                            amount_sat: payout.amount.to_sat(),
-                        },
-                    });
+                    *facts
+                        .entry(Fact {
+                            kind: "bridge_withdrawal".into(),
+                            txid: withdrawal.subject_txid.to_string(),
+                            key_fields: FactFields::Withdrawal {
+                                receiver_script: payout.receiver_script.as_bytes().to_vec(),
+                                amount_sat: payout.amount.to_sat(),
+                            },
+                        })
+                        .or_default() += 1;
                 }
             }
             ProtocolEvent::UpdateBridgeProposal(proposal) => {
-                facts.insert(Fact {
-                    kind: "update_bridge_proposal".into(),
-                    txid: proposal.subject_txid.to_string(),
-                    key_fields: FactFields::BridgeProposal {
-                        bridge_script: proposal.bridge_script.as_bytes().to_vec(),
-                        verifier_scripts: scripts(&proposal.verifier_scripts),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "update_bridge_proposal".into(),
+                        txid: proposal.subject_txid.to_string(),
+                        key_fields: FactFields::BridgeProposal {
+                            bridge_script: proposal.bridge_script.as_bytes().to_vec(),
+                            verifier_scripts: scripts(&proposal.verifier_scripts),
+                        },
+                    })
+                    .or_default() += 1;
             }
             ProtocolEvent::WalletRotation(rotation) => match &rotation.rotation {
                 WalletRotation::Sequencer { new_script } => {
-                    facts.insert(Fact {
-                        kind: "rotate_sequencer".into(),
-                        txid: rotation.subject_txid.to_string(),
-                        key_fields: FactFields::WalletAddress { address_script: new_script.as_bytes().to_vec() },
-                    });
+                    *facts
+                        .entry(Fact {
+                            kind: "rotate_sequencer".into(),
+                            txid: rotation.subject_txid.to_string(),
+                            key_fields: FactFields::WalletAddress { address_script: new_script.as_bytes().to_vec() },
+                        })
+                        .or_default() += 1;
                 }
                 WalletRotation::Governance { new_script } => {
-                    facts.insert(Fact {
-                        kind: "rotate_governance".into(),
-                        txid: rotation.subject_txid.to_string(),
-                        key_fields: FactFields::WalletAddress { address_script: new_script.as_bytes().to_vec() },
-                    });
+                    *facts
+                        .entry(Fact {
+                            kind: "rotate_governance".into(),
+                            txid: rotation.subject_txid.to_string(),
+                            key_fields: FactFields::WalletAddress { address_script: new_script.as_bytes().to_vec() },
+                        })
+                        .or_default() += 1;
                 }
                 WalletRotation::Bridge { proposal_txid, .. } => {
-                    facts.insert(Fact {
-                        kind: "rotate_bridge".into(),
-                        txid: rotation.subject_txid.to_string(),
-                        key_fields: FactFields::ProposalReference { proposal_txid: proposal_txid.to_string() },
-                    });
+                    *facts
+                        .entry(Fact {
+                            kind: "rotate_bridge".into(),
+                            txid: rotation.subject_txid.to_string(),
+                            key_fields: FactFields::ProposalReference { proposal_txid: proposal_txid.to_string() },
+                        })
+                        .or_default() += 1;
                 }
             },
         }
@@ -614,142 +640,166 @@ pub fn normalize_kernel_events(events: &[ProtocolEvent]) -> BTreeSet<Fact> {
 pub fn normalize_legacy_messages(
     messages: &[FullInscriptionMessage], block_transactions: &[Transaction], context: &ProtocolContext,
     network: Network,
-) -> Result<BTreeSet<Fact>> {
-    let mut facts = BTreeSet::new();
+) -> Result<BTreeMap<Fact, u64>> {
+    let mut facts: BTreeMap<Fact, u64> = BTreeMap::new();
     for message in messages {
         let txid = canonical_legacy_txid(common_fields(message), block_transactions)?;
         match message {
             FullInscriptionMessage::L1ToL2Message(deposit) => {
-                facts.extend(normalize_legacy_deposit(
+                for fact in normalize_legacy_deposit(
                     txid,
                     deposit.input.receiver_l2_address.as_bytes(),
                     &context.wallets.bridge,
                     &deposit.tx_outputs,
-                ));
+                ) {
+                    *facts.entry(fact).or_default() += 1;
+                }
             }
             FullInscriptionMessage::L1BatchDAReference(reference) => {
-                facts.insert(Fact {
-                    kind: "l1_batch_da_reference".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::BatchReference {
-                        batch_index: u64::from(reference.input.l1_batch_index.0),
-                        blob_id: reference.input.blob_id.clone(),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "l1_batch_da_reference".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::BatchReference {
+                            batch_index: u64::from(reference.input.l1_batch_index.0),
+                            blob_id: reference.input.blob_id.clone(),
+                        },
+                    })
+                    .or_default() += 1;
             }
             FullInscriptionMessage::ProofDAReference(reference) => {
-                facts.insert(Fact {
-                    kind: "proof_da_reference".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::ProofReference {
-                        reveal_txid: reference.input.l1_batch_reveal_txid.to_string(),
-                        blob_id: reference.input.blob_id.clone(),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "proof_da_reference".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::ProofReference {
+                            reveal_txid: reference.input.l1_batch_reveal_txid.to_string(),
+                            blob_id: reference.input.blob_id.clone(),
+                        },
+                    })
+                    .or_default() += 1;
             }
             FullInscriptionMessage::ValidatorAttestation(attestation) => {
-                facts.insert(Fact {
-                    kind: "validator_attestation".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::Attestation {
-                        reference_txid: attestation.input.reference_txid.to_string(),
-                        vote: matches!(attestation.input.attestation, Vote::Ok),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "validator_attestation".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::Attestation {
+                            reference_txid: attestation.input.reference_txid.to_string(),
+                            vote: matches!(attestation.input.attestation, Vote::Ok),
+                        },
+                    })
+                    .or_default() += 1;
             }
             FullInscriptionMessage::SystemBootstrapping(bootstrap) => {
-                facts.insert(Fact {
-                    kind: "system_bootstrapping".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::Bootstrap {
-                        sequencer_script: checked_script(&bootstrap.input.sequencer_address, network)?,
-                        bridge_script: checked_script(&bootstrap.input.bridge_musig2_address, network)?,
-                        governance_script: checked_script(&bootstrap.input.governance_address, network)?,
-                        verifier_scripts: bootstrap
-                            .input
-                            .verifier_p2wpkh_addresses
-                            .iter()
-                            .map(|address| checked_script(address, network))
-                            .collect::<Result<Vec<_>>>()?,
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "system_bootstrapping".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::Bootstrap {
+                            sequencer_script: checked_script(&bootstrap.input.sequencer_address, network)?,
+                            bridge_script: checked_script(&bootstrap.input.bridge_musig2_address, network)?,
+                            governance_script: checked_script(&bootstrap.input.governance_address, network)?,
+                            verifier_scripts: bootstrap
+                                .input
+                                .verifier_p2wpkh_addresses
+                                .iter()
+                                .map(|address| checked_script(address, network))
+                                .collect::<Result<Vec<_>>>()?,
+                        },
+                    })
+                    .or_default() += 1;
             }
             FullInscriptionMessage::SystemContractUpgradeProposal(proposal) => {
-                facts.insert(Fact {
-                    kind: "system_contract_upgrade_proposal".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::UpgradeProposal {
-                        contract_addresses: proposal
-                            .input
-                            .system_contracts
-                            .iter()
-                            .map(|(address, _)| address.as_bytes().to_vec())
-                            .collect(),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "system_contract_upgrade_proposal".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::UpgradeProposal {
+                            contract_addresses: proposal
+                                .input
+                                .system_contracts
+                                .iter()
+                                .map(|(address, _)| address.as_bytes().to_vec())
+                                .collect(),
+                        },
+                    })
+                    .or_default() += 1;
             }
             FullInscriptionMessage::SystemContractUpgrade(activation) => {
-                facts.insert(Fact {
-                    kind: "system_contract_upgrade_activation".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::ProposalReference {
-                        proposal_txid: activation.input.proposal_tx_id.to_string(),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "system_contract_upgrade_activation".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::ProposalReference {
+                            proposal_txid: activation.input.proposal_tx_id.to_string(),
+                        },
+                    })
+                    .or_default() += 1;
             }
             FullInscriptionMessage::BridgeWithdrawal(withdrawal) => {
                 for payout in &withdrawal.input.withdrawals {
-                    facts.insert(Fact {
-                        kind: "bridge_withdrawal".into(),
-                        txid: txid.to_string(),
-                        key_fields: FactFields::Withdrawal {
-                            receiver_script: payout.receiver.script_pubkey().as_bytes().to_vec(),
-                            amount_sat: payout.value.to_sat(),
-                        },
-                    });
+                    *facts
+                        .entry(Fact {
+                            kind: "bridge_withdrawal".into(),
+                            txid: txid.to_string(),
+                            key_fields: FactFields::Withdrawal {
+                                receiver_script: payout.receiver.script_pubkey().as_bytes().to_vec(),
+                                amount_sat: payout.value.to_sat(),
+                            },
+                        })
+                        .or_default() += 1;
                 }
             }
             FullInscriptionMessage::UpdateBridgeProposal(proposal) => {
-                facts.insert(Fact {
-                    kind: "update_bridge_proposal".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::BridgeProposal {
-                        bridge_script: checked_script(&proposal.input.bridge_musig2_address, network)?,
-                        verifier_scripts: proposal
-                            .input
-                            .verifier_p2wpkh_addresses
-                            .iter()
-                            .map(|address| checked_script(address, network))
-                            .collect::<Result<Vec<_>>>()?,
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "update_bridge_proposal".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::BridgeProposal {
+                            bridge_script: checked_script(&proposal.input.bridge_musig2_address, network)?,
+                            verifier_scripts: proposal
+                                .input
+                                .verifier_p2wpkh_addresses
+                                .iter()
+                                .map(|address| checked_script(address, network))
+                                .collect::<Result<Vec<_>>>()?,
+                        },
+                    })
+                    .or_default() += 1;
             }
             FullInscriptionMessage::UpdateSequencer(rotation) => {
-                facts.insert(Fact {
-                    kind: "rotate_sequencer".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::WalletAddress {
-                        address_script: checked_script(&rotation.input.address, network)?,
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "rotate_sequencer".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::WalletAddress {
+                            address_script: checked_script(&rotation.input.address, network)?,
+                        },
+                    })
+                    .or_default() += 1;
             }
             FullInscriptionMessage::UpdateGovernance(rotation) => {
-                facts.insert(Fact {
-                    kind: "rotate_governance".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::WalletAddress {
-                        address_script: checked_script(&rotation.input.address, network)?,
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "rotate_governance".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::WalletAddress {
+                            address_script: checked_script(&rotation.input.address, network)?,
+                        },
+                    })
+                    .or_default() += 1;
             }
             FullInscriptionMessage::UpdateBridge(rotation) => {
-                facts.insert(Fact {
-                    kind: "rotate_bridge".into(),
-                    txid: txid.to_string(),
-                    key_fields: FactFields::ProposalReference {
-                        proposal_txid: rotation.input.proposal_tx_id.to_string(),
-                    },
-                });
+                *facts
+                    .entry(Fact {
+                        kind: "rotate_bridge".into(),
+                        txid: txid.to_string(),
+                        key_fields: FactFields::ProposalReference {
+                            proposal_txid: rotation.input.proposal_tx_id.to_string(),
+                        },
+                    })
+                    .or_default() += 1;
             }
         }
     }
@@ -798,9 +848,7 @@ fn canonical_legacy_txid(common: &CommonFields, block_transactions: &[Transactio
     Ok(transaction.compute_txid())
 }
 
-fn normalize_legacy_deposit(
-    txid: Txid, receiver: &[u8], bridge_script: &ScriptBuf, outputs: &[TxOut],
-) -> BTreeSet<Fact> {
+fn normalize_legacy_deposit(txid: Txid, receiver: &[u8], bridge_script: &ScriptBuf, outputs: &[TxOut]) -> Vec<Fact> {
     outputs
         .iter()
         .filter(|output| output.script_pubkey == *bridge_script)
@@ -826,8 +874,25 @@ fn scripts(values: &[ScriptBuf]) -> Vec<Vec<u8>> {
     values.iter().map(|script| script.as_bytes().to_vec()).collect()
 }
 
-pub fn diff_fact_sets(kernel: &BTreeSet<Fact>, legacy: &BTreeSet<Fact>) -> (Vec<Fact>, Vec<Fact>) {
-    (kernel.difference(legacy).cloned().collect(), legacy.difference(kernel).cloned().collect())
+/// Counted multiset difference: a fact appearing twice on one side and once
+/// on the other yields one delta, so identical outputs in one transaction
+/// cannot mask each other.
+pub fn diff_fact_sets(kernel: &BTreeMap<Fact, u64>, legacy: &BTreeMap<Fact, u64>) -> (Vec<Fact>, Vec<Fact>) {
+    let mut kernel_only = Vec::new();
+    let mut legacy_only = Vec::new();
+    for (fact, k) in kernel {
+        let l = legacy.get(fact).copied().unwrap_or(0);
+        for _ in l..*k {
+            kernel_only.push(fact.clone());
+        }
+    }
+    for (fact, l) in legacy {
+        let k = kernel.get(fact).copied().unwrap_or(0);
+        for _ in k..*l {
+            legacy_only.push(fact.clone());
+        }
+    }
+    (kernel_only, legacy_only)
 }
 
 fn count_plan(plan: &BlockPlan, events: &mut BTreeMap<String, u64>, rejections: &mut BTreeMap<String, u64>) {
@@ -988,16 +1053,19 @@ mod tests {
 
         assert_eq!(
             normalize_kernel_events(&[event]),
-            BTreeSet::from([Fact {
-                kind: "deposit".into(),
-                txid: txid.to_string(),
-                key_fields: FactFields::Deposit { amount_sat: 42, receiver: vec![9; 20] },
-            }])
+            BTreeMap::from([(
+                Fact {
+                    kind: "deposit".into(),
+                    txid: txid.to_string(),
+                    key_fields: FactFields::Deposit { amount_sat: 42, receiver: vec![9; 20] },
+                },
+                1,
+            )])
         );
     }
 
     #[test]
-    fn legacy_deposit_normalizes_each_bridge_output_as_a_set() {
+    fn legacy_deposit_counts_every_bridge_output_including_duplicates() {
         let txid = Txid::from_byte_array([8; 32]);
         let bridge = ScriptBuf::from_bytes(vec![0x51]);
         let other = ScriptBuf::from_bytes(vec![0x52]);
@@ -1009,7 +1077,12 @@ mod tests {
         ];
 
         let facts = normalize_legacy_deposit(txid, &[3; 20], &bridge, &outputs);
-        assert_eq!(facts.len(), 2);
+        // Two 10-sat outputs plus one 20-sat output: duplicates preserved.
+        assert_eq!(facts.len(), 3);
+        assert_eq!(
+            facts.iter().filter(|f| matches!(f.key_fields, FactFields::Deposit { amount_sat: 10, .. })).count(),
+            2
+        );
         assert!(facts.contains(&Fact {
             kind: "deposit".into(),
             txid: txid.to_string(),
@@ -1045,9 +1118,17 @@ mod tests {
         let shared = fact("deposit", "shared", 1);
         let kernel = fact("deposit", "kernel", 2);
         let legacy = fact("deposit", "legacy", 3);
-        let kernel_set = BTreeSet::from([kernel.clone(), shared.clone()]);
-        let legacy_set = BTreeSet::from([shared, legacy.clone()]);
+        let kernel_set = BTreeMap::from([(kernel.clone(), 1), (shared.clone(), 1)]);
+        let legacy_set = BTreeMap::from([(shared, 1), (legacy.clone(), 1)]);
 
         assert_eq!(diff_fact_sets(&kernel_set, &legacy_set), (vec![kernel], vec![legacy]));
+    }
+
+    #[test]
+    fn multiset_diff_detects_duplicate_facts() {
+        let f = fact("deposit", "dup", 1);
+        let kernel_set = BTreeMap::from([(f.clone(), 2)]);
+        let legacy_set = BTreeMap::from([(f.clone(), 1)]);
+        assert_eq!(diff_fact_sets(&kernel_set, &legacy_set), (vec![f], vec![]));
     }
 }
