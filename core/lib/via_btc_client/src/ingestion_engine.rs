@@ -1828,6 +1828,22 @@ mod tests {
             keys.contains(&DependencyKey::RawTx(proposal_txid)),
             "an UpdateBridge activation must discover its proposal transaction, got {keys:?}"
         );
+
+        // The sibling arm: a system-contract upgrade activation
+        // (VIA_PROTOCOL:UPGRADE) must likewise discover its proposal.
+        let upgrade_proposal = Txid::from_byte_array([0xC3; 32]);
+        let upgrade_activation = activation_tx(
+            OutPoint {
+                txid: Txid::from_byte_array([0xC4; 32]),
+                vout: 0,
+            },
+            upgrade_proposal,
+        );
+        let (_, keys) = engine.inspect(&envelope(143, vec![upgrade_activation]), &context());
+        assert!(
+            keys.contains(&DependencyKey::RawTx(upgrade_proposal)),
+            "an upgrade activation must discover its proposal transaction, got {keys:?}"
+        );
     }
 
     #[test]
