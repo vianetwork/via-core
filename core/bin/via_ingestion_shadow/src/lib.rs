@@ -331,8 +331,9 @@ async fn execute_with_pool(config: &RunConfig, pool: PgPool) -> Result<RunSummar
 
         let mut block_deltas = Vec::new();
         if config.mode == Mode::Shadow {
+            let legacy_context = legacy_comparison_context(&context, &first_plan.next_context);
             let wallets = Arc::new(
-                system_wallets_from_context(&context, config.network)
+                system_wallets_from_context(legacy_context, config.network)
                     .with_context(|| format!("height {height}: derive legacy system wallets from kernel context"))?,
             );
             let legacy_height =
@@ -344,7 +345,7 @@ async fn execute_with_pool(config: &RunConfig, pool: PgPool) -> Result<RunSummar
                 .with_context(|| format!("height {height}: legacy process_block"))?;
             let kernel_facts = normalize_kernel_events(&first_plan.events);
             let legacy_facts =
-                normalize_legacy_messages(&legacy_messages, &envelope.transactions, &context, config.network)
+                normalize_legacy_messages(&legacy_messages, &envelope.transactions, legacy_context, config.network)
                     .with_context(|| format!("height {height}: normalize legacy messages"))?;
             let (kernel_deltas, legacy_deltas) = diff_fact_sets(&kernel_facts, &legacy_facts);
             for fact in kernel_deltas {
@@ -463,6 +464,15 @@ async fn resolve_dependencies(
         }
     }
     Ok(())
+}
+
+/// The legacy indexer needs configured wallets to discover the signer of the bootstrap transaction itself.
+fn legacy_comparison_context<'a>(input: &'a ProtocolContext, next: &'a ProtocolContext) -> &'a ProtocolContext {
+    if !input.wallets.is_bootstrapped() && next.wallets.is_bootstrapped() {
+        next
+    } else {
+        input
+    }
 }
 
 fn system_wallets_from_context(context: &ProtocolContext, network: Network) -> Result<SystemWallets> {
@@ -1011,6 +1021,20 @@ mod tests {
         }
     }
 
+    fn comparison_context(script_byte: Option<u8>) -> ProtocolContext {
+        let script = script_byte.map_or_else(ScriptBuf::new, |byte| ScriptBuf::from_bytes(vec![byte]));
+        ProtocolContext {
+            version: 1,
+            wallets: via_btc_ingestion::WalletSet {
+                sequencer: script.clone(),
+                bridge: script.clone(),
+                governance: script,
+                verifiers: vec![],
+            },
+            protocol_version: via_btc_ingestion::ProtocolVersionTag { minor: 0, patch: 0 },
+        }
+    }
+
     fn legacy_transaction(script_byte: u8) -> Transaction {
         Transaction {
             version: transaction::Version::TWO,
@@ -1130,5 +1154,14 @@ mod tests {
         let kernel_set = BTreeMap::from([(f.clone(), 2)]);
         let legacy_set = BTreeMap::from([(f.clone(), 1)]);
         assert_eq!(diff_fact_sets(&kernel_set, &legacy_set), (vec![f], vec![]));
+    }
+
+    #[test]
+    fn bootstrap_transition_supplies_wallets_for_legacy_comparison() {
+        let empty = comparison_context(None);
+        let bootstrapped = comparison_context(Some(0x51));
+
+        assert!(std::ptr::eq(legacy_comparison_context(&empty, &bootstrapped), &bootstrapped));
+        assert!(std::ptr::eq(legacy_comparison_context(&bootstrapped, &empty), &bootstrapped));
     }
 }

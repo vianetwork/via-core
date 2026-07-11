@@ -23,3 +23,7 @@ via_btc_ingestion.workspace = true
 via_ingestion_adapter.workspace = true
 zksync_config.workspace = true
 zksync_types.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+tempfile = "3.8.0"
