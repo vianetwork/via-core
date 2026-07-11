@@ -1747,6 +1747,29 @@ mod tests {
     }
 
     #[test]
+    fn inclusion_must_match_a_stored_variant_on_both_identities() {
+        let tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        let variant = RawTxVariant::from_transaction(&tx);
+        let mut p = dummy_plan();
+        p.raw_variants = vec![variant.clone()];
+        p.inclusions = vec![Inclusion {
+            block_hash: p.anchor.hash,
+            height: p.anchor.height,
+            tx_index: 0,
+            txid: variant.txid(),
+            // A wtxid that was never stored: matching the txid alone must
+            // not be enough, or witness variants could alias each other.
+            wtxid: Wtxid::from_byte_array([0xEE; 32]),
+        }];
+        assert!(matches!(p.validate(), Err(PlanValidationError::InclusionWithoutVariant { .. })));
+    }
+
+    #[test]
     fn events_must_reference_an_included_transaction() {
         let mut p = dummy_plan();
         p.events = vec![ProtocolEvent::DepositObserved(DepositObserved {
