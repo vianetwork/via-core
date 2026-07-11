@@ -306,7 +306,7 @@ fn rejection_code_from(tag: i16) -> RejectionCode {
         3 => RejectionCode::Unauthorized,
         4 => RejectionCode::InvalidBootstrap,
         5 => RejectionCode::NonMonotonicUpgrade,
-        _ => RejectionCode::InvalidProposal,
+        _ => RejectionCode::InvalidReference,
     }
 }
 

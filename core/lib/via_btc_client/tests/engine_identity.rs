@@ -160,6 +160,26 @@ fn corpus() -> Vec<(String, BitcoinBlockEnvelope, ProtocolContext)> {
             ctx.clone(),
         ),
         (
+            "authorized-attestation-with-absent-reference".into(),
+            env(
+                107,
+                vec![enc.attestation_tx(bitcoin::Txid::from_byte_array([9; 32]), true, 0, op(10))],
+            ),
+            ctx.clone(),
+        ),
+        (
+            "authorized-proof-ref-with-absent-batch".into(),
+            env(
+                108,
+                vec![enc.proof_da_reference_tx(
+                    bitcoin::Txid::from_byte_array([9; 32]),
+                    "blob-x",
+                    op(11),
+                )],
+            ),
+            ctx.clone(),
+        ),
+        (
             "rotation-unauthorized".into(),
             env(
                 105,
@@ -189,4 +209,30 @@ fn reference_engine_agrees_with_itself_over_the_corpus() {
         let right = run(&b, &env, &ctx);
         assert_eq!(left, right, "case {name}: two runs must be byte-identical");
     }
+}
+
+/// The bake-off verdict: the two independently written engines must agree
+/// byte for byte on every corpus case. A divergence is a spec finding.
+#[test]
+fn independent_engines_are_byte_identical_over_the_corpus() {
+    let reference = ViaProtocolEngine::new(Network::Regtest);
+    let contestant =
+        via_btc_client::ingestion_engine_v2::ViaProtocolEngineV2::new(Network::Regtest);
+    let mut divergences = Vec::new();
+    for (name, env, ctx) in corpus() {
+        let left = run(&reference, &env, &ctx);
+        let right = run(&contestant, &env, &ctx);
+        if left != right {
+            divergences.push(format!(
+                "case {name}: reference={} contestant={}",
+                String::from_utf8_lossy(&left[..left.len().min(120)]),
+                String::from_utf8_lossy(&right[..right.len().min(120)])
+            ));
+        }
+    }
+    assert!(
+        divergences.is_empty(),
+        "byte divergences:\n{}",
+        divergences.join("\n")
+    );
 }

@@ -62,10 +62,10 @@ impl From<ViaStorageTransactionDetails> for TransactionDetails {
 
         let commit_tx_hash = tx_details
             .commit_tx_hash
-            .map(|hash| reverse_vec_to_h256(hash));
+            .map(reverse_vec_to_h256);
         let prove_tx_hash = tx_details
             .prove_tx_hash
-            .map(|hash| reverse_vec_to_h256(hash));
+            .map(reverse_vec_to_h256);
         let execute_tx_hash = calculate_execution_hash(tx_details.is_finalized);
 
         TransactionDetails {

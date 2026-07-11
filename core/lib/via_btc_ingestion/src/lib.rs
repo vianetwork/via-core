@@ -630,9 +630,11 @@ pub enum RejectionCode {
     /// An upgrade activation whose version does not increase the context's
     /// protocol version.
     NonMonotonicUpgrade,
-    /// An activation whose referenced proposal is known-absent or does not
-    /// parse as a proposal.
-    InvalidProposal,
+    /// A recognized message whose referenced transaction is authoritatively
+    /// absent or does not contain the required message (bake-off finding:
+    /// applies to proposal activations, proof references, and attestations
+    /// alike). Never used for unavailability, which halts instead.
+    InvalidReference,
 }
 
 impl RejectionCode {
@@ -644,7 +646,7 @@ impl RejectionCode {
             RejectionCode::Unauthorized => 3,
             RejectionCode::InvalidBootstrap => 4,
             RejectionCode::NonMonotonicUpgrade => 5,
-            RejectionCode::InvalidProposal => 6,
+            RejectionCode::InvalidReference => 6,
         }
     }
 }
@@ -1215,7 +1217,9 @@ pub trait ProtocolEngine {
     type Draft;
 
     /// Classify the envelope against the context and list the dependencies
-    /// finalization needs. Discovery is conservative on purpose: the engine
+    /// finalization needs. Authorization is judged before reference
+    /// resolution: an unauthorized message rejects without requiring its
+    /// references, so garbage can never stall ingestion on missing data. Discovery is conservative on purpose: the engine
     /// lists a `TrackedOutput` dependency for every input spending an
     /// outpoint not created in this envelope, and the store answers each
     /// with `Present` or `KnownAbsent` in one indexed lookup. The

@@ -294,7 +294,7 @@ impl<'a> Finalizer<'a> {
     /// Parse a historically observed transaction and return its messages.
     /// A malformed or unsupported carrier inside a referenced historical
     /// transaction is dropped here on purpose: the referring event then
-    /// rejects as InvalidProposal. The historical transaction's own
+    /// rejects as InvalidReference. The historical transaction's own
     /// taxonomy was already recorded when its block was processed.
     fn parse_observed(
         &self,
@@ -734,7 +734,7 @@ impl<'a> Finalizer<'a> {
                 let Some(batch) = batch else {
                     self.reject(
                         ordinal,
-                        RejectionCode::InvalidProposal,
+                        RejectionCode::InvalidReference,
                         "referenced batch unknown or not a batch reference",
                     );
                     return Ok(());
@@ -766,7 +766,7 @@ impl<'a> Finalizer<'a> {
                 let Some(batch) = proof_msgs else {
                     self.reject(
                         ordinal,
-                        RejectionCode::InvalidProposal,
+                        RejectionCode::InvalidReference,
                         "referenced proof unknown or not a proof reference",
                     );
                     return Ok(());
@@ -815,7 +815,7 @@ impl<'a> Finalizer<'a> {
                 let Some(payload) = payload else {
                     self.reject(
                         ordinal,
-                        RejectionCode::InvalidProposal,
+                        RejectionCode::InvalidReference,
                         "referenced proposal unknown or not an upgrade proposal",
                     );
                     return Ok(());
@@ -947,7 +947,7 @@ impl<'a> Finalizer<'a> {
                 let Some(proposal) = proposal else {
                     self.reject(
                         ordinal,
-                        RejectionCode::InvalidProposal,
+                        RejectionCode::InvalidReference,
                         "referenced proposal unknown or not a bridge proposal",
                     );
                     return Ok(());

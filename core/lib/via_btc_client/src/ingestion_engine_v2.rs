@@ -850,7 +850,7 @@ impl ViaProtocolEngineV2 {
                     dispositions.push(rejection(
                         tx_index,
                         positioned.location,
-                        RejectionCode::MalformedMessage,
+                        RejectionCode::InvalidReference,
                         "proof references no decodable batch DA transaction",
                     ));
                 }
@@ -886,7 +886,7 @@ impl ViaProtocolEngineV2 {
                     dispositions.push(rejection(
                         tx_index,
                         positioned.location,
-                        RejectionCode::MalformedMessage,
+                        RejectionCode::InvalidReference,
                         "attestation references no decodable proof and batch chain",
                     ));
                 }
@@ -1062,7 +1062,7 @@ impl ViaProtocolEngineV2 {
                     dispositions.push(rejection(
                         tx_index,
                         positioned.location,
-                        RejectionCode::InvalidProposal,
+                        RejectionCode::InvalidReference,
                         "upgrade activation does not reference an upgrade proposal",
                     ));
                 }
@@ -1103,7 +1103,7 @@ impl ViaProtocolEngineV2 {
                     dispositions.push(rejection(
                         tx_index,
                         positioned.location,
-                        RejectionCode::InvalidProposal,
+                        RejectionCode::InvalidReference,
                         "bridge activation does not reference a bridge proposal",
                     ));
                 }
@@ -1605,7 +1605,7 @@ mod tests {
         assert!(matches!(
             plan.dispositions[0].kind,
             DispositionKind::RejectedInvalid {
-                code: RejectionCode::MalformedMessage,
+                code: RejectionCode::InvalidReference,
                 ..
             }
         ));
