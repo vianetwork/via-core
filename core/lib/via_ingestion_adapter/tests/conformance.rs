@@ -13,9 +13,9 @@ use bitcoin::{hashes::Hash, BlockHash, Network, OutPoint, ScriptBuf, Txid, Wtxid
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use via_btc_client::{ingestion_engine::ViaProtocolEngine, test_message_encoder::TestMessageEncoder};
 use via_btc_ingestion::{
-    AggregateAdapter, ApplyError, BlockAnchor, BlockPlan, Checkpoint, CoverageReport, EffectId, EventOrdinal,
-    HardReorgHalt, InfraError, MessageLocation, ProjectionReceipt, ProtocolContext, RawTxVariant, RejectionCode,
-    ReorgImpact, RevertError, RevertReceipt, Role,
+    AggregateAdapter, ApplyError, BlockAnchor, BlockPlan, Checkpoint, CoverageReport, EffectId, EffectSubject,
+    EventKind, EventOrdinal, HardReorgHalt, InfraError, MessageLocation, ProjectionReceipt, ProtocolContext,
+    RawTxVariant, RejectionCode, ReorgImpact, RevertError, RevertReceipt, Role,
 };
 use via_btc_ingestion_tests::{
     ApplyFaultPoint, BatchFact, DepositFact, InclusionRecord, ProofFact, RejectionRecord, RevertFaultPoint, StateProbe,
@@ -274,10 +274,7 @@ impl TestHarness for PgHarness {
         .fetch_all(adapter.inner.pool())
         .await
         .expect("consumed lookup");
-        let candidates: Vec<EffectId> = consumed_rows
-            .iter()
-            .map(|(key,)| serde_json::from_slice(key).expect("stored effect key decodes"))
-            .collect();
+        let candidates: Vec<EffectId> = consumed_rows.iter().map(|(key,)| effect_from_key(key)).collect();
         let affected = adapter.downstream_consumed(&candidates).await.expect("boundary check");
         if !affected.is_empty() {
             let halt = HardReorgHalt { divergence: *first, affected: affected.clone() };
@@ -319,6 +316,52 @@ fn bh(bytes: Vec<u8>) -> BlockHash {
 
 fn tid(bytes: Vec<u8>) -> Txid {
     Txid::from_byte_array(bytes.try_into().expect("32-byte txid"))
+}
+
+fn effect_from_key(mut key: &[u8]) -> EffectId {
+    fn take_u32(input: &mut &[u8]) -> u32 {
+        let (value, rest) = input.split_at(4);
+        *input = rest;
+        u32::from_be_bytes(value.try_into().unwrap())
+    }
+    fn take_hash(input: &mut &[u8]) -> [u8; 32] {
+        let (value, rest) = input.split_at(32);
+        *input = rest;
+        value.try_into().unwrap()
+    }
+
+    assert_eq!(take_u32(&mut key), 1, "effect key version");
+    let block_hash = BlockHash::from_byte_array(take_hash(&mut key));
+    let tx_index = take_u32(&mut key);
+    let location_tag = take_u32(&mut key);
+    let location_index = take_u32(&mut key);
+    let location = match location_tag {
+        0 => MessageLocation::Input(location_index),
+        1 => MessageLocation::Output(location_index),
+        other => panic!("unknown message location tag {other}"),
+    };
+    let kind = match take_u32(&mut key) {
+        0 => EventKind::Deposit,
+        1 => EventKind::L1BatchDAReference,
+        2 => EventKind::ProofDAReference,
+        3 => EventKind::ValidatorAttestation,
+        4 => EventKind::SystemBootstrapping,
+        5 => EventKind::SystemContractUpgradeProposal,
+        6 => EventKind::SystemContractUpgradeActivation,
+        7 => EventKind::BridgeWithdrawal,
+        8 => EventKind::UpdateBridgeProposal,
+        9 => EventKind::WalletRotation,
+        other => panic!("unknown event kind tag {other}"),
+    };
+    let subject_tag = take_u32(&mut key);
+    let subject_txid = Txid::from_byte_array(take_hash(&mut key));
+    let subject = match subject_tag {
+        0 => EffectSubject::Output(OutPoint { txid: subject_txid, vout: take_u32(&mut key) }),
+        1 => EffectSubject::Tx(subject_txid),
+        other => panic!("unknown effect subject tag {other}"),
+    };
+    assert!(key.is_empty(), "trailing effect key bytes");
+    EffectId { block_hash, ordinal: EventOrdinal { tx_index, location }, kind, subject }
 }
 
 #[async_trait::async_trait]
@@ -564,6 +607,53 @@ impl StateProbe for PgProbe {
 
 async fn harness() -> PgHarness {
     PgHarness { fault: Arc::new(FaultState::default()) }
+}
+
+#[tokio::test]
+async fn two_concurrent_genesis_applies() {
+    let harness = harness().await;
+    let database = harness.fresh_adapter(Role::CoreSequencer).await;
+    let first_envelope = via_btc_ingestion_tests::envelopes::envelope(
+        via_btc_ingestion_tests::envelopes::anchor(via_btc_ingestion_tests::START_HEIGHT, via_btc_ingestion_tests::T0),
+        vec![],
+    );
+    let second_envelope = via_btc_ingestion_tests::envelopes::envelope(
+        via_btc_ingestion_tests::envelopes::fork_anchor(
+            7,
+            via_btc_ingestion_tests::START_HEIGHT + 7,
+            via_btc_ingestion_tests::envelopes::branch_hash(7, via_btc_ingestion_tests::START_HEIGHT + 6),
+            via_btc_ingestion_tests::T0 + 4200,
+        ),
+        vec![],
+    );
+    let context = via_btc_ingestion_tests::default_context();
+    let first_plan = via_btc_ingestion_tests::plan_block(&harness, &database, &first_envelope, &context).await;
+    let second_plan = via_btc_ingestion_tests::plan_block(&harness, &database, &second_envelope, &context).await;
+
+    let pool = database.inner.pool().clone();
+    let first = PgIngestionAdapter::new(pool.clone(), Role::CoreSequencer);
+    let second = PgIngestionAdapter::new(pool, Role::CoreSequencer);
+    let (first_result, second_result) =
+        tokio::join!(first.apply_block(None, &first_plan), second.apply_block(None, &second_plan),);
+
+    let winner = match (&first_result, &second_result) {
+        (Ok(_), Err(ApplyError::StaleCheckpoint { .. })) => &first_plan,
+        (Err(ApplyError::StaleCheckpoint { .. }), Ok(_)) => &second_plan,
+        other => panic!("exactly one genesis apply must win and the loser must be stale: {other:?}"),
+    };
+    let (checkpoint, _) =
+        first.load_checkpoint_and_context().await.expect("load checkpoint").expect("winner checkpoint");
+    assert_eq!((checkpoint.height, checkpoint.hash), (winner.anchor.height, winner.anchor.hash));
+    assert_eq!(checkpoint.last_plan_hash, winner.plan_hash().expect("winner plan hash"));
+
+    let chain: Vec<(i64, Vec<u8>)> =
+        sqlx::query_as("SELECT height, block_hash FROM via_ingestion_chain ORDER BY height")
+            .fetch_all(first.pool())
+            .await
+            .expect("query chain");
+    assert_eq!(chain.len(), 1, "the losing genesis apply must leave no chain row");
+    assert_eq!(chain[0].0 as u64, winner.anchor.height);
+    assert_eq!(chain[0].1, winner.anchor.hash.as_byte_array().to_vec());
 }
 
 via_btc_ingestion_tests::ingestion_conformance_suite!(harness);

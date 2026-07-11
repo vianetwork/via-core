@@ -1,0 +1,7 @@
+ALTER TABLE via_ingestion_withdrawals DROP CONSTRAINT IF EXISTS via_ingestion_withdrawals_amount_nonneg;
+ALTER TABLE via_ingestion_deposits DROP CONSTRAINT IF EXISTS via_ingestion_deposits_amount_nonneg;
+ALTER TABLE via_ingestion_tracked_outputs DROP CONSTRAINT IF EXISTS via_ingestion_tracked_outputs_value_nonneg;
+ALTER TABLE via_ingestion_chain DROP CONSTRAINT IF EXISTS via_ingestion_chain_height_nonneg;
+ALTER TABLE via_ingestion_checkpoint DROP CONSTRAINT IF EXISTS via_ingestion_checkpoint_revision_nonneg;
+ALTER TABLE via_ingestion_checkpoint DROP CONSTRAINT IF EXISTS via_ingestion_checkpoint_height_nonneg;
+DROP TABLE IF EXISTS via_ingestion_lock;

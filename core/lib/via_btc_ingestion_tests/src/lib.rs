@@ -325,6 +325,7 @@ macro_rules! ingestion_conformance_suite {
             $crate::__conformance_case!($harness_fn, exact_transaction_remine);
             $crate::__conformance_case!($harness_fn, same_txid_different_witness_remine);
             $crate::__conformance_case!($harness_fn, alternate_branch_spender);
+            $crate::__conformance_case!($harness_fn, revert_restores_surviving_spender);
             $crate::__conformance_case!($harness_fn, deposit_reorg_safety_frontier);
             $crate::__conformance_case!($harness_fn, pruned_restart_has_zero_historical_fallback);
             $crate::__conformance_case!($harness_fn, three_adapter_semantic_equivalence);
@@ -1353,6 +1354,49 @@ pub async fn alternate_branch_spender<H: TestHarness>(harness: &H) {
         tracked.observed_spenders.contains(&spender_a_txid) && tracked.observed_spenders.contains(&spender_b_txid),
         "both spend observations remain as history: {:?}",
         tracked.observed_spenders
+    );
+}
+
+/// Reverting a later spend restores the spender that remains canonical at
+/// the ancestor. Reverting past that older spend then clears it.
+pub async fn revert_restores_surviving_spender<H: TestHarness>(harness: &H) {
+    let adapter = harness.fresh_adapter(Role::CoreSequencer).await;
+    let anchor_a = envelopes::anchor(START_HEIGHT, T0);
+    let funding = envelopes::payment_tx(envelopes::seed_outpoint(1), Amount::from_sat(70_000), bridge_script());
+    let funded = OutPoint { txid: funding.compute_txid(), vout: 0 };
+    apply_ok(harness, &adapter, &envelopes::envelope(anchor_a, vec![funding])).await;
+
+    let spender_a = envelopes::payment_tx(funded, Amount::from_sat(69_000), bitcoin::ScriptBuf::new());
+    let spender_a_txid = spender_a.compute_txid();
+    let anchor_b1 = envelopes::anchor(START_HEIGHT + 1, T0 + 600);
+    apply_ok(harness, &adapter, &envelopes::envelope(anchor_b1, vec![spender_a])).await;
+
+    let anchor_b2 = envelopes::anchor(START_HEIGHT + 2, T0 + 1200);
+    apply_ok(harness, &adapter, &envelopes::envelope(anchor_b2, vec![])).await;
+
+    let spender_b = envelopes::payment_tx(funded, Amount::from_sat(68_000), bitcoin::ScriptBuf::new());
+    let spender_b_txid = spender_b.compute_txid();
+    let anchor_b3 = envelopes::fork_anchor(1, START_HEIGHT + 3, anchor_b2.hash, T0 + 1800);
+    apply_ok(harness, &adapter, &envelopes::envelope(anchor_b3, vec![spender_b])).await;
+    assert_eq!(
+        harness.probe(&adapter).await.tracked_output(&funded).await.unwrap().canonical_spender,
+        Some(spender_b_txid)
+    );
+
+    let cp_b3 = checkpoint_of(harness, &adapter).await;
+    adapter.revert_to(cp_b3, anchor_b1).await.expect("revert later branch");
+    assert_eq!(
+        harness.probe(&adapter).await.tracked_output(&funded).await.unwrap().canonical_spender,
+        Some(spender_a_txid),
+        "the spender in the surviving ancestor block must be restored"
+    );
+
+    let cp_b1 = checkpoint_of(harness, &adapter).await;
+    adapter.revert_to(cp_b1, anchor_a).await.expect("revert older spend");
+    assert_eq!(
+        harness.probe(&adapter).await.tracked_output(&funded).await.unwrap().canonical_spender,
+        None,
+        "reverting past the older spend must leave the output unspent"
     );
 }
 
