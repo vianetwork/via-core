@@ -98,6 +98,7 @@ members = [
   "core/bin/via_block_reverter",
   "core/tests/via_loadnext",
   "core/bin/via_external_node",
+  "core/bin/via_ingestion_shadow",
   "core/node/via_consistency_checker",
   "core/lib/via_mempool",
   "core/lib/via_test_utils",
@@ -380,6 +381,7 @@ via_btc_client = { version = "0.1.0", path = "core/lib/via_btc_client" }
 via_btc_ingestion = { version = "0.1.0", path = "core/lib/via_btc_ingestion" }
 via_btc_ingestion_tests = { version = "0.1.0", path = "core/lib/via_btc_ingestion_tests" }
 via_ingestion_adapter = { version = "0.1.0", path = "core/lib/via_ingestion_adapter" }
+via_ingestion_shadow = { version = "0.1.0", path = "core/bin/via_ingestion_shadow" }
 via_da_clients = { version = "0.1.0", path = "core/lib/via_da_clients" }
 via_btc_watch = { version = "0.1.0", path = "core/node/via_btc_watch" }
 via_da_dispatcher = { version = "0.1.0", path = "core/node/via_da_dispatcher" }

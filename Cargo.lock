@@ -12202,6 +12202,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "via_ingestion_shadow"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "clap 4.5.23",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "via_btc_client",
+ "via_btc_ingestion",
+ "via_ingestion_adapter",
+ "zksync_config",
+ "zksync_types",
+]
+
+[[package]]
 name = "via_loadnext"
 version = "0.1.0"
 dependencies = [
