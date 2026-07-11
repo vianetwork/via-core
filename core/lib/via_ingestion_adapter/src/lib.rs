@@ -63,8 +63,39 @@ fn infra(e: impl std::fmt::Display) -> InfraError {
     InfraError(e.to_string())
 }
 
+/// Checked u64 to SQL BIGINT. Values above i64::MAX would silently become
+/// negative and corrupt height ordering and range queries.
+fn to_i64(v: u64) -> Result<i64, InfraError> {
+    i64::try_from(v).map_err(|_| infra(format!("value {v} exceeds BIGINT range")))
+}
+
+/// Checked read of a non-negative BIGINT.
+fn nonneg(v: i64) -> Result<u64, InfraError> {
+    u64::try_from(v).map_err(|_| infra(format!("stored value {v} is negative")))
+}
+
+/// Bumped whenever the byte layout of stored effect keys changes.
+const EFFECT_KEY_VERSION: u32 = 1;
+
+/// Canonical binary key for a stored effect: explicit wire tags and fixed
+/// byte order, so a serde or field-order change can never orphan rows.
 fn effect_key(effect: &EffectId) -> Vec<u8> {
-    serde_json::to_vec(effect).expect("EffectId serializes")
+    let mut out = Vec::with_capacity(96);
+    out.extend_from_slice(&EFFECT_KEY_VERSION.to_be_bytes());
+    out.extend_from_slice(effect.block_hash.as_byte_array());
+    out.extend_from_slice(&effect.ordinal.tx_index.to_be_bytes());
+    out.extend_from_slice(&effect.ordinal.location.wire_tag().to_be_bytes());
+    out.extend_from_slice(&effect.ordinal.location.index().to_be_bytes());
+    out.extend_from_slice(&effect.kind.wire_tag().to_be_bytes());
+    out.extend_from_slice(&effect.subject.wire_tag().to_be_bytes());
+    match effect.subject {
+        via_btc_ingestion::EffectSubject::Output(op) => {
+            out.extend_from_slice(op.txid.as_byte_array());
+            out.extend_from_slice(&op.vout.to_be_bytes());
+        }
+        via_btc_ingestion::EffectSubject::Tx(txid) => out.extend_from_slice(txid.as_byte_array()),
+    }
+    out
 }
 
 impl PgIngestionAdapter {
@@ -88,6 +119,16 @@ impl PgIngestionAdapter {
         self.fault.as_ref().is_some_and(|hook| hook(stage))
     }
 
+    /// Serialize on the pre-seeded lock row. The checkpoint row does not
+    /// exist before genesis, so it cannot be the serialization point.
+    async fn take_lock(&self, tx: &mut PgTx<'_, Postgres>) -> Result<(), InfraError> {
+        sqlx::query("SELECT id FROM via_ingestion_lock WHERE id FOR UPDATE")
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(infra)?;
+        Ok(())
+    }
+
     #[allow(clippy::type_complexity)]
     async fn load_checkpoint_tx(
         &self, tx: &mut PgTx<'_, Postgres>,
@@ -104,7 +145,7 @@ impl PgIngestionAdapter {
             let context: ProtocolContext = serde_json::from_value(blob).map_err(infra)?;
             Ok((
                 Checkpoint {
-                    height: height as u64,
+                    height: nonneg(height)?,
                     hash: block_hash_from(&hash)?,
                     kernel_version: KernelVersion(kv as u32),
                     observation_rule_version: ObservationRuleVersion(orv as u32),
@@ -141,6 +182,7 @@ impl AggregateAdapter for PgIngestionAdapter {
         plan.validate()?;
         let plan_hash = plan.plan_hash()?;
         let mut tx = self.pool.begin().await.map_err(infra)?;
+        self.take_lock(&mut tx).await?;
 
         let halted: Option<(serde_json::Value,)> =
             sqlx::query_as("SELECT halt_blob FROM via_ingestion_hard_reorg_halt WHERE id")
@@ -202,20 +244,30 @@ impl AggregateAdapter for PgIngestionAdapter {
         }
 
         for i in &plan.inclusions {
-            sqlx::query(
+            let res = sqlx::query(
                 "INSERT INTO via_ingestion_inclusions \
                  (block_hash, height, tx_index, txid, wtxid, canonical) \
                  VALUES ($1, $2, $3, $4, $5, TRUE) \
-                 ON CONFLICT (block_hash, tx_index) DO UPDATE SET canonical = TRUE",
+                 ON CONFLICT (block_hash, tx_index) DO UPDATE SET canonical = TRUE \
+                 WHERE via_ingestion_inclusions.height = EXCLUDED.height \
+                   AND via_ingestion_inclusions.txid = EXCLUDED.txid \
+                   AND via_ingestion_inclusions.wtxid = EXCLUDED.wtxid",
             )
             .bind(&block)
-            .bind(i.height as i64)
-            .bind(i.tx_index as i64)
+            .bind(to_i64(i.height)?)
+            .bind(i64::from(i.tx_index))
             .bind(i.txid.as_byte_array().to_vec())
             .bind(i.wtxid.as_byte_array().to_vec())
             .execute(&mut *tx)
             .await
             .map_err(infra)?;
+            if res.rows_affected() != 1 {
+                return Err(InfraError(format!(
+                    "inclusion slot ({}, {}) already holds a different transaction",
+                    plan.anchor.hash, i.tx_index
+                ))
+                .into());
+            }
         }
         if self.trip(Stage::AfterInclusions) {
             return Err(InfraError("injected fault: after inclusions".into()).into());
@@ -228,8 +280,8 @@ impl AggregateAdapter for PgIngestionAdapter {
                  VALUES ($1, $2, $3, $4, $5, NULL, $6) ON CONFLICT (txid, vout) DO NOTHING",
             )
             .bind(c.outpoint.txid.as_byte_array().to_vec())
-            .bind(c.outpoint.vout as i64)
-            .bind(c.value.to_sat() as i64)
+            .bind(i64::from(c.outpoint.vout))
+            .bind(to_i64(c.value.to_sat())?)
             .bind(c.script_pubkey.as_bytes().to_vec())
             .bind(c.role.wire_tag() as i16)
             .bind(&block)
@@ -244,10 +296,10 @@ impl AggregateAdapter for PgIngestionAdapter {
                  VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
             )
             .bind(s.outpoint.txid.as_byte_array().to_vec())
-            .bind(s.outpoint.vout as i64)
+            .bind(i64::from(s.outpoint.vout))
             .bind(s.spending_txid.as_byte_array().to_vec())
             .bind(s.spending_wtxid.as_byte_array().to_vec())
-            .bind(s.input_index as i64)
+            .bind(i64::from(s.input_index))
             .bind(&block)
             .execute(&mut *tx)
             .await
@@ -257,7 +309,7 @@ impl AggregateAdapter for PgIngestionAdapter {
                  WHERE txid = $1 AND vout = $2",
             )
             .bind(s.outpoint.txid.as_byte_array().to_vec())
-            .bind(s.outpoint.vout as i64)
+            .bind(i64::from(s.outpoint.vout))
             .bind(s.spending_txid.as_byte_array().to_vec())
             .execute(&mut *tx)
             .await
@@ -286,9 +338,9 @@ impl AggregateAdapter for PgIngestionAdapter {
                      VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
                 )
                 .bind(&block)
-                .bind(d.ordinal.tx_index as i64)
+                .bind(i64::from(d.ordinal.tx_index))
                 .bind(d.ordinal.location.wire_tag() as i16)
-                .bind(d.ordinal.location.index() as i64)
+                .bind(i64::from(d.ordinal.location.index()))
                 .bind(code.wire_tag() as i16)
                 .execute(&mut *tx)
                 .await
@@ -305,10 +357,10 @@ impl AggregateAdapter for PgIngestionAdapter {
              (height, block_hash, prev_hash, header_time, plan_hash, context_blob) \
              VALUES ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(plan.anchor.height as i64)
+        .bind(to_i64(plan.anchor.height)?)
         .bind(&block)
         .bind(plan.anchor.prev_hash.as_byte_array().to_vec())
-        .bind(plan.anchor.time as i64)
+        .bind(i64::from(plan.anchor.time))
         .bind(plan_hash.to_vec())
         .bind(&context_blob)
         .execute(&mut *tx)
@@ -327,7 +379,7 @@ impl AggregateAdapter for PgIngestionAdapter {
               kernel_version = $3, observation_rule_version = $4, context_hash = $5, \
               last_plan_hash = $6, context_blob = $7, updated_at = now()",
         )
-        .bind(plan.anchor.height as i64)
+        .bind(to_i64(plan.anchor.height)?)
         .bind(&block)
         .bind(plan.kernel_version.0 as i32)
         .bind(plan.observation_rule_version.0 as i32)
@@ -357,6 +409,7 @@ impl AggregateAdapter for PgIngestionAdapter {
         &self, expected_checkpoint: Checkpoint, ancestor: BlockAnchor,
     ) -> Result<RevertReceipt, RevertError> {
         let mut tx = self.pool.begin().await.map_err(infra)?;
+        self.take_lock(&mut tx).await?;
         let stored = self.load_checkpoint_tx(&mut tx).await?;
         let stored_cp = stored.as_ref().map(|(cp, _)| *cp);
         if stored_cp != Some(expected_checkpoint) {
@@ -371,12 +424,26 @@ impl AggregateAdapter for PgIngestionAdapter {
             .map_err(infra)?;
 
         if ancestor.hash == expected_checkpoint.hash {
+            let stored: Option<(i64, Vec<u8>, i64)> =
+                sqlx::query_as("SELECT height, prev_hash, header_time FROM via_ingestion_chain WHERE block_hash = $1")
+                    .bind(ancestor.hash.as_byte_array().to_vec())
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(infra)?;
+            let matches = stored.is_some_and(|(height, prev, time)| {
+                height as u64 == ancestor.height
+                    && prev == ancestor.prev_hash.as_byte_array().to_vec()
+                    && time as u32 == ancestor.time
+            });
+            if !matches {
+                return Err(RevertError::UnknownAncestor(ancestor.hash));
+            }
             tx.commit().await.map_err(infra)?;
             return Ok(RevertReceipt { reverted_to: ancestor, canonical_revision: revision as u64 });
         }
         let ancestor_row: Option<(Vec<u8>, serde_json::Value, Vec<u8>)> =
             sqlx::query_as("SELECT block_hash, context_blob, plan_hash FROM via_ingestion_chain WHERE height = $1")
-                .bind(ancestor.height as i64)
+                .bind(to_i64(ancestor.height)?)
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(infra)?;
@@ -391,19 +458,26 @@ impl AggregateAdapter for PgIngestionAdapter {
             "UPDATE via_ingestion_inclusions SET canonical = FALSE WHERE block_hash IN \
              (SELECT block_hash FROM via_ingestion_chain WHERE height > $1)",
         )
-        .bind(ancestor.height as i64)
+        .bind(to_i64(ancestor.height)?)
         .execute(&mut *tx)
         .await
         .map_err(infra)?;
+        // Recompute the canonical spender from spend observations whose
+        // block survives at or below the ancestor; clearing alone would
+        // lose an older spender that is still canonical.
         sqlx::query(
-            "UPDATE via_ingestion_tracked_outputs o SET canonical_spender_txid = NULL \
+            "UPDATE via_ingestion_tracked_outputs o SET canonical_spender_txid = (\
+                SELECT s.spending_txid FROM via_ingestion_tracked_spends s \
+                JOIN via_ingestion_chain c ON c.block_hash = s.block_hash \
+                WHERE s.txid = o.txid AND s.vout = o.vout AND c.height <= $1 \
+                ORDER BY c.height DESC LIMIT 1) \
              WHERE canonical_spender_txid IS NOT NULL AND EXISTS (\
                 SELECT 1 FROM via_ingestion_tracked_spends s \
                 JOIN via_ingestion_chain c ON c.block_hash = s.block_hash \
                 WHERE s.txid = o.txid AND s.vout = o.vout \
                   AND s.spending_txid = o.canonical_spender_txid AND c.height > $1)",
         )
-        .bind(ancestor.height as i64)
+        .bind(to_i64(ancestor.height)?)
         .execute(&mut *tx)
         .await
         .map_err(infra)?;
@@ -411,7 +485,7 @@ impl AggregateAdapter for PgIngestionAdapter {
             "DELETE FROM via_ingestion_tracked_outputs WHERE created_block_hash IN \
              (SELECT block_hash FROM via_ingestion_chain WHERE height > $1)",
         )
-        .bind(ancestor.height as i64)
+        .bind(to_i64(ancestor.height)?)
         .execute(&mut *tx)
         .await
         .map_err(infra)?;
@@ -433,7 +507,7 @@ impl AggregateAdapter for PgIngestionAdapter {
                 "DELETE FROM {table} WHERE block_hash IN \
                  (SELECT block_hash FROM via_ingestion_chain WHERE height > $1)"
             ))
-            .bind(ancestor.height as i64)
+            .bind(to_i64(ancestor.height)?)
             .execute(&mut *tx)
             .await
             .map_err(infra)?;
@@ -446,7 +520,7 @@ impl AggregateAdapter for PgIngestionAdapter {
             return Err(InfraError("injected fault: revert context restore".into()).into());
         }
         sqlx::query("DELETE FROM via_ingestion_chain WHERE height > $1")
-            .bind(ancestor.height as i64)
+            .bind(to_i64(ancestor.height)?)
             .execute(&mut *tx)
             .await
             .map_err(infra)?;
@@ -457,7 +531,7 @@ impl AggregateAdapter for PgIngestionAdapter {
              context_hash = $3, last_plan_hash = $4, context_blob = $5, \
              canonical_revision = canonical_revision + 1, updated_at = now() WHERE id",
         )
-        .bind(ancestor.height as i64)
+        .bind(to_i64(ancestor.height)?)
         .bind(anc_hash)
         .bind(anc_ctx.context_hash().to_vec())
         .bind(anc_plan_hash)
@@ -499,14 +573,17 @@ impl AggregateAdapter for PgIngestionAdapter {
     }
 
     async fn record_hard_reorg_halt(&self, halt: HardReorgHalt) -> Result<(), InfraError> {
+        let mut tx = self.pool.begin().await.map_err(infra)?;
+        self.take_lock(&mut tx).await?;
         sqlx::query(
             "INSERT INTO via_ingestion_hard_reorg_halt (id, halt_blob) VALUES (TRUE, $1) \
              ON CONFLICT (id) DO UPDATE SET halt_blob = $1",
         )
         .bind(serde_json::to_value(&halt).map_err(infra)?)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(infra)?;
+        tx.commit().await.map_err(infra)?;
         Ok(())
     }
 
@@ -522,8 +599,8 @@ impl AggregateAdapter for PgIngestionAdapter {
     async fn audit_coverage(&self, from_height: u64, to_height: u64) -> Result<CoverageReport, InfraError> {
         let (count,): (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM via_ingestion_chain WHERE height BETWEEN $1 AND $2")
-                .bind(from_height as i64)
-                .bind(to_height as i64)
+                .bind(to_i64(from_height)?)
+                .bind(to_i64(to_height)?)
                 .fetch_one(&self.pool)
                 .await
                 .map_err(infra)?;
@@ -556,14 +633,14 @@ async fn project_event(
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
             )
             .bind(block)
-            .bind(plan.anchor.height as i64)
-            .bind(plan.anchor.time as i64)
-            .bind(d.ordinal.tx_index as i64)
+            .bind(to_i64(plan.anchor.height)?)
+            .bind(i64::from(plan.anchor.time))
+            .bind(i64::from(d.ordinal.tx_index))
             .bind(d.ordinal.location.wire_tag() as i16)
-            .bind(d.ordinal.location.index() as i64)
+            .bind(i64::from(d.ordinal.location.index()))
             .bind(d.subject.txid.as_byte_array().to_vec())
-            .bind(d.subject.vout as i64)
-            .bind(d.amount.to_sat() as i64)
+            .bind(i64::from(d.subject.vout))
+            .bind(to_i64(d.amount.to_sat())?)
             .bind(d.receiver.to_vec())
             .bind(d.l2_contract.to_vec())
             .bind(d.call_data.clone())
@@ -582,7 +659,7 @@ async fn project_event(
             )
             .bind(block)
             .bind(b.subject_txid.as_byte_array().to_vec())
-            .bind(b.l1_batch_index as i64)
+            .bind(to_i64(b.l1_batch_index)?)
             .bind(b.l1_batch_hash.to_vec())
             .bind(b.prev_l1_batch_hash.to_vec())
             .bind(&b.da_identifier)
@@ -602,7 +679,7 @@ async fn project_event(
             .bind(&p.da_identifier)
             .bind(&p.blob_id)
             .bind(p.batch.reveal_txid.as_byte_array().to_vec())
-            .bind(p.batch.l1_batch_index as i64)
+            .bind(to_i64(p.batch.l1_batch_index)?)
             .bind(p.batch.l1_batch_hash.to_vec())
             .execute(&mut **tx)
             .await
@@ -619,7 +696,7 @@ async fn project_event(
             .bind(a.reference_txid.as_byte_array().to_vec())
             .bind(a.attester_script.as_bytes().to_vec())
             .bind(a.ok)
-            .bind(a.batch.l1_batch_index as i64)
+            .bind(to_i64(a.batch.l1_batch_index)?)
             .execute(&mut **tx)
             .await
             .map_err(infra)?;
@@ -643,9 +720,9 @@ async fn project_event(
                 .bind(w.subject_txid.as_byte_array().to_vec())
                 .bind(index as i64)
                 .bind(wd.l2_id.to_vec())
-                .bind(wd.l2_tx_event_index as i32)
+                .bind(i32::from(wd.l2_tx_event_index))
                 .bind(wd.receiver_script.as_bytes().to_vec())
-                .bind(wd.amount.to_sat() as i64)
+                .bind(to_i64(wd.amount.to_sat())?)
                 .execute(&mut **tx)
                 .await
                 .map_err(infra)?;
@@ -709,8 +786,8 @@ async fn insert_protocol_version(
          VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
     )
     .bind(block)
-    .bind(version.minor as i64)
-    .bind(version.patch as i64)
+    .bind(i64::from(version.minor))
+    .bind(i64::from(version.patch))
     .execute(&mut **tx)
     .await
     .map_err(infra)?;
@@ -760,8 +837,8 @@ impl ObservationReader for PgObservationReader {
         }
         let inclusion = via_btc_ingestion::Inclusion {
             block_hash: BlockHash::from_byte_array(block_hash.try_into().map_err(|_| read_infra("bad stored hash"))?),
-            height: height as u64,
-            tx_index: tx_index as u32,
+            height: u64::try_from(height).map_err(|_| read_infra("negative stored height"))?,
+            tx_index: u32::try_from(tx_index).map_err(|_| read_infra("stored tx_index out of range"))?,
             txid: *txid,
             wtxid: variant.wtxid(),
         };
@@ -789,20 +866,23 @@ impl ObservationReader for PgObservationReader {
              WHERE txid = $1 AND vout = $2",
         )
         .bind(outpoint.txid.as_byte_array().to_vec())
-        .bind(outpoint.vout as i64)
+        .bind(i64::from(outpoint.vout))
         .fetch_optional(&self.pool)
         .await
         .map_err(read_infra)?;
-        Ok(row.map(|(value, script, role)| TrackedOutputCreate {
-            outpoint: *outpoint,
-            value: Amount::from_sat(value as u64),
-            script_pubkey: ScriptBuf::from_bytes(script),
-            role: match role {
-                0 => TrackedRole::Bridge,
-                1 => TrackedRole::Sequencer,
-                _ => TrackedRole::Governance,
-            },
-        }))
+        row.map(|(value, script, role)| {
+            Ok(TrackedOutputCreate {
+                outpoint: *outpoint,
+                value: Amount::from_sat(u64::try_from(value).map_err(|_| read_infra("negative stored value"))?),
+                script_pubkey: ScriptBuf::from_bytes(script),
+                role: match role {
+                    0 => TrackedRole::Bridge,
+                    1 => TrackedRole::Sequencer,
+                    _ => TrackedRole::Governance,
+                },
+            })
+        })
+        .transpose()
     }
 }
 
