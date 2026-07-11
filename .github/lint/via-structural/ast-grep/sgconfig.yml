@@ -36,6 +36,11 @@ rules:
       - "core/lib/via_*/**/*.rs"
       - "core/lib/types/src/**/*.rs"
 
+  - include: "via-btc-ingestion-no-zksync"
+    glob:
+      - "core/lib/via_btc_ingestion/**/*.rs"
+      - "core/lib/via_btc_ingestion_tests/**/*.rs"
+
   - include: "via-workflow-ref-env-write-validation"
     glob:
       - ".github/workflows/*.yml"

@@ -1,3 +1,5 @@
+#![deny(clippy::expect_used, clippy::unwrap_used)]
+
 //! Typed contract for the Via ingestion kernel
 //! (architecture: `docs/ingestion/ingestion-kernel.md`).
 //!
@@ -112,6 +114,8 @@ pub struct RawBytesError(String);
 
 impl RawTxVariant {
     /// Build from a full transaction, deriving all identities from the bytes.
+    // Encoding into an in-memory byte vector is infallible.
+    #[allow(clippy::expect_used)]
     pub fn from_transaction(tx: &Transaction) -> Self {
         let mut raw = Vec::new();
         tx.consensus_encode(&mut raw).expect("in-memory encoding cannot fail");
@@ -1396,6 +1400,8 @@ pub enum ReorgImpact {
     AncestorUnavailableOrBeyondPolicy,
 }
 
+// Test assertions use panicking conveniences and fixture-bounded indices.
+#[allow(clippy::cast_possible_truncation, clippy::expect_used, clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
     use super::*;

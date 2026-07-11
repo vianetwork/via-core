@@ -1,0 +1,30 @@
+id: via-btc-ingestion-no-zksync
+language: Rust
+severity: warning
+message: |
+  zksync dependency path detected in the Bitcoin ingestion contract boundary.
+  Keep via_btc_ingestion and via_btc_ingestion_tests free of zksync dependencies;
+  translate upstream types in an outer adapter instead.
+note: |
+  This rule is scoped to the shared ingestion contract and its acceptance suite
+  through sgconfig.yml and the structural-rule runner.
+rule:
+  any:
+    - all:
+        - kind: use_declaration
+        - regex: '\bzksync_[A-Za-z0-9_]*\b'
+    - all:
+        - any:
+            - kind: scoped_identifier
+            - kind: scoped_type_identifier
+        - regex: '^zksync_[A-Za-z0-9_]*::'
+        - not:
+            inside:
+              kind: use_declaration
+              stopBy: end
+metadata:
+  category: architecture
+  related:
+    - bitcoin-ingestion
+    - dependency-boundary
+    - zksync

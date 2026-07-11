@@ -1,3 +1,5 @@
+#![deny(clippy::expect_used, clippy::unwrap_used)]
+
 //! Postgres implementation of the ingestion kernel's [`AggregateAdapter`].
 //!
 //! One adapter serves all three node databases. The shadow schema is the
@@ -299,7 +301,7 @@ impl AggregateAdapter for PgIngestionAdapter {
             .bind(i64::from(c.outpoint.vout))
             .bind(to_i64(c.value.to_sat())?)
             .bind(c.script_pubkey.as_bytes().to_vec())
-            .bind(c.role.wire_tag() as i16)
+            .bind(i16::try_from(c.role.wire_tag()).map_err(|_| infra("role wire tag exceeds SMALLINT range"))?)
             .bind(&block)
             .execute(&mut *tx)
             .await
@@ -355,9 +357,15 @@ impl AggregateAdapter for PgIngestionAdapter {
                 )
                 .bind(&block)
                 .bind(i64::from(d.ordinal.tx_index))
-                .bind(d.ordinal.location.wire_tag() as i16)
+                .bind(
+                    i16::try_from(d.ordinal.location.wire_tag())
+                        .map_err(|_| infra("location wire tag exceeds SMALLINT range"))?,
+                )
                 .bind(i64::from(d.ordinal.location.index()))
-                .bind(code.wire_tag() as i16)
+                .bind(
+                    i16::try_from(code.wire_tag())
+                        .map_err(|_| infra("rejection code wire tag exceeds SMALLINT range"))?,
+                )
                 .execute(&mut *tx)
                 .await
                 .map_err(infra)?;
@@ -397,8 +405,11 @@ impl AggregateAdapter for PgIngestionAdapter {
         )
         .bind(to_i64(plan.anchor.height)?)
         .bind(&block)
-        .bind(plan.kernel_version.0 as i32)
-        .bind(plan.observation_rule_version.0 as i32)
+        .bind(i32::try_from(plan.kernel_version.0).map_err(|_| infra("kernel version exceeds INTEGER range"))?)
+        .bind(
+            i32::try_from(plan.observation_rule_version.0)
+                .map_err(|_| infra("observation rule version exceeds INTEGER range"))?,
+        )
         .bind(plan.next_context.context_hash().to_vec())
         .bind(plan_hash.to_vec())
         .bind(&context_blob)
@@ -557,7 +568,7 @@ impl AggregateAdapter for PgIngestionAdapter {
         if ack_lost {
             return Err(RevertError::CommitIndeterminate);
         }
-        Ok(RevertReceipt { reverted_to: ancestor, canonical_revision: (revision + 1) as u64 })
+        Ok(RevertReceipt { reverted_to: ancestor, canonical_revision: nonneg(revision)? + 1 })
     }
 
     async fn downstream_consumed(&self, effects: &[EffectId]) -> Result<Vec<EffectId>, InfraError> {
@@ -615,7 +626,7 @@ impl AggregateAdapter for PgIngestionAdapter {
         Ok(CoverageReport {
             from_height,
             to_height,
-            contiguous: count as u64 == expected,
+            contiguous: nonneg(count)? == expected,
             unresolved_dependencies: vec![],
         })
     }
@@ -643,7 +654,10 @@ async fn project_event(
             .bind(to_i64(plan.anchor.height)?)
             .bind(i64::from(plan.anchor.time))
             .bind(i64::from(d.ordinal.tx_index))
-            .bind(d.ordinal.location.wire_tag() as i16)
+            .bind(
+                i16::try_from(d.ordinal.location.wire_tag())
+                    .map_err(|_| infra("location wire tag exceeds SMALLINT range"))?,
+            )
             .bind(i64::from(d.ordinal.location.index()))
             .bind(d.subject.txid.as_byte_array().to_vec())
             .bind(i64::from(d.subject.vout))
@@ -652,7 +666,10 @@ async fn project_event(
             .bind(d.l2_contract.to_vec())
             .bind(d.call_data.clone())
             .bind(d.sender_script.as_ref().map(|s| s.as_bytes().to_vec()))
-            .bind(d.encoding.wire_tag() as i16)
+            .bind(
+                i16::try_from(d.encoding.wire_tag())
+                    .map_err(|_| infra("deposit encoding wire tag exceeds SMALLINT range"))?,
+            )
             .bind(source_wtxid.as_byte_array().to_vec())
             .execute(&mut **tx)
             .await

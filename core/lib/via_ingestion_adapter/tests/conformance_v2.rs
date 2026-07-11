@@ -1,3 +1,6 @@
+// Database rows contain only contract-bounded values created by these fixtures.
+#![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+
 //! Runs the full ingestion acceptance suite against the independent v2 engine and real Postgres.
 //!
 //! Each test clones a fresh database from the family's migrated template

@@ -10,6 +10,11 @@ license.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[lints.clippy]
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_sign_loss = "deny"
+
 [dependencies]
 anyhow.workspace = true
 bitcoin.workspace = true
