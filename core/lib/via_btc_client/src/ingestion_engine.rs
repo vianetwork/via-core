@@ -1808,4 +1808,128 @@ mod tests {
         );
         assert_eq!(first.plan_hash().unwrap(), second.plan_hash().unwrap());
     }
+
+    #[test]
+    fn update_bridge_activation_lists_its_proposal_dependency() {
+        let engine = ViaProtocolEngine::new(Network::Regtest);
+        let proposal_txid = Txid::from_byte_array([0xC1; 32]);
+        let tx = op_return(b"VIA_PROTOCOL:BRI".to_vec());
+        let activation = rotation_tx(
+            OutPoint {
+                txid: Txid::from_byte_array([0xC2; 32]),
+                vout: 0,
+            },
+            b"VIA_PROTOCOL:BRI",
+            proposal_txid.as_byte_array(),
+        );
+        let _ = tx;
+        let (_, keys) = engine.inspect(&envelope(140, vec![activation]), &context());
+        assert!(
+            keys.contains(&DependencyKey::RawTx(proposal_txid)),
+            "an UpdateBridge activation must discover its proposal transaction, got {keys:?}"
+        );
+    }
+
+    #[test]
+    fn pure_inscription_deposit_is_tagged_inscription() {
+        let engine = ViaProtocolEngine::new(Network::Regtest);
+        let receiver = EvmAddress::from([0x52; 20]);
+        let message = InscriptionMessage::L1ToL2Message(L1ToL2MessageInput {
+            receiver_l2_address: receiver,
+            l2_contract_address: EvmAddress::from([0x62; 20]),
+            call_data: vec![],
+        });
+        // Witness inscription plus a bridge output, but no OP_RETURN receiver.
+        let tx = inscribed_tx(
+            seeded_outpoint(28),
+            27,
+            28,
+            message,
+            vec![bridge_output(33_000)],
+            Network::Regtest,
+        );
+        let plan = complete_plan(&engine, &envelope(104, vec![tx]), &context(), []);
+        let d = deposits(&plan);
+        assert_eq!(d.len(), 1);
+        assert_eq!(
+            d[0].encoding,
+            DepositEncoding::Inscription,
+            "a witness-only deposit must be tagged Inscription, not Both or OpReturn"
+        );
+        assert!(matches!(d[0].ordinal.location, MessageLocation::Input(_)));
+    }
+
+    #[test]
+    fn same_block_governance_output_authorizes_a_rotation() {
+        let engine = ViaProtocolEngine::new(Network::Regtest);
+        let ctx = context();
+        // A funding transaction pays the governance script; a later
+        // transaction in the SAME block spends it to authorize a rotation.
+        // This exercises the in-envelope tracked-role path, where the role
+        // is derived from the created output's script, not a stored row.
+        let funding = transaction(
+            vec![external_input(seeded_outpoint(60), bitcoin::Witness::new())],
+            vec![TxOut {
+                value: Amount::from_sat(50_000),
+                script_pubkey: ctx.wallets.governance.clone(),
+            }],
+        );
+        let funded = OutPoint {
+            txid: funding.compute_txid(),
+            vout: 0,
+        };
+        let new_sequencer = p2wpkh(47, Network::Regtest).0;
+        let rotation = rotation_tx(
+            funded,
+            b"VIA_PROTOCOL:SEQ",
+            new_sequencer.to_string().as_bytes(),
+        );
+        let plan = complete_plan(&engine, &envelope(142, vec![funding, rotation]), &ctx, []);
+        assert!(
+            matches!(&plan.events[..], [ProtocolEvent::WalletRotation(_)]),
+            "spending a same-block governance output must authorize the rotation, got {:?}",
+            plan.dispositions
+        );
+        assert_eq!(
+            plan.next_context.wallets.sequencer,
+            new_sequencer.script_pubkey()
+        );
+    }
+
+    #[test]
+    fn bridge_and_governance_rotations_require_a_governance_input() {
+        let engine = ViaProtocolEngine::new(Network::Regtest);
+        let new_addr = p2wpkh(46, Network::Regtest).0.to_string();
+        // Bridge activation references a proposal txid; governance rotation
+        // carries a new address. Each must reject before its own decoding.
+        let cases: [(&[u8], Vec<u8>); 2] = [
+            (b"VIA_PROTOCOL:BRI".as_slice(), [0x44; 32].to_vec()),
+            (b"VIA_PROTOCOL:GOV".as_slice(), new_addr.as_bytes().to_vec()),
+        ];
+        for (prefix, payload) in cases {
+            let outpoint = OutPoint {
+                txid: Txid::from_byte_array([0xD3; 32]),
+                vout: 0,
+            };
+            let tx = rotation_tx(outpoint, prefix, &payload);
+            // First input spends an untracked outpoint: not governance-authorized.
+            let plan = complete_plan(&engine, &envelope(141, vec![tx]), &context(), []);
+            assert!(
+                plan.events.is_empty(),
+                "{}: unauthorized rotation must not become an event",
+                String::from_utf8_lossy(prefix)
+            );
+            assert!(
+                plan.dispositions.iter().any(|d| matches!(
+                    d.kind,
+                    DispositionKind::RejectedInvalid {
+                        code: RejectionCode::Unauthorized,
+                        ..
+                    }
+                )),
+                "{}: must reject as Unauthorized",
+                String::from_utf8_lossy(prefix)
+            );
+        }
+    }
 }
