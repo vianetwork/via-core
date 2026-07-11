@@ -154,7 +154,9 @@ pub struct Inclusion {
     pub wtxid: Wtxid,
 }
 
-/// Why an output is tracked.
+/// Why an output is tracked. `Sequencer` is reserved: no observation rule
+/// creates it yet (sequencer identity is input-signer based today), but the
+/// wire tag is pinned so a future rule cannot renumber the others.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrackedRole {
     Bridge,
