@@ -77,6 +77,17 @@ fn nonneg(v: i64) -> Result<u64, InfraError> {
 /// Bumped whenever the byte layout of stored effect keys changes.
 const EFFECT_KEY_VERSION: u32 = 1;
 
+const FACT_TABLES: [&str; 8] = [
+    "via_ingestion_deposits",
+    "via_ingestion_batch_refs",
+    "via_ingestion_proof_refs",
+    "via_ingestion_votes",
+    "via_ingestion_withdrawals",
+    "via_ingestion_wallet_history",
+    "via_ingestion_protocol_versions",
+    "via_ingestion_rejections",
+];
+
 /// Canonical binary key for a stored effect: explicit wire tags and fixed
 /// byte order, so a serde or field-order change can never orphan rows.
 fn effect_key(effect: &EffectId) -> Vec<u8> {
@@ -147,8 +158,13 @@ impl PgIngestionAdapter {
                 Checkpoint {
                     height: nonneg(height)?,
                     hash: block_hash_from(&hash)?,
-                    kernel_version: KernelVersion(kv as u32),
-                    observation_rule_version: ObservationRuleVersion(orv as u32),
+                    kernel_version: KernelVersion(
+                        u32::try_from(kv).map_err(|_| infra(format!("stored kernel version {kv} is negative")))?,
+                    ),
+                    observation_rule_version: ObservationRuleVersion(
+                        u32::try_from(orv)
+                            .map_err(|_| infra(format!("stored observation rule version {orv} is negative")))?,
+                    ),
                     context_hash: hash32_from(&ctx_hash)?,
                     last_plan_hash: hash32_from(&plan_hash)?,
                 },
@@ -431,15 +447,15 @@ impl AggregateAdapter for PgIngestionAdapter {
                     .await
                     .map_err(infra)?;
             let matches = stored.is_some_and(|(height, prev, time)| {
-                height as u64 == ancestor.height
+                u64::try_from(height).ok() == Some(ancestor.height)
                     && prev == ancestor.prev_hash.as_byte_array().to_vec()
-                    && time as u32 == ancestor.time
+                    && u32::try_from(time).ok() == Some(ancestor.time)
             });
             if !matches {
                 return Err(RevertError::UnknownAncestor(ancestor.hash));
             }
             tx.commit().await.map_err(infra)?;
-            return Ok(RevertReceipt { reverted_to: ancestor, canonical_revision: revision as u64 });
+            return Ok(RevertReceipt { reverted_to: ancestor, canonical_revision: nonneg(revision)? });
         }
         let ancestor_row: Option<(Vec<u8>, serde_json::Value, Vec<u8>)> =
             sqlx::query_as("SELECT block_hash, context_blob, plan_hash FROM via_ingestion_chain WHERE height = $1")
@@ -493,16 +509,7 @@ impl AggregateAdapter for PgIngestionAdapter {
             return Err(InfraError("injected fault: revert canonical unwind".into()).into());
         }
 
-        for table in [
-            "via_ingestion_deposits",
-            "via_ingestion_batch_refs",
-            "via_ingestion_proof_refs",
-            "via_ingestion_votes",
-            "via_ingestion_withdrawals",
-            "via_ingestion_wallet_history",
-            "via_ingestion_protocol_versions",
-            "via_ingestion_rejections",
-        ] {
+        for table in FACT_TABLES {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE block_hash IN \
                  (SELECT block_hash FROM via_ingestion_chain WHERE height > $1)"
@@ -711,6 +718,7 @@ async fn project_event(
         }
         ProtocolEvent::BridgeWithdrawal(w) => {
             for (index, wd) in w.withdrawals.iter().enumerate() {
+                let index = i64::try_from(index).map_err(|_| infra("withdrawal index exceeds BIGINT range"))?;
                 sqlx::query(
                     "INSERT INTO via_ingestion_withdrawals \
                      (block_hash, subject_txid, withdrawal_index, l2_id, l2_tx_event_index, \
@@ -718,7 +726,7 @@ async fn project_event(
                 )
                 .bind(block)
                 .bind(w.subject_txid.as_byte_array().to_vec())
-                .bind(index as i64)
+                .bind(index)
                 .bind(wd.l2_id.to_vec())
                 .bind(i32::from(wd.l2_tx_event_index))
                 .bind(wd.receiver_script.as_bytes().to_vec())
@@ -739,7 +747,8 @@ async fn project_event(
             via_btc_ingestion::WalletRotation::Bridge { new_bridge_script, new_verifier_scripts, .. } => {
                 insert_wallet_row(tx, block, r.subject_txid, 0, new_bridge_script, None).await?;
                 for (pos, script) in new_verifier_scripts.iter().enumerate() {
-                    insert_wallet_row(tx, block, r.subject_txid, 3, script, Some(pos as i64)).await?;
+                    let pos = i64::try_from(pos).map_err(|_| infra("verifier position exceeds BIGINT range"))?;
+                    insert_wallet_row(tx, block, r.subject_txid, 3, script, Some(pos)).await?;
                 }
             }
         },
@@ -754,7 +763,8 @@ async fn insert_wallet_history(
     insert_wallet_row(tx, block, subject, 1, &wallets.sequencer, None).await?;
     insert_wallet_row(tx, block, subject, 2, &wallets.governance, None).await?;
     for (pos, script) in wallets.verifiers.iter().enumerate() {
-        insert_wallet_row(tx, block, subject, 3, script, Some(pos as i64)).await?;
+        let pos = i64::try_from(pos).map_err(|_| infra("verifier position exceeds BIGINT range"))?;
+        insert_wallet_row(tx, block, subject, 3, script, Some(pos)).await?;
     }
     Ok(())
 }
