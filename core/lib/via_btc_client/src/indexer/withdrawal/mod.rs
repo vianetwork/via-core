@@ -30,9 +30,10 @@ pub struct L1Withdrawal {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct L2WithdrawalMeta {
-    /// First 8 bytes of the L2 hash, stored as hex (16 chars)
+    /// 10 bytes as hex: 8-byte L2 hash prefix + 2-byte log index. The
+    /// verifier matches withdrawals on this whole value; do not shorten it.
     pub l2_id: String,
-    /// The next 2 bytes contains the index of the log where the withdrawal was executed
+    /// The log index, same as the last 2 bytes of `l2_id`.
     pub l2_tx_event_index: u16,
 }
 
