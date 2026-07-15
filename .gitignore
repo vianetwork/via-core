@@ -20,6 +20,10 @@ tags
 # Local agent / AI working directory (never commit)
 .agents/
 .antigravitycli/
+.smithers/
+smithers.db*
+.codebase-memory/
+.omp/
 
 # Local LLM-wiki / agent-harness knowledge base (experimental, not committed yet)
 llm-wiki/
