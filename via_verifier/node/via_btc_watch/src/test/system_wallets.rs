@@ -6,12 +6,21 @@ mod tests {
     use via_test_utils::utils::{
         create_update_bridge_inscription, create_update_governance_inscription,
         create_update_sequencer_inscription, random_bitcoin_wallet, test_bitcoin_client,
-        test_create_indexer, test_wallets,
+        test_bitcoin_client_serving_transaction, test_create_indexer,
+        test_system_contract_upgrade_activation, test_system_contract_upgrade_proposal,
+        test_system_contract_upgrade_proposal_input,
+        test_system_contract_upgrade_proposal_transaction, test_wallets,
     };
-    use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
-    use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails};
+    use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
+    use zksync_types::{
+        protocol_version::ProtocolSemanticVersion,
+        via_wallet::{SystemWallets, SystemWalletsDetails},
+    };
 
-    use crate::{message_processors::SystemWalletProcessor, MessageProcessor};
+    use crate::{
+        message_processors::{GovernanceUpgradesEventProcessor, SystemWalletProcessor},
+        MessageProcessor,
+    };
 
     #[tokio::test]
     async fn test_update_sequencer_wallet() -> anyhow::Result<()> {
@@ -213,7 +222,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_update_governance_bridge_wallet_and_sequencer() -> anyhow::Result<()> {
+    async fn test_update_governance_bridge_sequencer_and_upgrade() -> anyhow::Result<()> {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
         let mut indexer = test_create_indexer();
 
@@ -281,6 +290,57 @@ mod tests {
 
         assert_eq!(system_wallets_db, new_wallets);
 
+        let proposal_input = test_system_contract_upgrade_proposal_input();
+        let proposal_tx =
+            test_system_contract_upgrade_proposal_transaction(&proposal_input).await?;
+        let proposal_tx_id = proposal_tx.compute_txid();
+        let (btc_client, rpc_server) =
+            test_bitcoin_client_serving_transaction(proposal_tx, 2)?;
+        let mut upgrade_processor =
+            GovernanceUpgradesEventProcessor::new(Arc::new(btc_client));
+        let mut storage = pool.connection().await?;
+
+        upgrade_processor
+            .process_messages(
+                &mut storage,
+                vec![test_system_contract_upgrade_proposal(
+                    proposal_input.clone(),
+                )],
+                &mut indexer,
+            )
+            .await?;
+        assert_eq!(
+            protocol_patch_count(&mut storage, proposal_input.version).await?,
+            0
+        );
+
+        let activation = test_system_contract_upgrade_activation(proposal_tx_id);
+        upgrade_processor
+            .process_messages(
+                &mut storage,
+                vec![activation.clone(), activation],
+                &mut indexer,
+            )
+            .await?;
+        assert_eq!(
+            protocol_patch_count(&mut storage, proposal_input.version).await?,
+            1
+        );
+        rpc_server.join().unwrap()?;
+
         Ok(())
+    }
+
+    async fn protocol_patch_count(
+        storage: &mut Connection<'_, Verifier>,
+        version: ProtocolSemanticVersion,
+    ) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT COUNT(*) FROM protocol_patches WHERE minor = $1 AND patch = $2",
+        )
+        .bind(version.minor as i32)
+        .bind(version.patch.0 as i32)
+        .fetch_one(storage.conn())
+        .await?)
     }
 }

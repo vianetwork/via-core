@@ -823,8 +823,8 @@ impl MessageParser {
             H256::from_slice(instructions.get(5)?.push_bytes()?.as_bytes());
         debug!("Parsed recursion scheduler level vk hash");
 
-        let len = instructions.len() - 7;
-        let mut system_contracts = Vec::with_capacity(len / 2);
+        let len = instructions.len() - 1;
+        let mut system_contracts = Vec::with_capacity((len - 6) / 2);
 
         for i in (6..len).step_by(2) {
             let address = EVMAddress::from_slice(instructions.get(i)?.push_bytes()?.as_bytes());

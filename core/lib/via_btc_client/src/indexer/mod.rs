@@ -313,6 +313,11 @@ impl BitcoinInscriptionIndexer {
                 .p2wpkh_address
                 .as_ref()
                 .map_or(false, |addr| addr == &self.wallets.sequencer),
+            FullInscriptionMessage::SystemContractUpgradeProposal(m) => m
+                .common
+                .p2wpkh_address
+                .as_ref()
+                .map_or(false, |addr| addr == &self.wallets.sequencer),
             FullInscriptionMessage::SystemBootstrapping(_) => {
                 debug!("SystemBootstrapping message is always valid");
                 true
@@ -607,6 +612,38 @@ mod tests {
             });
         // We didn't vote for the sequencer yet, so this message is invalid
         assert!(indexer.is_valid_system_message(&l1_batch_da_reference));
+
+        let mut proposal_common = get_test_common_fields();
+        proposal_common.p2wpkh_address = Some(indexer.wallets.sequencer.clone());
+        let mut system_contract_upgrade_proposal =
+            FullInscriptionMessage::SystemContractUpgradeProposal(
+                types::SystemContractUpgradeProposal {
+                    common: proposal_common,
+                    input: types::SystemContractUpgradeProposalInput {
+                        version: ProtocolSemanticVersion::new(
+                            ProtocolVersionId::Version28,
+                            VersionPatch(1),
+                        ),
+                        bootloader_code_hash: H256::zero(),
+                        default_account_code_hash: H256::zero(),
+                        evm_emulator_code_hash: None,
+                        recursion_scheduler_level_vk_hash: H256::zero(),
+                        system_contracts: vec![],
+                    },
+                },
+            );
+        assert!(indexer.is_valid_system_message(&system_contract_upgrade_proposal));
+
+        let FullInscriptionMessage::SystemContractUpgradeProposal(proposal) =
+            &mut system_contract_upgrade_proposal
+        else {
+            unreachable!();
+        };
+        proposal.common.p2wpkh_address = Some(Address::p2wsh(
+            ScriptBuf::new().as_script(),
+            Network::Testnet,
+        ));
+        assert!(!indexer.is_valid_system_message(&system_contract_upgrade_proposal));
 
         let l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
             common: get_test_common_fields(),

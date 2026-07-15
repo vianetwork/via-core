@@ -372,3 +372,109 @@ impl InscriptionData {
         encoded
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{
+        absolute,
+        secp256k1::{Keypair, Secp256k1, SecretKey},
+        taproot::{LeafVersion, Signature as TaprootSignature},
+        transaction, Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
+        Witness,
+    };
+    use zksync_types::{
+        protocol_version::{ProtocolSemanticVersion, VersionPatch},
+        Address as EVMAddress, ProtocolVersionId, H256,
+    };
+
+    use super::*;
+    use crate::{
+        indexer::MessageParser,
+        types::{FullInscriptionMessage, InscriptionMessage, SystemContractUpgradeProposalInput},
+    };
+
+    #[test]
+    fn system_contract_upgrade_proposal_builder_round_trips_all_contracts() {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[1; 32]).unwrap();
+        let keypair = Keypair::from_secret_key(&secp, &secret_key);
+        let (internal_key, _) = keypair.x_only_public_key();
+        let public_key = bitcoin::PublicKey::new(bitcoin::secp256k1::PublicKey::from_secret_key(
+            &secp,
+            &secret_key,
+        ));
+
+        for pair_count in [0, 3, 4, 7] {
+            let input = SystemContractUpgradeProposalInput {
+                version: ProtocolSemanticVersion::new(
+                    ProtocolVersionId::Version28,
+                    VersionPatch(3),
+                ),
+                bootloader_code_hash: H256::repeat_byte(0x11),
+                default_account_code_hash: H256::repeat_byte(0x22),
+                evm_emulator_code_hash: None,
+                recursion_scheduler_level_vk_hash: H256::repeat_byte(0x33),
+                system_contracts: (0..pair_count)
+                    .map(|index| {
+                        let byte = index as u8 + 1;
+                        (
+                            EVMAddress::repeat_byte(byte),
+                            H256::repeat_byte(byte + 0x40),
+                        )
+                    })
+                    .collect(),
+            };
+            let inscription = InscriptionData::new(
+                &InscriptionMessage::SystemContractUpgradeProposal(input.clone()),
+                &secp,
+                internal_key,
+                Network::Regtest,
+            )
+            .unwrap();
+            let control_block = inscription
+                .taproot_spend_info
+                .control_block(&(
+                    inscription.inscription_script.clone(),
+                    LeafVersion::TapScript,
+                ))
+                .unwrap();
+            let reveal_witness = Witness::from_slice(&[
+                TaprootSignature::from_slice(&[0; 64]).unwrap().to_vec(),
+                inscription.inscription_script.into_bytes(),
+                control_block.serialize(),
+            ]);
+            let sender_witness = Witness::from_slice(&[Vec::new(), public_key.to_bytes()]);
+            let tx = Transaction {
+                version: transaction::Version::TWO,
+                lock_time: absolute::LockTime::ZERO,
+                input: vec![
+                    TxIn {
+                        previous_output: OutPoint::null(),
+                        script_sig: ScriptBuf::new(),
+                        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                        witness: reveal_witness,
+                    },
+                    TxIn {
+                        previous_output: OutPoint::null(),
+                        script_sig: ScriptBuf::new(),
+                        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                        witness: sender_witness,
+                    },
+                ],
+                output: vec![TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: ScriptBuf::new(),
+                }],
+            };
+
+            let messages =
+                MessageParser::new(Network::Regtest).parse_system_transaction(&tx, 42, None);
+            let [FullInscriptionMessage::SystemContractUpgradeProposal(message)] =
+                messages.as_slice()
+            else {
+                panic!("expected one system-contract upgrade proposal");
+            };
+            assert_eq!(message.input, input, "pair count {pair_count}");
+        }
+    }
+}
