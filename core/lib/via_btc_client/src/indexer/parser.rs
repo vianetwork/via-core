@@ -1191,14 +1191,144 @@ pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{consensus::encode::deserialize, hashes::hex::FromHex};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    use bitcoin::{
+        absolute,
+        opcodes::{all, OP_FALSE, OP_TRUE},
+        script::Builder,
+        secp256k1::{Keypair, Secp256k1, SecretKey},
+        taproot::{LeafVersion, TaprootBuilder},
+        transaction, OutPoint, Sequence, TxIn,
+    };
 
     use super::*;
 
-    fn setup_test_transaction() -> Transaction {
-        // TODO: Replace with a real transaction
-        let tx_hex = "00001a1abbf8";
-        deserialize(&Vec::from_hex(tx_hex).unwrap()).unwrap()
+    #[derive(Clone)]
+    enum TestCarrier {
+        One(Vec<u8>),
+        Two(Vec<u8>, Vec<u8>),
+        Empty,
+        Bare,
+        Raw(Vec<u8>),
+        TrailingOpcode(Vec<u8>),
+        ExtraPush(Vec<u8>),
+    }
+
+    fn push_bytes(bytes: &[u8]) -> PushBytesBuf {
+        PushBytesBuf::try_from(bytes.to_vec()).unwrap()
+    }
+
+    fn carrier_script(carrier: TestCarrier) -> ScriptBuf {
+        match carrier {
+            TestCarrier::One(body) => ScriptBuf::new_op_return(push_bytes(&body)),
+            TestCarrier::Two(prefix, body) => Builder::new()
+                .push_opcode(all::OP_RETURN)
+                .push_slice(push_bytes(&prefix))
+                .push_slice(push_bytes(&body))
+                .into_script(),
+            TestCarrier::Empty => Builder::new()
+                .push_opcode(all::OP_RETURN)
+                .push_slice(PushBytesBuf::new())
+                .into_script(),
+            TestCarrier::Bare => Builder::new().push_opcode(all::OP_RETURN).into_script(),
+            TestCarrier::Raw(bytes) => ScriptBuf::from_bytes(bytes),
+            TestCarrier::TrailingOpcode(body) => Builder::new()
+                .push_opcode(all::OP_RETURN)
+                .push_slice(push_bytes(&body))
+                .push_opcode(OP_TRUE)
+                .into_script(),
+            TestCarrier::ExtraPush(body) => Builder::new()
+                .push_opcode(all::OP_RETURN)
+                .push_slice(push_bytes(&body))
+                .push_slice(push_bytes(&[0xaa]))
+                .push_slice(push_bytes(&[0xbb]))
+                .into_script(),
+        }
+    }
+
+    fn test_transaction(outputs: Vec<TxOut>) -> Transaction {
+        Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint::null(),
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            }],
+            output: outputs,
+        }
+    }
+
+    fn op_return_output(script_pubkey: ScriptBuf) -> TxOut {
+        TxOut {
+            value: Amount::ZERO,
+            script_pubkey,
+        }
+    }
+
+    fn bridge_output(wallets: &SystemWallets) -> TxOut {
+        TxOut {
+            value: Amount::from_sat(100_000),
+            script_pubkey: wallets.bridge.script_pubkey(),
+        }
+    }
+
+    fn bridge_transaction(
+        carriers: impl IntoIterator<Item = TestCarrier>,
+    ) -> TransactionWithMetadata {
+        let wallets = system_wallets();
+        let mut outputs = vec![bridge_output(&wallets)];
+        outputs.extend(
+            carriers
+                .into_iter()
+                .map(carrier_script)
+                .map(op_return_output),
+        );
+        TransactionWithMetadata::new(test_transaction(outputs), 7)
+    }
+
+    fn parsed_deposit_receiver(messages: &[FullInscriptionMessage]) -> Option<EVMAddress> {
+        match messages {
+            [FullInscriptionMessage::L1ToL2Message(message)] => {
+                Some(message.input.receiver_l2_address)
+            }
+            _ => None,
+        }
+    }
+
+    fn inscription_witness(receiver: EVMAddress) -> Witness {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[1; 32]).unwrap();
+        let keypair = Keypair::from_secret_key(&secp, &secret_key);
+        let (internal_key, _) = keypair.x_only_public_key();
+        let script = Builder::new()
+            .push_slice(push_bytes(&internal_key.serialize()))
+            .push_opcode(all::OP_CHECKSIG)
+            .push_opcode(OP_FALSE)
+            .push_opcode(all::OP_IF)
+            .push_slice(push_bytes(types::VIA_INSCRIPTION_PROTOCOL.as_bytes()))
+            .push_slice(&*types::L1_TO_L2_MSG)
+            .push_slice(push_bytes(receiver.as_bytes()))
+            .push_slice(push_bytes(EVMAddress::zero().as_bytes()))
+            .push_slice(PushBytesBuf::new())
+            .push_opcode(all::OP_ENDIF)
+            .into_script();
+        let spend_info = TaprootBuilder::new()
+            .add_leaf(0, script.clone())
+            .unwrap()
+            .finalize(&secp, internal_key)
+            .unwrap();
+        let control_block = spend_info
+            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .unwrap();
+
+        Witness::from_slice(&[
+            TaprootSignature::from_slice(&[0; 64]).unwrap().to_vec(),
+            script.into_bytes(),
+            control_block.serialize(),
+        ])
     }
 
     fn system_wallets() -> SystemWallets {
@@ -1220,32 +1350,259 @@ mod tests {
         }
     }
 
-    #[ignore]
     #[test]
-    fn test_parse_transaction() {
-        let network = Network::Bitcoin;
-        let mut parser = MessageParser::new(network);
-        let tx = setup_test_transaction();
+    fn characterizes_one_push_deposit_receiver_windows() {
+        let wallets = system_wallets();
+        let cases = [(20, false), (74, true), (75, true)];
 
-        let messages = parser.parse_system_transaction(&tx, 0, Some(&system_wallets()));
-        assert_eq!(messages.len(), 1);
+        for (len, receiver_is_shifted) in cases {
+            let payload: Vec<_> = (0..len).map(|byte| byte as u8).collect();
+            let mut tx = bridge_transaction([TestCarrier::One(payload.clone())]);
+            let messages = MessageParser::new(Network::Regtest)
+                .parse_bridge_transaction(&mut tx, 42, &wallets);
+            let expected = if receiver_is_shifted {
+                EVMAddress::from_slice(&payload[1..21])
+            } else {
+                EVMAddress::from_slice(&payload[..20])
+            };
+            assert_eq!(
+                parsed_deposit_receiver(&messages),
+                Some(expected),
+                "len={len}"
+            );
+        }
+
+        let payload: Vec<_> = (0..20).map(|byte| byte as u8).collect();
+        let mut non_minimal = vec![all::OP_RETURN.to_u8(), 0x4c, 20];
+        non_minimal.extend_from_slice(&payload);
+        let mut tx = bridge_transaction([TestCarrier::Raw(non_minimal)]);
+        let messages =
+            MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets);
+        let mut old_receiver = vec![20];
+        old_receiver.extend_from_slice(&payload[..19]);
+        assert_eq!(
+            parsed_deposit_receiver(&messages),
+            Some(EVMAddress::from_slice(&old_receiver))
+        );
     }
 
-    #[ignore]
     #[test]
-    fn test_parse_system_bootstrapping() {
-        let network = Network::Bitcoin;
-        let mut parser = MessageParser::new(network);
-        let tx = setup_test_transaction();
-
-        if let Some(FullInscriptionMessage::SystemBootstrapping(bootstrapping)) = parser
-            .parse_system_transaction(&tx, 0, Some(&system_wallets()))
-            .pop()
-        {
-            assert_eq!(bootstrapping.input.start_block_height, 10);
-            assert_eq!(bootstrapping.input.verifier_p2wpkh_addresses.len(), 1);
-        } else {
-            panic!("Expected SystemBootstrapping message");
+    fn characterizes_two_push_governance_carriers() {
+        enum Expected {
+            Upgrade,
+            Bridge,
+            Sequencer,
+            Governance,
         }
+
+        let wallets = system_wallets();
+        let mut txid_body = vec![0x31; 32];
+        txid_body.push(0xff);
+        let cases = [
+            (
+                OP_RETURN_UPGRADE_PROTOCOL_PREFIX,
+                txid_body.clone(),
+                Expected::Upgrade,
+            ),
+            (
+                OP_RETURN_UPDATE_BRIDGE_PREFIX,
+                vec![0x42; 32],
+                Expected::Bridge,
+            ),
+            (
+                OP_RETURN_UPDATE_SEQUENCER_PREFIX,
+                wallets.sequencer.to_string().into_bytes(),
+                Expected::Sequencer,
+            ),
+            (
+                OP_RETURN_UPDATE_GOVERNANCE_PREFIX,
+                wallets.governance.to_string().into_bytes(),
+                Expected::Governance,
+            ),
+        ];
+
+        for (prefix, body, expected) in cases {
+            let tx = TransactionWithMetadata::new(
+                test_transaction(vec![op_return_output(carrier_script(TestCarrier::Two(
+                    prefix.to_vec(),
+                    body,
+                )))]),
+                0,
+            );
+            let messages =
+                MessageParser::new(Network::Regtest).parse_protocol_upgrade_transactions(&tx, 42);
+            assert_eq!(messages.len(), 1);
+            assert!(matches!(
+                (&messages[0], expected),
+                (
+                    FullInscriptionMessage::SystemContractUpgrade(_),
+                    Expected::Upgrade
+                ) | (FullInscriptionMessage::UpdateBridge(_), Expected::Bridge)
+                    | (
+                        FullInscriptionMessage::UpdateSequencer(_),
+                        Expected::Sequencer
+                    )
+                    | (
+                        FullInscriptionMessage::UpdateGovernance(_),
+                        Expected::Governance
+                    )
+            ));
+        }
+    }
+
+    #[test]
+    fn characterizes_withdrawal_carrier_lengths() {
+        let wallets = system_wallets();
+
+        for record_count in [6, 7] {
+            let mut payload = OP_RETURN_WITHDRAW_PREFIX.to_vec();
+            payload.push(0);
+            payload.extend((0..record_count * 10).map(|byte| byte as u8));
+
+            let mut outputs: Vec<_> = (0..record_count)
+                .map(|_| TxOut {
+                    value: Amount::from_sat(1_000),
+                    script_pubkey: wallets.sequencer.script_pubkey(),
+                })
+                .collect();
+            outputs.push(bridge_output(&wallets));
+            outputs.push(op_return_output(carrier_script(TestCarrier::One(
+                payload.clone(),
+            ))));
+            let mut tx = TransactionWithMetadata::new(test_transaction(outputs), 0);
+
+            let messages = MessageParser::new(Network::Regtest)
+                .parse_bridge_transaction(&mut tx, 42, &wallets);
+            assert_eq!(payload.len(), 7 + 10 * record_count);
+            assert!(matches!(
+                messages.as_slice(),
+                [FullInscriptionMessage::BridgeWithdrawal(message)]
+                    if message.input.withdrawals.len() == record_count
+            ));
+        }
+    }
+
+    #[test]
+    fn characterizes_reserved_and_irregular_carriers() {
+        let wallets = system_wallets();
+        let deposit = vec![0x25; 20];
+        let retired = b"VIA_PROTOCOL:WITHDRAWAL".to_vec();
+
+        let accepted = [
+            TestCarrier::One(retired.clone()),
+            TestCarrier::TrailingOpcode(deposit.clone()),
+            TestCarrier::ExtraPush(deposit.clone()),
+        ];
+        for carrier in accepted {
+            let mut tx = bridge_transaction([carrier]);
+            let messages = MessageParser::new(Network::Regtest)
+                .parse_bridge_transaction(&mut tx, 42, &wallets);
+            assert!(parsed_deposit_receiver(&messages).is_some());
+        }
+
+        for carrier in [TestCarrier::Bare] {
+            let mut tx = bridge_transaction([carrier]);
+            let messages = MessageParser::new(Network::Regtest)
+                .parse_bridge_transaction(&mut tx, 42, &wallets);
+            assert!(messages.is_empty());
+        }
+
+        let malformed = {
+            let mut bytes = vec![all::OP_RETURN.to_u8(), 20];
+            bytes.extend([0x11; 19]);
+            TestCarrier::Raw(bytes)
+        };
+        for carrier in [TestCarrier::Empty, malformed] {
+            let mut tx = bridge_transaction([carrier]);
+            assert!(catch_unwind(AssertUnwindSafe(|| {
+                MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets)
+            }))
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn characterizes_first_op_return_selection() {
+        let wallets = system_wallets();
+        let valid = vec![0x39; 20];
+        let mut malformed = vec![all::OP_RETURN.to_u8(), 20];
+        malformed.extend([0x11; 19]);
+
+        let mut malformed_first =
+            bridge_transaction([TestCarrier::Raw(malformed), TestCarrier::One(valid.clone())]);
+        assert!(catch_unwind(AssertUnwindSafe(|| {
+            MessageParser::new(Network::Regtest).parse_bridge_transaction(
+                &mut malformed_first,
+                42,
+                &wallets,
+            )
+        }))
+        .is_err());
+
+        let mut valid_first = bridge_transaction([
+            TestCarrier::One(valid.clone()),
+            TestCarrier::ExtraPush(vec![0x77; 20]),
+        ]);
+        let messages = MessageParser::new(Network::Regtest).parse_bridge_transaction(
+            &mut valid_first,
+            42,
+            &wallets,
+        );
+        assert_eq!(
+            parsed_deposit_receiver(&messages),
+            Some(EVMAddress::from_slice(&valid))
+        );
+    }
+
+    #[test]
+    fn characterizes_witness_and_op_return_dual_emit_order() {
+        let wallets = system_wallets();
+        let witness_receiver = EVMAddress::repeat_byte(0x51);
+        let op_return_receiver = EVMAddress::repeat_byte(0x62);
+
+        let mut deposit_tx =
+            bridge_transaction([TestCarrier::One(op_return_receiver.as_bytes().to_vec())]);
+        deposit_tx.tx.input[0].witness = inscription_witness(witness_receiver);
+        let messages = MessageParser::new(Network::Regtest).parse_bridge_transaction(
+            &mut deposit_tx,
+            42,
+            &wallets,
+        );
+        assert!(matches!(
+            messages.as_slice(),
+            [
+                FullInscriptionMessage::L1ToL2Message(first),
+                FullInscriptionMessage::L1ToL2Message(second),
+            ] if first.input.receiver_l2_address == witness_receiver
+                && second.input.receiver_l2_address == op_return_receiver
+        ));
+
+        let mut withdrawal_payload = OP_RETURN_WITHDRAW_PREFIX.to_vec();
+        withdrawal_payload.push(0);
+        withdrawal_payload.extend([0x71; 10]);
+        let mut withdrawal_tx = TransactionWithMetadata::new(
+            test_transaction(vec![
+                TxOut {
+                    value: Amount::from_sat(1_000),
+                    script_pubkey: wallets.sequencer.script_pubkey(),
+                },
+                bridge_output(&wallets),
+                op_return_output(carrier_script(TestCarrier::One(withdrawal_payload))),
+            ]),
+            0,
+        );
+        withdrawal_tx.tx.input[0].witness = inscription_witness(witness_receiver);
+        let messages = MessageParser::new(Network::Regtest).parse_bridge_transaction(
+            &mut withdrawal_tx,
+            42,
+            &wallets,
+        );
+        assert!(matches!(
+            messages.as_slice(),
+            [
+                FullInscriptionMessage::L1ToL2Message(first),
+                FullInscriptionMessage::BridgeWithdrawal(_),
+            ] if first.input.receiver_l2_address == witness_receiver
+        ));
     }
 }
