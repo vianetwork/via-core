@@ -917,12 +917,25 @@ impl MessageParser {
             }
 
             // Parse signature and control block
-            let signature = TaprootSignature::from_slice(&witness[0]).ok()?;
+            let Ok(signature) = TaprootSignature::from_slice(&witness[0]) else {
+                continue;
+            };
             let script = ScriptBuf::from_bytes(witness[1].to_vec());
-            let control_block = ControlBlock::decode(&witness[2]).ok()?;
+            let Ok(control_block) = ControlBlock::decode(&witness[2]) else {
+                continue;
+            };
 
             let instructions: Vec<_> = script.instructions().filter_map(Result::ok).collect();
-            let via_index = find_via_inscription_protocol(&instructions)?;
+            let Some(via_index) = find_via_inscription_protocol(&instructions) else {
+                continue;
+            };
+            if !matches!(
+                instructions.get(via_index + 1),
+                Some(Instruction::PushBytes(bytes))
+                    if bytes.as_bytes() == types::L1_TO_L2_MSG.as_bytes()
+            ) {
+                continue;
+            }
 
             // Try to parse p2wpkh address if possible, but make it optional
             let p2wpkh_address = self.parse_p2wpkh(witness);
@@ -938,12 +951,15 @@ impl MessageParser {
             };
 
             // Parse L1ToL2Message from instructions
-            return self.parse_l1_to_l2_message(
+            let Some(message) = self.parse_l1_to_l2_message(
                 &tx.tx,
                 &instructions[via_index..],
                 &common_fields,
                 Some(wallets),
-            );
+            ) else {
+                continue;
+            };
+            return Some(message);
         }
 
         None
@@ -1117,13 +1133,17 @@ mod tests {
         Transaction {
             version: transaction::Version::TWO,
             lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn {
-                previous_output: OutPoint::null(),
-                script_sig: ScriptBuf::new(),
-                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-                witness: Witness::new(),
-            }],
+            input: vec![test_input(Witness::new())],
             output: outputs,
+        }
+    }
+
+    fn test_input(witness: Witness) -> TxIn {
+        TxIn {
+            previous_output: OutPoint::null(),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness,
         }
     }
 
@@ -1195,6 +1215,22 @@ mod tests {
             script.into_bytes(),
             control_block.serialize(),
         ])
+    }
+
+    fn replace_witness_item(witness: &Witness, index: usize, replacement: Vec<u8>) -> Witness {
+        let mut items: Vec<_> = witness.iter().map(|item| item.to_vec()).collect();
+        items[index] = replacement;
+        Witness::from_slice(&items)
+    }
+
+    fn candidate_inscription_script(message_type: &PushBytesBuf, fields: &[&[u8]]) -> ScriptBuf {
+        let mut script = Builder::new()
+            .push_slice(push_bytes(types::VIA_INSCRIPTION_PROTOCOL.as_bytes()))
+            .push_slice(message_type);
+        for field in fields {
+            script = script.push_slice(push_bytes(field));
+        }
+        script.into_script()
     }
 
     fn system_wallets() -> SystemWallets {
@@ -1599,6 +1635,51 @@ mod tests {
             parsed_deposit_receiver(&messages),
             Some(EVMAddress::from_slice(&valid))
         );
+    }
+
+    #[test]
+    fn finds_later_deposit_after_each_invalid_inscription_candidate() {
+        let wallets = system_wallets();
+        let valid_receiver = EVMAddress::repeat_byte(0x81);
+        let other_message_receiver = EVMAddress::repeat_byte(0x72);
+        let template = inscription_witness(EVMAddress::repeat_byte(0x70));
+        let non_via_script = Builder::new()
+            .push_slice(push_bytes(b"not-via"))
+            .into_script();
+        let invalid_candidates = [
+            replace_witness_item(&template, 0, vec![0]),
+            replace_witness_item(&template, 2, vec![0]),
+            replace_witness_item(&template, 1, non_via_script.into_bytes()),
+            replace_witness_item(
+                &template,
+                1,
+                candidate_inscription_script(
+                    &types::VALIDATOR_ATTESTATION_MSG,
+                    &[
+                        other_message_receiver.as_bytes(),
+                        EVMAddress::zero().as_bytes(),
+                        &[],
+                    ],
+                )
+                .into_bytes(),
+            ),
+            replace_witness_item(
+                &template,
+                1,
+                candidate_inscription_script(&types::L1_TO_L2_MSG, &[]).into_bytes(),
+            ),
+        ];
+
+        for invalid_candidate in invalid_candidates {
+            let mut tx = bridge_transaction([]);
+            tx.tx.input = vec![
+                test_input(invalid_candidate),
+                test_input(inscription_witness(valid_receiver)),
+            ];
+            let messages = MessageParser::new(Network::Regtest)
+                .parse_bridge_transaction(&mut tx, 42, &wallets);
+            assert_eq!(parsed_deposit_receiver(&messages), Some(valid_receiver));
+        }
     }
 
     #[test]
