@@ -1683,6 +1683,46 @@ mod tests {
     }
 
     #[test]
+    fn system_transaction_keeps_single_da_reveal_multiplicity() {
+        let template = inscription_witness(EVMAddress::repeat_byte(0x91));
+        let l1_batch_hash = H256::repeat_byte(0x11);
+        let l1_batch_index = 7_u32.to_be_bytes();
+        let prev_l1_batch_hash = H256::repeat_byte(0x22);
+        let reveal_script = candidate_inscription_script(
+            &types::L1_BATCH_DA_REFERENCE_MSG,
+            &[
+                l1_batch_hash.as_bytes(),
+                &l1_batch_index,
+                b"da",
+                b"blob",
+                prev_l1_batch_hash.as_bytes(),
+            ],
+        );
+        let reveal_witness = replace_witness_item(&template, 1, reveal_script.into_bytes());
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[2; 32]).unwrap();
+        let public_key = bitcoin::PublicKey::new(bitcoin::secp256k1::PublicKey::from_secret_key(
+            &secp,
+            &secret_key,
+        ));
+        let sender_witness = Witness::from_slice(&[Vec::new(), public_key.to_bytes()]);
+        let mut tx = test_transaction(Vec::new());
+        tx.input = vec![test_input(reveal_witness), test_input(sender_witness)];
+
+        let messages = MessageParser::new(Network::Regtest).parse_system_transaction(
+            &tx,
+            42,
+            Some(&system_wallets()),
+        );
+        assert!(matches!(
+            messages.as_slice(),
+            [FullInscriptionMessage::L1BatchDAReference(message)]
+                if message.input.l1_batch_hash == l1_batch_hash
+                    && message.input.l1_batch_index == L1BatchNumber(7)
+        ));
+    }
+
+    #[test]
     fn characterizes_witness_and_op_return_dual_emit_order() {
         let wallets = system_wallets();
         let witness_receiver = EVMAddress::repeat_byte(0x51);
