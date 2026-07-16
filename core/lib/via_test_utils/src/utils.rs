@@ -135,7 +135,12 @@ pub fn test_system_contract_upgrade_proposal_input() -> SystemContractUpgradePro
         default_account_code_hash: H256::repeat_byte(0x22),
         evm_emulator_code_hash: None,
         recursion_scheduler_level_vk_hash: H256::repeat_byte(0x33),
-        system_contracts: vec![(EVMAddress::repeat_byte(0x44), H256::repeat_byte(0x55))],
+        system_contracts: vec![
+            (EVMAddress::repeat_byte(0x44), H256::repeat_byte(0x55)),
+            (EVMAddress::repeat_byte(0x66), H256::repeat_byte(0x77)),
+            (EVMAddress::repeat_byte(0x88), H256::repeat_byte(0x99)),
+            (EVMAddress::repeat_byte(0xaa), H256::repeat_byte(0xbb)),
+        ],
     }
 }
 

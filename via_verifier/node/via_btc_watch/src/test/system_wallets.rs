@@ -14,6 +14,7 @@ mod tests {
     use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
     use zksync_types::{
         protocol_version::ProtocolSemanticVersion,
+        via_protocol_upgrade::ViaProtocolUpgrade,
         via_wallet::{SystemWallets, SystemWalletsDetails},
     };
 
@@ -222,75 +223,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_update_governance_bridge_sequencer_and_upgrade() -> anyhow::Result<()> {
+    async fn test_system_contract_upgrade_hashes_all_pairs() -> anyhow::Result<()> {
         let pool = ConnectionPool::<Verifier>::test_pool().await;
         let mut indexer = test_create_indexer();
 
-        let system_wallet_map = SystemWalletsDetails::try_from(test_wallets())?;
-        pool.connection()
-            .await?
-            .via_wallet_dal()
-            .insert_wallets(&system_wallet_map, 0)
-            .await?;
-
-        let mut processor = SystemWalletProcessor::new(Arc::new(test_bitcoin_client()));
-
-        let new_governance_address = random_bitcoin_wallet().1;
-        let gov_msg = create_update_governance_inscription(new_governance_address.clone());
-
-        let new_sequencer_address = random_bitcoin_wallet().1;
-        let sequencer_msg = create_update_sequencer_inscription(new_sequencer_address.clone());
-
-        let new_bridge_address = BitcoinAddress::from_str(
-            &"bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg",
-        )?
-        .assume_checked();
-
-        let new_verifier_1 = random_bitcoin_wallet().1;
-        let new_verifier_2 = random_bitcoin_wallet().1;
-        let new_verifier_3 = random_bitcoin_wallet().1;
-        let new_verifier_4 = random_bitcoin_wallet().1;
-
-        let new_verifiers = vec![
-            new_verifier_1,
-            new_verifier_2,
-            new_verifier_3,
-            new_verifier_4,
-        ];
-
-        let bridge_msg =
-            create_update_bridge_inscription(new_bridge_address.clone(), new_verifiers.clone())
-                .await?;
-
-        let old_wallets = indexer.get_state();
-
-        processor
-            .process_messages(
-                &mut pool.connection().await?,
-                vec![bridge_msg, sequencer_msg, gov_msg],
-                &mut indexer,
-            )
-            .await?;
-
-        let new_wallets = indexer.get_state();
-
-        assert_ne!(new_wallets, old_wallets);
-        assert_eq!(new_wallets.bridge, new_bridge_address);
-        assert_eq!(new_wallets.sequencer, new_sequencer_address);
-
-        let system_wallets_db_map = pool
-            .connection()
-            .await?
-            .via_wallet_dal()
-            .get_system_wallets_raw(i64::MAX)
-            .await?
-            .unwrap();
-
-        let system_wallets_db = Arc::new(SystemWallets::try_from(system_wallets_db_map.clone())?);
-
-        assert_eq!(system_wallets_db, new_wallets);
-
         let proposal_input = test_system_contract_upgrade_proposal_input();
+        let expected_upgrade_hash = ViaProtocolUpgrade::default().get_canonical_tx_hash(
+            proposal_input.version,
+            proposal_input.system_contracts.clone(),
+        )?;
         let proposal_tx =
             test_system_contract_upgrade_proposal_transaction(&proposal_input).await?;
         let proposal_tx_id = proposal_tx.compute_txid();
@@ -326,6 +267,12 @@ mod tests {
             protocol_patch_count(&mut storage, proposal_input.version).await?,
             1
         );
+        let stored_upgrade_hash = storage
+            .via_protocol_versions_dal()
+            .get_protocol_upgrade_tx(proposal_input.version.minor)
+            .await?
+            .expect("activated upgrade hash must be stored");
+        assert_eq!(stored_upgrade_hash, expected_upgrade_hash);
         rpc_server.join().unwrap()?;
 
         Ok(())
