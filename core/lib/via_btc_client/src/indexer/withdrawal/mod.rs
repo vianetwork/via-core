@@ -2,6 +2,9 @@ use std::convert::TryFrom;
 
 use bitcoin::{Address, Amount};
 
+/// Marker for versioned withdrawal metadata in a one-push OP_RETURN.
+pub const VIA_WI: &[u8] = b"VIA_WI";
+
 const WITHDRAWAL_BYTE_SIZE: usize = 10;
 const ID_BYTE_SIZE: usize = 8;
 

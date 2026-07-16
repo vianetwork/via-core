@@ -5,7 +5,7 @@ use axum::async_trait;
 use bitcoin::{hashes::Hash, policy::MAX_STANDARD_TX_WEIGHT, Transaction, TxOut, Txid};
 use via_btc_client::{
     indexer::{
-        withdrawal::{L1Withdrawal, WithdrawalVersion},
+        withdrawal::{L1Withdrawal, WithdrawalVersion, VIA_WI},
         MessageParser,
     },
     types::{FullInscriptionMessage, TransactionWithMetadata},
@@ -22,7 +22,6 @@ use zksync_types::{via_wallet::SystemWallets, L1BatchNumber};
 
 use crate::{traits::ISession, types::SessionOperation};
 
-const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_WI";
 const WITHDRAWAL_VERSION: WithdrawalVersion = WithdrawalVersion::Version0;
 const WITHDRAWAL_LIMIT: u32 = 7;
 
@@ -96,7 +95,7 @@ impl ISession for WithdrawalSession {
         }
 
         let mut op_return_prefix = Vec::new();
-        op_return_prefix.extend_from_slice(OP_RETURN_WITHDRAW_PREFIX);
+        op_return_prefix.extend_from_slice(VIA_WI);
         op_return_prefix.push(WITHDRAWAL_VERSION as u8);
 
         let config = TransactionBuilderConfig {

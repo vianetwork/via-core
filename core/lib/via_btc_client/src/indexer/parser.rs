@@ -16,7 +16,7 @@ use zksync_types::{
 };
 
 use crate::{
-    indexer::withdrawal::{parse_withdrawals, L1Withdrawal, WithdrawalVersion},
+    indexer::withdrawal::{parse_withdrawals, L1Withdrawal, WithdrawalVersion, VIA_WI},
     types::{
         self, BridgeWithdrawal, BridgeWithdrawalInput, CommonFields, FullInscriptionMessage,
         L1BatchDAReference, L1BatchDAReferenceInput, L1ToL2Message, L1ToL2MessageInput,
@@ -29,7 +29,6 @@ use crate::{
     },
 };
 
-const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_WI";
 const OP_RETURN_UPGRADE_PROTOCOL_PREFIX: &[u8] = b"VIA_PROTOCOL:UPGRADE";
 const OP_RETURN_UPDATE_SEQUENCER_PREFIX: &[u8] = b"VIA_PROTOCOL:SEQ";
 const OP_RETURN_UPDATE_BRIDGE_PREFIX: &[u8] = b"VIA_PROTOCOL:BRI";
@@ -41,7 +40,7 @@ enum OpReturnCarrier<'a> {
     Two(&'a [u8], &'a [u8]),
 }
 
-/// Uses non-minimal push encodings because confirmed blocks may contain them.
+/// Accepts non-minimal push encodings because confirmed blocks may contain them.
 fn first_op_return_carrier(tx: &Transaction) -> Option<OpReturnCarrier<'_>> {
     let output = tx
         .output
@@ -67,7 +66,7 @@ fn first_op_return_carrier(tx: &Transaction) -> Option<OpReturnCarrier<'_>> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActiveOpReturnKind {
     Withdrawal,
     ProtocolUpgrade,
@@ -76,37 +75,46 @@ enum ActiveOpReturnKind {
     UpdateGovernance,
 }
 
+const ACTIVE_OP_RETURN_PREFIXES: &[(ActiveOpReturnKind, &[u8])] = &[
+    (ActiveOpReturnKind::Withdrawal, VIA_WI),
+    (
+        ActiveOpReturnKind::ProtocolUpgrade,
+        OP_RETURN_UPGRADE_PROTOCOL_PREFIX,
+    ),
+    (
+        ActiveOpReturnKind::UpdateSequencer,
+        OP_RETURN_UPDATE_SEQUENCER_PREFIX,
+    ),
+    (
+        ActiveOpReturnKind::UpdateBridge,
+        OP_RETURN_UPDATE_BRIDGE_PREFIX,
+    ),
+    (
+        ActiveOpReturnKind::UpdateGovernance,
+        OP_RETURN_UPDATE_GOVERNANCE_PREFIX,
+    ),
+];
+
 enum ReservedFromDeposit {
     Active(ActiveOpReturnKind),
     RetiredReserved,
     UnreservedDeposit,
 }
 
-fn reserved_from_deposit(body: &[u8]) -> ReservedFromDeposit {
-    let active = [
-        (OP_RETURN_WITHDRAW_PREFIX, ActiveOpReturnKind::Withdrawal),
-        (
-            OP_RETURN_UPGRADE_PROTOCOL_PREFIX,
-            ActiveOpReturnKind::ProtocolUpgrade,
-        ),
-        (
-            OP_RETURN_UPDATE_SEQUENCER_PREFIX,
-            ActiveOpReturnKind::UpdateSequencer,
-        ),
-        (
-            OP_RETURN_UPDATE_BRIDGE_PREFIX,
-            ActiveOpReturnKind::UpdateBridge,
-        ),
-        (
-            OP_RETURN_UPDATE_GOVERNANCE_PREFIX,
-            ActiveOpReturnKind::UpdateGovernance,
-        ),
-    ];
+fn active_kind_from_leading_prefix(body: &[u8]) -> Option<ActiveOpReturnKind> {
+    ACTIVE_OP_RETURN_PREFIXES
+        .iter()
+        .find_map(|&(kind, prefix)| body.starts_with(prefix).then_some(kind))
+}
 
-    if let Some((_, kind)) = active
-        .into_iter()
-        .find(|(prefix, _)| body.starts_with(prefix))
-    {
+fn active_kind_from_exact_prefix(prefix: &[u8]) -> Option<ActiveOpReturnKind> {
+    ACTIVE_OP_RETURN_PREFIXES
+        .iter()
+        .find_map(|&(kind, active_prefix)| (prefix == active_prefix).then_some(kind))
+}
+
+fn reserved_from_deposit(body: &[u8]) -> ReservedFromDeposit {
+    if let Some(kind) = active_kind_from_leading_prefix(body) {
         ReservedFromDeposit::Active(kind)
     } else if body.starts_with(OP_RETURN_RETIRED_WITHDRAW_PREFIX) {
         ReservedFromDeposit::RetiredReserved
@@ -198,8 +206,9 @@ impl MessageParser {
         }) else {
             return Vec::new();
         };
-        let parsed = match prefix {
-            OP_RETURN_UPGRADE_PROTOCOL_PREFIX => {
+        let parsed = match active_kind_from_exact_prefix(prefix) {
+            Some(ActiveOpReturnKind::Withdrawal) | None => return Vec::new(),
+            Some(ActiveOpReturnKind::ProtocolUpgrade) => {
                 let Some(txid) = body
                     .get(..32)
                     .and_then(|bytes| Txid::from_slice(bytes).ok())
@@ -208,7 +217,7 @@ impl MessageParser {
                 };
                 ParsedMessage::ProtocolUpgrade(txid)
             }
-            OP_RETURN_UPDATE_BRIDGE_PREFIX => {
+            Some(ActiveOpReturnKind::UpdateBridge) => {
                 let Some(txid) = body
                     .get(..32)
                     .and_then(|bytes| Txid::from_slice(bytes).ok())
@@ -217,7 +226,7 @@ impl MessageParser {
                 };
                 ParsedMessage::UpdateBridge(txid)
             }
-            OP_RETURN_UPDATE_SEQUENCER_PREFIX => {
+            Some(ActiveOpReturnKind::UpdateSequencer) => {
                 let Some(address) = std::str::from_utf8(body)
                     .ok()
                     .and_then(|address| Address::from_str(address).ok())
@@ -226,7 +235,7 @@ impl MessageParser {
                 };
                 ParsedMessage::UpdateSequencer(address)
             }
-            OP_RETURN_UPDATE_GOVERNANCE_PREFIX => {
+            Some(ActiveOpReturnKind::UpdateGovernance) => {
                 let Some(address) = std::str::from_utf8(body)
                     .ok()
                     .and_then(|address| Address::from_str(address).ok())
@@ -235,7 +244,6 @@ impl MessageParser {
                 };
                 ParsedMessage::UpdateGovernance(address)
             }
-            _ => return Vec::new(),
         };
 
         let inputs = tx
@@ -1004,9 +1012,9 @@ impl MessageParser {
         wallets: &SystemWallets,
         body: &[u8],
     ) -> Option<FullInscriptionMessage> {
-        let version_byte = *body.get(OP_RETURN_WITHDRAW_PREFIX.len())?;
+        let version_byte = *body.get(VIA_WI.len())?;
         let version = WithdrawalVersion::try_from(version_byte).ok()?;
-        let withdrawal_bytes = body.get(OP_RETURN_WITHDRAW_PREFIX.len() + 1..)?;
+        let withdrawal_bytes = body.get(VIA_WI.len() + 1..)?;
         let withdrawals_meta = parse_withdrawals(version.clone(), withdrawal_bytes).ok()?;
         let metadata_count = withdrawals_meta.len();
         let mut eligible_outputs = tx.output.iter().filter_map(|output| {
@@ -1263,6 +1271,28 @@ mod tests {
     }
 
     #[test]
+    fn active_op_return_taxonomy_preserves_match_relations() {
+        for &(kind, prefix) in ACTIVE_OP_RETURN_PREFIXES {
+            assert_eq!(active_kind_from_leading_prefix(prefix), Some(kind));
+            assert_eq!(active_kind_from_exact_prefix(prefix), Some(kind));
+
+            let mut extended = prefix.to_vec();
+            extended.push(0xff);
+            assert_eq!(active_kind_from_leading_prefix(&extended), Some(kind));
+            assert_eq!(active_kind_from_exact_prefix(&extended), None);
+        }
+
+        assert_eq!(
+            active_kind_from_leading_prefix(OP_RETURN_RETIRED_WITHDRAW_PREFIX),
+            None
+        );
+        assert_eq!(
+            active_kind_from_exact_prefix(OP_RETURN_RETIRED_WITHDRAW_PREFIX),
+            None
+        );
+    }
+
+    #[test]
     fn decodes_push_boundaries_and_non_minimal_pushes() {
         for len in [73, 74, 75, 76, 77] {
             let payload: Vec<_> = (0..len).map(|byte| byte as u8).collect();
@@ -1432,6 +1462,7 @@ mod tests {
     #[test]
     fn rejects_malformed_governance_bodies_without_panicking() {
         let cases = [
+            (VIA_WI, vec![0]),
             (OP_RETURN_UPGRADE_PROTOCOL_PREFIX, vec![0x11; 31]),
             (OP_RETURN_UPDATE_BRIDGE_PREFIX, Vec::new()),
             (OP_RETURN_UPDATE_SEQUENCER_PREFIX, Vec::new()),
@@ -1476,7 +1507,7 @@ mod tests {
         let wallets = system_wallets();
 
         for record_count in [6, 7] {
-            let mut payload = OP_RETURN_WITHDRAW_PREFIX.to_vec();
+            let mut payload = VIA_WI.to_vec();
             payload.push(0);
             payload.extend((0..record_count * 10).map(|byte| byte as u8));
 
@@ -1506,7 +1537,7 @@ mod tests {
     #[test]
     fn maps_withdrawal_metadata_to_eligible_outputs_in_lockstep() {
         let wallets = system_wallets();
-        let mut payload = OP_RETURN_WITHDRAW_PREFIX.to_vec();
+        let mut payload = VIA_WI.to_vec();
         payload.push(0);
         payload.extend([0x11; 10]);
         payload.extend([0x22; 10]);
@@ -1552,7 +1583,7 @@ mod tests {
         let wallets = system_wallets();
 
         for (metadata_count, payout_count) in [(1, 2), (2, 1)] {
-            let mut payload = OP_RETURN_WITHDRAW_PREFIX.to_vec();
+            let mut payload = VIA_WI.to_vec();
             payload.push(0);
             payload.extend(vec![0x44; metadata_count * 10]);
             let mut outputs = vec![op_return_output(carrier_script(TestCarrier::One(payload)))];
@@ -1575,7 +1606,7 @@ mod tests {
         let wallets = system_wallets();
         let deposit = vec![0x25; 20];
         let reserved = [
-            OP_RETURN_WITHDRAW_PREFIX.to_vec(),
+            VIA_WI.to_vec(),
             OP_RETURN_UPGRADE_PROTOCOL_PREFIX.to_vec(),
             OP_RETURN_UPDATE_SEQUENCER_PREFIX.to_vec(),
             OP_RETURN_UPDATE_BRIDGE_PREFIX.to_vec(),
@@ -1606,16 +1637,16 @@ mod tests {
             bytes.extend([0x11; 19]);
             TestCarrier::Raw(bytes)
         };
-        let mut bad_version = OP_RETURN_WITHDRAW_PREFIX.to_vec();
+        let mut bad_version = VIA_WI.to_vec();
         bad_version.push(1);
-        let mut bad_record_length = OP_RETURN_WITHDRAW_PREFIX.to_vec();
+        let mut bad_record_length = VIA_WI.to_vec();
         bad_record_length.extend([0, 0x11]);
         for carrier in [
             TestCarrier::Bare,
             TestCarrier::Empty,
             malformed,
             TestCarrier::One(vec![0x11; 19]),
-            TestCarrier::One(OP_RETURN_WITHDRAW_PREFIX.to_vec()),
+            TestCarrier::One(VIA_WI.to_vec()),
             TestCarrier::One(bad_version),
             TestCarrier::One(bad_record_length),
         ] {
@@ -1762,7 +1793,7 @@ mod tests {
                 && second.input.receiver_l2_address == op_return_receiver
         ));
 
-        let mut withdrawal_payload = OP_RETURN_WITHDRAW_PREFIX.to_vec();
+        let mut withdrawal_payload = VIA_WI.to_vec();
         withdrawal_payload.push(0);
         withdrawal_payload.extend([0x71; 10]);
         let mut withdrawal_tx = TransactionWithMetadata::new(
