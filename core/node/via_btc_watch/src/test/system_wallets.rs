@@ -6,7 +6,7 @@ mod tests {
     use via_test_utils::utils::{
         create_update_bridge_inscription, create_update_governance_inscription,
         create_update_sequencer_inscription, random_bitcoin_wallet, test_bitcoin_client,
-        test_bitcoin_client_serving_transaction, test_create_indexer,
+        test_bitcoin_ops_serving_transaction, test_create_indexer,
         test_system_contract_upgrade_activation, test_system_contract_upgrade_proposal,
         test_system_contract_upgrade_proposal_input,
         test_system_contract_upgrade_proposal_transaction, test_wallets,
@@ -247,12 +247,9 @@ mod tests {
         let proposal_tx =
             test_system_contract_upgrade_proposal_transaction(&proposal_input).await?;
         let proposal_tx_id = proposal_tx.compute_txid();
-        let (btc_client, rpc_server) =
-            test_bitcoin_client_serving_transaction(proposal_tx, 2)?;
-        let mut upgrade_processor = GovernanceUpgradesEventProcessor::new(
-            Arc::new(btc_client),
-            initial_version,
-        );
+        let btc_client = test_bitcoin_ops_serving_transaction(proposal_tx);
+        let mut upgrade_processor =
+            GovernanceUpgradesEventProcessor::new(btc_client, initial_version);
         let mut storage = pool.connection().await?;
 
         upgrade_processor
@@ -291,8 +288,6 @@ mod tests {
             stored_upgrade_tx.common_data,
             expected_upgrade_tx.common_data
         );
-        rpc_server.join().unwrap()?;
-
         Ok(())
     }
 

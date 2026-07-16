@@ -1,16 +1,7 @@
-use std::{
-    collections::HashMap,
-    io::{Read, Write},
-    net::{TcpListener, TcpStream},
-    str::FromStr,
-    sync::Arc,
-    thread::{self, JoinHandle},
-    time::Duration,
-};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use bitcoin::{
     address::NetworkUnchecked,
-    consensus::encode::serialize_hex,
     key::rand,
     script::PushBytesBuf,
     secp256k1::{self, SecretKey},
@@ -21,7 +12,10 @@ use tokio::time::sleep;
 use via_btc_client::{
     client::BitcoinClient,
     indexer::{BitcoinInscriptionIndexer, MessageParser},
-    inscriber::Inscriber,
+    inscriber::{
+        test_utils::{MockBitcoinOps, MockBitcoinOpsConfig},
+        Inscriber,
+    },
     traits::BitcoinOps,
     types::{
         BitcoinAddress,
@@ -65,67 +59,11 @@ pub fn test_bitcoin_client() -> BitcoinClient {
     .unwrap()
 }
 
-pub fn test_bitcoin_client_serving_transaction(
-    transaction: Transaction,
-    request_count: usize,
-) -> anyhow::Result<(BitcoinClient, JoinHandle<anyhow::Result<()>>)> {
-    let listener = TcpListener::bind(("127.0.0.1", 0))?;
-    let rpc_url = format!("http://{}", listener.local_addr()?);
-    let client = BitcoinClient::new(
-        &rpc_url,
-        NodeAuth::UserPass(RPC_USERNAME.into(), RPC_PASSWORD.into()),
-        ViaBtcClientConfig {
-            network: NETWORK.to_string(),
-            external_apis: vec![],
-            fee_strategies: vec![],
-            use_rpc_for_fee_rate: None,
-        },
-    )?;
-    let raw_transaction = serialize_hex(&transaction);
-    let server = thread::spawn(move || {
-        for id in 1..=request_count {
-            let (mut stream, _) = listener.accept()?;
-            read_http_request(&mut stream)?;
-            let body = format!(r#"{{"result":"{raw_transaction}","error":null,"id":{id}}}"#);
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            )?;
-        }
-        Ok(())
-    });
-    Ok((client, server))
-}
-
-fn read_http_request(stream: &mut TcpStream) -> anyhow::Result<()> {
-    let mut request = Vec::new();
-    let mut buffer = [0; 1024];
-    loop {
-        let read = stream.read(&mut buffer)?;
-        if read == 0 {
-            anyhow::bail!("JSON-RPC request ended before its body was complete");
-        }
-        request.extend_from_slice(&buffer[..read]);
-
-        let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
-            continue;
-        };
-        let headers = std::str::from_utf8(&request[..header_end])?;
-        let content_length = headers
-            .lines()
-            .find_map(|line| {
-                let (name, value) = line.split_once(':')?;
-                name.eq_ignore_ascii_case("content-length")
-                    .then(|| value.trim().parse::<usize>())
-            })
-            .transpose()?
-            .unwrap_or(0);
-        if request.len() >= header_end + 4 + content_length {
-            return Ok(());
-        }
-    }
+pub fn test_bitcoin_ops_serving_transaction(transaction: Transaction) -> Arc<dyn BitcoinOps> {
+    Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig {
+        transaction: Some(transaction),
+        ..Default::default()
+    }))
 }
 
 pub fn test_system_contract_upgrade_proposal_input() -> SystemContractUpgradeProposalInput {
@@ -255,10 +193,6 @@ pub fn test_wallets() -> SystemWallets {
 }
 
 pub fn bootstrap_state_mock() -> BootstrapState {
-    let mut sequencer_votes = HashMap::new();
-    sequencer_votes.insert(test_verifier_add_1(), true);
-    sequencer_votes.insert(test_verifier_add_2(), true);
-
     BootstrapState {
         wallets: test_wallets(),
         bootstrap_tx_id: BitcoinTxid::all_zeros(),
@@ -277,17 +211,7 @@ pub fn bootstrap_state_mock() -> BootstrapState {
 /// Create a update sequencer address inscription
 pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
     FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
-                .ok()
-                .unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: test_system_common_fields(None),
         input: UpdateSequencerInput {
             inputs: vec![],
             address: address.as_unchecked().clone(),
@@ -298,17 +222,7 @@ pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscr
 /// Create a update governance address inscription
 pub fn create_update_governance_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
     FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
-                .ok()
-                .unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: test_system_common_fields(None),
         input: UpdateGovernanceInput {
             inputs: vec![],
             address: address.as_unchecked().clone(),
@@ -338,15 +252,7 @@ pub async fn create_update_bridge_inscription(
         .await?;
 
     Ok(FullInscriptionMessage::UpdateBridge(UpdateBridge {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: test_system_common_fields(None),
         input: UpdateBridgeInput {
             inputs: vec![],
             proposal_tx_id: result.final_reveal_tx.txid,
@@ -415,23 +321,21 @@ pub fn test_create_indexer() -> BitcoinInscriptionIndexer {
 }
 
 #[cfg(test)]
-mod rpc_fixture_tests {
-    use via_btc_client::traits::BitcoinOps;
-
+mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn serves_upgrade_proposal_transaction() {
+    async fn upgrade_proposal_round_trips_all_pairs() {
         let input = test_system_contract_upgrade_proposal_input();
-        let transaction = test_system_contract_upgrade_proposal_transaction(&input)
+        let tx = test_system_contract_upgrade_proposal_transaction(&input)
             .await
             .unwrap();
-        let txid = transaction.compute_txid();
-        let (client, server) =
-            test_bitcoin_client_serving_transaction(transaction.clone(), 1).unwrap();
-
-        assert_eq!(client.get_transaction(&txid).await.unwrap(), transaction);
-        server.join().unwrap().unwrap();
+        let messages = MessageParser::new(NETWORK).parse_system_transaction(&tx, 0, None);
+        assert!(matches!(
+            messages.as_slice(),
+            [FullInscriptionMessage::SystemContractUpgradeProposal(message)]
+                if message.input == input
+        ));
     }
 }
 
