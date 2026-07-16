@@ -137,7 +137,7 @@ impl BitcoinInscriptionIndexer {
 
             let messages: Vec<_> = parsed_messages
                 .into_iter()
-                .filter(|message| self.is_valid_system_message(message))
+                .filter(|message| self.is_valid_scanned_system_message(message))
                 .collect();
 
             valid_messages.extend(messages);
@@ -295,8 +295,11 @@ impl BitcoinInscriptionIndexer {
 }
 
 impl BitcoinInscriptionIndexer {
+    /// Applies signer authorization only to system messages discovered during ordinary block
+    /// scanning; proposal payloads selected by a governance-authorized activation are outside this
+    /// authorization domain.
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
-    fn is_valid_system_message(&self, message: &FullInscriptionMessage) -> bool {
+    fn is_valid_scanned_system_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
             FullInscriptionMessage::ValidatorAttestation(m) => m
                 .common
@@ -578,7 +581,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_is_valid_message() {
+    async fn test_is_valid_scanned_system_and_bridge_messages() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
         let validator_attestation =
@@ -589,7 +592,7 @@ mod tests {
                     attestation: Vote::Ok,
                 },
             });
-        assert!(!indexer.is_valid_system_message(&validator_attestation));
+        assert!(!indexer.is_valid_scanned_system_message(&validator_attestation));
 
         let l1_batch_da_reference =
             FullInscriptionMessage::L1BatchDAReference(types::L1BatchDAReference {
@@ -611,7 +614,7 @@ mod tests {
                 },
             });
         // We didn't vote for the sequencer yet, so this message is invalid
-        assert!(indexer.is_valid_system_message(&l1_batch_da_reference));
+        assert!(indexer.is_valid_scanned_system_message(&l1_batch_da_reference));
 
         let mut proposal_common = get_test_common_fields();
         proposal_common.p2wpkh_address = Some(indexer.wallets.sequencer.clone());
@@ -632,7 +635,7 @@ mod tests {
                     },
                 },
             );
-        assert!(indexer.is_valid_system_message(&system_contract_upgrade_proposal));
+        assert!(indexer.is_valid_scanned_system_message(&system_contract_upgrade_proposal));
 
         let FullInscriptionMessage::SystemContractUpgradeProposal(proposal) =
             &mut system_contract_upgrade_proposal
@@ -643,7 +646,7 @@ mod tests {
             ScriptBuf::new().as_script(),
             Network::Testnet,
         ));
-        assert!(!indexer.is_valid_system_message(&system_contract_upgrade_proposal));
+        assert!(!indexer.is_valid_scanned_system_message(&system_contract_upgrade_proposal));
 
         let l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
             common: get_test_common_fields(),
@@ -684,7 +687,7 @@ mod tests {
                     evm_emulator_hash: H256::zero(),
                 },
             });
-        assert!(indexer.is_valid_system_message(&system_bootstrapping));
+        assert!(indexer.is_valid_scanned_system_message(&system_bootstrapping));
     }
 
     #[tokio::test]
