@@ -1,3 +1,5 @@
+#![warn(clippy::cognitive_complexity)]
+
 pub mod traits;
 pub mod types;
 
