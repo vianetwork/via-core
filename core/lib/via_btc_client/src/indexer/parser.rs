@@ -335,11 +335,9 @@ impl MessageParser {
 
         let bridge_output = &tx.tx.output[vout];
 
-        // Try to parse an inscription-based deposit first.
-        if let Some(inscription_message) = self.parse_inscription_deposit(tx, block_height, wallets)
-        {
-            messages.push(inscription_message);
-        }
+        // A valid witness deposit suppresses only a competing OP_RETURN deposit; VIA_WI
+        // withdrawal parsing remains independent.
+        let witness_deposit = self.parse_inscription_deposit(tx, block_height, wallets);
 
         let op_return_message = match first_op_return_carrier(&tx.tx) {
             Some(OpReturnCarrier::One(body)) => match reserved_from_deposit(body) {
@@ -347,15 +345,15 @@ impl MessageParser {
                     self.parse_op_return_withdrawal(&tx.tx, block_height, wallets, body)
                 }
                 ReservedFromDeposit::Active(_) | ReservedFromDeposit::RetiredReserved => None,
-                ReservedFromDeposit::UnreservedDeposit => {
+                ReservedFromDeposit::UnreservedDeposit if witness_deposit.is_none() => {
                     self.parse_op_return_deposit(tx, block_height, bridge_output, body)
                 }
+                ReservedFromDeposit::UnreservedDeposit => None,
             },
             Some(OpReturnCarrier::Two(_, _)) | None => None,
         };
-        if let Some(message) = op_return_message {
-            messages.push(message);
-        }
+        messages.extend(witness_deposit);
+        messages.extend(op_return_message);
 
         messages
     }
@@ -1939,27 +1937,27 @@ mod tests {
     }
 
     #[test]
-    fn characterizes_witness_and_op_return_dual_emit_order() {
+    fn witness_deposit_suppresses_conflicting_op_return_deposit() {
         let wallets = system_wallets();
         let witness_receiver = EVMAddress::repeat_byte(0x51);
         let op_return_receiver = EVMAddress::repeat_byte(0x62);
 
-        let mut deposit_tx =
-            bridge_transaction([TestCarrier::One(op_return_receiver.as_bytes().to_vec())]);
-        deposit_tx.tx.input[0].witness = inscription_witness(witness_receiver);
-        let messages = MessageParser::new(Network::Regtest).parse_bridge_transaction(
-            &mut deposit_tx,
-            42,
-            &wallets,
-        );
-        assert!(matches!(
-            messages.as_slice(),
-            [
-                FullInscriptionMessage::L1ToL2Message(first),
-                FullInscriptionMessage::L1ToL2Message(second),
-            ] if first.input.receiver_l2_address == witness_receiver
-                && second.input.receiver_l2_address == op_return_receiver
-        ));
+        let mut tx = bridge_transaction([TestCarrier::One(op_return_receiver.as_bytes().to_vec())]);
+        tx.tx.input[0].witness = inscription_witness(witness_receiver);
+        let messages =
+            MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets);
+
+        let [FullInscriptionMessage::L1ToL2Message(message)] = messages.as_slice() else {
+            panic!("expected one witness deposit");
+        };
+        assert_eq!(message.input.receiver_l2_address, witness_receiver);
+        assert!(!message.common.encoded_public_key.is_empty());
+    }
+
+    #[test]
+    fn witness_deposit_preserves_via_wi_withdrawal_order() {
+        let wallets = system_wallets();
+        let witness_receiver = EVMAddress::repeat_byte(0x51);
 
         let mut withdrawal_payload = VIA_WI.to_vec();
         withdrawal_payload.push(0);
@@ -1988,5 +1986,49 @@ mod tests {
                 FullInscriptionMessage::BridgeWithdrawal(_),
             ] if first.input.receiver_l2_address == witness_receiver
         ));
+    }
+
+    #[test]
+    fn op_return_deposit_is_used_without_a_valid_witness_deposit() {
+        let wallets = system_wallets();
+        let op_return_receiver = EVMAddress::repeat_byte(0x62);
+        let invalid_witness = inscription_witness_with_fields(
+            &types::L1_TO_L2_MSG,
+            &[
+                vec![0x51; 19],
+                EVMAddress::zero().as_bytes().to_vec(),
+                Vec::new(),
+            ],
+        );
+
+        for witness in [Witness::new(), invalid_witness] {
+            let mut tx =
+                bridge_transaction([TestCarrier::One(op_return_receiver.as_bytes().to_vec())]);
+            tx.tx.input[0].witness = witness;
+            let messages = MessageParser::new(Network::Regtest)
+                .parse_bridge_transaction(&mut tx, 42, &wallets);
+
+            let [FullInscriptionMessage::L1ToL2Message(message)] = messages.as_slice() else {
+                panic!("expected one OP_RETURN deposit");
+            };
+            assert_eq!(message.input.receiver_l2_address, op_return_receiver);
+            assert!(message.common.encoded_public_key.is_empty());
+        }
+    }
+
+    #[test]
+    fn matching_dual_deposits_emit_once() {
+        let wallets = system_wallets();
+        let receiver = EVMAddress::repeat_byte(0x51);
+        let mut tx = bridge_transaction([TestCarrier::One(receiver.as_bytes().to_vec())]);
+        tx.tx.input[0].witness = inscription_witness(receiver);
+
+        let messages =
+            MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets);
+        let [FullInscriptionMessage::L1ToL2Message(message)] = messages.as_slice() else {
+            panic!("expected one witness deposit");
+        };
+        assert_eq!(message.input.receiver_l2_address, receiver);
+        assert!(!message.common.encoded_public_key.is_empty());
     }
 }
