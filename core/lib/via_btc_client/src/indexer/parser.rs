@@ -1147,6 +1147,16 @@ mod tests {
         }
     }
 
+    fn p2wpkh_witness(secret_key_bytes: [u8; 32]) -> Witness {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&secret_key_bytes).unwrap();
+        let public_key = bitcoin::PublicKey::new(bitcoin::secp256k1::PublicKey::from_secret_key(
+            &secp,
+            &secret_key,
+        ));
+        Witness::from_slice(&[Vec::new(), public_key.to_bytes()])
+    }
+
     fn op_return_output(script_pubkey: ScriptBuf) -> TxOut {
         TxOut {
             value: Amount::ZERO,
@@ -1304,18 +1314,31 @@ mod tests {
     #[test]
     fn characterizes_one_push_deposit_receiver_windows() {
         let wallets = system_wallets();
+        let mut parser = MessageParser::new(Network::Regtest);
+        let sender_witness = p2wpkh_witness([2; 32]);
+        let sender_address = parser.parse_p2wpkh(&sender_witness).unwrap();
         let cases = [20, 74, 75];
 
         for len in cases {
             let payload: Vec<_> = (0..len).map(|byte| byte as u8).collect();
             let mut tx = bridge_transaction([TestCarrier::One(payload.clone())]);
-            let messages = MessageParser::new(Network::Regtest)
-                .parse_bridge_transaction(&mut tx, 42, &wallets);
+            tx.tx.input[0].witness = sender_witness.clone();
+            let messages = parser.parse_bridge_transaction(&mut tx, 42, &wallets);
+            let [FullInscriptionMessage::L1ToL2Message(message)] = messages.as_slice() else {
+                panic!("expected one deposit for len={len}");
+            };
             assert_eq!(
-                parsed_deposit_receiver(&messages),
-                Some(EVMAddress::from_slice(&payload[..20])),
+                message.input.receiver_l2_address,
+                EVMAddress::from_slice(&payload[..20]),
                 "len={len}"
             );
+            assert_eq!(
+                message.common.p2wpkh_address.as_ref(),
+                Some(&sender_address),
+                "len={len}"
+            );
+            assert_eq!(message.common.tx_index, Some(7), "len={len}");
+            assert_eq!(message.common.output_vout, Some(0), "len={len}");
         }
 
         let payload: Vec<_> = (0..20).map(|byte| byte as u8).collect();
@@ -1699,13 +1722,7 @@ mod tests {
             ],
         );
         let reveal_witness = replace_witness_item(&template, 1, reveal_script.into_bytes());
-        let secp = Secp256k1::new();
-        let secret_key = SecretKey::from_slice(&[2; 32]).unwrap();
-        let public_key = bitcoin::PublicKey::new(bitcoin::secp256k1::PublicKey::from_secret_key(
-            &secp,
-            &secret_key,
-        ));
-        let sender_witness = Witness::from_slice(&[Vec::new(), public_key.to_bytes()]);
+        let sender_witness = p2wpkh_witness([2; 32]);
         let mut tx = test_transaction(Vec::new());
         tx.input = vec![test_input(reveal_witness), test_input(sender_witness)];
 
