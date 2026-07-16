@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use via_btc_client::{
-    indexer::{BitcoinInscriptionIndexer, MessageParser},
+    indexer::{resolve_upgrade_proposals, BitcoinInscriptionIndexer},
     traits::BitcoinOps,
     types::FullInscriptionMessage,
 };
@@ -17,22 +17,12 @@ use crate::{
 /// Listens to operation events coming from the governance contract and saves new protocol upgrade proposals to the database.
 #[derive(Debug)]
 pub struct GovernanceUpgradesEventProcessor {
-    /// BTC client
     btc_client: Arc<dyn BitcoinOps>,
-    /// Message parser
-    message_parser: MessageParser,
-    /// upgrade proposal
-    upgrade: ViaProtocolUpgrade,
 }
 
 impl GovernanceUpgradesEventProcessor {
     pub fn new(btc_client: Arc<dyn BitcoinOps>) -> Self {
-        let message_parser = MessageParser::new(btc_client.get_network());
-        Self {
-            btc_client,
-            message_parser,
-            upgrade: ViaProtocolUpgrade::default(),
-        }
+        Self { btc_client }
     }
 }
 
@@ -49,30 +39,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
             let FullInscriptionMessage::SystemContractUpgrade(activation) = msg else {
                 continue;
             };
-            let proposal_tx = self
-                .btc_client
-                .get_transaction(&activation.input.proposal_tx_id)
-                .await
-                .map_err(|err| {
-                    MessageProcessorError::Internal(anyhow::anyhow!(
-                        "Failed to fetch protocol upgrade transaction: {}, error {}",
-                        activation.input.proposal_tx_id,
-                        err
-                    ))
-                })?;
-
-            let messages = self.message_parser.parse_system_transaction(
-                &proposal_tx,
-                activation.common.block_height,
-                None,
-            );
-
-            for message in messages {
-                let FullInscriptionMessage::SystemContractUpgradeProposal(proposal) = message
-                else {
-                    continue;
-                };
-                let input = proposal.input;
+            for input in resolve_upgrade_proposals(self.btc_client.as_ref(), &activation).await? {
                 if input.version < get_sequencer_version() {
                     tracing::info!(
                         "Upgrade transaction with version {} already processed, skipping",
@@ -83,8 +50,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
 
                 tracing::info!("Received upgrades with versions: {:?}", input.version);
 
-                let hash = self
-                    .upgrade
+                let hash = ViaProtocolUpgrade::default()
                     .get_canonical_tx_hash(input.version, input.system_contracts)?;
                 upgrades.push((
                     input.version,

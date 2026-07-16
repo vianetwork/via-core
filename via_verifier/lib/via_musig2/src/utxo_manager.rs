@@ -78,35 +78,22 @@ impl UtxoManager {
         Ok(utxos)
     }
 
-    pub async fn select_utxos_by_target_value(
-        &self,
+    pub(crate) fn select_utxo_prefix(
         utxos: &[(OutPoint, TxOut)],
-        target_amount: Amount,
-    ) -> anyhow::Result<Vec<(OutPoint, TxOut)>> {
-        // Simple implementation - could be improved with better UTXO selection algorithm
+        target: Amount,
+    ) -> anyhow::Result<Option<Vec<(OutPoint, TxOut)>>> {
         let mut selected = Vec::new();
         let mut total = Amount::ZERO;
-
         for utxo in utxos {
-            selected.push(utxo.clone());
             total = total
                 .checked_add(utxo.1.value)
                 .ok_or_else(|| anyhow::anyhow!("Amount overflow during UTXO selection"))?;
-
-            if total >= target_amount {
-                break;
+            selected.push(utxo.clone());
+            if total >= target {
+                return Ok(Some(selected));
             }
         }
-
-        if total < target_amount {
-            return Err(anyhow::anyhow!(
-                "Insufficient funds: have {}, need {}",
-                total,
-                target_amount
-            ));
-        }
-
-        Ok(selected)
+        Ok(None)
     }
 
     pub async fn get_utxos_to_merge(

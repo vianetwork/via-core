@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::Context as _;
+use anyhow::Context;
 use via_btc_client::{
-    indexer::{BitcoinInscriptionIndexer, MessageParser},
+    indexer::{resolve_upgrade_proposals, BitcoinInscriptionIndexer},
     traits::BitcoinOps,
     types::FullInscriptionMessage,
 };
@@ -22,12 +22,7 @@ use crate::{
 pub struct GovernanceUpgradesEventProcessor {
     /// Last protocol version seen. Used to skip events for already known upgrade proposals.
     last_seen_protocol_version: ProtocolSemanticVersion,
-    /// BTC client
     btc_client: Arc<dyn BitcoinOps>,
-    /// Message parser
-    message_parser: MessageParser,
-    /// upgrade proposal
-    upgrade: ViaProtocolUpgrade,
 }
 
 impl GovernanceUpgradesEventProcessor {
@@ -35,12 +30,9 @@ impl GovernanceUpgradesEventProcessor {
         btc_client: Arc<dyn BitcoinOps>,
         last_seen_protocol_version: ProtocolSemanticVersion,
     ) -> Self {
-        let message_parser = MessageParser::new(btc_client.get_network());
         Self {
             last_seen_protocol_version,
             btc_client,
-            message_parser,
-            upgrade: ViaProtocolUpgrade::default(),
         }
     }
 }
@@ -57,30 +49,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
             let FullInscriptionMessage::SystemContractUpgrade(activation) = msg else {
                 continue;
             };
-            let proposal_tx = self
-                .btc_client
-                .get_transaction(&activation.input.proposal_tx_id)
-                .await
-                .map_err(|err| {
-                    MessageProcessorError::Internal(anyhow::anyhow!(
-                        "Failed to fetch protocol upgrade transaction: {}, error {}",
-                        activation.input.proposal_tx_id,
-                        err
-                    ))
-                })?;
-
-            let messages = self.message_parser.parse_system_transaction(
-                &proposal_tx,
-                activation.common.block_height,
-                None,
-            );
-
-            for message in messages {
-                let FullInscriptionMessage::SystemContractUpgradeProposal(proposal) = message
-                else {
-                    continue;
-                };
-                let input = proposal.input;
+            for input in resolve_upgrade_proposals(self.btc_client.as_ref(), &activation).await? {
                 if input.version <= self.last_seen_protocol_version {
                     tracing::info!(
                         "Upgrade transaction with version {} already processed, skipping",
@@ -90,8 +59,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                 }
 
                 tracing::info!("Received upgrades with versions: {:?}", input.version);
-                let tx = self
-                    .upgrade
+                let tx = ViaProtocolUpgrade::default()
                     .create_protocol_upgrade_tx(input.version, input.system_contracts)?;
 
                 let upgrade = ProtocolUpgrade {

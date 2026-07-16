@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Context as _;
 use bitcoin::{Address, Amount, BlockHash, OutPoint, Transaction as BitcoinTransaction, Txid};
 use tracing::{debug, info, instrument, warn};
 
@@ -13,7 +14,8 @@ use crate::{
     traits::BitcoinOps,
     types::{
         BitcoinIndexerResult, BridgeWithdrawal, FullInscriptionMessage, L1ToL2Message,
-        SystemTransactions, TransactionWithMetadata,
+        SystemContractUpgrade, SystemContractUpgradeProposalInput, SystemTransactions,
+        TransactionWithMetadata,
     },
 };
 
@@ -25,6 +27,30 @@ pub struct BitcoinInscriptionIndexer {
     client: Arc<dyn BitcoinOps>,
     wallets: Arc<SystemWallets>,
     parser: MessageParser,
+}
+
+/// Fetches every proposal referenced by an activation; callers retain version filtering and effects.
+pub async fn resolve_upgrade_proposals(
+    client: &dyn BitcoinOps,
+    activation: &SystemContractUpgrade,
+) -> anyhow::Result<Vec<SystemContractUpgradeProposalInput>> {
+    let proposal_tx_id = activation.input.proposal_tx_id;
+    let proposal_tx = client
+        .get_transaction(&proposal_tx_id)
+        .await
+        .with_context(|| {
+            format!("failed to fetch protocol upgrade transaction {proposal_tx_id}")
+        })?;
+    let mut parser = MessageParser::new(client.get_network());
+
+    Ok(parser
+        .parse_system_transaction(&proposal_tx, activation.common.block_height, None)
+        .into_iter()
+        .filter_map(|message| match message {
+            FullInscriptionMessage::SystemContractUpgradeProposal(proposal) => Some(proposal.input),
+            _ => None,
+        })
+        .collect())
 }
 
 impl BitcoinInscriptionIndexer {
@@ -104,63 +130,35 @@ impl BitcoinInscriptionIndexer {
 
         let mut system_txs = self.extract_important_transactions(&block.txdata);
 
-        // Parse protocol upgrade messages (Upgrade system contracts, bridge addresses, sequencer address)
-        if !system_txs.governance_txs.is_empty() {
-            let parsed_messages: Vec<_> = system_txs
-                .governance_txs
-                .iter()
-                .flat_map(|tx| {
-                    self.parser
-                        .parse_protocol_upgrade_transactions(tx, block_height)
-                })
-                .collect();
-
-            let mut messages = vec![];
-            for message in parsed_messages {
+        for tx in &system_txs.governance_txs {
+            for message in self
+                .parser
+                .parse_protocol_upgrade_transactions(tx, block_height)
+            {
                 if self.is_valid_gov_message(&message).await {
-                    messages.push(message);
+                    valid_messages.push(message);
                 }
             }
-
-            valid_messages.extend(messages);
         }
 
-        if !system_txs.system_txs.is_empty() {
-            let parsed_messages: Vec<_> = system_txs
-                .system_txs
-                .iter()
-                .flat_map(|tx| {
-                    self.parser
-                        .parse_system_transaction(&tx.tx, block_height, Some(&self.wallets))
-                })
-                .collect();
-
-            let messages: Vec<_> = parsed_messages
-                .into_iter()
-                .filter(|message| self.is_valid_scanned_system_message(message))
-                .collect();
-
-            valid_messages.extend(messages);
+        for tx in &system_txs.system_txs {
+            valid_messages.extend(
+                self.parser
+                    .parse_system_transaction(&tx.tx, block_height, Some(&self.wallets))
+                    .into_iter()
+                    .filter(|message| self.is_valid_scanned_system_message(message)),
+            );
         }
 
-        if !system_txs.bridge_txs.is_empty() {
-            let parsed_messages: Vec<_> = system_txs
-                .bridge_txs
-                .iter_mut()
-                .flat_map(|tx| {
-                    self.parser
-                        .parse_bridge_transaction(tx, block_height, &self.wallets)
-                })
-                .collect();
-
-            let mut messages = vec![];
-            for message in parsed_messages {
+        for tx in &mut system_txs.bridge_txs {
+            for message in self
+                .parser
+                .parse_bridge_transaction(tx, block_height, &self.wallets)
+            {
                 if self.is_valid_bridge_message(&message).await {
-                    messages.push(message);
+                    valid_messages.push(message);
                 }
             }
-
-            valid_messages.extend(messages);
         }
 
         debug!(
@@ -175,51 +173,38 @@ impl BitcoinInscriptionIndexer {
         &self,
         transactions: &[BitcoinTransaction],
     ) -> SystemTransactions {
-        // We only care about the transactions that sequencer, verifiers are sending and the bridge is receiving
-        let system_txs: Vec<TransactionWithMetadata> = transactions
-            .iter()
-            .enumerate()
-            .filter_map(|(tx_index, tx)| {
-                let claimed_address = self.parser.unique_claimed_p2wpkh_address(tx)?;
-                (claimed_address == self.wallets.sequencer
-                    || self.wallets.verifiers.contains(&claimed_address))
-                .then(|| TransactionWithMetadata::new(tx.clone(), tx_index))
-            })
-            .collect();
+        let bridge_script = self.wallets.bridge.script_pubkey();
+        let governance_script = self.wallets.governance.script_pubkey();
+        let mut system_txs = Vec::new();
+        let mut bridge_txs = Vec::new();
+        let mut governance_txs = Vec::new();
 
-        let bridge_txs: Vec<TransactionWithMetadata> = transactions
-            .iter()
-            .enumerate()
-            .filter_map(|(tx_index, tx)| {
-                let is_bridge_output = tx
-                    .output
-                    .iter()
-                    .any(|output| output.script_pubkey == self.wallets.bridge.script_pubkey());
-
-                if is_bridge_output {
-                    Some(TransactionWithMetadata::new(tx.clone(), tx_index))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let governance_txs: Vec<TransactionWithMetadata> = transactions
-            .iter()
-            .enumerate()
-            .filter_map(|(tx_index, tx)| {
-                let is_bridge_output = tx
-                    .output
-                    .iter()
-                    .any(|output| output.script_pubkey == self.wallets.governance.script_pubkey());
-
-                if is_bridge_output {
-                    Some(TransactionWithMetadata::new(tx.clone(), tx_index))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        for (tx_index, tx) in transactions.iter().enumerate() {
+            if self
+                .parser
+                .unique_claimed_p2wpkh_address(tx)
+                .is_some_and(|address| {
+                    address == self.wallets.sequencer || self.wallets.verifiers.contains(&address)
+                })
+            {
+                system_txs.push(TransactionWithMetadata::new(tx.clone(), tx_index));
+            }
+            if tx
+                .output
+                .iter()
+                .any(|output| output.script_pubkey == bridge_script)
+                || parser::has_withdrawal_carrier(tx)
+            {
+                bridge_txs.push(TransactionWithMetadata::new(tx.clone(), tx_index));
+            }
+            if tx
+                .output
+                .iter()
+                .any(|output| output.script_pubkey == governance_script)
+            {
+                governance_txs.push(TransactionWithMetadata::new(tx.clone(), tx_index));
+            }
+        }
 
         SystemTransactions {
             system_txs,
@@ -430,8 +415,6 @@ impl BitcoinInscriptionIndexer {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use async_trait::async_trait;
     use bitcoin::{
         absolute, block::Header, hashes::Hash, secp256k1, transaction, Address, Amount, Block,
@@ -470,11 +453,17 @@ mod tests {
         }
     }
 
-    fn get_test_addr() -> Address {
-        Address::from_str("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
-            .unwrap()
-            .require_network(Network::Testnet)
-            .unwrap()
+    fn p2wpkh_key(secret: u8) -> bitcoin::PublicKey {
+        let secp = secp256k1::Secp256k1::new();
+        let mut bytes = [0; 32];
+        bytes[31] = secret;
+        let secret = secp256k1::SecretKey::from_slice(&bytes).unwrap();
+        bitcoin::PublicKey::new(secp256k1::PublicKey::from_secret_key(&secp, &secret))
+    }
+
+    fn get_test_addr(secret: u8) -> Address {
+        let key = bitcoin::CompressedPublicKey::try_from(p2wpkh_key(secret)).unwrap();
+        Address::p2wpkh(&key, Network::Testnet)
     }
 
     fn get_test_common_fields() -> CommonFields {
@@ -483,7 +472,7 @@ mod tests {
             encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
             block_height: 0,
             tx_id: Txid::all_zeros(),
-            p2wpkh_address: Some(get_test_addr()),
+            p2wpkh_address: Some(get_test_addr(1)),
             tx_index: None,
             output_vout: None,
         }
@@ -491,10 +480,10 @@ mod tests {
 
     fn get_indexer_with_mock(mock_client: MockBitcoinOps) -> BitcoinInscriptionIndexer {
         let wallets = Arc::new(SystemWallets {
-            bridge: get_test_addr(),
-            sequencer: get_test_addr(),
-            governance: get_test_addr(),
-            verifiers: vec![],
+            bridge: get_test_addr(2),
+            sequencer: get_test_addr(1),
+            governance: get_test_addr(3),
+            verifiers: vec![get_test_addr(4)],
         });
 
         BitcoinInscriptionIndexer {
@@ -505,13 +494,7 @@ mod tests {
     }
 
     fn p2wpkh_witness(secret: u8) -> Witness {
-        let secp = secp256k1::Secp256k1::new();
-        let mut secret_bytes = [0; 32];
-        secret_bytes[31] = secret;
-        let secret = secp256k1::SecretKey::from_slice(&secret_bytes).unwrap();
-        let public_key =
-            bitcoin::PublicKey::new(secp256k1::PublicKey::from_secret_key(&secp, &secret));
-        Witness::from_slice(&[Vec::new(), public_key.to_bytes()])
+        Witness::from_slice(&[Vec::new(), p2wpkh_key(secret).to_bytes()])
     }
 
     #[tokio::test]
@@ -581,6 +564,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolves_upgrade_proposal_input() {
+        let proposal_tx = parser::system_contract_upgrade_transaction(1);
+        let proposal_tx_id = proposal_tx.compute_txid();
+        let activation = types::SystemContractUpgrade {
+            common: get_test_common_fields(),
+            input: types::SystemContractUpgradeInput {
+                inputs: vec![],
+                proposal_tx_id,
+            },
+        };
+        let mut client = MockBitcoinOps::new();
+        client
+            .expect_get_transaction()
+            .with(eq(proposal_tx_id))
+            .return_once(move |_| Ok(proposal_tx));
+        client.expect_get_network().return_const(Network::Regtest);
+
+        let proposals = resolve_upgrade_proposals(&client, &activation)
+            .await
+            .unwrap();
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].system_contracts.len(), 1);
+    }
+
+    #[tokio::test]
     async fn test_is_valid_scanned_system_and_bridge_messages() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
@@ -605,7 +613,6 @@ mod tests {
                     prev_l1_batch_hash: zksync_basic_types::H256::zero(),
                 },
             });
-        // We didn't vote for the sequencer yet, so this message is invalid
         assert!(indexer.is_valid_scanned_system_message(&l1_batch_da_reference));
 
         let mut proposal_common = get_test_common_fields();
@@ -629,16 +636,19 @@ mod tests {
             );
         assert!(indexer.is_valid_scanned_system_message(&system_contract_upgrade_proposal));
 
-        let FullInscriptionMessage::SystemContractUpgradeProposal(proposal) =
-            &mut system_contract_upgrade_proposal
-        else {
-            unreachable!();
-        };
-        proposal.common.p2wpkh_address = Some(Address::p2wsh(
-            ScriptBuf::new().as_script(),
-            Network::Testnet,
-        ));
-        assert!(!indexer.is_valid_scanned_system_message(&system_contract_upgrade_proposal));
+        for address in [
+            &indexer.wallets.bridge,
+            &indexer.wallets.governance,
+            &indexer.wallets.verifiers[0],
+        ] {
+            let FullInscriptionMessage::SystemContractUpgradeProposal(proposal) =
+                &mut system_contract_upgrade_proposal
+            else {
+                unreachable!();
+            };
+            proposal.common.p2wpkh_address = Some(address.clone());
+            assert!(!indexer.is_valid_scanned_system_message(&system_contract_upgrade_proposal));
+        }
 
         let l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
             common: get_test_common_fields(),
@@ -683,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn system_transaction_classification_requires_unique_claimed_address() {
+    fn important_transaction_classification_covers_unique_senders_and_withdrawals() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
         let authorized = p2wpkh_witness(1);
         assert_eq!(
@@ -714,6 +724,38 @@ mod tests {
             .extract_important_transactions(&[transaction(vec![authorized, p2wpkh_witness(2)])])
             .system_txs
             .is_empty());
+
+        let mut withdrawal = transaction(vec![]);
+        let payload = [withdrawal::VIA_WI, &[0; 11]].concat();
+        withdrawal.output.push(TxOut {
+            value: Amount::ZERO,
+            script_pubkey: ScriptBuf::new_op_return(
+                bitcoin::script::PushBytesBuf::try_from(payload).unwrap(),
+            ),
+        });
+        let output_transaction = |script_pubkey| Transaction {
+            output: vec![TxOut {
+                value: Amount::ZERO,
+                script_pubkey,
+            }],
+            ..transaction(vec![])
+        };
+        let important = indexer.extract_important_transactions(&[
+            transaction(vec![]),
+            output_transaction(indexer.wallets.bridge.script_pubkey()),
+            output_transaction(indexer.wallets.governance.script_pubkey()),
+            withdrawal,
+        ]);
+        assert_eq!(
+            important
+                .bridge_txs
+                .iter()
+                .map(|tx| tx.tx_index)
+                .collect::<Vec<_>>(),
+            [1, 3]
+        );
+        assert_eq!(important.governance_txs[0].tx_index, 2);
+        assert_eq!(important.governance_txs.len(), 1);
     }
 
     #[tokio::test]

@@ -483,10 +483,6 @@ impl TransactionWithMetadata {
             output_vout: None,
         }
     }
-
-    pub fn set_output_vout(&mut self, output_vout: usize) {
-        self.output_vout = Some(output_vout);
-    }
 }
 
 pub type BitcoinIndexerResult<T> = std::result::Result<T, IndexerError>;

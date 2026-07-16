@@ -186,14 +186,14 @@ impl ViaWithdrawalDal<'_, '_> {
         Ok(())
     }
 
-    pub async fn check_if_withdrawal_exists_unprocessed(
+    pub async fn get_unprocessed_withdrawal_amount(
         &mut self,
         withdrawal: &WithdrawalRequest,
-    ) -> DalResult<bool> {
+    ) -> DalResult<Option<Amount>> {
         let row = sqlx::query!(
             r#"
             SELECT
-                id
+                value
             FROM
                 via_withdrawals
             WHERE
@@ -206,11 +206,11 @@ impl ViaWithdrawalDal<'_, '_> {
             withdrawal.l2_tx_log_index as i64,
             withdrawal.receiver.to_string(),
         )
-        .instrument("check_if_withdrawal_exists_unprocessed")
+        .instrument("get_unprocessed_withdrawal_amount")
         .fetch_optional(&mut self.storage)
         .await?;
 
-        Ok(row.is_some())
+        Ok(row.map(|row| Amount::from_sat(row.value as u64)))
     }
 
     pub async fn check_if_withdrawal_exists(
@@ -258,6 +258,8 @@ impl ViaWithdrawalDal<'_, '_> {
                 via_withdrawals
             WHERE
                 value >= $1 AND bridge_withdrawal_id IS NULL
+            ORDER BY
+                id
             LIMIT $2
             "#,
             min_value,

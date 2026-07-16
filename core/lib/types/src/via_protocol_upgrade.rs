@@ -1,3 +1,5 @@
+#![warn(clippy::cognitive_complexity)]
+
 use zksync_basic_types::{
     ethabi::encode,
     protocol_version::{ProtocolSemanticVersion, VersionPatch},

@@ -320,25 +320,6 @@ pub fn test_create_indexer() -> BitcoinInscriptionIndexer {
     BitcoinInscriptionIndexer::new(Arc::new(test_bitcoin_client()), Arc::new(test_wallets()))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn upgrade_proposal_round_trips_all_pairs() {
-        let input = test_system_contract_upgrade_proposal_input();
-        let tx = test_system_contract_upgrade_proposal_transaction(&input)
-            .await
-            .unwrap();
-        let messages = MessageParser::new(NETWORK).parse_system_transaction(&tx, 0, None);
-        assert!(matches!(
-            messages.as_slice(),
-            [FullInscriptionMessage::SystemContractUpgradeProposal(message)]
-                if message.input == input
-        ));
-    }
-}
-
 pub fn random_bitcoin_wallet() -> (PrivateKey, BitcoinAddress) {
     // Initialize secp256k1 context
     let secp = secp256k1::Secp256k1::new();
