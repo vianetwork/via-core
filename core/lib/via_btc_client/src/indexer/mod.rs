@@ -180,20 +180,10 @@ impl BitcoinInscriptionIndexer {
             .iter()
             .enumerate()
             .filter_map(|(tx_index, tx)| {
-                let is_valid = tx.input.iter().any(|input| {
-                    if let Some(btc_address) = self.parser.parse_p2wpkh(&input.witness) {
-                        btc_address == self.wallets.sequencer
-                            || self.wallets.verifiers.contains(&btc_address)
-                    } else {
-                        false
-                    }
-                });
-
-                if is_valid {
-                    Some(TransactionWithMetadata::new(tx.clone(), tx_index))
-                } else {
-                    None
-                }
+                let claimed_address = self.parser.unique_claimed_p2wpkh_address(tx)?;
+                (claimed_address == self.wallets.sequencer
+                    || self.wallets.verifiers.contains(&claimed_address))
+                .then(|| TransactionWithMetadata::new(tx.clone(), tx_index))
             })
             .collect();
 
@@ -295,7 +285,7 @@ impl BitcoinInscriptionIndexer {
 }
 
 impl BitcoinInscriptionIndexer {
-    /// Applies signer authorization only to system messages discovered during ordinary block
+    /// Applies wallet-role policy only to system messages discovered during ordinary block
     /// scanning; proposal payloads selected by a governance-authorized activation are outside this
     /// authorization domain.
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
@@ -444,8 +434,8 @@ mod tests {
 
     use async_trait::async_trait;
     use bitcoin::{
-        block::Header, hashes::Hash, Address, Amount, Block, Network, OutPoint, ScriptBuf,
-        Transaction, TxMerkleNode, TxOut,
+        absolute, block::Header, hashes::Hash, secp256k1, transaction, Address, Amount, Block,
+        Network, OutPoint, ScriptBuf, Transaction, TxIn, TxMerkleNode, TxOut, Witness,
     };
     use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
@@ -512,6 +502,16 @@ mod tests {
             parser: MessageParser::new(Network::Testnet),
             wallets,
         }
+    }
+
+    fn p2wpkh_witness(secret: u8) -> Witness {
+        let secp = secp256k1::Secp256k1::new();
+        let mut secret_bytes = [0; 32];
+        secret_bytes[31] = secret;
+        let secret = secp256k1::SecretKey::from_slice(&secret_bytes).unwrap();
+        let public_key =
+            bitcoin::PublicKey::new(secp256k1::PublicKey::from_secret_key(&secp, &secret));
+        Witness::from_slice(&[Vec::new(), public_key.to_bytes()])
     }
 
     #[tokio::test]
@@ -596,15 +596,7 @@ mod tests {
 
         let l1_batch_da_reference =
             FullInscriptionMessage::L1BatchDAReference(types::L1BatchDAReference {
-                common: CommonFields {
-                    schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-                    encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
-                    block_height: 0,
-                    tx_id: Txid::all_zeros(),
-                    p2wpkh_address: Some(get_test_addr()),
-                    tx_index: None,
-                    output_vout: None,
-                },
+                common: get_test_common_fields(),
                 input: types::L1BatchDAReferenceInput {
                     l1_batch_hash: zksync_basic_types::H256::zero(),
                     l1_batch_index: zksync_types::L1BatchNumber(0),
@@ -688,6 +680,40 @@ mod tests {
                 },
             });
         assert!(indexer.is_valid_scanned_system_message(&system_bootstrapping));
+    }
+
+    #[test]
+    fn system_transaction_classification_requires_unique_claimed_address() {
+        let indexer = get_indexer_with_mock(MockBitcoinOps::new());
+        let authorized = p2wpkh_witness(1);
+        assert_eq!(
+            indexer.parser.parse_p2wpkh(&authorized),
+            Some(indexer.wallets.sequencer.clone())
+        );
+        let transaction = |witnesses: Vec<Witness>| Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: witnesses
+                .into_iter()
+                .map(|witness| TxIn {
+                    witness,
+                    ..Default::default()
+                })
+                .collect(),
+            output: vec![],
+        };
+        assert_eq!(
+            indexer
+                .extract_important_transactions(&[transaction(vec![authorized.clone()])])
+                .system_txs
+                .len(),
+            1
+        );
+
+        assert!(indexer
+            .extract_important_transactions(&[transaction(vec![authorized, p2wpkh_witness(2)])])
+            .system_txs
+            .is_empty());
     }
 
     #[tokio::test]

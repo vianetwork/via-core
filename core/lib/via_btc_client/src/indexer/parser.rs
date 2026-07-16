@@ -1,12 +1,10 @@
-use std::str::FromStr;
-
 use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
     opcodes::all::{OP_ENDIF, OP_RETURN},
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
-    Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, TxOut, Txid, Witness,
+    Address, Amount, CompressedPublicKey, Network, Script, Transaction, TxOut, Txid, Witness,
 };
 use tracing::{debug, instrument, warn};
 use zksync_basic_types::H256;
@@ -139,6 +137,10 @@ fn decode_fixed_push<const N: usize>(instruction: &Instruction<'_>) -> Option<[u
     instruction.push_bytes()?.as_bytes().try_into().ok()
 }
 
+fn decode_script_instructions(script: &Script) -> Option<Vec<Instruction<'_>>> {
+    script.instructions().collect::<Result<_, _>>().ok()
+}
+
 fn h160_push(instruction: &Instruction<'_>) -> Option<EVMAddress> {
     decode_fixed_push::<20>(instruction).map(EVMAddress::from)
 }
@@ -154,7 +156,20 @@ fn protocol_version_push(instruction: &Instruction<'_>) -> Option<ProtocolSemant
         .ok()
 }
 
-// Using constants to define the minimum number of instructions can help to make parsing more quick
+fn unchecked_bitcoin_address(bytes: &[u8]) -> Option<Address<NetworkUnchecked>> {
+    std::str::from_utf8(bytes).ok()?.parse().ok()
+}
+
+fn unchecked_bitcoin_address_push(
+    instruction: &Instruction<'_>,
+) -> Option<Address<NetworkUnchecked>> {
+    unchecked_bitcoin_address(instruction.push_bytes()?.as_bytes())
+}
+
+fn leading_txid(body: &[u8]) -> Option<Txid> {
+    Txid::from_slice(body.get(..32)?).ok()
+}
+
 const MIN_WITNESS_LENGTH: usize = 3;
 const MIN_SYSTEM_BOOTSTRAPPING_INSTRUCTIONS: usize = 11;
 const MIN_VALIDATOR_ATTESTATION_INSTRUCTIONS: usize = 4;
@@ -181,29 +196,15 @@ impl MessageParser {
         block_height: u32,
         wallets: Option<&SystemWallets>,
     ) -> Vec<FullInscriptionMessage> {
-        // parsing btc address
-        let mut sender_addresses: Option<Address> = None;
-        for input in tx.input.iter() {
-            let witness = &input.witness;
-            if let Some(btc_address) = self.parse_p2wpkh(witness) {
-                sender_addresses = Some(btc_address);
-            }
-        }
-
-        match sender_addresses {
-            Some(address) => {
-                // parsing messages
-                tx.input
-                    .iter()
-                    .filter_map(|input| {
-                        self.parse_system_input(input, tx, block_height, address.clone(), wallets)
-                    })
-                    .collect()
-            }
-            None => {
-                vec![]
-            }
-        }
+        let Some(address) = self.unique_claimed_p2wpkh_address(tx) else {
+            return vec![];
+        };
+        tx.input
+            .iter()
+            .filter_map(|input| {
+                self.parse_system_input(input, tx, block_height, address.clone(), wallets)
+            })
+            .collect()
     }
 
     #[instrument(skip(self, tx), target = "bitcoin_indexer::parser")]
@@ -219,50 +220,25 @@ impl MessageParser {
             UpdateGovernance(Address<NetworkUnchecked>),
         }
 
-        let OpReturnCarrier::Two(prefix, body) = (match first_op_return_carrier(&tx.tx) {
-            Some(carrier) => carrier,
-            None => return Vec::new(),
-        }) else {
+        let Some(OpReturnCarrier::Two(prefix, body)) = first_op_return_carrier(&tx.tx) else {
             return Vec::new();
         };
-        let parsed = match active_kind_from_exact_prefix(prefix) {
-            Some(ActiveOpReturnKind::Withdrawal) | None => return Vec::new(),
+        let Some(parsed) = (match active_kind_from_exact_prefix(prefix) {
             Some(ActiveOpReturnKind::ProtocolUpgrade) => {
-                let Some(txid) = body
-                    .get(..32)
-                    .and_then(|bytes| Txid::from_slice(bytes).ok())
-                else {
-                    return Vec::new();
-                };
-                ParsedMessage::ProtocolUpgrade(txid)
+                leading_txid(body).map(ParsedMessage::ProtocolUpgrade)
             }
             Some(ActiveOpReturnKind::UpdateBridge) => {
-                let Some(txid) = body
-                    .get(..32)
-                    .and_then(|bytes| Txid::from_slice(bytes).ok())
-                else {
-                    return Vec::new();
-                };
-                ParsedMessage::UpdateBridge(txid)
+                leading_txid(body).map(ParsedMessage::UpdateBridge)
             }
             Some(ActiveOpReturnKind::UpdateSequencer) => {
-                let Some(address) = std::str::from_utf8(body)
-                    .ok()
-                    .and_then(|address| Address::from_str(address).ok())
-                else {
-                    return Vec::new();
-                };
-                ParsedMessage::UpdateSequencer(address)
+                unchecked_bitcoin_address(body).map(ParsedMessage::UpdateSequencer)
             }
             Some(ActiveOpReturnKind::UpdateGovernance) => {
-                let Some(address) = std::str::from_utf8(body)
-                    .ok()
-                    .and_then(|address| Address::from_str(address).ok())
-                else {
-                    return Vec::new();
-                };
-                ParsedMessage::UpdateGovernance(address)
+                unchecked_bitcoin_address(body).map(ParsedMessage::UpdateGovernance)
             }
+            Some(ActiveOpReturnKind::Withdrawal) | None => None,
+        }) else {
+            return Vec::new();
         };
 
         let inputs = tx
@@ -319,19 +295,15 @@ impl MessageParser {
     ) -> Vec<FullInscriptionMessage> {
         let mut messages = Vec::new();
 
-        let vout = match tx.tx.output.iter().enumerate().find_map(|(index, output)| {
-            if output.script_pubkey == wallets.bridge.script_pubkey() {
-                Some(index)
-            } else {
-                None
-            }
-        }) {
-            Some(index) => {
-                tx.set_output_vout(index);
-                index
-            }
-            None => return messages,
+        let Some(vout) = tx
+            .tx
+            .output
+            .iter()
+            .position(|output| output.script_pubkey == wallets.bridge.script_pubkey())
+        else {
+            return messages;
         };
+        tx.set_output_vout(vout);
 
         let bridge_output = &tx.tx.output[vout];
 
@@ -379,7 +351,7 @@ impl MessageParser {
                 return None;
             }
         };
-        let script = ScriptBuf::from_bytes(witness[1].to_vec());
+        let script = Script::from_bytes(&witness[1]);
         let control_block = match ControlBlock::decode(&witness[2]) {
             Ok(cb) => cb,
             Err(e) => {
@@ -388,7 +360,7 @@ impl MessageParser {
             }
         };
 
-        let instructions: Vec<_> = script.instructions().filter_map(Result::ok).collect();
+        let instructions = decode_script_instructions(script)?;
         let via_index = match find_via_inscription_protocol(&instructions) {
             Some(index) => index,
             None => {
@@ -411,6 +383,7 @@ impl MessageParser {
         self.parse_system_message(tx, &instructions[via_index..], &common_fields, wallets)
     }
 
+    /// Decodes a two-item witness as a claimed P2WPKH address without verifying the spent prevout.
     #[instrument(skip(self), target = "bitcoin_indexer::parser")]
     pub fn parse_p2wpkh(&self, witness: &Witness) -> Option<Address> {
         if witness.len() == 2 {
@@ -421,6 +394,19 @@ impl MessageParser {
         } else {
             None
         }
+    }
+
+    /// Returns one syntactically claimed address when all two-item witness pubkeys agree.
+    /// This does not verify that an input spends the corresponding P2WPKH prevout.
+    pub(crate) fn unique_claimed_p2wpkh_address(&self, tx: &Transaction) -> Option<Address> {
+        let mut senders = tx
+            .input
+            .iter()
+            .filter_map(|input| self.parse_p2wpkh(&input.witness));
+        let sender = senders.next()?;
+        senders
+            .all(|candidate| candidate == sender)
+            .then_some(sender)
     }
 
     #[instrument(
@@ -507,14 +493,7 @@ impl MessageParser {
             return None;
         }
 
-        let start_block_height = u32::from_be_bytes(
-            instructions
-                .get(2)?
-                .push_bytes()?
-                .as_bytes()
-                .try_into()
-                .ok()?,
-        );
+        let start_block_height = u32::from_be_bytes(decode_fixed_push(instructions.get(2)?)?);
         debug!("Parsed start block height: {}", start_block_height);
 
         let protocol_version = protocol_version_push(instructions.get(3)?)?;
@@ -530,55 +509,30 @@ impl MessageParser {
 
         let evm_emulator_hash = h256_push(instructions.get(7)?)?;
 
-        let network_unchecked_governance_address = instructions.get(8).and_then(|instr| {
-            if let Instruction::PushBytes(bytes) = instr {
-                std::str::from_utf8(bytes.as_bytes())
-                    .ok()
-                    .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
-            } else {
-                None
-            }
-        })?;
+        let network_unchecked_governance_address =
+            unchecked_bitcoin_address_push(instructions.get(8)?)?;
 
         debug!("Parsed governance address");
 
-        let network_unchecked_sequencer_address = instructions.get(9).and_then(|instr| {
-            if let Instruction::PushBytes(bytes) = instr {
-                std::str::from_utf8(bytes.as_bytes())
-                    .ok()
-                    .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
-            } else {
-                None
-            }
-        })?;
+        let network_unchecked_sequencer_address =
+            unchecked_bitcoin_address_push(instructions.get(9)?)?;
 
         debug!("Parsed sequencer address");
 
-        let network_unchecked_bridge_address = instructions.get(10).and_then(|instr| {
-            if let Instruction::PushBytes(bytes) = instr {
-                std::str::from_utf8(bytes.as_bytes())
-                    .ok()
-                    .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
-            } else {
-                None
-            }
-        })?;
+        let network_unchecked_bridge_address =
+            unchecked_bitcoin_address_push(instructions.get(10)?)?;
 
         debug!("Parsed bridge address");
 
         // network unchecked is required to enable serde serialization and deserialization on the library structs
-        let network_unchecked_verifier_addresses = instructions[11..]
+        let verifier_instructions = instructions.get(11..)?;
+        let verifier_instructions = verifier_instructions
+            .strip_suffix(&[Instruction::Op(OP_ENDIF)])
+            .unwrap_or(verifier_instructions);
+        let network_unchecked_verifier_addresses = verifier_instructions
             .iter()
-            .filter_map(|instr| {
-                if let Instruction::PushBytes(bytes) = instr {
-                    std::str::from_utf8(bytes.as_bytes())
-                        .ok()
-                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
+            .map(unchecked_bitcoin_address_push)
+            .collect::<Option<Vec<_>>>()?;
 
         debug!(
             "Parsed {} verifier addresses",
@@ -680,14 +634,8 @@ impl MessageParser {
         let l1_batch_hash = h256_push(instructions.get(2)?)?;
         debug!("Parsed L1 batch hash");
 
-        let l1_batch_index = L1BatchNumber(u32::from_be_bytes(
-            instructions
-                .get(3)?
-                .push_bytes()?
-                .as_bytes()
-                .try_into()
-                .ok()?,
-        ));
+        let l1_batch_index =
+            L1BatchNumber(u32::from_be_bytes(decode_fixed_push(instructions.get(3)?)?));
         debug!("Parsed L1 batch index: {}", l1_batch_index);
 
         let da_identifier = std::str::from_utf8(instructions.get(4)?.push_bytes()?.as_bytes())
@@ -881,33 +829,21 @@ impl MessageParser {
         }
 
         // network unchecked is required to enable serde serialization and deserialization on the library structs
-        let verifier_p2wpkh_addresses = instructions[1..instructions.len() - 2]
+        let fields = instructions
+            .get(2..)?
+            .strip_suffix(&[Instruction::Op(OP_ENDIF)])?;
+        let (bridge_instruction, verifier_instructions) = fields.split_last()?;
+        let verifier_p2wpkh_addresses = verifier_instructions
             .iter()
-            .filter_map(|instr| {
-                if let Instruction::PushBytes(bytes) = instr {
-                    std::str::from_utf8(bytes.as_bytes())
-                        .ok()
-                        .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
+            .map(unchecked_bitcoin_address_push)
+            .collect::<Option<Vec<_>>>()?;
 
         debug!(
             "Parsed {} verifier addresses",
             verifier_p2wpkh_addresses.len()
         );
 
-        let bridge_musig2_address = instructions.get(instructions.len() - 2).and_then(|instr| {
-            if let Instruction::PushBytes(bytes) = instr {
-                std::str::from_utf8(bytes.as_bytes())
-                    .ok()
-                    .and_then(|s| s.parse::<Address<NetworkUnchecked>>().ok())
-            } else {
-                None
-            }
-        })?;
+        let bridge_musig2_address = unchecked_bitcoin_address_push(bridge_instruction)?;
 
         debug!("Parsed bridge address");
 
@@ -939,12 +875,14 @@ impl MessageParser {
             let Ok(signature) = TaprootSignature::from_slice(&witness[0]) else {
                 continue;
             };
-            let script = ScriptBuf::from_bytes(witness[1].to_vec());
+            let script = Script::from_bytes(&witness[1]);
             let Ok(control_block) = ControlBlock::decode(&witness[2]) else {
                 continue;
             };
 
-            let instructions: Vec<_> = script.instructions().filter_map(Result::ok).collect();
+            let Some(instructions) = decode_script_instructions(script) else {
+                continue;
+            };
             let Some(via_index) = find_via_inscription_protocol(&instructions) else {
                 continue;
             };
@@ -1092,7 +1030,7 @@ pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {
 
 #[cfg(test)]
 mod tests {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::str::FromStr;
 
     use bitcoin::{
         absolute,
@@ -1100,7 +1038,7 @@ mod tests {
         script::Builder,
         secp256k1::{Keypair, Secp256k1, SecretKey},
         taproot::{LeafVersion, TaprootBuilder},
-        transaction, OutPoint, Sequence, TxIn,
+        transaction, OutPoint, ScriptBuf, Sequence, TxIn,
     };
     use zksync_types::{protocol_version::VersionPatch, ProtocolVersionId};
 
@@ -1305,13 +1243,33 @@ mod tests {
         ]
     }
 
-    fn system_contract_upgrade_fields() -> Vec<Vec<u8>> {
-        vec![
+    fn system_contract_upgrade_fields(pair_count: usize) -> Vec<Vec<u8>> {
+        let mut fields = vec![
             packed_version_bytes(),
             vec![0x11; 32],
             vec![0x22; 32],
             vec![0x33; 32],
-        ]
+        ];
+        for byte in 1..=pair_count as u8 {
+            fields.push(vec![byte; 20]);
+            fields.push(vec![byte + 0x40; 32]);
+        }
+        fields
+    }
+
+    fn system_contract_upgrade_witness(fields: &[Vec<u8>], with_endif: bool) -> Witness {
+        let witness = inscription_witness_with_fields(&types::SYSTEM_CONTRACT_UPGRADE_MSG, fields);
+        if with_endif {
+            witness
+        } else {
+            let fields: Vec<_> = fields.iter().map(Vec::as_slice).collect();
+            replace_witness_item(
+                &witness,
+                1,
+                candidate_inscription_script(&types::SYSTEM_CONTRACT_UPGRADE_MSG, &fields)
+                    .into_bytes(),
+            )
+        }
     }
 
     fn replace_witness_item(witness: &Witness, index: usize, replacement: Vec<u8>) -> Witness {
@@ -1393,13 +1351,9 @@ mod tests {
                 test_input(inscription_witness(valid_receiver)),
             ];
 
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets)
-            }));
-            assert!(matches!(
-                result,
-                Ok(messages) if parsed_deposit_receiver(&messages) == Some(valid_receiver)
-            ));
+            let messages = MessageParser::new(Network::Regtest)
+                .parse_bridge_transaction(&mut tx, 42, &wallets);
+            assert_eq!(parsed_deposit_receiver(&messages), Some(valid_receiver));
         }
     }
 
@@ -1411,8 +1365,7 @@ mod tests {
                 fields[field_index] = vec![0x55; width];
                 let witness =
                     inscription_witness_with_fields(&types::SYSTEM_BOOTSTRAPPING_MSG, &fields);
-                let result = catch_unwind(AssertUnwindSafe(|| parse_system_witness(witness)));
-                assert!(matches!(result, Ok(messages) if messages.is_empty()));
+                assert!(parse_system_witness(witness).is_empty());
             }
         }
 
@@ -1422,17 +1375,44 @@ mod tests {
                 fields[field_index] = vec![0x66; width];
                 let witness =
                     inscription_witness_with_fields(&types::L1_BATCH_DA_REFERENCE_MSG, &fields);
-                let result = catch_unwind(AssertUnwindSafe(|| parse_system_witness(witness)));
-                assert!(matches!(result, Ok(messages) if messages.is_empty()));
+                assert!(parse_system_witness(witness).is_empty());
             }
         }
+
+        let proposal_fields = system_contract_upgrade_fields(1);
+        for (field_index, width) in [
+            (1, 31),
+            (1, 33),
+            (2, 31),
+            (2, 33),
+            (3, 31),
+            (3, 33),
+            (4, 19),
+            (4, 21),
+            (5, 31),
+            (5, 33),
+        ] {
+            let mut fields = proposal_fields.clone();
+            fields[field_index] = vec![0x77; width];
+            assert!(
+                parse_system_witness(system_contract_upgrade_witness(&fields, true)).is_empty()
+            );
+        }
+
+        let mut fields = system_bootstrapping_fields();
+        fields.push(b"not-an-address".to_vec());
+        assert!(parse_system_witness(inscription_witness_with_fields(
+            &types::SYSTEM_BOOTSTRAPPING_MSG,
+            &fields,
+        ))
+        .is_empty());
     }
 
     #[test]
     fn rejects_oversized_packed_version_pushes_without_panicking() {
         let mut bootstrapping_fields = system_bootstrapping_fields();
         bootstrapping_fields[1] = vec![0x77; 33];
-        let mut proposal_fields = system_contract_upgrade_fields();
+        let mut proposal_fields = system_contract_upgrade_fields(0);
         proposal_fields[0] = vec![0x77; 33];
 
         for (message_type, fields) in [
@@ -1440,8 +1420,7 @@ mod tests {
             (&*types::SYSTEM_CONTRACT_UPGRADE_MSG, proposal_fields),
         ] {
             let witness = inscription_witness_with_fields(message_type, &fields);
-            let result = catch_unwind(AssertUnwindSafe(|| parse_system_witness(witness)));
-            assert!(matches!(result, Ok(messages) if messages.is_empty()));
+            assert!(parse_system_witness(witness).is_empty());
         }
 
         let version_bytes = packed_version_bytes();
@@ -1456,6 +1435,82 @@ mod tests {
             [FullInscriptionMessage::SystemBootstrapping(message)]
                 if message.input.protocol_version == packed_version()
         ));
+    }
+
+    #[test]
+    fn system_contract_upgrade_tail_is_complete_pairs_with_optional_endif() {
+        for pair_count in [0, 4] {
+            let fields = system_contract_upgrade_fields(pair_count);
+            for with_endif in [false, true] {
+                let messages =
+                    parse_system_witness(system_contract_upgrade_witness(&fields, with_endif));
+                let [FullInscriptionMessage::SystemContractUpgradeProposal(message)] =
+                    messages.as_slice()
+                else {
+                    panic!("expected proposal for {pair_count} pairs, endif={with_endif}");
+                };
+                assert_eq!(message.input.system_contracts.len(), pair_count);
+                assert!(message.input.system_contracts.iter().enumerate().all(
+                    |(index, (address, hash))| {
+                        *address == EVMAddress::repeat_byte(index as u8 + 1)
+                            && *hash == H256::repeat_byte(index as u8 + 0x41)
+                    }
+                ));
+            }
+        }
+
+        let mut dangling = system_contract_upgrade_fields(0);
+        dangling.push(vec![0x71; 20]);
+        assert!(parse_system_witness(system_contract_upgrade_witness(&dangling, true)).is_empty());
+
+        let fields = system_contract_upgrade_fields(4);
+        let field_slices: Vec<_> = fields.iter().map(Vec::as_slice).collect();
+        let mut malformed =
+            candidate_inscription_script(&types::SYSTEM_CONTRACT_UPGRADE_MSG, &field_slices)
+                .into_bytes();
+        malformed.push(all::OP_PUSHDATA1.to_u8());
+        let witness = replace_witness_item(
+            &system_contract_upgrade_witness(&fields, true),
+            1,
+            malformed,
+        );
+        assert!(parse_system_witness(witness).is_empty());
+    }
+
+    #[test]
+    fn update_bridge_proposal_requires_all_addresses() {
+        let wallets = system_wallets();
+        let fields = vec![
+            wallets.sequencer.to_string().into_bytes(),
+            wallets.governance.to_string().into_bytes(),
+            wallets.bridge.to_string().into_bytes(),
+        ];
+        let messages = parse_system_witness(inscription_witness_with_fields(
+            &types::UPGRADE_BRIDGE_MSG,
+            &fields,
+        ));
+        let [FullInscriptionMessage::UpdateBridgeProposal(message)] = messages.as_slice() else {
+            panic!("expected update-bridge proposal");
+        };
+        assert_eq!(
+            message.input.verifier_p2wpkh_addresses,
+            vec![
+                wallets.sequencer.as_unchecked().clone(),
+                wallets.governance.as_unchecked().clone(),
+            ]
+        );
+        assert_eq!(
+            message.input.bridge_musig2_address,
+            wallets.bridge.as_unchecked().clone()
+        );
+
+        let mut invalid_fields = fields;
+        invalid_fields[1] = b"not-an-address".to_vec();
+        assert!(parse_system_witness(inscription_witness_with_fields(
+            &types::UPGRADE_BRIDGE_MSG,
+            &invalid_fields,
+        ))
+        .is_empty());
     }
 
     #[test]
@@ -1648,10 +1703,9 @@ mod tests {
                 )))]),
                 0,
             );
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                MessageParser::new(Network::Regtest).parse_protocol_upgrade_transactions(&tx, 42)
-            }));
-            assert!(matches!(result, Ok(messages) if messages.is_empty()));
+            assert!(MessageParser::new(Network::Regtest)
+                .parse_protocol_upgrade_transactions(&tx, 42)
+                .is_empty());
         }
 
         let mut inexact_prefix = OP_RETURN_UPGRADE_PROTOCOL_PREFIX.to_vec();
@@ -1676,10 +1730,9 @@ mod tests {
         assert_eq!(payload.len(), 7);
         let mut tx = bridge_transaction([TestCarrier::One(payload)]);
 
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets)
-        }));
-        assert!(matches!(result, Ok(messages) if messages.is_empty()));
+        assert!(MessageParser::new(Network::Regtest)
+            .parse_bridge_transaction(&mut tx, 42, &wallets)
+            .is_empty());
     }
 
     #[test]
@@ -1774,10 +1827,9 @@ mod tests {
             outputs.push(bridge_output(&wallets));
             let mut tx = TransactionWithMetadata::new(test_transaction(outputs), 0);
 
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets)
-            }));
-            assert!(matches!(result, Ok(messages) if messages.is_empty()));
+            assert!(MessageParser::new(Network::Regtest)
+                .parse_bridge_transaction(&mut tx, 42, &wallets)
+                .is_empty());
         }
     }
 
@@ -1831,10 +1883,9 @@ mod tests {
             TestCarrier::One(bad_record_length),
         ] {
             let mut tx = bridge_transaction([carrier]);
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets)
-            }));
-            assert!(matches!(result, Ok(messages) if messages.is_empty()));
+            assert!(MessageParser::new(Network::Regtest)
+                .parse_bridge_transaction(&mut tx, 42, &wallets)
+                .is_empty());
         }
     }
 
@@ -1847,14 +1898,9 @@ mod tests {
 
         let mut malformed_first =
             bridge_transaction([TestCarrier::Raw(malformed), TestCarrier::One(valid.clone())]);
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            MessageParser::new(Network::Regtest).parse_bridge_transaction(
-                &mut malformed_first,
-                42,
-                &wallets,
-            )
-        }));
-        assert!(matches!(result, Ok(messages) if messages.is_empty()));
+        assert!(MessageParser::new(Network::Regtest)
+            .parse_bridge_transaction(&mut malformed_first, 42, &wallets,)
+            .is_empty());
 
         let mut valid_first = bridge_transaction([
             TestCarrier::One(valid.clone()),
@@ -1880,10 +1926,21 @@ mod tests {
         let non_via_script = Builder::new()
             .push_slice(push_bytes(b"not-via"))
             .into_script();
+        let mut malformed_via_script = candidate_inscription_script(
+            &types::L1_TO_L2_MSG,
+            &[
+                EVMAddress::repeat_byte(0x70).as_bytes(),
+                EVMAddress::zero().as_bytes(),
+                &[],
+            ],
+        )
+        .into_bytes();
+        malformed_via_script.push(all::OP_PUSHDATA1.to_u8());
         let invalid_candidates = [
             replace_witness_item(&template, 0, vec![0]),
             replace_witness_item(&template, 2, vec![0]),
             replace_witness_item(&template, 1, non_via_script.into_bytes()),
+            replace_witness_item(&template, 1, malformed_via_script),
             replace_witness_item(
                 &template,
                 1,
@@ -1917,7 +1974,7 @@ mod tests {
     }
 
     #[test]
-    fn system_transaction_keeps_single_da_reveal_multiplicity() {
+    fn system_transaction_requires_one_unique_claimed_address() {
         let template = inscription_witness(EVMAddress::repeat_byte(0x91));
         let l1_batch_hash = H256::repeat_byte(0x11);
         let l1_batch_index = 7_u32.to_be_bytes();
@@ -1933,21 +1990,41 @@ mod tests {
             ],
         );
         let reveal_witness = replace_witness_item(&template, 1, reveal_script.into_bytes());
-        let sender_witness = p2wpkh_witness([2; 32]);
-        let mut tx = test_transaction(Vec::new());
-        tx.input = vec![test_input(reveal_witness), test_input(sender_witness)];
+        let sender_a = p2wpkh_witness([2; 32]);
+        let sender_b = p2wpkh_witness([3; 32]);
+        let sender_a_address = MessageParser::new(Network::Regtest)
+            .parse_p2wpkh(&sender_a)
+            .unwrap();
+        for (senders, expected_sender) in [
+            (vec![sender_a.clone()], Some(sender_a_address.clone())),
+            (
+                vec![sender_a.clone(), sender_a.clone()],
+                Some(sender_a_address.clone()),
+            ),
+            (vec![sender_a.clone(), sender_b.clone()], None),
+            (vec![sender_b.clone(), sender_a.clone()], None),
+        ] {
+            let mut tx = test_transaction(Vec::new());
+            tx.input.push(test_input(reveal_witness.clone()));
+            tx.input.extend(senders.into_iter().map(test_input));
+            let messages = MessageParser::new(Network::Regtest).parse_system_transaction(
+                &tx,
+                42,
+                Some(&system_wallets()),
+            );
 
-        let messages = MessageParser::new(Network::Regtest).parse_system_transaction(
-            &tx,
-            42,
-            Some(&system_wallets()),
-        );
-        assert!(matches!(
-            messages.as_slice(),
-            [FullInscriptionMessage::L1BatchDAReference(message)]
-                if message.input.l1_batch_hash == l1_batch_hash
-                    && message.input.l1_batch_index == L1BatchNumber(7)
-        ));
+            if let Some(expected_sender) = expected_sender {
+                assert!(matches!(
+                    messages.as_slice(),
+                    [FullInscriptionMessage::L1BatchDAReference(message)]
+                        if message.input.l1_batch_hash == l1_batch_hash
+                            && message.input.l1_batch_index == L1BatchNumber(7)
+                            && message.common.p2wpkh_address.as_ref() == Some(&expected_sender)
+                ));
+            } else {
+                assert!(messages.is_empty());
+            }
+        }
     }
 
     #[test]
