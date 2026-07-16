@@ -378,7 +378,7 @@ mod tests {
     use bitcoin::{
         absolute,
         secp256k1::{Keypair, Secp256k1, SecretKey},
-        taproot::{LeafVersion, Signature as TaprootSignature},
+        taproot::{LeafVersion, Signature as TaprootSignature, TaprootBuilder},
         transaction, Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
         Witness,
     };
@@ -392,6 +392,52 @@ mod tests {
         indexer::MessageParser,
         types::{FullInscriptionMessage, InscriptionMessage, SystemContractUpgradeProposalInput},
     };
+
+    fn parse_system_contract_upgrade_script<C: Signing + Verification>(
+        secp: &Secp256k1<C>,
+        internal_key: UntweakedPublicKey,
+        public_key: &bitcoin::PublicKey,
+        script: ScriptBuf,
+    ) -> Vec<FullInscriptionMessage> {
+        let spend_info = TaprootBuilder::new()
+            .add_leaf(0, script.clone())
+            .unwrap()
+            .finalize(secp, internal_key)
+            .unwrap();
+        let control_block = spend_info
+            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .unwrap();
+        let reveal_witness = Witness::from_slice(&[
+            TaprootSignature::from_slice(&[0; 64]).unwrap().to_vec(),
+            script.into_bytes(),
+            control_block.serialize(),
+        ]);
+        let sender_witness = Witness::from_slice(&[Vec::new(), public_key.to_bytes()]);
+        let tx = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![
+                TxIn {
+                    previous_output: OutPoint::null(),
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                    witness: reveal_witness,
+                },
+                TxIn {
+                    previous_output: OutPoint::null(),
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                    witness: sender_witness,
+                },
+            ],
+            output: vec![TxOut {
+                value: Amount::ZERO,
+                script_pubkey: ScriptBuf::new(),
+            }],
+        };
+
+        MessageParser::new(Network::Regtest).parse_system_transaction(&tx, 42, None)
+    }
 
     #[test]
     fn system_contract_upgrade_proposal_builder_round_trips_all_contracts() {
@@ -431,44 +477,12 @@ mod tests {
                 Network::Regtest,
             )
             .unwrap();
-            let control_block = inscription
-                .taproot_spend_info
-                .control_block(&(
-                    inscription.inscription_script.clone(),
-                    LeafVersion::TapScript,
-                ))
-                .unwrap();
-            let reveal_witness = Witness::from_slice(&[
-                TaprootSignature::from_slice(&[0; 64]).unwrap().to_vec(),
-                inscription.inscription_script.into_bytes(),
-                control_block.serialize(),
-            ]);
-            let sender_witness = Witness::from_slice(&[Vec::new(), public_key.to_bytes()]);
-            let tx = Transaction {
-                version: transaction::Version::TWO,
-                lock_time: absolute::LockTime::ZERO,
-                input: vec![
-                    TxIn {
-                        previous_output: OutPoint::null(),
-                        script_sig: ScriptBuf::new(),
-                        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-                        witness: reveal_witness,
-                    },
-                    TxIn {
-                        previous_output: OutPoint::null(),
-                        script_sig: ScriptBuf::new(),
-                        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-                        witness: sender_witness,
-                    },
-                ],
-                output: vec![TxOut {
-                    value: Amount::ZERO,
-                    script_pubkey: ScriptBuf::new(),
-                }],
-            };
-
-            let messages =
-                MessageParser::new(Network::Regtest).parse_system_transaction(&tx, 42, None);
+            let messages = parse_system_contract_upgrade_script(
+                &secp,
+                internal_key,
+                &public_key,
+                inscription.inscription_script,
+            );
             let [FullInscriptionMessage::SystemContractUpgradeProposal(message)] =
                 messages.as_slice()
             else {
@@ -476,5 +490,41 @@ mod tests {
             };
             assert_eq!(message.input, input, "pair count {pair_count}");
         }
+
+        let input = SystemContractUpgradeProposalInput {
+            version: ProtocolSemanticVersion::new(ProtocolVersionId::Version28, VersionPatch(4)),
+            bootloader_code_hash: H256::repeat_byte(0x44),
+            default_account_code_hash: H256::repeat_byte(0x55),
+            evm_emulator_code_hash: None,
+            recursion_scheduler_level_vk_hash: H256::repeat_byte(0x66),
+            system_contracts: vec![],
+        };
+        let script = ScriptBuilder::new()
+            .push_slice(InscriptionData::encode_push_bytes(
+                types::VIA_INSCRIPTION_PROTOCOL.as_bytes(),
+            ))
+            .push_slice(&*types::SYSTEM_CONTRACT_UPGRADE_MSG)
+            .push_slice(InscriptionData::encode_push_bytes(
+                H256::from_uint(&input.version.pack()).as_bytes(),
+            ))
+            .push_slice(InscriptionData::encode_push_bytes(
+                input.bootloader_code_hash.as_bytes(),
+            ))
+            .push_slice(InscriptionData::encode_push_bytes(
+                input.default_account_code_hash.as_bytes(),
+            ))
+            .push_slice(InscriptionData::encode_push_bytes(
+                input.recursion_scheduler_level_vk_hash.as_bytes(),
+            ))
+            .into_script();
+        assert_eq!(script.instructions().count(), 6);
+
+        let messages =
+            parse_system_contract_upgrade_script(&secp, internal_key, &public_key, script);
+        let [FullInscriptionMessage::SystemContractUpgradeProposal(message)] = messages.as_slice()
+        else {
+            panic!("expected crafted zero-pair proposal");
+        };
+        assert_eq!(message.input, input);
     }
 }
