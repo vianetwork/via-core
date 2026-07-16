@@ -375,6 +375,8 @@ impl InscriptionData {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
     use bitcoin::{
         absolute,
         secp256k1::{Keypair, Secp256k1, SecretKey},
@@ -439,6 +441,73 @@ mod tests {
         MessageParser::new(Network::Regtest).parse_system_transaction(&tx, 42, None)
     }
 
+    fn parse_system_contract_upgrade_candidate(script: ScriptBuf) -> Vec<FullInscriptionMessage> {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[1; 32]).unwrap();
+        let keypair = Keypair::from_secret_key(&secp, &secret_key);
+        let (internal_key, _) = keypair.x_only_public_key();
+        let public_key = bitcoin::PublicKey::new(bitcoin::secp256k1::PublicKey::from_secret_key(
+            &secp,
+            &secret_key,
+        ));
+        parse_system_contract_upgrade_script(&secp, internal_key, &public_key, script)
+    }
+
+    fn system_contract_upgrade_input(pair_count: usize) -> SystemContractUpgradeProposalInput {
+        SystemContractUpgradeProposalInput {
+            version: ProtocolSemanticVersion::new(ProtocolVersionId::Version28, VersionPatch(3)),
+            bootloader_code_hash: H256::repeat_byte(0x11),
+            default_account_code_hash: H256::repeat_byte(0x22),
+            evm_emulator_code_hash: None,
+            recursion_scheduler_level_vk_hash: H256::repeat_byte(0x33),
+            system_contracts: (0..pair_count)
+                .map(|index| {
+                    let byte = index as u8 + 1;
+                    (
+                        EVMAddress::repeat_byte(byte),
+                        H256::repeat_byte(byte + 0x40),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn system_contract_upgrade_fields(input: &SystemContractUpgradeProposalInput) -> Vec<Vec<u8>> {
+        let mut fields = vec![
+            H256::from_uint(&input.version.pack()).as_bytes().to_vec(),
+            input.bootloader_code_hash.as_bytes().to_vec(),
+            input.default_account_code_hash.as_bytes().to_vec(),
+            input.recursion_scheduler_level_vk_hash.as_bytes().to_vec(),
+        ];
+        for (address, hash) in &input.system_contracts {
+            fields.push(address.as_bytes().to_vec());
+            fields.push(hash.as_bytes().to_vec());
+        }
+        fields
+    }
+
+    fn system_contract_upgrade_script_builder(fields: &[Vec<u8>]) -> ScriptBuilder {
+        let mut script = ScriptBuilder::new()
+            .push_slice(InscriptionData::encode_push_bytes(
+                types::VIA_INSCRIPTION_PROTOCOL.as_bytes(),
+            ))
+            .push_slice(&*types::SYSTEM_CONTRACT_UPGRADE_MSG);
+        for field in fields {
+            script = script.push_slice(InscriptionData::encode_push_bytes(field));
+        }
+        script
+    }
+
+    fn system_contract_upgrade_script(fields: &[Vec<u8>], with_endif: bool) -> ScriptBuf {
+        let script = system_contract_upgrade_script_builder(fields);
+        let script = if with_endif {
+            script.push_opcode(all::OP_ENDIF)
+        } else {
+            script
+        };
+        script.into_script()
+    }
+
     #[test]
     fn system_contract_upgrade_proposal_builder_round_trips_all_contracts() {
         let secp = Secp256k1::new();
@@ -451,25 +520,7 @@ mod tests {
         ));
 
         for pair_count in [0, 3, 4, 7] {
-            let input = SystemContractUpgradeProposalInput {
-                version: ProtocolSemanticVersion::new(
-                    ProtocolVersionId::Version28,
-                    VersionPatch(3),
-                ),
-                bootloader_code_hash: H256::repeat_byte(0x11),
-                default_account_code_hash: H256::repeat_byte(0x22),
-                evm_emulator_code_hash: None,
-                recursion_scheduler_level_vk_hash: H256::repeat_byte(0x33),
-                system_contracts: (0..pair_count)
-                    .map(|index| {
-                        let byte = index as u8 + 1;
-                        (
-                            EVMAddress::repeat_byte(byte),
-                            H256::repeat_byte(byte + 0x40),
-                        )
-                    })
-                    .collect(),
-            };
+            let input = system_contract_upgrade_input(pair_count);
             let inscription = InscriptionData::new(
                 &InscriptionMessage::SystemContractUpgradeProposal(input.clone()),
                 &secp,
@@ -526,5 +577,96 @@ mod tests {
             panic!("expected crafted zero-pair proposal");
         };
         assert_eq!(message.input, input);
+    }
+
+    #[test]
+    fn system_contract_upgrade_proposal_accepts_complete_pairs_with_or_without_endif() {
+        let input = system_contract_upgrade_input(4);
+        let fields = system_contract_upgrade_fields(&input);
+
+        for with_endif in [false, true] {
+            let script = system_contract_upgrade_script(&fields, with_endif);
+            let messages = parse_system_contract_upgrade_candidate(script);
+            let [FullInscriptionMessage::SystemContractUpgradeProposal(message)] =
+                messages.as_slice()
+            else {
+                panic!("expected one system-contract upgrade proposal");
+            };
+            assert_eq!(message.input, input, "with_endif={with_endif}");
+        }
+    }
+
+    #[test]
+    fn system_contract_upgrade_proposal_rejects_dangling_pair_field() {
+        let input = system_contract_upgrade_input(4);
+        let fields = system_contract_upgrade_fields(&input);
+        let header = &fields[..4];
+        let address = vec![0x71; 20];
+        let hash = vec![0x72; 32];
+        let cases = [
+            system_contract_upgrade_script_builder(&fields)
+                .push_slice(InscriptionData::encode_push_bytes(&address))
+                .into_script(),
+            system_contract_upgrade_script_builder(&fields)
+                .push_slice(InscriptionData::encode_push_bytes(&address))
+                .push_opcode(all::OP_ENDIF)
+                .into_script(),
+            system_contract_upgrade_script_builder(header)
+                .push_opcode(all::OP_ENDIF)
+                .push_slice(InscriptionData::encode_push_bytes(&hash))
+                .into_script(),
+            system_contract_upgrade_script_builder(header)
+                .push_slice(InscriptionData::encode_push_bytes(&address))
+                .push_opcode(all::OP_ENDIF)
+                .push_opcode(all::OP_ENDIF)
+                .into_script(),
+            system_contract_upgrade_script_builder(&fields)
+                .push_opcode(all::OP_ENDIF)
+                .push_opcode(all::OP_ENDIF)
+                .into_script(),
+        ];
+
+        for script in cases {
+            let result = catch_unwind(AssertUnwindSafe(move || {
+                parse_system_contract_upgrade_candidate(script)
+            }));
+            assert!(matches!(result, Ok(messages) if messages.is_empty()));
+        }
+    }
+
+    #[test]
+    fn system_contract_upgrade_proposal_rejects_inexact_fixed_pushes_without_panicking() {
+        let input = system_contract_upgrade_input(4);
+        let valid_fields = system_contract_upgrade_fields(&input);
+        let mut malformed_fields = Vec::new();
+
+        for field_index in 1..=3 {
+            for width in [31, 33] {
+                let mut fields = valid_fields.clone();
+                fields[field_index] = vec![0x81; width];
+                malformed_fields.push(fields);
+            }
+        }
+
+        let fourth_pair_address = 4 + 3 * 2;
+        let fourth_pair_hash = fourth_pair_address + 1;
+        for width in [19, 21] {
+            let mut fields = valid_fields.clone();
+            fields[fourth_pair_address] = vec![0x82; width];
+            malformed_fields.push(fields);
+        }
+        for width in [31, 33] {
+            let mut fields = valid_fields.clone();
+            fields[fourth_pair_hash] = vec![0x83; width];
+            malformed_fields.push(fields);
+        }
+
+        for fields in malformed_fields {
+            let script = system_contract_upgrade_script(&fields, true);
+            let result = catch_unwind(AssertUnwindSafe(move || {
+                parse_system_contract_upgrade_candidate(script)
+            }));
+            assert!(matches!(result, Ok(messages) if messages.is_empty()));
+        }
     }
 }

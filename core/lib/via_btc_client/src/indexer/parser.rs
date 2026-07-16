@@ -3,7 +3,7 @@ use std::str::FromStr;
 use bitcoin::{
     address::NetworkUnchecked,
     hashes::Hash,
-    opcodes::all::OP_RETURN,
+    opcodes::all::{OP_ENDIF, OP_RETURN},
     script::{Instruction, PushBytesBuf},
     taproot::{ControlBlock, Signature as TaprootSignature},
     Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, TxOut, Txid, Witness,
@@ -133,6 +133,25 @@ fn op_return_common_fields(tx: &Transaction, block_height: u32) -> Option<Common
         tx_index: None,
         output_vout: None,
     })
+}
+
+fn decode_fixed_push<const N: usize>(instruction: &Instruction<'_>) -> Option<[u8; N]> {
+    instruction.push_bytes()?.as_bytes().try_into().ok()
+}
+
+fn h160_push(instruction: &Instruction<'_>) -> Option<EVMAddress> {
+    decode_fixed_push::<20>(instruction).map(EVMAddress::from)
+}
+
+fn h256_push(instruction: &Instruction<'_>) -> Option<H256> {
+    decode_fixed_push::<32>(instruction).map(H256::from)
+}
+
+fn protocol_version_push(instruction: &Instruction<'_>) -> Option<ProtocolSemanticVersion> {
+    let bytes = instruction.push_bytes()?.as_bytes();
+    (bytes.len() <= 32)
+        .then(|| ProtocolSemanticVersion::try_from_packed(U256::from_big_endian(bytes)))?
+        .ok()
 }
 
 // Using constants to define the minimum number of instructions can help to make parsing more quick
@@ -500,21 +519,18 @@ impl MessageParser {
         );
         debug!("Parsed start block height: {}", start_block_height);
 
-        let protocol_version = ProtocolSemanticVersion::try_from_packed(U256::from_big_endian(
-            instructions.get(3)?.push_bytes()?.as_bytes(),
-        ))
-        .ok()?;
+        let protocol_version = protocol_version_push(instructions.get(3)?)?;
         debug!("Parsed protocol version");
 
-        let bootloader_hash = H256::from_slice(instructions.get(4)?.push_bytes()?.as_bytes());
+        let bootloader_hash = h256_push(instructions.get(4)?)?;
         debug!("Parsed bootloader hash");
 
-        let abstract_account_hash = H256::from_slice(instructions.get(5)?.push_bytes()?.as_bytes());
+        let abstract_account_hash = h256_push(instructions.get(5)?)?;
         debug!("Parsed abstract account hash");
 
-        let snark_wrapper_vk_hash = H256::from_slice(instructions.get(6)?.push_bytes()?.as_bytes());
+        let snark_wrapper_vk_hash = h256_push(instructions.get(6)?)?;
 
-        let evm_emulator_hash = H256::from_slice(instructions.get(7)?.push_bytes()?.as_bytes());
+        let evm_emulator_hash = h256_push(instructions.get(7)?)?;
 
         let network_unchecked_governance_address = instructions.get(8).and_then(|instr| {
             if let Instruction::PushBytes(bytes) = instr {
@@ -663,7 +679,7 @@ impl MessageParser {
             return None;
         }
 
-        let l1_batch_hash = H256::from_slice(instructions.get(2)?.push_bytes()?.as_bytes());
+        let l1_batch_hash = h256_push(instructions.get(2)?)?;
         debug!("Parsed L1 batch hash");
 
         let l1_batch_index = L1BatchNumber(u32::from_be_bytes(
@@ -686,7 +702,7 @@ impl MessageParser {
             .to_string();
         debug!("Parsed blob ID: {}", blob_id);
 
-        let prev_l1_batch_hash = H256::from_slice(instructions.get(6)?.push_bytes()?.as_bytes());
+        let prev_l1_batch_hash = h256_push(instructions.get(6)?)?;
         debug!("Parsed previous L1 batch hash");
 
         Some(FullInscriptionMessage::L1BatchDAReference(
@@ -767,12 +783,10 @@ impl MessageParser {
             return None;
         }
 
-        let receiver_l2_address =
-            EVMAddress::from_slice(instructions.get(2)?.push_bytes()?.as_bytes());
+        let receiver_l2_address = h160_push(instructions.get(2)?)?;
         debug!("Parsed receiver L2 address");
 
-        let l2_contract_address =
-            EVMAddress::from_slice(instructions.get(3)?.push_bytes()?.as_bytes());
+        let l2_contract_address = h160_push(instructions.get(3)?)?;
         debug!("Parsed L2 contract address");
 
         let call_data = instructions.get(4)?.push_bytes()?.as_bytes().to_vec();
@@ -814,30 +828,29 @@ impl MessageParser {
             return None;
         }
 
-        let version = ProtocolSemanticVersion::try_from_packed(U256::from_big_endian(
-            instructions.get(2)?.push_bytes()?.as_bytes(),
-        ))
-        .ok()?;
+        let version = protocol_version_push(instructions.get(2)?)?;
         debug!("Parsed protocol version");
 
-        let bootloader_code_hash = H256::from_slice(instructions.get(3)?.push_bytes()?.as_bytes());
+        let bootloader_code_hash = h256_push(instructions.get(3)?)?;
         debug!("Parsed bootloader code hash");
 
-        let default_account_code_hash =
-            H256::from_slice(instructions.get(4)?.push_bytes()?.as_bytes());
+        let default_account_code_hash = h256_push(instructions.get(4)?)?;
         debug!("Parsed default account code hash");
 
-        let recursion_scheduler_level_vk_hash =
-            H256::from_slice(instructions.get(5)?.push_bytes()?.as_bytes());
+        let recursion_scheduler_level_vk_hash = h256_push(instructions.get(5)?)?;
         debug!("Parsed recursion scheduler level vk hash");
 
-        let len = instructions.len() - 1;
-        let mut system_contracts = Vec::with_capacity(len.saturating_sub(6) / 2);
-
-        for i in (6..len).step_by(2) {
-            let address = EVMAddress::from_slice(instructions.get(i)?.push_bytes()?.as_bytes());
-            let hash = H256::from_slice(instructions.get(i + 1)?.push_bytes()?.as_bytes());
-            system_contracts.push((address, hash))
+        // After the header: N (address, hash) pairs, one optional terminal OP_ENDIF,
+        // and nothing else.
+        let tail = instructions.get(6..)?;
+        let tail = tail
+            .strip_suffix(&[Instruction::Op(OP_ENDIF)])
+            .unwrap_or(tail);
+        let pairs = tail.chunks_exact(2);
+        pairs.remainder().is_empty().then_some(())?;
+        let mut system_contracts = Vec::with_capacity(pairs.len());
+        for pair in pairs {
+            system_contracts.push((h160_push(&pair[0])?, h256_push(&pair[1])?));
         }
         debug!("Parsed system contracts");
 
@@ -980,7 +993,7 @@ impl MessageParser {
         bridge_output: &TxOut,
         body: &[u8],
     ) -> Option<FullInscriptionMessage> {
-        let receiver_l2_address = EVMAddress::from_slice(body.get(..20)?);
+        let receiver_l2_address = EVMAddress::from(<[u8; 20]>::try_from(body.get(..20)?).ok()?);
         let p2wpkh_address = tx
             .tx
             .input
@@ -1091,6 +1104,7 @@ mod tests {
         taproot::{LeafVersion, TaprootBuilder},
         transaction, OutPoint, Sequence, TxIn,
     };
+    use zksync_types::{protocol_version::VersionPatch, ProtocolVersionId};
 
     use super::*;
 
@@ -1203,22 +1217,32 @@ mod tests {
     }
 
     fn inscription_witness(receiver: EVMAddress) -> Witness {
+        inscription_witness_with_fields(
+            &types::L1_TO_L2_MSG,
+            &[
+                receiver.as_bytes().to_vec(),
+                EVMAddress::zero().as_bytes().to_vec(),
+                Vec::new(),
+            ],
+        )
+    }
+
+    fn inscription_witness_with_fields(message_type: &PushBytesBuf, fields: &[Vec<u8>]) -> Witness {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::from_slice(&[1; 32]).unwrap();
         let keypair = Keypair::from_secret_key(&secp, &secret_key);
         let (internal_key, _) = keypair.x_only_public_key();
-        let script = Builder::new()
+        let mut script = Builder::new()
             .push_slice(push_bytes(&internal_key.serialize()))
             .push_opcode(all::OP_CHECKSIG)
             .push_opcode(OP_FALSE)
             .push_opcode(all::OP_IF)
             .push_slice(push_bytes(types::VIA_INSCRIPTION_PROTOCOL.as_bytes()))
-            .push_slice(&*types::L1_TO_L2_MSG)
-            .push_slice(push_bytes(receiver.as_bytes()))
-            .push_slice(push_bytes(EVMAddress::zero().as_bytes()))
-            .push_slice(PushBytesBuf::new())
-            .push_opcode(all::OP_ENDIF)
-            .into_script();
+            .push_slice(message_type);
+        for field in fields {
+            script = script.push_slice(push_bytes(field));
+        }
+        let script = script.push_opcode(all::OP_ENDIF).into_script();
         let spend_info = TaprootBuilder::new()
             .add_leaf(0, script.clone())
             .unwrap()
@@ -1233,6 +1257,63 @@ mod tests {
             script.into_bytes(),
             control_block.serialize(),
         ])
+    }
+
+    fn parse_system_witness(witness: Witness) -> Vec<FullInscriptionMessage> {
+        let mut tx = test_transaction(Vec::new());
+        tx.input = vec![test_input(witness), test_input(p2wpkh_witness([2; 32]))];
+        MessageParser::new(Network::Regtest).parse_system_transaction(
+            &tx,
+            42,
+            Some(&system_wallets()),
+        )
+    }
+
+    fn packed_version() -> ProtocolSemanticVersion {
+        ProtocolSemanticVersion::new(ProtocolVersionId::Version28, VersionPatch(1))
+    }
+
+    fn packed_version_bytes() -> Vec<u8> {
+        let mut canonical = [0; 32];
+        packed_version().pack().to_big_endian(&mut canonical);
+        canonical
+            .into_iter()
+            .skip_while(|byte| *byte == 0)
+            .collect()
+    }
+
+    fn system_bootstrapping_fields() -> Vec<Vec<u8>> {
+        let wallets = system_wallets();
+        vec![
+            42_u32.to_be_bytes().to_vec(),
+            packed_version_bytes(),
+            vec![0x11; 32],
+            vec![0x22; 32],
+            vec![0x33; 32],
+            vec![0x44; 32],
+            wallets.governance.to_string().into_bytes(),
+            wallets.sequencer.to_string().into_bytes(),
+            wallets.bridge.to_string().into_bytes(),
+        ]
+    }
+
+    fn l1_batch_da_reference_fields() -> Vec<Vec<u8>> {
+        vec![
+            vec![0x11; 32],
+            7_u32.to_be_bytes().to_vec(),
+            b"da".to_vec(),
+            b"blob".to_vec(),
+            vec![0x22; 32],
+        ]
+    }
+
+    fn system_contract_upgrade_fields() -> Vec<Vec<u8>> {
+        vec![
+            packed_version_bytes(),
+            vec![0x11; 32],
+            vec![0x22; 32],
+            vec![0x33; 32],
+        ]
     }
 
     fn replace_witness_item(witness: &Witness, index: usize, replacement: Vec<u8>) -> Witness {
@@ -1290,6 +1371,93 @@ mod tests {
             active_kind_from_exact_prefix(OP_RETURN_RETIRED_WITHDRAW_PREFIX),
             None
         );
+    }
+
+    #[test]
+    fn continues_after_short_or_long_l1_to_l2_fixed_pushes() {
+        let wallets = system_wallets();
+        let valid_receiver = EVMAddress::repeat_byte(0x81);
+        let cases = [
+            (vec![0x11; 19], vec![0x22; 20]),
+            (vec![0x11; 21], vec![0x22; 20]),
+            (vec![0x11; 20], vec![0x22; 19]),
+            (vec![0x11; 20], vec![0x22; 21]),
+        ];
+
+        for (receiver, contract) in cases {
+            let invalid_witness = inscription_witness_with_fields(
+                &types::L1_TO_L2_MSG,
+                &[receiver, contract, Vec::new()],
+            );
+            let mut tx = bridge_transaction([]);
+            tx.tx.input = vec![
+                test_input(invalid_witness),
+                test_input(inscription_witness(valid_receiver)),
+            ];
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets)
+            }));
+            assert!(matches!(
+                result,
+                Ok(messages) if parsed_deposit_receiver(&messages) == Some(valid_receiver)
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_inexact_system_fixed_pushes_without_panicking() {
+        for field_index in 2..=5 {
+            for width in [31, 33] {
+                let mut fields = system_bootstrapping_fields();
+                fields[field_index] = vec![0x55; width];
+                let witness =
+                    inscription_witness_with_fields(&types::SYSTEM_BOOTSTRAPPING_MSG, &fields);
+                let result = catch_unwind(AssertUnwindSafe(|| parse_system_witness(witness)));
+                assert!(matches!(result, Ok(messages) if messages.is_empty()));
+            }
+        }
+
+        for field_index in [0, 4] {
+            for width in [31, 33] {
+                let mut fields = l1_batch_da_reference_fields();
+                fields[field_index] = vec![0x66; width];
+                let witness =
+                    inscription_witness_with_fields(&types::L1_BATCH_DA_REFERENCE_MSG, &fields);
+                let result = catch_unwind(AssertUnwindSafe(|| parse_system_witness(witness)));
+                assert!(matches!(result, Ok(messages) if messages.is_empty()));
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_oversized_packed_version_pushes_without_panicking() {
+        let mut bootstrapping_fields = system_bootstrapping_fields();
+        bootstrapping_fields[1] = vec![0x77; 33];
+        let mut proposal_fields = system_contract_upgrade_fields();
+        proposal_fields[0] = vec![0x77; 33];
+
+        for (message_type, fields) in [
+            (&*types::SYSTEM_BOOTSTRAPPING_MSG, bootstrapping_fields),
+            (&*types::SYSTEM_CONTRACT_UPGRADE_MSG, proposal_fields),
+        ] {
+            let witness = inscription_witness_with_fields(message_type, &fields);
+            let result = catch_unwind(AssertUnwindSafe(|| parse_system_witness(witness)));
+            assert!(matches!(result, Ok(messages) if messages.is_empty()));
+        }
+
+        let version_bytes = packed_version_bytes();
+        assert!(version_bytes.len() < 32);
+        let witness = inscription_witness_with_fields(
+            &types::SYSTEM_BOOTSTRAPPING_MSG,
+            &system_bootstrapping_fields(),
+        );
+        let messages = parse_system_witness(witness);
+        assert!(matches!(
+            messages.as_slice(),
+            [FullInscriptionMessage::SystemBootstrapping(message)]
+                if message.input.protocol_version == packed_version()
+        ));
     }
 
     #[test]
