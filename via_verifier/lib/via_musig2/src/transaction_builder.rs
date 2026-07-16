@@ -97,11 +97,12 @@ impl TransactionBuilder {
         let mut bridge_txs = Vec::new();
 
         for (i, output_chunk) in output_chunks.iter().enumerate() {
-            let bridge_tx = self
+            if let Some(bridge_tx) = self
                 .build_single_bridge_tx(output_chunk, &mut utxos_pool, &config, fee_rate, i)
-                .await?;
-
-            bridge_txs.push(bridge_tx);
+                .await?
+            {
+                bridge_txs.push(bridge_tx);
+            }
         }
 
         Ok(bridge_txs)
@@ -205,11 +206,15 @@ impl TransactionBuilder {
         config: &TransactionBuilderConfig,
         fee_rate: u64,
         tx_index: usize,
-    ) -> Result<UnsignedBridgeTx> {
+    ) -> Result<Option<UnsignedBridgeTx>> {
         // Step 1: Prepare transaction - select UTXOs and calculate fees
         let (tx_fee, selected_utxos) = self
             .prepare_transaction_with_utxos(output_chunk, utxos_pool, fee_rate, config)
             .await?;
+
+        if tx_fee.outputs_with_fees.is_empty() {
+            return Ok(None);
+        }
 
         // Step 2: Validate and update UTXO pool
         self.validate_and_update_utxos(&tx_fee, &selected_utxos, utxos_pool, config.max_tx_weight)?;
@@ -234,14 +239,14 @@ impl TransactionBuilder {
             tx_components.change_utxo,
         );
 
-        Ok(UnsignedBridgeTx {
+        Ok(Some(UnsignedBridgeTx {
             tx: unsigned_tx,
             txid,
             utxos: selected_utxos,
             change_amount: amounts.change,
             fee_rate,
             fee: tx_fee.fee,
-        })
+        }))
     }
 
     async fn prepare_transaction_with_utxos(

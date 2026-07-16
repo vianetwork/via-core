@@ -13,7 +13,7 @@ mod tests {
     };
     use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
-    use rand::{rngs::OsRng, seq::SliceRandom, thread_rng, RngCore};
+    use rand::{rngs::OsRng, RngCore};
     use via_btc_client::{traits::BitcoinOps, types::BitcoinError};
     use via_test_utils::utils::generate_return_data_per_outputs;
     use via_verifier_types::transaction::UnsignedBridgeTx;
@@ -528,9 +528,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_withdrawal_builder_many_users_but_all_value_less_than_tx_fee() -> Result<()> {
-        let bridge_address_total_values = vec![Amount::from_btc(1.0)?, Amount::from_btc(1.0)?];
-        // This user requested a small value, it should be ignored when process withdrawal
+    async fn test_withdrawal_builder_emits_no_transaction_when_all_values_are_below_fee(
+    ) -> Result<()> {
+        let bridge_address_total_values = vec![Amount::from_btc(1.0)?];
         let users_request_small_value = Amount::from_sat(20);
 
         let requests = vec![
@@ -557,51 +557,9 @@ mod tests {
             },
         ];
 
-        let bridge_txs =
-            create_bridge_tx(bridge_address_total_values.clone(), requests.clone()).await?;
+        let bridge_txs = create_bridge_tx(bridge_address_total_values, requests).await?;
 
-        let bridge_tx = bridge_txs[0].clone();
-
-        let total_output_value_include_fee = bridge_tx
-            .tx
-            .output
-            .iter()
-            .map(|out| out.value)
-            .sum::<Amount>()
-            + bridge_tx.fee.clone();
-
-        // The total outputs with fee should be equal to the first utxo value bridge address before transaction.
-        assert_eq!(
-            total_output_value_include_fee,
-            bridge_address_total_values[0]
-        );
-
-        // The user 3 request amount should sent back to the bridge address
-        let bridge_address_change_output = bridge_tx.tx.output.last().unwrap();
-        assert_eq!(
-            bridge_address_change_output.value,
-            total_output_value_include_fee - bridge_tx.fee.clone()
-        );
-
-        // Expected outputs [OP_RETURN, change], there is no "user1, user2, user3" output.
-        assert_eq!(bridge_tx.tx.output.len(), 2);
-
-        // The first output should be the OP_RETURN
-        let op_return_output = bridge_tx.tx.output.first().unwrap();
-
-        // Check if the prefix is included
-        assert!(op_return_output
-            .script_pubkey
-            .as_bytes()
-            .windows(OP_RETURN_WITHDRAW_PREFIX.len())
-            .any(|window| window == OP_RETURN_WITHDRAW_PREFIX));
-
-        // Don't include the requests because the withdrawal will not be included as it doesn't fee
-        let expected_op_return_data =
-            TransactionBuilder::create_op_return_script(OP_RETURN_WITHDRAW_PREFIX, vec![])?;
-
-        // Check if the reveal tx is included
-        assert_eq!(op_return_output.script_pubkey, expected_op_return_data);
+        assert!(bridge_txs.is_empty());
 
         Ok(())
     }
@@ -966,127 +924,77 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_withdrawal_multiple_bridge_tx_with_some_valid_withdrawals() -> Result<()> {
-        let bridge_address_total_value = vec![Amount::from_btc(2.3)?];
-
-        let total_valid_withdrawals = 20;
-        let total_invalid_withdrawals = 3;
-        let total_withdrawals = total_valid_withdrawals + total_invalid_withdrawals;
-        let expected_bridge_txs =
-            (total_withdrawals as f64 / WITHDRAWALS_PER_TRANSACTION as f64).ceil() as usize;
-
-        let valid_requests: Vec<TransactionOutput> = (0..total_valid_withdrawals)
-            .map(|_| TransactionOutput {
-                output: TxOut {
-                    script_pubkey: generate_wallet_address(get_network()).script_pubkey(),
-                    value: Amount::from_btc(0.1).unwrap(),
-                },
-                op_return_data: Some(generate_return_data_per_outputs(1)[0].clone()),
-            })
+    async fn test_withdrawal_builder_skips_empty_chunks_and_continues_with_valid_withdrawals(
+    ) -> Result<()> {
+        let invalid_requests: Vec<_> =
+            generate_return_data_per_outputs(WITHDRAWALS_PER_TRANSACTION)
+                .into_iter()
+                .map(|op_return_data| TransactionOutput {
+                    output: TxOut {
+                        script_pubkey: generate_wallet_address(get_network()).script_pubkey(),
+                        value: Amount::from_sat(100),
+                    },
+                    op_return_data: Some(op_return_data),
+                })
+                .collect();
+        let valid_requests: Vec<_> =
+            generate_return_data_per_outputs(WITHDRAWALS_PER_TRANSACTION * 2)
+                .into_iter()
+                .map(|op_return_data| TransactionOutput {
+                    output: TxOut {
+                        script_pubkey: generate_wallet_address(get_network()).script_pubkey(),
+                        value: Amount::from_btc(0.1).unwrap(),
+                    },
+                    op_return_data: Some(op_return_data),
+                })
+                .collect();
+        let requests = invalid_requests
+            .into_iter()
+            .chain(valid_requests.iter().cloned())
             .collect();
 
-        let invalid_requests: Vec<TransactionOutput> = (0..total_invalid_withdrawals)
-            .map(|_| TransactionOutput {
-                output: TxOut {
-                    script_pubkey: generate_wallet_address(get_network()).script_pubkey(),
-                    value: Amount::from_sat(100),
-                },
-                op_return_data: Some(generate_return_data_per_outputs(1)[0].clone()),
-            })
-            .collect();
+        let bridge_txs = create_bridge_tx(vec![Amount::from_btc(2.3)?], requests).await?;
+        let valid_chunks: Vec<_> = valid_requests.chunks(WITHDRAWALS_PER_TRANSACTION).collect();
 
-        let mut requests = Vec::new();
-
-        requests.extend(valid_requests);
-        requests.extend(invalid_requests);
-
-        let mut rng = thread_rng();
-        requests.shuffle(&mut rng);
-
-        let bridge_txs =
-            create_bridge_tx(bridge_address_total_value.clone(), requests.clone()).await?;
-
-        assert_eq!(bridge_txs.len(), expected_bridge_txs);
-
-        let mut i = 0;
-
-        let requests_chunks = requests
-            .clone()
-            .chunks(WITHDRAWALS_PER_TRANSACTION)
-            .map(|c| c.to_vec())
-            .collect::<Vec<_>>();
-
-        let mut total_outputs = 0;
-        for (index, bridge_tx) in bridge_txs.iter().enumerate() {
-            let len = bridge_tx.tx.output.len();
-
-            total_outputs += len - 2;
-
-            // Check if the of the outputs match the requests (ignore OP_RETURN and change)
-            for j in 0..(len - 2) {
-                // Ignore the transactions that can not cover the tx fee as they are not included
-                if requests[i].output.value < bridge_tx.fee {
-                    continue;
-                }
-
-                assert_eq!(
-                    bridge_tx.tx.output[j].script_pubkey,
-                    requests[i].output.script_pubkey
-                );
-                i += 1;
+        assert_eq!(bridge_txs.len(), valid_chunks.len());
+        for (bridge_tx, expected_chunk) in bridge_txs.iter().zip(valid_chunks) {
+            assert_eq!(bridge_tx.tx.output.len(), expected_chunk.len() + 2);
+            for (output, expected) in bridge_tx.tx.output.iter().zip(expected_chunk) {
+                assert_eq!(output.script_pubkey, expected.output.script_pubkey);
             }
 
-            // Verify OP_RETURN output
             let op_return_output = bridge_tx
                 .tx
                 .output
                 .iter()
                 .find(|output| output.script_pubkey.is_op_return())
                 .expect("OP_RETURN output not found");
-
-            // Check if the prefix is included
-            assert!(op_return_output
-                .script_pubkey
-                .as_bytes()
-                .windows(OP_RETURN_WITHDRAW_PREFIX.len())
-                .any(|window| window == OP_RETURN_WITHDRAW_PREFIX));
-
-            let expected_op_return_data = TransactionBuilder::create_op_return_script(
+            let expected_op_return = TransactionBuilder::create_op_return_script(
                 OP_RETURN_WITHDRAW_PREFIX,
-                // Filter out the invalid requests.
-                requests_chunks[index]
+                expected_chunk
                     .iter()
-                    .filter(|req| req.output.value > bridge_tx.fee)
-                    .map(|req| req.op_return_data.clone().unwrap())
-                    .collect::<Vec<Vec<u8>>>(),
+                    .map(|request| request.op_return_data.clone().unwrap())
+                    .collect(),
             )?;
-            // Check if the reveal tx is included
-            assert_eq!(op_return_output.script_pubkey, expected_op_return_data);
+            assert_eq!(op_return_output.script_pubkey, expected_op_return);
         }
 
-        assert_eq!(total_outputs, total_valid_withdrawals);
-
-        let mut last_change = None;
-        // Check if the transactions are chained, the input should be the change of the next bridge_tx
-        for bridge_tx in bridge_txs {
-            if last_change.is_none() {
-                let len = bridge_tx.tx.output.len();
-                last_change = Some(bridge_tx.tx.output[len - 1].clone());
-                continue;
-            }
-
-            let len = bridge_tx.utxos.len();
-            assert_eq!(
-                last_change.clone().unwrap().value,
-                bridge_tx.utxos[len - 1].1.value
-            );
-            assert_eq!(
-                last_change.clone().unwrap().script_pubkey,
-                bridge_tx.utxos[len - 1].1.script_pubkey
-            );
-            let len = bridge_tx.tx.output.len();
-            last_change = Some(bridge_tx.tx.output[len - 1].clone());
-        }
+        let first_tx = &bridge_txs[0];
+        assert_eq!(first_tx.utxos.len(), 1);
+        assert_eq!(first_tx.utxos[0].1.value, Amount::from_btc(2.3)?);
+        assert_eq!(first_tx.utxos[0].1.script_pubkey, ScriptBuf::new());
+        let first_change_vout = (first_tx.tx.output.len() - 1) as u32;
+        let first_change = first_tx.tx.output[first_change_vout as usize].clone();
+        assert_eq!(
+            bridge_txs[1].utxos,
+            vec![(
+                OutPoint {
+                    txid: first_tx.txid,
+                    vout: first_change_vout,
+                },
+                first_change,
+            )]
+        );
 
         Ok(())
     }

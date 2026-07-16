@@ -1025,7 +1025,7 @@ impl MessageParser {
     ) -> Option<FullInscriptionMessage> {
         let version_byte = *body.get(VIA_WI.len())?;
         let version = WithdrawalVersion::try_from(version_byte).ok()?;
-        let withdrawal_bytes = body.get(VIA_WI.len() + 1..)?;
+        let withdrawal_bytes = body.get(VIA_WI.len() + 1..).filter(|b| !b.is_empty())?;
         let withdrawals_meta = parse_withdrawals(version.clone(), withdrawal_bytes).ok()?;
         let metadata_count = withdrawals_meta.len();
         let mut eligible_outputs = tx.output.iter().filter_map(|output| {
@@ -1666,6 +1666,20 @@ mod tests {
         assert!(MessageParser::new(Network::Regtest)
             .parse_protocol_upgrade_transactions(&tx, 42)
             .is_empty());
+    }
+
+    #[test]
+    fn rejects_empty_via_wi_withdrawal() {
+        let wallets = system_wallets();
+        let mut payload = VIA_WI.to_vec();
+        payload.push(WithdrawalVersion::Version0 as u8);
+        assert_eq!(payload.len(), 7);
+        let mut tx = bridge_transaction([TestCarrier::One(payload)]);
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            MessageParser::new(Network::Regtest).parse_bridge_transaction(&mut tx, 42, &wallets)
+        }));
+        assert!(matches!(result, Ok(messages) if messages.is_empty()));
     }
 
     #[test]
