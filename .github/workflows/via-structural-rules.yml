@@ -20,6 +20,38 @@ jobs:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install jscpd
+        run: |
+          ARCHIVE="$RUNNER_TEMP/jscpd-linux-x64-gnu.tar.gz"
+          curl -fsSL "https://github.com/kucherenko/jscpd/releases/download/v5.0.12/jscpd-linux-x64-gnu.tar.gz" -o "$ARCHIVE"
+          echo "c1107547ee52bc83131d6e62d1fc9c156d194c593a4532876cdb1584b4e1dc3b  $ARCHIVE" | sha256sum --check -
+          tar -xzf "$ARCHIVE" -C "$RUNNER_TEMP" jscpd
+          install -Dm755 "$RUNNER_TEMP/jscpd" "$HOME/.local/bin/jscpd"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/jscpd" --version
+
+      - name: Materialize base duplication policy
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          POLICY=".github/lint/via-structural/duplication"
+          git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null || { echo "ERROR: scanner/policy failure: PR base commit is unavailable" >&2; exit 2; }
+          if git cat-file -e "${BASE_SHA}:${POLICY}/baseline.tsv" 2>/dev/null; then
+            [[ -f "$POLICY/baseline.tsv" && -f "$POLICY/allowlist.tsv" ]] || { echo "ERROR: scanner/policy failure: candidate must retain both duplication policy files; restore them in this PR" >&2; exit 2; }
+            git show "${BASE_SHA}:${POLICY}/baseline.tsv" > "$RUNNER_TEMP/via-dup-baseline.tsv" && git show "${BASE_SHA}:${POLICY}/allowlist.tsv" > "$RUNNER_TEMP/via-dup-allowlist.tsv" || { echo "ERROR: scanner/policy failure: base duplication policy is incomplete" >&2; exit 2; }
+          elif git cat-file -e "${BASE_SHA}:.github/scripts/check-via-duplication.py" 2>/dev/null; then
+            echo "ERROR: scanner/policy failure: established duplication policy is missing; restore or regenerate it in a dedicated policy PR" >&2
+            exit 2
+          else
+            echo "::notice::BOOTSTRAP: base has no duplication policy; using the candidate baseline once"
+            python3 .github/scripts/check-via-duplication.py baseline > "$RUNNER_TEMP/via-dup-baseline.tsv"
+            cmp -s "$POLICY/baseline.tsv" "$RUNNER_TEMP/via-dup-baseline.tsv" && cp "$POLICY/allowlist.tsv" "$RUNNER_TEMP/via-dup-allowlist.tsv" || { echo "ERROR: scanner/policy failure: candidate duplication policy is absent or stale" >&2; exit 2; }
+          fi
+
+      - name: Ratchet cross-tree duplication
+        run: python3 .github/scripts/check-via-duplication.py ratchet --baseline "$RUNNER_TEMP/via-dup-baseline.tsv" --allowlist "$RUNNER_TEMP/via-dup-allowlist.tsv"
 
       - name: Install ast-grep
         run: |

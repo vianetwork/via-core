@@ -17,6 +17,7 @@ These rules only apply to Via-specific code paths. They are intentionally kept s
 ## Current Tools
 
 - [ast-grep](./ast-grep/) — Structural pattern matching using tree-sitter-based rules.
+- [jscpd duplication ratchet](./duplication/) — Cross-tree token-clone debt bounded per core/verifier file pair.
 
 ## Running the Checks
 
@@ -26,6 +27,10 @@ These rules only apply to Via-specific code paths. They are intentionally kept s
 
 # Strict mode — exits non-zero on new unbaselined findings or scanner errors
 VIA_STRUCTURAL_RULES_MODE=strict .github/scripts/check-via-structural-rules.sh
+
+# Requires: cargo install jscpd --version 5.0.12 --locked
+just via-dup-check
+just via-dup-inventory > /tmp/via-cross-tree-duplication.md
 ```
 
 ## Philosophy

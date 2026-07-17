@@ -24,6 +24,12 @@ check:
 via-check:
     VIA_STRUCTURAL_RULES_MODE=advisory .github/scripts/check-via-structural-rules.sh
 
+via-dup-check:
+    python3 .github/scripts/check-via-duplication.py ratchet
+
+via-dup-inventory:
+    python3 .github/scripts/check-via-duplication.py inventory
+
 # Run Via-specific structural rules in strict (blocking) mode
-via-check-strict:
+via-check-strict: via-dup-check
     VIA_STRUCTURAL_RULES_MODE=strict .github/scripts/check-via-structural-rules.sh
