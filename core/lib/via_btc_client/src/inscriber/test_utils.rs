@@ -13,7 +13,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc::json::{FeeRatePercentiles, GetBlockStatsResult};
 
-use super::Inscriber;
+use super::{Inscriber, InscriberPolicy};
 use crate::{
     traits::{BitcoinOps, BitcoinSigner},
     types::{self, BitcoinClientResult, InscriberContext},
@@ -280,5 +280,6 @@ pub fn get_mock_inscriber_and_conditions(config: MockBitcoinOpsConfig) -> Inscri
         client: Arc::new(client),
         signer: Arc::new(signer),
         context,
+        policy: InscriberPolicy::default(),
     }
 }

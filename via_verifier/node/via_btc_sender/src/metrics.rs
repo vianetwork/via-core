@@ -50,6 +50,9 @@ pub struct ViaBtcSenderMetrics {
 
     /// Errors
     pub errors: Counter,
+
+    /// Number of times new inscriptions were intentionally paused by policy guards.
+    pub chain_guard_blocks: Counter,
 }
 
 impl ViaBtcSenderMetrics {
