@@ -69,7 +69,7 @@ impl WiringLayer for ViaDaClientWiringLayer {
                 let mut fallback_client = None;
                 if let Some(query_client_l2) = input.query_client_l2 {
                     // Use the QueryClient from the node framework instead of creating a new HTTP client
-                    fallback_client = Some(Box::new(ExternalNodeDaClient::new(query_client_l2.0))
+                    fallback_client = Some(Box::new(ExternalNodeDaClient::new(query_client_l2.0)?)
                         as Box<dyn DataAvailabilityClient>);
                 }
 
