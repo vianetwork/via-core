@@ -139,8 +139,10 @@ about the withdrawal.
 
 ### Final step - finalizing withdrawal
 
-Now we're ready to actually claim our ETH on L1. We do this by calling a `finalizeEthWithdrawal` function on the
-DiamondProxy contract (Mailbox.sol to be exact).
+Now we're ready to actually claim our ETH on L1.
+
+Historically this was done by calling `finalizeEthWithdrawal` on the DiamondProxy (Mailbox). Deprecation note:
+`finalizeEthWithdrawal` is deprecated; new integrations should use `L1Nullifier.finalizeDeposit`.
 
 To prove that we actually can withdraw the money, we have to say in which L2 block the withdrawal happened, and provide
 the merkle proof from our withdrawal log, to the root that is stored in the L1 contract.
