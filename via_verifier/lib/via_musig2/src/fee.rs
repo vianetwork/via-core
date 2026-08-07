@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use anyhow::Context as _;
 use bitcoin::{Amount, TxOut};
 
@@ -76,10 +74,8 @@ impl FeeStrategy for WithdrawalFeeStrategy {
             let fee_per_user = Amount::from_sat(fee.to_sat() / outputs.len() as u64);
             let previous_len = outputs.len();
             outputs.retain(|output| output.output.value > fee_per_user);
-            match outputs.len().cmp(&previous_len) {
-                Ordering::Less => continue,
-                Ordering::Equal => {}
-                Ordering::Greater => unreachable!("retaining outputs cannot increase their count"),
+            if outputs.len() < previous_len {
+                continue;
             }
 
             let total_value_needed = outputs.iter().try_fold(Amount::ZERO, |total, output| {

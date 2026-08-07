@@ -329,19 +329,17 @@ impl BitcoinInscriptionIndexer {
 
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_l1_to_l2_transfer(&self, message: &L1ToL2Message) -> bool {
-        let is_valid_receiver = message
-            .tx_outputs
-            .iter()
-            .any(|output| output.script_pubkey == self.wallets.bridge.script_pubkey());
-        debug!("L1ToL2Message transfer validity: {}", is_valid_receiver);
-
+        let bridge_script = self.wallets.bridge.script_pubkey();
         let total_bridge_amount = message
             .tx_outputs
             .iter()
-            .filter(|output| output.script_pubkey == self.wallets.bridge.script_pubkey())
-            .map(|output| output.value)
-            .sum::<Amount>();
+            .filter(|output| output.script_pubkey == bridge_script)
+            .map(|output| output.value.to_sat())
+            .reduce(|total, value| total + value);
+        let is_valid_receiver = total_bridge_amount.is_some();
+        debug!("L1ToL2Message transfer validity: {}", is_valid_receiver);
 
+        let total_bridge_amount = Amount::from_sat(total_bridge_amount.unwrap_or_default());
         let is_valid_amount = message.amount == total_bridge_amount;
         debug!(
             "Amount validation: message amount = {}, total bridge outputs = {}",
