@@ -210,8 +210,8 @@ impl BitcoinInscriptionIndexer {
             {
                 system_txs.push(TransactionWithMetadata::new(tx.clone(), tx_index));
             }
-            // A parsed carrier-only withdrawal with a new first-input parent costs one fetch.
-            // Fees and block space bound the remaining fetches.
+            // Each distinct first-input parent can require one RPC.
+            // Block weight is the only consensus bound on miner-supplied candidates.
             if tx
                 .output
                 .iter()
