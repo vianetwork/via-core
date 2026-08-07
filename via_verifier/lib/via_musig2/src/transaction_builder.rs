@@ -148,46 +148,27 @@ impl TransactionBuilder {
         }
     }
 
-    /// Anchors a proposed transaction's prevouts and rebuilds it from gross requested outputs.
+    /// Rebuilds a proposed transaction from gross requested outputs, then anchors its prevouts.
     pub async fn verify_bridge_tx(
         &self,
         candidate: &UnsignedBridgeTx,
         requested_outputs: Vec<TransactionOutput>,
         config: TransactionBuilderConfig,
     ) -> Result<bool> {
-        if candidate.utxos.len() != candidate.tx.input.len() {
-            return Ok(false);
-        }
-        if matches!(
-            self.estimate_transaction_weight(candidate.tx.input.len() as u64, 0)
-                .cmp(&config.max_tx_weight),
-            Ordering::Greater
-        ) {
+        if candidate.utxos.len() != candidate.tx.input.len()
+            || self.estimate_transaction_weight(candidate.tx.input.len() as u64, 0)
+                > config.max_tx_weight
+        {
             return Ok(false);
         }
 
         let mut seen = HashSet::with_capacity(candidate.utxos.len());
         let bridge_script = config.bridge_address.script_pubkey();
         for (input, (outpoint, supplied)) in candidate.tx.input.iter().zip(&candidate.utxos) {
-            if input.previous_output != *outpoint {
-                return Ok(false);
-            }
-            if !seen.insert(*outpoint) {
-                return Ok(false);
-            }
-            let parent = self
-                .utxo_manager
-                .get_btc_client()
-                .get_transaction(&outpoint.txid)
-                .await
-                .with_context(|| format!("Failed to fetch bridge prevout {outpoint}"))?;
-            if parent.compute_txid() != outpoint.txid {
-                return Ok(false);
-            }
-            if parent.output.get(outpoint.vout as usize) != Some(supplied) {
-                return Ok(false);
-            }
-            if supplied.script_pubkey != bridge_script {
+            if input.previous_output != *outpoint
+                || !seen.insert(*outpoint)
+                || supplied.script_pubkey != bridge_script
+            {
                 return Ok(false);
             }
         }
@@ -200,7 +181,25 @@ impl TransactionBuilder {
                 candidate.fee_rate,
             )
             .await?;
-        Ok(rebuilt.as_slice() == std::slice::from_ref(candidate))
+        if rebuilt.as_slice() != std::slice::from_ref(candidate) {
+            return Ok(false);
+        }
+
+        // Parent lookup proves existence and bridge ownership, not current unspentness.
+        for (outpoint, supplied) in &candidate.utxos {
+            let parent = self
+                .utxo_manager
+                .get_btc_client()
+                .get_transaction(&outpoint.txid)
+                .await
+                .with_context(|| format!("Failed to fetch bridge prevout {outpoint}"))?;
+            if parent.compute_txid() != outpoint.txid
+                || parent.output.get(outpoint.vout as usize) != Some(supplied)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Generates taproot signature hashes for all inputs

@@ -317,16 +317,20 @@ mod tests {
     async fn test_verify_bridge_tx_anchors_prevouts_and_rejects_mutations() -> Result<()> {
         let cfg = withdrawal_config();
         let prevout = TxOut {
-            value: Amount::from_sat(10_000),
+            value: Amount::from_sat(4_000),
             script_pubkey: cfg.bridge_address.script_pubkey(),
         };
         let parent = Transaction {
             version: transaction::Version::TWO,
             lock_time: absolute::LockTime::ZERO,
             input: vec![],
-            output: vec![prevout.clone()],
+            output: vec![prevout.clone(), prevout.clone()],
         };
-        let outpoint = OutPoint::new(parent.compute_txid(), 0);
+        let parent_txid = parent.compute_txid();
+        let utxos = vec![
+            (OutPoint::new(parent_txid, 0), prevout.clone()),
+            (OutPoint::new(parent_txid, 1), prevout.clone()),
+        ];
         let builder =
             TransactionBuilder::new(Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig {
                 transaction: Some(parent),
@@ -334,14 +338,10 @@ mod tests {
             })))?;
         let request = withdrawal_request(Amount::from_sat(5_000));
         let mut txs = builder
-            .build_bridge_txs(
-                vec![(outpoint, prevout.clone())],
-                vec![request.clone()],
-                cfg.clone(),
-                1,
-            )
+            .build_bridge_txs(utxos.clone(), vec![request.clone()], cfg.clone(), 1)
             .await?;
         let tx = txs.pop().unwrap();
+        assert_eq!(tx.utxos.len(), 2);
 
         assert!(
             builder
@@ -369,21 +369,31 @@ mod tests {
         underpaid.tx.output[0].value -= Amount::from_sat(1);
         underpaid.tx.output.last_mut().unwrap().value += Amount::from_sat(1);
         underpaid.txid = underpaid.tx.compute_txid();
-        let mut forged_prevout = prevout;
-        forged_prevout.value += Amount::from_sat(1);
+        let mut forged_utxos = utxos;
+        forged_utxos[0].1.value += Amount::from_sat(1);
         let forged = builder
-            .build_bridge_txs(
-                vec![(outpoint, forged_prevout)],
-                vec![request.clone()],
-                cfg.clone(),
-                1,
-            )
+            .build_bridge_txs(forged_utxos, vec![request.clone()], cfg.clone(), 1)
             .await?
             .pop()
             .unwrap();
         let mut duplicate = tx.clone();
         duplicate.utxos.push(duplicate.utxos[0].clone());
         duplicate.tx.input.push(duplicate.tx.input[0].clone());
+
+        let mut padded = tx.clone();
+        for marker in 1..=32 {
+            let outpoint = OutPoint::new(Txid::from_byte_array([marker; 32]), 0);
+            let mut input = padded.tx.input[0].clone();
+            input.previous_output = outpoint;
+            padded.tx.input.push(input);
+            padded.utxos.push((outpoint, prevout.clone()));
+        }
+        padded.txid = padded.tx.compute_txid();
+        assert!(
+            !tx_builder(vec![])?
+                .verify_bridge_tx(&padded, vec![request.clone()], cfg.clone())
+                .await?
+        );
 
         for invalid in [underpaid, forged, duplicate] {
             assert!(
