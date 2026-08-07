@@ -33,9 +33,9 @@ pub struct L1Withdrawal {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct L2WithdrawalMeta {
-    /// First 8 bytes of the L2 hash, stored as hex (16 chars)
+    /// The 8-byte L2 hash prefix and 2-byte log index, stored as hex (20 chars).
     pub l2_id: String,
-    /// The next 2 bytes contains the index of the log where the withdrawal was executed
+    /// The trailing 2-byte log index, decoded separately.
     pub l2_tx_event_index: u16,
 }
 
@@ -118,7 +118,6 @@ mod tests {
         let tx_hash_hex = "a3f207a872cc5a861234";
         let tx_hash_bytes: Vec<u8> = hex::decode(tx_hash_hex).unwrap();
 
-        // First 8 bytes → hex string
         let l2_id = hex::encode(&tx_hash_bytes[..WITHDRAWAL_BYTE_SIZE]);
 
         let meta = L2WithdrawalMeta {

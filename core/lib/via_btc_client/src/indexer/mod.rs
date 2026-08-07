@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Context as _;
 use bitcoin::{Address, Amount, BlockHash, OutPoint, Transaction as BitcoinTransaction, Txid};
@@ -13,9 +13,8 @@ use crate::{
     client::BitcoinClient,
     traits::BitcoinOps,
     types::{
-        BitcoinIndexerResult, BridgeWithdrawal, FullInscriptionMessage, L1ToL2Message,
-        SystemContractUpgrade, SystemContractUpgradeProposalInput, SystemTransactions,
-        TransactionWithMetadata,
+        BitcoinIndexerResult, FullInscriptionMessage, L1ToL2Message, SystemContractUpgrade,
+        SystemContractUpgradeProposalInput, SystemTransactions, TransactionWithMetadata,
     },
 };
 
@@ -127,6 +126,7 @@ impl BitcoinInscriptionIndexer {
         // TODO: deal with malicious sequencer, verifiers from being able to make trouble by sending invalid messages / valid messages with invalid data
 
         let mut valid_messages = Vec::new();
+        let mut parent_transactions = HashMap::new();
 
         let mut system_txs = self.extract_important_transactions(&block.txdata);
 
@@ -135,7 +135,18 @@ impl BitcoinInscriptionIndexer {
                 .parser
                 .parse_protocol_upgrade_transactions(tx, block_height)
             {
-                if self.is_valid_gov_message(&message).await {
+                let outpoint = match &message {
+                    FullInscriptionMessage::SystemContractUpgrade(m) => m.input.inputs.first(),
+                    FullInscriptionMessage::UpdateBridge(m) => m.input.inputs.first(),
+                    FullInscriptionMessage::UpdateSequencer(m) => m.input.inputs.first(),
+                    FullInscriptionMessage::UpdateGovernance(m) => m.input.inputs.first(),
+                    _ => continue,
+                };
+                if self
+                    .is_valid_prevout(outpoint, &self.wallets.governance, &mut parent_transactions)
+                    .await
+                    .unwrap_or(false)
+                {
                     valid_messages.push(message);
                 }
             }
@@ -155,7 +166,18 @@ impl BitcoinInscriptionIndexer {
                 .parser
                 .parse_bridge_transaction(tx, block_height, &self.wallets)
             {
-                if self.is_valid_bridge_message(&message).await {
+                if match &message {
+                    FullInscriptionMessage::L1ToL2Message(m) => self.is_valid_l1_to_l2_transfer(m),
+                    FullInscriptionMessage::BridgeWithdrawal(m) => self
+                        .is_valid_prevout(
+                            m.input.inputs.first(),
+                            &self.wallets.bridge,
+                            &mut parent_transactions,
+                        )
+                        .await
+                        .unwrap_or(false),
+                    _ => false,
+                } {
                     valid_messages.push(message);
                 }
             }
@@ -189,6 +211,8 @@ impl BitcoinInscriptionIndexer {
             {
                 system_txs.push(TransactionWithMetadata::new(tx.clone(), tx_index));
             }
+            // A parsed carrier-only withdrawal with a new first-input parent costs one fetch.
+            // Fees and block space bound the remaining fetches.
             if tx
                 .output
                 .iter()
@@ -304,30 +328,6 @@ impl BitcoinInscriptionIndexer {
         }
     }
 
-    async fn is_valid_bridge_message(&self, message: &FullInscriptionMessage) -> bool {
-        match message {
-            FullInscriptionMessage::L1ToL2Message(m) => self.is_valid_l1_to_l2_transfer(m),
-            FullInscriptionMessage::BridgeWithdrawal(m) => {
-                self.is_valid_bridge_withdrawal(m).await.unwrap_or(false)
-            }
-            _ => false,
-        }
-    }
-
-    async fn is_valid_gov_message(&self, message: &FullInscriptionMessage) -> bool {
-        let maybe_input = match message {
-            FullInscriptionMessage::SystemContractUpgrade(m) => m.input.inputs.first(),
-            FullInscriptionMessage::UpdateBridge(m) => m.input.inputs.first(),
-            FullInscriptionMessage::UpdateSequencer(m) => m.input.inputs.first(),
-            FullInscriptionMessage::UpdateGovernance(m) => m.input.inputs.first(),
-            _ => return false,
-        };
-
-        self.is_valid_gov_upgrade(maybe_input)
-            .await
-            .unwrap_or(false)
-    }
-
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_l1_to_l2_transfer(&self, message: &L1ToL2Message) -> bool {
         let is_valid_receiver = message
@@ -352,26 +352,25 @@ impl BitcoinInscriptionIndexer {
         is_valid_receiver && is_valid_amount
     }
 
-    #[instrument(skip(self, message), target = "bitcoin_indexer")]
-    async fn is_valid_bridge_withdrawal(&self, message: &BridgeWithdrawal) -> anyhow::Result<bool> {
-        if let Some(outpoint) = message.input.inputs.first() {
+    #[instrument(skip_all, target = "bitcoin_indexer")]
+    async fn is_valid_prevout(
+        &self,
+        outpoint_opt: Option<&OutPoint>,
+        expected_address: &Address,
+        parent_transactions: &mut HashMap<Txid, BitcoinTransaction>,
+    ) -> anyhow::Result<bool> {
+        use std::collections::hash_map::Entry;
+        let Some(outpoint) = outpoint_opt else {
+            return Ok(false);
+        };
+        if let Entry::Vacant(entry) = parent_transactions.entry(outpoint.txid) {
             let tx = self.client.get_transaction(&outpoint.txid).await?;
-            if let Some(txout) = tx.output.get(outpoint.vout as usize) {
-                return Ok(txout.script_pubkey == self.wallets.bridge.script_pubkey());
-            }
+            entry.insert(tx);
         }
-        Ok(false)
-    }
-
-    #[instrument(skip(self, outpoint_opt), target = "bitcoin_indexer")]
-    async fn is_valid_gov_upgrade(&self, outpoint_opt: Option<&OutPoint>) -> anyhow::Result<bool> {
-        if let Some(outpoint) = outpoint_opt {
-            let tx = self.client.get_transaction(&outpoint.txid).await?;
-            if let Some(txout) = tx.output.get(outpoint.vout as usize) {
-                return Ok(txout.script_pubkey == self.wallets.governance.script_pubkey());
-            }
-        }
-        Ok(false)
+        Ok(parent_transactions
+            .get(&outpoint.txid)
+            .and_then(|tx| tx.output.get(outpoint.vout as usize))
+            .is_some_and(|txout| txout.script_pubkey == expected_address.script_pubkey()))
     }
 
     async fn get_l1_batch_number_from_proof_tx_id(
@@ -497,21 +496,66 @@ mod tests {
         Witness::from_slice(&[Vec::new(), p2wpkh_key(secret).to_bytes()])
     }
 
-    #[tokio::test]
-    async fn test_are_blocks_connected() {
-        let parent_hash = BlockHash::all_zeros();
-        let child_hash = BlockHash::all_zeros();
-        let mock_block = Block {
+    fn test_block(txdata: Vec<Transaction>) -> Block {
+        Block {
             header: Header {
                 version: Default::default(),
-                prev_blockhash: parent_hash,
+                prev_blockhash: BlockHash::all_zeros(),
                 merkle_root: TxMerkleNode::all_zeros(),
                 time: 0,
                 bits: Default::default(),
                 nonce: 0,
             },
-            txdata: vec![],
-        };
+            txdata,
+        }
+    }
+
+    fn test_output(script_pubkey: ScriptBuf) -> TxOut {
+        TxOut {
+            value: Amount::from_sat(1_000),
+            script_pubkey,
+        }
+    }
+
+    fn test_transaction(previous_outputs: Vec<OutPoint>, output: Vec<TxOut>) -> Transaction {
+        Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: previous_outputs
+                .into_iter()
+                .map(|previous_output| TxIn {
+                    previous_output,
+                    ..Default::default()
+                })
+                .collect(),
+            output,
+        }
+    }
+
+    fn carrier_only_withdrawal(previous_output: OutPoint, marker: u8) -> Transaction {
+        let mut payload = withdrawal::VIA_WI.to_vec();
+        payload.push(0);
+        payload.extend([marker; 10]);
+
+        test_transaction(
+            vec![previous_output],
+            vec![
+                test_output(get_test_addr(6).script_pubkey()),
+                TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: ScriptBuf::new_op_return(
+                        bitcoin::script::PushBytesBuf::try_from(payload).unwrap(),
+                    ),
+                },
+            ],
+        )
+    }
+
+    #[tokio::test]
+    async fn test_are_blocks_connected() {
+        let parent_hash = BlockHash::all_zeros();
+        let child_hash = BlockHash::all_zeros();
+        let mock_block = test_block(vec![]);
 
         let mut mock_client = MockBitcoinOps::new();
         mock_client
@@ -536,17 +580,7 @@ mod tests {
         let start_block = 1;
         let end_block = 3;
 
-        let mock_block = Block {
-            header: Header {
-                version: Default::default(),
-                prev_blockhash: BlockHash::all_zeros(),
-                merkle_root: TxMerkleNode::all_zeros(),
-                time: 0,
-                bits: Default::default(),
-                nonce: 0,
-            },
-            txdata: vec![],
-        };
+        let mock_block = test_block(vec![]);
 
         let mut mock_client = MockBitcoinOps::new();
         mock_client
@@ -588,8 +622,8 @@ mod tests {
         assert_eq!(proposals[0].system_contracts.len(), 1);
     }
 
-    #[tokio::test]
-    async fn test_is_valid_scanned_system_and_bridge_messages() {
+    #[test]
+    fn test_is_valid_scanned_system_and_bridge_messages() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
         let validator_attestation =
@@ -650,7 +684,7 @@ mod tests {
             assert!(!indexer.is_valid_scanned_system_message(&system_contract_upgrade_proposal));
         }
 
-        let l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
+        let l1_to_l2_message = L1ToL2Message {
             common: get_test_common_fields(),
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
@@ -662,8 +696,8 @@ mod tests {
                 value: Amount::from_sat(1000),
                 script_pubkey: indexer.wallets.bridge.script_pubkey(),
             }],
-        });
-        assert!(indexer.is_valid_bridge_message(&l1_to_l2_message).await);
+        };
+        assert!(indexer.is_valid_l1_to_l2_transfer(&l1_to_l2_message));
 
         let system_bootstrapping =
             FullInscriptionMessage::SystemBootstrapping(types::SystemBootstrapping {
@@ -756,6 +790,119 @@ mod tests {
         );
         assert_eq!(important.governance_txs[0].tx_index, 2);
         assert_eq!(important.governance_txs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn process_block_caches_shared_parent_without_changing_prevout_validation() {
+        let bridge_script = get_test_addr(2).script_pubkey();
+        let non_bridge_script = get_test_addr(5).script_pubkey();
+        let deposit = test_transaction(
+            vec![OutPoint::new(Txid::from_byte_array([0x66; 32]), 0)],
+            vec![
+                test_output(bridge_script.clone()),
+                TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: ScriptBuf::new_op_return(
+                        bitcoin::script::PushBytesBuf::try_from(vec![0x77; 20]).unwrap(),
+                    ),
+                },
+            ],
+        );
+        let parent = test_transaction(
+            vec![],
+            vec![
+                test_output(non_bridge_script.clone()),
+                test_output(non_bridge_script),
+                test_output(bridge_script.clone()),
+            ],
+        );
+        let parent_txid = parent.compute_txid();
+        let children = vec![
+            carrier_only_withdrawal(OutPoint::new(parent_txid, 0), 0x11),
+            carrier_only_withdrawal(OutPoint::new(parent_txid, 1), 0x22),
+            carrier_only_withdrawal(OutPoint::new(parent_txid, 2), 0x33),
+        ];
+        for child in &children {
+            assert!(parser::has_withdrawal_carrier(child));
+            assert!(child
+                .output
+                .iter()
+                .all(|output| output.script_pubkey != bridge_script));
+        }
+
+        let mut mock_client = MockBitcoinOps::new();
+        mock_client
+            .expect_fetch_block()
+            .with(eq(42_u128))
+            .times(1)
+            .return_once(move |_| {
+                Ok(test_block(
+                    std::iter::once(deposit).chain(children).collect(),
+                ))
+            });
+        mock_client
+            .expect_get_transaction()
+            .with(eq(parent_txid))
+            .times(1)
+            .return_once(move |_| Ok(parent));
+
+        let messages = get_indexer_with_mock(mock_client)
+            .process_block(42)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            messages.as_slice(),
+            [
+                FullInscriptionMessage::L1ToL2Message(deposit),
+                FullInscriptionMessage::BridgeWithdrawal(withdrawal),
+            ] if deposit.amount == Amount::from_sat(1_000)
+                && withdrawal.input.inputs == vec![OutPoint::new(parent_txid, 2)]
+                && withdrawal.input.withdrawals.len() == 1
+        ));
+    }
+
+    #[tokio::test]
+    async fn failed_parent_fetch_is_not_cached() {
+        let parent = test_transaction(vec![], vec![test_output(get_test_addr(2).script_pubkey())]);
+        let parent_txid = parent.compute_txid();
+        let mut sequence = mockall::Sequence::new();
+        let mut mock_client = MockBitcoinOps::new();
+        mock_client
+            .expect_get_transaction()
+            .with(eq(parent_txid))
+            .times(1)
+            .in_sequence(&mut sequence)
+            .returning(|_| Err(types::BitcoinError::Other("transient parent fetch".into())));
+        mock_client
+            .expect_get_transaction()
+            .with(eq(parent_txid))
+            .times(1)
+            .in_sequence(&mut sequence)
+            .return_once(move |_| Ok(parent));
+
+        let indexer = get_indexer_with_mock(mock_client);
+        let outpoint = OutPoint::new(parent_txid, 0);
+        let mut parent_transactions = HashMap::new();
+
+        assert!(indexer
+            .is_valid_prevout(
+                Some(&outpoint),
+                &indexer.wallets.bridge,
+                &mut parent_transactions,
+            )
+            .await
+            .is_err());
+        assert!(parent_transactions.is_empty());
+        assert!(indexer
+            .is_valid_prevout(
+                Some(&outpoint),
+                &indexer.wallets.bridge,
+                &mut parent_transactions,
+            )
+            .await
+            .unwrap());
+        assert_eq!(parent_transactions.len(), 1);
     }
 
     #[tokio::test]
