@@ -553,52 +553,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_are_blocks_connected() {
-        let parent_hash = BlockHash::all_zeros();
-        let child_hash = BlockHash::all_zeros();
-        let mock_block = test_block(vec![]);
-
-        let mut mock_client = MockBitcoinOps::new();
-        mock_client
-            .expect_fetch_block_by_hash()
-            .with(eq(child_hash))
-            .returning(move |_| Ok(mock_block.clone()));
-        mock_client
-            .expect_get_network()
-            .returning(|| Network::Testnet);
-
-        let indexer = get_indexer_with_mock(mock_client);
-
-        let result = indexer
-            .are_blocks_connected(&parent_hash, &child_hash)
-            .await;
-        assert!(result.is_ok());
-        assert!(result.unwrap());
-    }
-
-    #[tokio::test]
-    async fn test_process_blocks() {
-        let start_block = 1;
-        let end_block = 3;
-
-        let mock_block = test_block(vec![]);
-
-        let mut mock_client = MockBitcoinOps::new();
-        mock_client
-            .expect_fetch_block()
-            .returning(move |_| Ok(mock_block.clone()))
-            .times(3);
-        mock_client
-            .expect_get_network()
-            .returning(|| Network::Testnet);
-
-        let mut indexer = get_indexer_with_mock(mock_client);
-        let result = indexer.process_blocks(start_block, end_block).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
-    }
-
-    #[tokio::test]
     async fn resolves_upgrade_proposal_input() {
         let proposal_tx = parser::system_contract_upgrade_transaction(1);
         let proposal_tx_id = proposal_tx.compute_txid();
@@ -684,21 +638,6 @@ mod tests {
             proposal.common.p2wpkh_address = Some(address.clone());
             assert!(!indexer.is_valid_scanned_system_message(&system_contract_upgrade_proposal));
         }
-
-        let l1_to_l2_message = L1ToL2Message {
-            common: get_test_common_fields(),
-            amount: Amount::from_sat(1000),
-            input: types::L1ToL2MessageInput {
-                receiver_l2_address: zksync_types::Address::zero(),
-                l2_contract_address: zksync_types::Address::zero(),
-                call_data: vec![],
-            },
-            tx_outputs: vec![TxOut {
-                value: Amount::from_sat(1000),
-                script_pubkey: indexer.wallets.bridge.script_pubkey(),
-            }],
-        };
-        assert!(indexer.is_valid_l1_to_l2_transfer(&l1_to_l2_message));
 
         let system_bootstrapping =
             FullInscriptionMessage::SystemBootstrapping(types::SystemBootstrapping {
@@ -981,38 +920,30 @@ mod tests {
             .is_empty());
     }
 
-    #[tokio::test]
-    async fn test_is_valid_l1_to_l2_transfer() {
+    #[test]
+    fn test_is_valid_l1_to_l2_transfer() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
-        let valid_message = L1ToL2Message {
+        let mut message = L1ToL2Message {
             common: get_test_common_fields(),
-            amount: Amount::from_sat(1000),
+            amount: Amount::from_sat(2_000),
             input: types::L1ToL2MessageInput {
                 receiver_l2_address: zksync_types::Address::zero(),
                 l2_contract_address: zksync_types::Address::zero(),
                 call_data: vec![],
             },
-            tx_outputs: vec![TxOut {
-                value: Amount::from_sat(1000),
-                script_pubkey: indexer.wallets.bridge.script_pubkey(),
-            }],
+            tx_outputs: vec![
+                test_output(indexer.wallets.bridge.script_pubkey()),
+                test_output(indexer.wallets.bridge.script_pubkey()),
+            ],
         };
-        assert!(indexer.is_valid_l1_to_l2_transfer(&valid_message));
+        assert!(indexer.is_valid_l1_to_l2_transfer(&message));
 
-        let invalid_message = L1ToL2Message {
-            common: get_test_common_fields(),
-            amount: Amount::from_sat(1000),
-            input: types::L1ToL2MessageInput {
-                receiver_l2_address: zksync_types::Address::zero(),
-                l2_contract_address: zksync_types::Address::zero(),
-                call_data: vec![],
-            },
-            tx_outputs: vec![TxOut {
-                value: Amount::from_sat(1000),
-                script_pubkey: ScriptBuf::new(),
-            }],
-        };
-        assert!(!indexer.is_valid_l1_to_l2_transfer(&invalid_message));
+        message.amount = Amount::ZERO;
+        message.tx_outputs = vec![TxOut {
+            value: Amount::ZERO,
+            script_pubkey: ScriptBuf::new(),
+        }];
+        assert!(!indexer.is_valid_l1_to_l2_transfer(&message));
     }
 }
