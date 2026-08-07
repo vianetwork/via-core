@@ -144,8 +144,7 @@ impl BitcoinInscriptionIndexer {
                 };
                 if self
                     .is_valid_prevout(outpoint, &self.wallets.governance, &mut parent_transactions)
-                    .await
-                    .unwrap_or(false)
+                    .await?
                 {
                     valid_messages.push(message);
                 }
@@ -168,14 +167,14 @@ impl BitcoinInscriptionIndexer {
             {
                 if match &message {
                     FullInscriptionMessage::L1ToL2Message(m) => self.is_valid_l1_to_l2_transfer(m),
-                    FullInscriptionMessage::BridgeWithdrawal(m) => self
-                        .is_valid_prevout(
+                    FullInscriptionMessage::BridgeWithdrawal(m) => {
+                        self.is_valid_prevout(
                             m.input.inputs.first(),
                             &self.wallets.bridge,
                             &mut parent_transactions,
                         )
-                        .await
-                        .unwrap_or(false),
+                        .await?
+                    }
                     _ => false,
                 } {
                     valid_messages.push(message);
@@ -360,11 +359,13 @@ impl BitcoinInscriptionIndexer {
         parent_transactions: &mut HashMap<Txid, BitcoinTransaction>,
     ) -> anyhow::Result<bool> {
         use std::collections::hash_map::Entry;
-        let Some(outpoint) = outpoint_opt else {
+        let Some(outpoint) = outpoint_opt.filter(|outpoint| !outpoint.is_null()) else {
             return Ok(false);
         };
         if let Entry::Vacant(entry) = parent_transactions.entry(outpoint.txid) {
-            let tx = self.client.get_transaction(&outpoint.txid).await?;
+            let fetched = self.client.get_transaction(&outpoint.txid).await;
+            let tx = fetched
+                .with_context(|| format!("failed to fetch prevout transaction {outpoint}"))?;
             entry.insert(tx);
         }
         Ok(parent_transactions
@@ -903,6 +904,81 @@ mod tests {
             .await
             .unwrap());
         assert_eq!(parent_transactions.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn process_block_propagates_parent_fetch_error() {
+        let parent_txid = Txid::from_byte_array([0x88; 32]);
+        let child = carrier_only_withdrawal(OutPoint::new(parent_txid, 0), 0x11);
+        let mut mock_client = MockBitcoinOps::new();
+        mock_client
+            .expect_fetch_block()
+            .with(eq(42_u128))
+            .return_once(move |_| Ok(test_block(vec![child])));
+        mock_client
+            .expect_get_transaction()
+            .with(eq(parent_txid))
+            .returning(|_| Err(types::BitcoinError::Other("transient parent fetch".into())));
+
+        let error = get_indexer_with_mock(mock_client)
+            .process_block(42)
+            .await
+            .unwrap_err();
+        let types::IndexerError::Other(error) = error else {
+            panic!("expected contextual indexer error");
+        };
+        let error = format!("{error:#}");
+        assert!(error.contains("failed to fetch prevout transaction"));
+        assert!(error.contains("transient parent fetch"));
+    }
+
+    #[tokio::test]
+    async fn non_error_prevout_failures_remain_invalid() {
+        let parent = test_transaction(vec![], vec![test_output(get_test_addr(5).script_pubkey())]);
+        let parent_txid = parent.compute_txid();
+        let mut mock_client = MockBitcoinOps::new();
+        mock_client
+            .expect_get_transaction()
+            .with(eq(parent_txid))
+            .times(1)
+            .return_once(move |_| Ok(parent));
+        let indexer = get_indexer_with_mock(mock_client);
+        let mut parent_transactions = HashMap::new();
+
+        assert!(!indexer
+            .is_valid_prevout(None, &indexer.wallets.bridge, &mut parent_transactions)
+            .await
+            .unwrap());
+        for outpoint in [OutPoint::new(parent_txid, 1), OutPoint::new(parent_txid, 0)] {
+            assert!(!indexer
+                .is_valid_prevout(
+                    Some(&outpoint),
+                    &indexer.wallets.bridge,
+                    &mut parent_transactions,
+                )
+                .await
+                .unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn coinbase_withdrawal_carrier_is_rejected_without_parent_fetch() {
+        let mut coinbase = carrier_only_withdrawal(OutPoint::null(), 0x11);
+        coinbase.input[0].script_sig = ScriptBuf::from_bytes(vec![0x01, 0x00]);
+        assert!(coinbase.is_coinbase());
+
+        let mut mock_client = MockBitcoinOps::new();
+        mock_client
+            .expect_fetch_block()
+            .with(eq(42_u128))
+            .return_once(move |_| Ok(test_block(vec![coinbase])));
+        mock_client.expect_get_transaction().times(0);
+
+        assert!(get_indexer_with_mock(mock_client)
+            .process_block(42)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

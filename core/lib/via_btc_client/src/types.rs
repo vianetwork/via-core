@@ -466,6 +466,8 @@ pub enum IndexerError {
     BitcoinClientError(#[from] BitcoinError),
     #[error("Tx_id parsing error: {0}")]
     TxIdParsingError(#[from] FromSliceError),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 #[derive(Debug, Clone)]
