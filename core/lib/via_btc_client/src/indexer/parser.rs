@@ -1403,8 +1403,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rejects_inexact_system_fixed_pushes_without_panicking() {
+    fn assert_rejects_inexact_bootstrapping_fixed_pushes() {
         for field_index in 2..=5 {
             for width in [31, 33] {
                 let mut fields = system_bootstrapping_fields();
@@ -1414,6 +1413,11 @@ mod tests {
                 assert!(parse_system_witness(witness).is_empty());
             }
         }
+    }
+
+    #[test]
+    fn rejects_inexact_system_fixed_pushes_without_panicking() {
+        assert_rejects_inexact_bootstrapping_fixed_pushes();
 
         for field_index in [0, 4] {
             for width in [31, 33] {
