@@ -389,6 +389,7 @@ mod tests {
             padded.utxos.push((outpoint, prevout.clone()));
         }
         padded.txid = padded.tx.compute_txid();
+        // The empty mock panics if verification fetches a parent transaction.
         assert!(
             !tx_builder(vec![])?
                 .verify_bridge_tx(&padded, vec![request.clone()], cfg.clone())

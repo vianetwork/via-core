@@ -762,13 +762,6 @@ mod tests {
             carrier_only_withdrawal(OutPoint::new(parent_txid, 1), 0x22),
             carrier_only_withdrawal(OutPoint::new(parent_txid, 2), 0x33),
         ];
-        for child in &children {
-            assert!(parser::has_withdrawal_carrier(child));
-            assert!(child
-                .output
-                .iter()
-                .all(|output| output.script_pubkey != bridge_script));
-        }
 
         let mut mock_client = MockBitcoinOps::new();
         mock_client

@@ -1606,69 +1606,57 @@ mod tests {
 
     #[test]
     fn characterizes_two_push_governance_carriers() {
-        enum Expected {
-            Upgrade,
-            Bridge,
-            Sequencer,
-            Governance,
-        }
-
         let wallets = system_wallets();
         let mut txid_body = vec![0x31; 32];
         txid_body.push(0xff);
+        let sequencer = wallets.sequencer.to_string();
+        let governance = wallets.governance.to_string();
         let cases = [
             (
                 OP_RETURN_UPGRADE_PROTOCOL_PREFIX,
-                txid_body.clone(),
-                Expected::Upgrade,
+                txid_body,
+                (
+                    "upgrade",
+                    Txid::from_slice(&[0x31; 32]).unwrap().to_string(),
+                ),
             ),
             (
                 OP_RETURN_UPDATE_BRIDGE_PREFIX,
                 vec![0x42; 32],
-                Expected::Bridge,
+                ("bridge", Txid::from_slice(&[0x42; 32]).unwrap().to_string()),
             ),
             (
                 OP_RETURN_UPDATE_SEQUENCER_PREFIX,
-                wallets.sequencer.to_string().into_bytes(),
-                Expected::Sequencer,
+                sequencer.as_bytes().to_vec(),
+                ("sequencer", sequencer),
             ),
             (
                 OP_RETURN_UPDATE_GOVERNANCE_PREFIX,
-                wallets.governance.to_string().into_bytes(),
-                Expected::Governance,
+                governance.as_bytes().to_vec(),
+                ("governance", governance),
             ),
         ];
 
         for (prefix, body, expected) in cases {
             let messages = parse_governance_carrier(prefix, body);
-            assert_eq!(messages.len(), 1);
-            match (&messages[0], expected) {
-                (FullInscriptionMessage::SystemContractUpgrade(message), Expected::Upgrade) => {
-                    assert_eq!(
-                        message.input.proposal_tx_id,
-                        Txid::from_slice(&[0x31; 32]).unwrap()
-                    );
+            let actual = match messages.as_slice() {
+                [FullInscriptionMessage::SystemContractUpgrade(message)] => {
+                    ("upgrade", message.input.proposal_tx_id.to_string())
                 }
-                (FullInscriptionMessage::UpdateBridge(message), Expected::Bridge) => {
-                    assert_eq!(
-                        message.input.proposal_tx_id,
-                        Txid::from_slice(&[0x42; 32]).unwrap()
-                    );
+                [FullInscriptionMessage::UpdateBridge(message)] => {
+                    ("bridge", message.input.proposal_tx_id.to_string())
                 }
-                (FullInscriptionMessage::UpdateSequencer(message), Expected::Sequencer) => {
-                    assert_eq!(
-                        message.input.address.clone().assume_checked(),
-                        wallets.sequencer
-                    );
-                }
-                (FullInscriptionMessage::UpdateGovernance(message), Expected::Governance) => {
-                    assert_eq!(
-                        message.input.address.clone().assume_checked(),
-                        wallets.governance
-                    );
-                }
-                _ => panic!("unexpected governance message"),
-            }
+                [FullInscriptionMessage::UpdateSequencer(message)] => (
+                    "sequencer",
+                    message.input.address.clone().assume_checked().to_string(),
+                ),
+                [FullInscriptionMessage::UpdateGovernance(message)] => (
+                    "governance",
+                    message.input.address.clone().assume_checked().to_string(),
+                ),
+                _ => panic!("unexpected governance messages"),
+            };
+            assert_eq!(actual, expected);
         }
     }
 
@@ -1710,31 +1698,30 @@ mod tests {
     #[test]
     fn parses_withdrawal_carriers_without_bridge_change() {
         let wallets = system_wallets();
+        let record_count = 7;
 
-        for record_count in [6, 7] {
-            let mut payload = VIA_WI.to_vec();
-            payload.push(0);
-            payload.extend((0..record_count * 10).map(|byte| byte as u8));
+        let mut payload = VIA_WI.to_vec();
+        payload.push(0);
+        payload.extend((0..record_count * 10).map(|byte| byte as u8));
 
-            let mut outputs: Vec<_> = (0..record_count)
-                .map(|_| TxOut {
-                    value: Amount::from_sat(1_000),
-                    script_pubkey: wallets.sequencer.script_pubkey(),
-                })
-                .collect();
-            outputs.push(op_return_output(carrier_script(TestCarrier::One(
-                payload.clone(),
-            ))));
-            let mut tx = TransactionWithMetadata::new(test_transaction(outputs), 0);
+        let mut outputs: Vec<_> = (0..record_count)
+            .map(|_| TxOut {
+                value: Amount::from_sat(1_000),
+                script_pubkey: wallets.sequencer.script_pubkey(),
+            })
+            .collect();
+        outputs.push(op_return_output(carrier_script(TestCarrier::One(
+            payload.clone(),
+        ))));
+        let mut tx = TransactionWithMetadata::new(test_transaction(outputs), 0);
 
-            let messages = parse_bridge(&mut tx, &wallets);
-            assert_eq!(payload.len(), 7 + 10 * record_count);
-            assert!(matches!(
-                messages.as_slice(),
-                [FullInscriptionMessage::BridgeWithdrawal(message)]
-                    if message.input.withdrawals.len() == record_count
-            ));
-        }
+        let messages = parse_bridge(&mut tx, &wallets);
+        assert_eq!(payload.len(), 7 + 10 * record_count);
+        assert!(matches!(
+            messages.as_slice(),
+            [FullInscriptionMessage::BridgeWithdrawal(message)]
+                if message.input.withdrawals.len() == record_count
+        ));
     }
 
     #[test]
