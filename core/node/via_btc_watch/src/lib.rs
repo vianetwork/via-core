@@ -10,7 +10,7 @@ pub use via_btc_client::types::BitcoinNetwork;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use zksync_types::via_wallet::SystemWallets;
+use zksync_types::{helpers::unix_timestamp_ms, via_wallet::SystemWallets};
 
 #[cfg(test)]
 mod test;
@@ -38,6 +38,7 @@ impl BtcWatch {
         pool: ConnectionPool<Core>,
         is_main_node: bool,
     ) -> anyhow::Result<Self> {
+        METRICS.initialize();
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
 
         // Only build message processors that match the actor role:
@@ -83,7 +84,9 @@ impl BtcWatch {
 
             let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => { /* everything went fine */ }
+                Ok(()) => {
+                    METRICS.last_iteration_timestamp.set(unix_timestamp_ms() / 1_000);
+                }
                 Err(err) => {
                     METRICS.errors.inc();
                     tracing::error!("Failed to process new blocks: {err}");
