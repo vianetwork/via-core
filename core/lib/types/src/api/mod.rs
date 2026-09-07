@@ -896,6 +896,10 @@ pub struct L1BatchDetails {
     pub number: L1BatchNumber,
     #[serde(flatten)]
     pub base: BlockDetailsBase,
+    /// Via verifier verdict: true means accepted, false means rejected. An absent verdict
+    /// does not authorize mirroring the Via execution sentinel; upgrade the main node first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_is_finalized: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

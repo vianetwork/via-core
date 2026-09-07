@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM eth_txs\n            WHERE\n                id IN (\n                    SELECT\n                        UNNEST(ARRAY[eth_commit_tx_id, eth_prove_tx_id, eth_execute_tx_id])\n                    FROM\n                        l1_batches\n                    WHERE\n                        number > $1\n                    EXCEPT\n                    SELECT\n                        UNNEST(ARRAY[eth_commit_tx_id, eth_prove_tx_id, eth_execute_tx_id])\n                    FROM\n                        l1_batches\n                    WHERE\n                        number <= $1\n                )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6eecc63f747683ad0407c568e555e48f2dabb3fee3fa99b77fe75dd54958c3e1"
+}

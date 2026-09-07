@@ -684,14 +684,20 @@ impl BlocksWeb3Dal<'_, '_> {
                 prove_tx.confirmed_at AS "proven_at?",
                 prove_tx_data.chain_id AS "prove_chain_id?",
                 execute_tx.tx_hash AS "execute_tx_hash?",
-                execute_tx.confirmed_at AS "executed_at?",
+                CASE
+                    WHEN
+                        execute_tx.tx_hash
+                        = '0x1111111111111111111111111111111111111111111111111111111111111111'
+                        THEN l1_batches.via_en_executed_at
+                    ELSE execute_tx.confirmed_at
+                END AS "executed_at?",
                 execute_tx_data.chain_id AS "execute_chain_id?",
                 miniblocks.l1_gas_price,
                 miniblocks.l2_fair_gas_price,
                 miniblocks.fair_pubdata_price,
                 miniblocks.bootloader_code_hash,
                 miniblocks.default_aa_code_hash,
-                l1_batches.evm_emulator_code_hash,
+                miniblocks.evm_emulator_code_hash,
                 miniblocks.protocol_version,
                 miniblocks.fee_account_address
             FROM
@@ -711,6 +717,11 @@ impl BlocksWeb3Dal<'_, '_> {
                 ON (
                     l1_batches.eth_execute_tx_id = execute_tx.eth_tx_id
                     AND execute_tx.confirmed_at IS NOT NULL
+                    AND (
+                        execute_tx.tx_hash
+                        != '0x1111111111111111111111111111111111111111111111111111111111111111'
+                        OR l1_batches.via_en_executed_at IS NOT NULL
+                    )
                 )
             LEFT JOIN eth_txs AS commit_tx_data
                 ON (
@@ -724,7 +735,7 @@ impl BlocksWeb3Dal<'_, '_> {
                 )
             LEFT JOIN eth_txs AS execute_tx_data
                 ON (
-                    l1_batches.eth_execute_tx_id = execute_tx_data.id
+                    execute_tx.eth_tx_id = execute_tx_data.id
                     AND execute_tx_data.confirmed_eth_tx_history_id IS NOT NULL
                 )
             WHERE
@@ -775,7 +786,13 @@ impl BlocksWeb3Dal<'_, '_> {
                 prove_tx.confirmed_at AS "proven_at?",
                 prove_tx_data.chain_id AS "prove_chain_id?",
                 execute_tx.tx_hash AS "execute_tx_hash?",
-                execute_tx.confirmed_at AS "executed_at?",
+                CASE
+                    WHEN
+                        execute_tx.tx_hash
+                        = '0x1111111111111111111111111111111111111111111111111111111111111111'
+                        THEN l1_batches.via_en_executed_at
+                    ELSE execute_tx.confirmed_at
+                END AS "executed_at?",
                 execute_tx_data.chain_id AS "execute_chain_id?",
                 mb.l1_gas_price,
                 mb.l2_fair_gas_price,
@@ -800,6 +817,11 @@ impl BlocksWeb3Dal<'_, '_> {
                 ON (
                     l1_batches.eth_execute_tx_id = execute_tx.eth_tx_id
                     AND execute_tx.confirmed_at IS NOT NULL
+                    AND (
+                        execute_tx.tx_hash
+                        != '0x1111111111111111111111111111111111111111111111111111111111111111'
+                        OR l1_batches.via_en_executed_at IS NOT NULL
+                    )
                 )
             LEFT JOIN eth_txs AS commit_tx_data
                 ON (
@@ -813,7 +835,7 @@ impl BlocksWeb3Dal<'_, '_> {
                 )
             LEFT JOIN eth_txs AS execute_tx_data
                 ON (
-                    l1_batches.eth_execute_tx_id = execute_tx_data.id
+                    execute_tx.eth_tx_id = execute_tx_data.id
                     AND execute_tx_data.confirmed_eth_tx_history_id IS NOT NULL
                 )
             WHERE

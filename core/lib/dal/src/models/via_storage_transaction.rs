@@ -29,7 +29,7 @@ impl ViaStorageTransactionDetails {
     fn get_transaction_status(&self) -> TransactionStatus {
         if self.error.is_some() {
             TransactionStatus::Failed
-        } else if self.is_finalized.is_some() {
+        } else if self.is_finalized == Some(true) {
             TransactionStatus::Verified
         } else if self.miniblock_number.is_some() {
             TransactionStatus::Included

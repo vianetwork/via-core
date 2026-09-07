@@ -226,6 +226,7 @@ fn l2_block_details(
 fn l1_batch_details(number: L1BatchNumber, root_hash: H256) -> api::L1BatchDetails {
     api::L1BatchDetails {
         number,
+        via_is_finalized: None,
         base: block_details_base(root_hash),
     }
 }

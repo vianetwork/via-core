@@ -472,16 +472,10 @@ impl EthSenderDal<'_, '_> {
         Ok(Some(H256::from_str(tx_hash).context("invalid tx_hash")?))
     }
 
-    /// This method inserts a fake transaction into the database that would make the corresponding L1 batch
-    /// to be considered committed/proven/executed.
+    /// Mirrors a main-node lifecycle transition without recording a locally submitted transaction.
     ///
-    /// The designed use case is the External Node usage, where we don't really care about the actual transactions apart
-    /// from the hash and the fact that tx was sent.
-    ///
-    /// ## Warning
-    ///
-    /// After this method is used anywhere in the codebase, it is considered a bug to try to directly query `eth_txs_history`
-    /// or `eth_txs` tables.
+    /// For the Via execution sentinel, the caller must require an explicitly accepted main-node
+    /// verdict. Its timestamp belongs to the batch, not to the shared transaction history row.
     pub async fn insert_bogus_confirmed_eth_tx(
         &mut self,
         l1_batch: L1BatchNumber,
@@ -495,6 +489,8 @@ impl EthSenderDal<'_, '_> {
             .start_transaction()
             .await
             .context("start_transaction")?;
+        let via_execution =
+            matches!(tx_type, AggregatedActionType::Execute) && tx_hash == H256::repeat_byte(0x11);
         let tx_hash = format!("{:#x}", tx_hash);
 
         let eth_tx_id = sqlx::query_scalar!(
@@ -561,6 +557,23 @@ impl EthSenderDal<'_, '_> {
         .set_eth_tx_id(l1_batch..=l1_batch, eth_tx_id as u32, tx_type)
         .await
         .context("set_eth_tx_id()")?;
+
+        if via_execution {
+            sqlx::query!(
+                r#"
+                UPDATE l1_batches
+                SET
+                    via_en_executed_at = $1
+                WHERE
+                    number = $2
+                "#,
+                confirmed_at.naive_utc(),
+                i64::from(l1_batch.0)
+            )
+            .execute(transaction.conn())
+            .await
+            .context("persist per-batch Via execution timestamp")?;
+        }
 
         transaction.commit().await.context("commit()")
     }
@@ -739,32 +752,19 @@ impl EthSenderDal<'_, '_> {
             DELETE FROM eth_txs
             WHERE
                 id IN (
-                    (
-                        SELECT
-                            eth_commit_tx_id
-                        FROM
-                            l1_batches
-                        WHERE
-                            number > $1
-                    )
-                    UNION
-                    (
-                        SELECT
-                            eth_prove_tx_id
-                        FROM
-                            l1_batches
-                        WHERE
-                            number > $1
-                    )
-                    UNION
-                    (
-                        SELECT
-                            eth_execute_tx_id
-                        FROM
-                            l1_batches
-                        WHERE
-                            number > $1
-                    )
+                    SELECT
+                        UNNEST(ARRAY[eth_commit_tx_id, eth_prove_tx_id, eth_execute_tx_id])
+                    FROM
+                        l1_batches
+                    WHERE
+                        number > $1
+                    EXCEPT
+                    SELECT
+                        UNNEST(ARRAY[eth_commit_tx_id, eth_prove_tx_id, eth_execute_tx_id])
+                    FROM
+                        l1_batches
+                    WHERE
+                        number <= $1
                 )
             "#,
             i64::from(last_batch_to_keep.0)

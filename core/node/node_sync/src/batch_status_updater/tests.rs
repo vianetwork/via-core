@@ -153,6 +153,7 @@ impl L1BatchStagesMap {
 fn mock_batch_details(number: u32, stage: L1BatchStage) -> api::L1BatchDetails {
     api::L1BatchDetails {
         number: L1BatchNumber(number),
+        via_is_finalized: None,
         base: api::BlockDetailsBase {
             timestamp: number.into(),
             l1_tx_count: 0,
@@ -242,6 +243,7 @@ async fn updater_cursor_for_storage_with_genesis_block() {
         commit: vec![mock_change(L1BatchNumber(1)), mock_change(L1BatchNumber(2))],
         prove: vec![mock_change(L1BatchNumber(1))],
         execute: vec![],
+        ..StatusChanges::default()
     };
     updater
         .apply_status_changes(&mut cursor, changes)
@@ -438,4 +440,103 @@ async fn test_resuming_updater(pool: ConnectionPool<Core>, initial_batch_stages:
     target_batch_stages.assert_storage(&mut storage).await;
     stop_sender.send_replace(true);
     updater_task.await.unwrap().expect("updater failed");
+}
+
+#[test_casing(2, [None, Some(false)])]
+#[tokio::test]
+async fn unsupported_via_execution_preserves_progress(verdict: Option<bool>) {
+    let pool = ConnectionPool::test_pool().await;
+    let mut storage = pool.connection().await.unwrap();
+    insert_genesis_batch(&mut storage, &GenesisParams::mock())
+        .await
+        .unwrap();
+    for number in [1, 2] {
+        seal_l1_batch(&mut storage, L1BatchNumber(number)).await;
+    }
+
+    let (verdict_sender, verdict_receiver) = watch::channel(verdict);
+    let client = zksync_web3_decl::client::MockClient::builder(L2::default())
+        .method("zks_getL1BatchDetails", move |number: L1BatchNumber| {
+            let mut details = mock_batch_details(number.0, L1BatchStage::Executed);
+            details.base.execute_tx_hash = Some(H256::repeat_byte(0x11));
+            details.via_is_finalized = if number == L1BatchNumber(1) {
+                *verdict_receiver.borrow()
+            } else {
+                Some(true)
+            };
+            if details.via_is_finalized == Some(false) {
+                details.base.execute_tx_hash = Some(H256::zero());
+                details.base.executed_at = None;
+            }
+            Ok(Some(details))
+        })
+        .build();
+    let mut updater = BatchStatusUpdater::new(Box::new(client), pool.clone());
+    updater.sleep_interval = Duration::from_millis(10);
+    let mut health = updater.health_check();
+    let (stop_sender, stop_receiver) = watch::channel(false);
+    let mut task = tokio::spawn(updater.run(stop_receiver));
+    let outcome = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::select! {
+            result = &mut task => panic!("updater exited: {result:?}"),
+            blocked = health.wait_for(|health| health.status() == HealthStatus::Affected) => {
+                let details = blocked.details().unwrap();
+                assert_eq!(details["via_execution_blocked_at"], 1);
+                assert_eq!(details["last_committed_l1_batch"], 2);
+                assert_eq!(details["last_proven_l1_batch"], 2);
+                assert_eq!(details["last_executed_l1_batch"], 0);
+                assert!(details["error"].as_str().unwrap().contains("viaIsFinalized"));
+            }
+        }
+        for number in [1, 2] {
+            let details = storage
+                .blocks_web3_dal()
+                .get_l1_batch_details(L1BatchNumber(number))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(details.base.commit_tx_hash.is_some());
+            assert!(details.base.prove_tx_hash.is_some());
+            assert!(details.base.execute_tx_hash.is_none());
+        }
+        verdict_sender.send(Some(true)).unwrap();
+        tokio::select! {
+            result = &mut task => panic!("updater exited: {result:?}"),
+            _ = health.wait_for(|health| {
+                health.status() == HealthStatus::Ready
+                    && health.details().unwrap()["last_executed_l1_batch"] == 2
+            }) => {}
+        }
+        assert_eq!(
+            storage
+                .blocks_dal()
+                .get_number_of_last_l1_batch_executed_on_eth()
+                .await
+                .unwrap(),
+            Some(L1BatchNumber(2))
+        );
+    })
+    .await;
+    stop_sender.send_replace(true);
+    task.await.unwrap().expect("updater failed");
+    outcome.expect("status synchronization timed out");
+}
+
+#[test]
+fn via_execution_still_requires_timestamp() {
+    let initial_cursor = UpdaterCursor {
+        last_committed_l1_batch: L1BatchNumber(1),
+        last_proven_l1_batch: L1BatchNumber(1),
+        last_executed_l1_batch: L1BatchNumber(0),
+    };
+    let mut details = mock_batch_details(1, L1BatchStage::Executed);
+    details.via_is_finalized = Some(true);
+    details.base.execute_tx_hash = Some(H256::repeat_byte(0x11));
+    details.base.executed_at = None;
+    let mut cursor = initial_cursor;
+    let mut changes = StatusChanges::default();
+    let result = cursor.update_stage(&mut changes, &details, AggregatedActionType::Execute);
+    assert!(result.is_err());
+    assert_eq!(cursor, initial_cursor);
+    assert!(changes.is_empty());
 }
