@@ -468,6 +468,8 @@ impl From<StorageL1BatchDetails> for api::L1BatchDetails {
             ),
         };
         api::L1BatchDetails {
+            via_is_finalized: (base.execute_tx_hash == Some(H256::repeat_byte(0x11)))
+                .then_some(true),
             base,
             number: L1BatchNumber(details.number as u32),
         }

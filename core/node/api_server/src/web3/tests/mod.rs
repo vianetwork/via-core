@@ -71,6 +71,7 @@ mod debug;
 mod filters;
 mod snapshots;
 mod unstable;
+mod via_settlement;
 mod vm;
 mod ws;
 
@@ -162,6 +163,10 @@ trait HttpTest: Send + Sync {
 
     /// Overrides the `filters_disabled` configuration parameter for HTTP server startup
     fn filters_disabled(&self) -> bool {
+        false
+    }
+
+    fn use_synced_settlement(&self) -> bool {
         false
     }
 }
@@ -292,6 +297,7 @@ async fn test_http_server(test: impl HttpTest) {
         false,
     );
     api_config.filters_disabled = test.filters_disabled();
+    api_config.use_synced_settlement = test.use_synced_settlement();
     let mut server_builder = TestServerBuilder::new(pool.clone(), api_config)
         .with_tx_executor(test.transaction_executor())
         .with_method_tracer(test.method_tracer());
@@ -516,10 +522,14 @@ async fn http_server_basics() {
 }
 
 #[derive(Debug)]
-struct BlockMethodsWithSnapshotRecovery;
+struct BlockMethodsWithSnapshotRecovery(bool);
 
 #[async_trait]
 impl HttpTest for BlockMethodsWithSnapshotRecovery {
+    fn use_synced_settlement(&self) -> bool {
+        self.0
+    }
+
     fn storage_initialization(&self) -> StorageInitialization {
         StorageInitialization::empty_recovery()
     }
@@ -589,14 +599,20 @@ fn assert_pruned_block_error(error: &ClientError, first_retained_block: L2BlockN
 
 #[tokio::test]
 async fn block_methods_with_snapshot_recovery() {
-    test_http_server(BlockMethodsWithSnapshotRecovery).await;
+    for external_node in [false, true] {
+        test_http_server(BlockMethodsWithSnapshotRecovery(external_node)).await;
+    }
 }
 
 #[derive(Debug)]
-struct L1BatchMethodsWithSnapshotRecovery;
+struct L1BatchMethodsWithSnapshotRecovery(bool);
 
 #[async_trait]
 impl HttpTest for L1BatchMethodsWithSnapshotRecovery {
+    fn use_synced_settlement(&self) -> bool {
+        self.0
+    }
+
     fn storage_initialization(&self) -> StorageInitialization {
         StorageInitialization::empty_recovery()
     }
@@ -671,7 +687,9 @@ fn assert_pruned_l1_batch_error(error: &ClientError, first_retained_l1_batch: L1
 
 #[tokio::test]
 async fn l1_batch_methods_with_snapshot_recovery() {
-    test_http_server(L1BatchMethodsWithSnapshotRecovery).await;
+    for external_node in [false, true] {
+        test_http_server(L1BatchMethodsWithSnapshotRecovery(external_node)).await;
+    }
 }
 
 #[derive(Debug)]

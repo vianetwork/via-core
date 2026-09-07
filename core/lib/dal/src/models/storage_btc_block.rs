@@ -59,7 +59,7 @@ pub(crate) struct ViaStorageL1BatchDetails {
 
 impl From<ViaStorageL1BatchDetails> for L1BatchDetails {
     fn from(details: ViaStorageL1BatchDetails) -> Self {
-        let status = if details.number == 0 || details.is_finalized.is_some() {
+        let status = if details.number == 0 || details.is_finalized == Some(true) {
             BlockStatus::Verified
         } else {
             BlockStatus::Sealed
@@ -84,6 +84,7 @@ impl From<ViaStorageL1BatchDetails> for L1BatchDetails {
             execute_tx_hash: calculate_execution_hash(details.is_finalized),
             executed_at: details
                 .executed_at
+                .filter(|_| details.is_finalized == Some(true))
                 .map(|executed_at| DateTime::<Utc>::from_naive_utc_and_offset(executed_at, Utc)),
             execute_chain_id: None,
             l1_gas_price: details.l1_gas_price as u64,
@@ -98,6 +99,7 @@ impl From<ViaStorageL1BatchDetails> for L1BatchDetails {
         L1BatchDetails {
             base,
             number: L1BatchNumber(details.number as u32),
+            via_is_finalized: details.is_finalized,
         }
     }
 }
@@ -130,7 +132,7 @@ pub(crate) struct ViaStorageBlockDetails {
 }
 
 pub fn calculate_execution_hash(is_finalized: Option<bool>) -> Option<H256> {
-    if is_finalized.is_some() {
+    if is_finalized == Some(true) {
         return Some(H256::repeat_byte(0x11));
     }
     Some(H256::zero())
@@ -138,7 +140,7 @@ pub fn calculate_execution_hash(is_finalized: Option<bool>) -> Option<H256> {
 
 impl From<ViaStorageBlockDetails> for BlockDetails {
     fn from(details: ViaStorageBlockDetails) -> Self {
-        let status = if details.number == 0 || details.is_finalized.is_some() {
+        let status = if details.number == 0 || details.is_finalized == Some(true) {
             BlockStatus::Verified
         } else {
             BlockStatus::Sealed
@@ -163,6 +165,7 @@ impl From<ViaStorageBlockDetails> for BlockDetails {
             execute_tx_hash: calculate_execution_hash(details.is_finalized),
             executed_at: details
                 .executed_at
+                .filter(|_| details.is_finalized == Some(true))
                 .map(|executed_at| DateTime::<Utc>::from_naive_utc_and_offset(executed_at, Utc)),
             execute_chain_id: None,
             l1_gas_price: details.l1_gas_price as u64,

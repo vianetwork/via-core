@@ -119,6 +119,9 @@ pub struct InternalApiConfig {
 
     pub via_network: Network,
     pub via_dispatch_real_proof: bool,
+    /// EN detail APIs read the synchronized settlement mirror, not sender-owned Bitcoin tables.
+    /// This does not select the transaction sink or change submission / proxy behavior.
+    pub use_synced_settlement: bool,
 }
 
 impl InternalApiConfig {
@@ -132,6 +135,7 @@ impl InternalApiConfig {
         Self {
             via_network: via_network.unwrap_or(Network::Regtest),
             via_dispatch_real_proof,
+            use_synced_settlement: false,
             l1_chain_id: genesis_config.l1_chain_id,
             l2_chain_id: genesis_config.l2_chain_id,
             max_tx_size: web3_config.max_tx_size,

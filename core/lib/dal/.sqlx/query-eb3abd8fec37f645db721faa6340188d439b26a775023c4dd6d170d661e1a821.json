@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE l1_batches\n                SET\n                    via_en_executed_at = $1\n                WHERE\n                    number = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eb3abd8fec37f645db721faa6340188d439b26a775023c4dd6d170d661e1a821"
+}

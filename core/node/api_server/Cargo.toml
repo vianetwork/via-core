@@ -65,3 +65,4 @@ zksync_test_contracts.workspace = true
 
 assert_matches.workspace = true
 test-casing.workspace = true
+sqlx.workspace = true

@@ -72,6 +72,7 @@ impl L2Parameters {
                 let root_hash = self.l1_batch_root_hashes.get(number.0 as usize);
                 Ok(root_hash.map(|&hash| api::L1BatchDetails {
                     number,
+                    via_is_finalized: None,
                     base: mock_block_details_base(number.0, Some(hash)),
                 }))
             })

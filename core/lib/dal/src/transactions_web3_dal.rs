@@ -319,6 +319,11 @@ impl TransactionsWeb3Dal<'_, '_> {
                 ON (
                     l1_batches.eth_execute_tx_id = execute_tx.eth_tx_id
                     AND execute_tx.confirmed_at IS NOT NULL
+                    AND (
+                        execute_tx.tx_hash
+                        != '0x1111111111111111111111111111111111111111111111111111111111111111'
+                        OR l1_batches.via_en_executed_at IS NOT NULL
+                    )
                 )
             WHERE
                 transactions.hash = $1

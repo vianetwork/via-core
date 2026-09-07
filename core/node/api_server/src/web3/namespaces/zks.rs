@@ -10,8 +10,8 @@ use zksync_system_constants::DEFAULT_L2_TX_GAS_PER_PUBDATA_BYTE;
 use zksync_types::{
     address_to_h256,
     api::{
-        state_override::StateOverride, BlockDetails, BridgeAddresses, GetLogsFilter,
-        L1BatchDetails, L2ToL1LogProof, Proof, ProtocolVersion, StorageProof, TransactionDetails,
+        state_override::StateOverride, BridgeAddresses, GetLogsFilter, L2ToL1LogProof, Proof,
+        ProtocolVersion, StorageProof,
     },
     fee::Fee,
     fee_model::{FeeParams, PubdataIndependentBatchFeeModelInput},
@@ -34,7 +34,6 @@ use zksync_web3_decl::{
 use crate::{
     execution_sandbox::BlockArgs,
     tx_sender::BinarySearchKind,
-    utils::open_readonly_transaction,
     web3::{backend_jsonrpsee::MethodTracer, metrics::API_METRICS, RpcState},
 };
 
@@ -464,23 +463,6 @@ impl ZksNamespace {
         Ok(range.map(|(min, max)| (U64::from(min.0), U64::from(max.0))))
     }
 
-    pub async fn get_block_details_impl(
-        &self,
-        block_number: L2BlockNumber,
-    ) -> Result<Option<BlockDetails>, Web3Error> {
-        let mut storage = self.state.acquire_connection().await?;
-        self.state
-            .start_info
-            .ensure_not_pruned(block_number, &mut storage)
-            .await?;
-
-        Ok(storage
-            .blocks_web3_dal()
-            .get_block_details(block_number)
-            .await
-            .map_err(DalError::generalize)?)
-    }
-
     pub async fn get_raw_block_transactions_impl(
         &self,
         block_number: L2BlockNumber,
@@ -494,46 +476,6 @@ impl ZksNamespace {
         Ok(storage
             .transactions_web3_dal()
             .get_raw_l2_block_transactions(block_number)
-            .await
-            .map_err(DalError::generalize)?)
-    }
-
-    pub async fn get_transaction_details_impl(
-        &self,
-        hash: H256,
-    ) -> Result<Option<TransactionDetails>, Web3Error> {
-        let mut storage = self.state.acquire_connection().await?;
-        // Open a readonly transaction to have a consistent view of Postgres
-        let mut storage = open_readonly_transaction(&mut storage).await?;
-        let mut tx_details = storage
-            .transactions_web3_dal()
-            .get_transaction_details(hash)
-            .await
-            .map_err(DalError::generalize)?;
-
-        if tx_details.is_none() {
-            tx_details = self
-                .state
-                .tx_sink()
-                .lookup_tx_details(&mut storage, hash)
-                .await?;
-        }
-        Ok(tx_details)
-    }
-
-    pub async fn get_l1_batch_details_impl(
-        &self,
-        batch_number: L1BatchNumber,
-    ) -> Result<Option<L1BatchDetails>, Web3Error> {
-        let mut storage = self.state.acquire_connection().await?;
-        self.state
-            .start_info
-            .ensure_not_pruned(batch_number, &mut storage)
-            .await?;
-
-        Ok(storage
-            .blocks_web3_dal()
-            .get_l1_batch_details(batch_number)
             .await
             .map_err(DalError::generalize)?)
     }

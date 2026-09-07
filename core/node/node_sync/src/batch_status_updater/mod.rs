@@ -49,6 +49,7 @@ struct StatusChanges {
     commit: Vec<BatchStatusChange>,
     prove: Vec<BatchStatusChange>,
     execute: Vec<BatchStatusChange>,
+    via_execution_blocked_at: Option<L1BatchNumber>,
 }
 
 impl StatusChanges {
@@ -195,18 +196,23 @@ impl UpdaterCursor {
             ),
         };
 
-        // Check whether we have all data for the update.
-        let Some(l1_tx_hash) = l1_tx_hash else {
-            return Ok(());
-        };
-        // via server returns zero hash instead of None
-        if l1_tx_hash == H256::zero() {
-            return Ok(());
-        }
         if batch_info.number != last_l1_batch.next() {
             return Ok(());
         }
 
+        if matches!(stage, AggregatedActionType::Execute)
+            && (batch_info.via_is_finalized == Some(false)
+                || (l1_tx_hash == Some(H256::repeat_byte(0x11))
+                    && batch_info.via_is_finalized != Some(true)))
+        {
+            status_changes.via_execution_blocked_at = Some(batch_info.number);
+            return Ok(());
+        }
+
+        // Via uses the zero hash for an unsettled stage.
+        let Some(l1_tx_hash) = l1_tx_hash.filter(|hash| *hash != H256::zero()) else {
+            return Ok(());
+        };
         let action_str = l1_batch_stage_to_action_str(stage);
         let happened_at = happened_at.with_context(|| {
             format!("Malformed API response: batch is {action_str}, but has no relevant timestamp")
@@ -280,6 +286,8 @@ impl BatchStatusUpdater {
         tracing::info!("Initialized batch status updater cursor: {cursor:?}");
         self.health_updater
             .update(Health::from(HealthStatus::Ready).with_details(cursor));
+        let mut via_execution_blocked_at = None;
+        let mut published_health = (cursor, via_execution_blocked_at);
 
         while !*stop_receiver.borrow_and_update() {
             // Status changes are created externally, so that even if we will receive a network error
@@ -287,25 +295,45 @@ impl BatchStatusUpdater {
             let mut status_changes = StatusChanges::default();
             // Note that we don't update `cursor` here (it is copied), but rather only in `apply_status_changes`.
             match self.get_status_changes(&mut status_changes, cursor).await {
-                Ok(()) => { /* everything went smoothly */ }
+                Ok(()) => via_execution_blocked_at = status_changes.via_execution_blocked_at,
                 Err(UpdaterError::Web3(err)) => {
+                    via_execution_blocked_at = status_changes
+                        .via_execution_blocked_at
+                        .or(via_execution_blocked_at);
                     tracing::warn!("Failed to get status changes from the main node: {err}");
                 }
                 Err(UpdaterError::Internal(err)) => return Err(err),
             }
 
-            if status_changes.is_empty() {
+            let no_changes = status_changes.is_empty();
+            if !no_changes {
+                self.apply_status_changes(&mut cursor, status_changes)
+                    .await?;
+            }
+
+            if published_health != (cursor, via_execution_blocked_at) {
+                let mut details = serde_json::to_value(cursor)?;
+                let health_status = if let Some(batch) = via_execution_blocked_at {
+                    details["via_execution_blocked_at"] = serde_json::json!(batch);
+                    details["error"] = serde_json::json!(
+                        "Via execution is rejected or lacks an affirmative verdict; check the main node's viaIsFinalized for this batch. Commit/proof synchronization continues."
+                    );
+                    HealthStatus::Affected
+                } else {
+                    HealthStatus::Ready
+                };
+                self.health_updater
+                    .update(Health::from(health_status).with_details(details));
+                published_health = (cursor, via_execution_blocked_at);
+            }
+
+            if no_changes {
                 if tokio::time::timeout(self.sleep_interval, stop_receiver.changed())
                     .await
                     .is_ok()
                 {
                     break;
                 }
-            } else {
-                self.apply_status_changes(&mut cursor, status_changes)
-                    .await?;
-                self.health_updater
-                    .update(Health::from(HealthStatus::Ready).with_details(cursor));
             }
         }
 
@@ -356,8 +384,8 @@ impl BatchStatusUpdater {
             {
                 // The interval between this batch and the last committed one is not proven.
                 batch = cursor.last_committed_l1_batch.next();
-            } else if batch_info.base.executed_at.is_none() && batch < cursor.last_proven_l1_batch {
-                // The interval between this batch and the last proven one is not executed.
+            } else if batch > cursor.last_executed_l1_batch && batch < cursor.last_proven_l1_batch {
+                // Execution cannot advance past a withheld batch, even if later batches have timestamps.
                 batch = cursor.last_proven_l1_batch.next();
             } else {
                 batch += 1;

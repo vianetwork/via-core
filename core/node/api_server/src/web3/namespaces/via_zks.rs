@@ -357,11 +357,18 @@ impl ZksNamespace {
             .ensure_not_pruned(block_number, &mut storage)
             .await?;
 
-        Ok(storage
-            .via_blocks_web3_dal()
-            .get_block_details(block_number)
-            .await
-            .map_err(DalError::generalize)?)
+        let details = if self.state.api_config.use_synced_settlement {
+            storage
+                .blocks_web3_dal()
+                .get_block_details(block_number)
+                .await
+        } else {
+            storage
+                .via_blocks_web3_dal()
+                .get_block_details(block_number)
+                .await
+        };
+        Ok(details.map_err(DalError::generalize)?)
     }
 
     pub async fn get_raw_block_transactions_impl(
@@ -388,11 +395,18 @@ impl ZksNamespace {
         let mut storage = self.state.acquire_connection().await?;
         // Open a readonly transaction to have a consistent view of Postgres
         let mut storage = open_readonly_transaction(&mut storage).await?;
-        let mut tx_details = storage
-            .via_transaction_web3_dal()
-            .get_transaction_details(hash)
-            .await
-            .map_err(DalError::generalize)?;
+        let mut tx_details = if self.state.api_config.use_synced_settlement {
+            storage
+                .transactions_web3_dal()
+                .get_transaction_details(hash)
+                .await
+        } else {
+            storage
+                .via_transaction_web3_dal()
+                .get_transaction_details(hash)
+                .await
+        }
+        .map_err(DalError::generalize)?;
 
         if tx_details.is_none() {
             tx_details = self
@@ -414,11 +428,18 @@ impl ZksNamespace {
             .ensure_not_pruned(batch_number, &mut storage)
             .await?;
 
-        Ok(storage
-            .via_blocks_web3_dal()
-            .get_l1_batch_details(batch_number)
-            .await
-            .map_err(DalError::generalize)?)
+        let details = if self.state.api_config.use_synced_settlement {
+            storage
+                .blocks_web3_dal()
+                .get_l1_batch_details(batch_number)
+                .await
+        } else {
+            storage
+                .via_blocks_web3_dal()
+                .get_l1_batch_details(batch_number)
+                .await
+        };
+        Ok(details.map_err(DalError::generalize)?)
     }
 
     pub async fn get_bytecode_by_hash_impl(

@@ -554,6 +554,7 @@ impl BlocksDal<'_, '_> {
                     UPDATE l1_batches
                     SET
                         eth_execute_tx_id = $1,
+                        via_en_executed_at = NULL,
                         updated_at = NOW()
                     WHERE
                         number BETWEEN $2 AND $3
