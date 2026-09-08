@@ -25,6 +25,21 @@ mappings:
   - path: "via_verifier/node/via_btc_sender/**"
     area: btc
 
+  - path: "core/lib/dal/src/via_btc_sender_dal.rs"
+    area: btc
+
+  - path: "via_verifier/lib/verifier_dal/src/via_btc_sender_dal.rs"
+    area: btc
+
+  - path: "core/lib/dal/src/via_blocks_dal.rs"
+    area: btc
+
+  - path: "via_verifier/lib/verifier_dal/src/via_blocks_dal.rs"
+    area: btc
+
+  - path: "core/lib/via_btc_client/**"
+    area: btc
+
   - path: "core/node/via_da_dispatcher/**"
     area: da
 

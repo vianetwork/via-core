@@ -6,6 +6,7 @@ pub mod client;
 pub mod indexer;
 pub mod inscriber;
 mod metrics;
+pub use metrics::InscriptionObserver;
 #[cfg(feature = "regtest")]
 pub mod regtest;
 pub(crate) mod signer;
