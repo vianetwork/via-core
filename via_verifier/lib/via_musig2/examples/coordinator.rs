@@ -29,6 +29,7 @@ use via_test_utils::utils::generate_return_data_per_outputs;
 use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest};
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 use zksync_types::Address as EVMAddress;
+use zeroize::Zeroizing;
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -97,7 +98,12 @@ async fn main() -> anyhow::Result<()> {
     let other_pubkey_2 = PublicKey::from_secret_key(&secp, &SecretKey::new(&mut rng));
 
     let all_pubkeys = vec![public_key, other_pubkey_1, other_pubkey_2];
-    let coordinator_signer = Signer::new(secret_key, 0, all_pubkeys.clone(), None)?;
+    let coordinator_signer = Signer::new(
+        Zeroizing::new(secret_key.secret_bytes()),
+        0,
+        all_pubkeys.clone(),
+        None,
+    )?;
 
     let state = AppState {
         signer: Arc::new(RwLock::new(coordinator_signer)),
@@ -124,11 +130,21 @@ async fn main() -> anyhow::Result<()> {
     // Each verifier has their own keys:
     let mut rng = thread_rng();
     let verifier1_sk = SecretKey::new(&mut rng);
-    let verifier1_signer = Signer::new(verifier1_sk, 1, all_pubkeys.clone(), None)?;
+    let verifier1_signer = Signer::new(
+        Zeroizing::new(verifier1_sk.secret_bytes()),
+        1,
+        all_pubkeys.clone(),
+        None,
+    )?;
 
     let mut rng = thread_rng();
     let verifier2_sk = SecretKey::new(&mut rng);
-    let verifier2_signer = Signer::new(verifier2_sk, 2, all_pubkeys, None)?;
+    let verifier2_signer = Signer::new(
+        Zeroizing::new(verifier2_sk.secret_bytes()),
+        2,
+        all_pubkeys,
+        None,
+    )?;
 
     // Spawn tasks for verifier polling
     let verifier1_task = tokio::spawn(run_verifier_polling(

@@ -12,20 +12,25 @@ use crate::{
     traits::BitcoinSigner,
     types::{BitcoinError, BitcoinSignerResult},
 };
+use zeroize::Zeroizing;
 
 /// KeyManager handles the creation and management of Bitcoin keys and addresses.
 /// It provides functionality for signing transactions using both ECDSA and Schnorr signatures.
-#[derive(Clone)]
 pub struct KeyManager {
     secp: Secp256k1<All>,
-    sk: SecretKey,
+    sk: Zeroizing<[u8; 32]>,
+    public_key: PublicKey,
     address: Address,
-    keypair: Keypair,
     internal_key: UntweakedPublicKey,
     script_pubkey: ScriptBuf,
 }
 
 impl KeyManager {
+    fn signing_secret_key(&self) -> BitcoinSignerResult<SecretKey> {
+        SecretKey::from_slice(self.sk.as_ref())
+            .map_err(|e| BitcoinError::SigningError(format!("Invalid cached secret key: {}", e)))
+    }
+
     /// Creates a new KeyManager instance from a WIF-encoded private key and network.
     ///
     /// # Arguments
@@ -44,9 +49,10 @@ impl KeyManager {
 
         let sk = private_key.inner;
 
-        let pk = bitcoin::PublicKey::new(sk.public_key(&secp));
+        let public_key = sk.public_key(&secp);
+        let pk = bitcoin::PublicKey::new(public_key);
         let wpkh = pk.wpubkey_hash().map_err(|_e| {
-            BitcoinError::UncompressedPublicKeyError("key is compressed".to_string())
+            BitcoinError::UncompressedPublicKeyError("public key is uncompressed".to_string())
         })?;
 
         let compressed_pk = CompressedPublicKey::from_private_key(&secp, &private_key)
@@ -62,9 +68,9 @@ impl KeyManager {
 
         Ok(Self {
             secp,
-            sk,
+            sk: Zeroizing::new(sk.secret_bytes()),
+            public_key,
             address,
-            keypair,
             internal_key,
             script_pubkey,
         })
@@ -78,15 +84,16 @@ impl Default for KeyManager {
         let keypair = Keypair::from_secret_key(&secp, &sk.inner);
         let compressed_pk = CompressedPublicKey::from_private_key(&secp, &sk)
             .expect("Failed to generate compressed public key");
-        let address = Address::p2wpkh(&compressed_pk, Network::Testnet);
+        let address = Address::p2wpkh(&compressed_pk, Network::Regtest);
         let internal_key = keypair.x_only_public_key().0;
         let script_pubkey = address.script_pubkey();
+        let public_key = sk.inner.public_key(&secp);
 
         Self {
             secp,
-            sk: sk.inner,
+            sk: Zeroizing::new(sk.inner.secret_bytes()),
+            public_key,
             address,
-            keypair,
             internal_key,
             script_pubkey,
         }
@@ -112,17 +119,20 @@ impl BitcoinSigner for KeyManager {
     }
 
     fn sign_ecdsa(&self, msg: Message) -> BitcoinSignerResult<ECDSASignature> {
-        let signature = self.secp.sign_ecdsa(&msg, &self.sk);
+        let sk = self.signing_secret_key()?;
+        let signature = self.secp.sign_ecdsa(&msg, &sk);
         Ok(signature)
     }
 
     fn sign_schnorr(&self, msg: Message) -> BitcoinSignerResult<SchnorrSignature> {
-        let signature = self.secp.sign_schnorr_no_aux_rand(&msg, &self.keypair);
+        let sk = self.signing_secret_key()?;
+        let keypair = Keypair::from_secret_key(&self.secp, &sk);
+        let signature = self.secp.sign_schnorr_no_aux_rand(&msg, &keypair);
         Ok(signature)
     }
 
     fn get_public_key(&self) -> PublicKey {
-        self.sk.public_key(&self.secp)
+        self.public_key
     }
 }
 

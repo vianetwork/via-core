@@ -8,6 +8,7 @@ use musig2::{
 };
 use rand::{rngs::OsRng, Rng};
 use secp256k1_musig2::{PublicKey, Secp256k1, SecretKey};
+use zeroize::Zeroizing;
 
 use crate::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
 pub mod constants;
@@ -47,7 +48,7 @@ impl std::error::Error for MusigError {}
 
 /// Represents a single signer in the MuSig2 protocol
 pub struct Signer {
-    secret_key: SecretKey,
+    secret_key: Zeroizing<[u8; 32]>,
     public_key: PublicKey,
     signer_index: usize,
     key_agg_ctx: KeyAggContext,
@@ -74,13 +75,15 @@ impl fmt::Debug for Signer {
 impl Signer {
     /// Create a new signer with the given secret key and index
     pub fn new(
-        secret_key: SecretKey,
+        secret_key: Zeroizing<[u8; 32]>,
         signer_index: usize,
         all_pubkeys: Vec<PublicKey>,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<Self, MusigError> {
         let secp = Secp256k1::new();
-        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+        let secret_key_ref = SecretKey::from_slice(secret_key.as_ref())
+            .map_err(|e| MusigError::Musig2Error(format!("Invalid signer secret key bytes: {}", e)))?;
+        let public_key = PublicKey::from_secret_key(&secp, &secret_key_ref);
 
         // Verify that signer_index is valid and matches the public key
         if signer_index >= all_pubkeys.len() {
@@ -132,6 +135,11 @@ impl Signer {
         })
     }
 
+    fn signing_secret_key(&self) -> Result<SecretKey, MusigError> {
+        SecretKey::from_slice(self.secret_key.as_ref())
+            .map_err(|e| MusigError::Musig2Error(format!("Invalid signer secret key bytes: {}", e)))
+    }
+
     /// Get the aggregated public key for all signers
     pub fn aggregated_pubkey(&self) -> PublicKey {
         self.key_agg_ctx.aggregated_pubkey()
@@ -143,12 +151,14 @@ impl Signer {
 
         let msg_array = message.as_slice();
 
+        let secret_key = self.signing_secret_key()?;
+
         let first_round = FirstRound::new(
             self.key_agg_ctx.clone(),
             OsRng.gen::<[u8; 32]>(),
             self.signer_index,
             SecNonceSpices::new()
-                .with_seckey(self.secret_key)
+                .with_seckey(secret_key)
                 .with_message(&msg_array),
         )
         .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
@@ -184,8 +194,10 @@ impl Signer {
             .take()
             .ok_or_else(|| MusigError::InvalidState("First round not initialized".into()))?;
 
+        let secret_key = self.signing_secret_key()?;
+
         let second_round = first_round
-            .finalize(self.secret_key, msg_array)
+            .finalize(secret_key, msg_array)
             .map_err(|e| MusigError::Musig2Error(e.to_string()))?;
 
         let partial_sig = second_round.our_signature();
@@ -267,9 +279,9 @@ pub fn get_signer(
     verifiers_pub_keys_str: Vec<String>,
 ) -> anyhow::Result<Signer> {
     let private_key = PrivateKey::from_wif(private_key_wif)?;
-    let secret_key =
-        secp256k1_musig2::SecretKey::from_byte_array(&private_key.inner.secret_bytes())
-            .with_context(|| "Error to compute the coordinator sk")?;
+    let secret_key_bytes = Zeroizing::new(private_key.inner.secret_bytes());
+    let secret_key = secp256k1_musig2::SecretKey::from_slice(secret_key_bytes.as_ref())
+        .with_context(|| "Error to compute the coordinator sk")?;
     let secp = secp256k1_musig2::Secp256k1::new();
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
@@ -285,7 +297,7 @@ pub fn get_signer(
         }
     }
 
-    let signer = Signer::new(secret_key, signer_index, all_pubkeys.clone(), None)?;
+    let signer = Signer::new(secret_key_bytes, signer_index, all_pubkeys, None)?;
     Ok(signer)
 }
 
@@ -295,9 +307,9 @@ pub fn get_signer_with_merkle_root(
     merkle_root: Option<TapNodeHash>,
 ) -> anyhow::Result<Signer> {
     let private_key = PrivateKey::from_wif(private_key_wif)?;
-    let secret_key =
-        secp256k1_musig2::SecretKey::from_byte_array(&private_key.inner.secret_bytes())
-            .with_context(|| "Error to compute the coordinator sk")?;
+    let secret_key_bytes = Zeroizing::new(private_key.inner.secret_bytes());
+    let secret_key = secp256k1_musig2::SecretKey::from_slice(secret_key_bytes.as_ref())
+        .with_context(|| "Error to compute the coordinator sk")?;
     let secp = secp256k1_musig2::Secp256k1::new();
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
@@ -313,7 +325,7 @@ pub fn get_signer_with_merkle_root(
         }
     }
 
-    let signer = Signer::new(secret_key, signer_index, all_pubkeys.clone(), merkle_root)?;
+    let signer = Signer::new(secret_key_bytes, signer_index, all_pubkeys, merkle_root)?;
     Ok(signer)
 }
 
@@ -351,8 +363,18 @@ mod tests {
 
         let pubkeys = vec![public_key_1, public_key_2];
 
-        let mut signer1 = Signer::new(secret_key_1, 0, pubkeys.clone(), None)?;
-        let mut signer2 = Signer::new(secret_key_2, 1, pubkeys, None)?;
+        let mut signer1 = Signer::new(
+            Zeroizing::new(secret_key_1.secret_bytes()),
+            0,
+            pubkeys.clone(),
+            None,
+        )?;
+        let mut signer2 = Signer::new(
+            Zeroizing::new(secret_key_2.secret_bytes()),
+            1,
+            pubkeys,
+            None,
+        )?;
 
         // Generate and exchange nonces
         let message = b"test message".to_vec();
