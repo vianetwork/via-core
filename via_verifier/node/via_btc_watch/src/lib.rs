@@ -19,6 +19,8 @@ use crate::{
     metrics::METRICS,
 };
 
+const BTC_TX_LOCATOR_BACKFILL_MODULE_NAME: &str = "via_btc_tx_locator_backfill";
+
 #[cfg(test)]
 mod test;
 
@@ -29,13 +31,12 @@ pub struct VerifierBtcWatch {
     pool: ConnectionPool<Verifier>,
     system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
+    locators_backfilled: bool,
 }
 
 impl VerifierBtcWatch {
     pub async fn new(
-        config: ViaBtcWatchConfig,
-        indexer: BitcoinInscriptionIndexer,
-        btc_client: Arc<BitcoinClient>,
+        config: ViaBtcWatchConfig, indexer: BitcoinInscriptionIndexer, btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Verifier>,
     ) -> anyhow::Result<Self> {
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
@@ -47,13 +48,7 @@ impl VerifierBtcWatch {
             Box::new(WithdrawalProcessor::default()),
         ];
 
-        Ok(Self {
-            config,
-            indexer,
-            pool,
-            system_wallet_processor,
-            message_processors,
-        })
+        Ok(Self { config, indexer, pool, system_wallet_processor, message_processors, locators_backfilled: false })
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
@@ -66,9 +61,7 @@ impl VerifierBtcWatch {
                 _ = stop_receiver.changed() => break,
             }
 
-            let mut storage = pool
-                .connection_tagged(VerifierBtcWatch::module_name())
-                .await?;
+            let mut storage = pool.connection_tagged(VerifierBtcWatch::module_name()).await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(err) => {
@@ -82,29 +75,21 @@ impl VerifierBtcWatch {
         Ok(())
     }
 
-    async fn loop_iteration(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-    ) -> Result<(), MessageProcessorError> {
-        if storage
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some()
-        {
+    async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), MessageProcessorError> {
+        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
 
-        let last_processed_bitcoin_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block(VerifierBtcWatch::module_name())
-            .await? as u32;
+        let last_processed_bitcoin_block =
+            storage.via_indexer_dal().get_last_processed_l1_block(VerifierBtcWatch::module_name()).await? as u32;
 
         if last_processed_bitcoin_block == 0 {
-            return Err(MessageProcessorError::Internal(anyhow::anyhow!(
-                "The indexer was not initialized".to_string()
-            )));
+            return Err(MessageProcessorError::Internal(
+                anyhow::anyhow!("The indexer was not initialized".to_string()),
+            ));
         }
+
+        self.backfill_existing_tx_locators(storage, last_processed_bitcoin_block).await?;
 
         if let Some(last_protocol_version) = storage
             .via_protocol_versions_dal()
@@ -116,19 +101,17 @@ impl VerifierBtcWatch {
                 .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?;
         }
 
-        let current_l1_block_number =
-            self.indexer
-                .fetch_block_height()
-                .await
-                .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
-                .saturating_sub(self.config.block_confirmations) as u32;
+        let current_l1_block_number = self
+            .indexer
+            .fetch_block_height()
+            .await
+            .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
+            .saturating_sub(self.config.block_confirmations) as u32;
         if current_l1_block_number <= last_processed_bitcoin_block {
             return Ok(());
         }
 
-        let Some((last_l1_block_number, _)) =
-            storage.via_l1_block_dal().get_last_l1_block().await?
-        else {
+        let Some((last_l1_block_number, _)) = storage.via_l1_block_dal().get_last_l1_block().await? else {
             tracing::warn!("Reorg did not start yet");
             return Ok(());
         };
@@ -149,17 +132,14 @@ impl VerifierBtcWatch {
             return Ok(());
         }
 
-        let system_wallets_map = match storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_bitcoin_block as i64)
-            .await?
-        {
-            Some(map) => map,
-            None => {
-                tracing::info!("Wait for storage init, block number {}", from_block);
-                return Ok(());
-            }
-        };
+        let system_wallets_map =
+            match storage.via_wallet_dal().get_system_wallets_raw(last_processed_bitcoin_block as i64).await? {
+                Some(map) => map,
+                None => {
+                    tracing::info!("Wait for storage init, block number {}", from_block);
+                    return Ok(());
+                }
+            };
 
         let system_wallets = SystemWallets::try_from(system_wallets_map)?;
 
@@ -170,11 +150,13 @@ impl VerifierBtcWatch {
             Some(system_wallets.governance),
         );
 
-        let mut messages = self
-            .indexer
-            .process_blocks(from_block, to_block)
-            .await
-            .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+        let mut messages = {
+            let mut locator_store = message_processors::DbBitcoinTxLocatorStore::new(storage);
+            self.indexer
+                .process_blocks_with_locator_store(from_block, to_block, &mut locator_store)
+                .await
+                .map_err(|e| MessageProcessorError::Internal(e.into()))?
+        };
 
         // Re-process blocks if system wallets were updated, since the new wallet state
         // may change how subsequent messages are interpreted.
@@ -187,11 +169,13 @@ impl VerifierBtcWatch {
             // Process the blocks until where the update wallets block.
             to_block = block_number;
 
-            messages = self
-                .indexer
-                .process_blocks(from_block, to_block)
-                .await
-                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+            messages = {
+                let mut locator_store = message_processors::DbBitcoinTxLocatorStore::new(storage);
+                self.indexer
+                    .process_blocks_with_locator_store(from_block, to_block, &mut locator_store)
+                    .await
+                    .map_err(|e| MessageProcessorError::Internal(e.into()))?
+            };
         }
 
         for processor in self.message_processors.iter_mut() {
@@ -202,10 +186,8 @@ impl VerifierBtcWatch {
         }
 
         // Check if the last processed block was updated by another thread. This could happen when a reorg is detected.
-        let current_last_processed_bitcoin_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block(VerifierBtcWatch::module_name())
-            .await? as u32;
+        let current_last_processed_bitcoin_block =
+            storage.via_indexer_dal().get_last_processed_l1_block(VerifierBtcWatch::module_name()).await? as u32;
 
         if current_last_processed_bitcoin_block != last_processed_bitcoin_block {
             tracing::info!(
@@ -219,13 +201,55 @@ impl VerifierBtcWatch {
             .update_last_processed_l1_block(VerifierBtcWatch::module_name(), to_block)
             .await
             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+        storage.via_indexer_dal().init_indexer_metadata(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, to_block).await?;
+        storage.via_indexer_dal().update_last_processed_l1_block(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, to_block).await?;
 
-        tracing::info!(
-            "The btc_watch processed blocks, from {} to {}",
-            from_block,
-            to_block,
-        );
+        tracing::info!("The btc_watch processed blocks, from {} to {}", from_block, to_block,);
 
+        Ok(())
+    }
+
+    async fn backfill_existing_tx_locators(
+        &mut self, storage: &mut Connection<'_, Verifier>, last_processed_bitcoin_block: u32,
+    ) -> Result<(), MessageProcessorError> {
+        if self.locators_backfilled {
+            return Ok(());
+        }
+
+        let starting_block = self.config.start_l1_block_number.min(last_processed_bitcoin_block);
+        let mut backfilled_block =
+            storage.via_indexer_dal().get_last_processed_l1_block(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME).await? as u32;
+        if backfilled_block == 0 {
+            backfilled_block = starting_block.saturating_sub(1);
+            storage
+                .via_indexer_dal()
+                .init_indexer_metadata(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, backfilled_block)
+                .await?;
+        }
+
+        if backfilled_block >= last_processed_bitcoin_block {
+            if backfilled_block > last_processed_bitcoin_block {
+                storage
+                    .via_indexer_dal()
+                    .update_last_processed_l1_block(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, last_processed_bitcoin_block)
+                    .await?;
+            }
+            self.locators_backfilled = true;
+            return Ok(());
+        }
+
+        let from_block = backfilled_block.saturating_add(1).max(starting_block);
+        let mut locator_store = message_processors::DbBitcoinTxLocatorStore::new(storage);
+        self.indexer
+            .backfill_transaction_locators(from_block, last_processed_bitcoin_block, &mut locator_store)
+            .await
+            .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+        storage
+            .via_indexer_dal()
+            .update_last_processed_l1_block(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, last_processed_bitcoin_block)
+            .await?;
+
+        self.locators_backfilled = true;
         Ok(())
     }
 

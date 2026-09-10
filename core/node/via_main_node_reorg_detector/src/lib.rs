@@ -12,6 +12,8 @@ use crate::metrics::{ReorgType, METRICS};
 
 mod metrics;
 
+const BTC_TX_LOCATOR_BACKFILL_MODULE_NAME: &str = "via_btc_tx_locator_backfill";
+
 #[derive(Debug)]
 pub struct ViaMainNodeReorgDetector {
     config: ViaReorgDetectorConfig,
@@ -263,6 +265,16 @@ impl ViaMainNodeReorgDetector {
 
             transaction.via_l1_block_dal().delete_l1_reorg(l1_block_number_to_keep).await?;
 
+            transaction.via_btc_tx_locator_dal().delete_tx_locators_after(l1_block_number_to_keep).await?;
+            transaction
+                .via_indexer_dal()
+                .init_indexer_metadata(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, l1_block_number_to_keep as u32)
+                .await?;
+            transaction
+                .via_indexer_dal()
+                .update_last_processed_l1_block(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, l1_block_number_to_keep as u32)
+                .await?;
+
             transaction.via_l1_block_dal().delete_l1_blocks(l1_block_number_to_keep).await?;
 
             transaction.commit().await?;
@@ -278,7 +290,18 @@ impl ViaMainNodeReorgDetector {
             let l1_batch_number = l1_batch_number_opt.unwrap();
             tracing::warn!("Hard reorg detected: affects L1 batch {} from block {}", l1_batch_number, reorg_start_block_height);
 
-            storage.via_l1_block_dal().insert_reorg_metadata(reorg_start_block_height, l1_batch_number).await?;
+            let mut transaction = storage.start_transaction().await?;
+            transaction.via_l1_block_dal().insert_reorg_metadata(reorg_start_block_height, l1_batch_number).await?;
+            transaction.via_btc_tx_locator_dal().delete_tx_locators_after(reorg_start_block_height - 1).await?;
+            transaction
+                .via_indexer_dal()
+                .init_indexer_metadata(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, (reorg_start_block_height - 1) as u32)
+                .await?;
+            transaction
+                .via_indexer_dal()
+                .update_last_processed_l1_block(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, (reorg_start_block_height - 1) as u32)
+                .await?;
+            transaction.commit().await?;
 
             METRICS.reorg_type[&ReorgType::Hard].set(reorg_start_block_height as usize);
         }

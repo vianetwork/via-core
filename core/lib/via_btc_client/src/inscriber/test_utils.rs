@@ -16,7 +16,7 @@ use bitcoincore_rpc::json::{FeeRatePercentiles, GetBlockStatsResult};
 use super::Inscriber;
 use crate::{
     traits::{BitcoinOps, BitcoinSigner},
-    types::{self, BitcoinClientResult, InscriberContext},
+    types::{self, BitcoinClientResult, BitcoinTxLocator, InscriberContext},
 };
 
 #[derive(Debug, Default, Clone)]
@@ -26,6 +26,7 @@ pub struct MockBitcoinOpsConfig {
     pub fee_rate: u64,
     pub block_height: u64,
     pub tx_confirmation: bool,
+    pub tx_locator: Option<BitcoinTxLocator>,
     pub transaction: Option<Transaction>,
     pub block: Option<Block>,
     pub fee_history: Vec<u64>,
@@ -38,6 +39,10 @@ impl MockBitcoinOpsConfig {
 
     pub fn set_tx_confirmation(&mut self, tx_confirmation: bool) {
         self.tx_confirmation = tx_confirmation;
+    }
+
+    pub fn set_tx_locator(&mut self, tx_locator: BitcoinTxLocator) {
+        self.tx_locator = Some(tx_locator);
     }
 
     pub fn set_fee_history(&mut self, fees: Vec<u64>) {
@@ -56,6 +61,7 @@ pub struct MockBitcoinOps {
     pub fee_rate: u64,
     pub block_height: u64,
     pub tx_confirmation: bool,
+    pub tx_locator: Option<BitcoinTxLocator>,
     pub transaction: Option<Transaction>,
     pub block: Option<Block>,
     pub fee_history: Vec<u64>,
@@ -69,6 +75,7 @@ impl MockBitcoinOps {
             fee_rate: config.fee_rate,
             block_height: config.block_height,
             tx_confirmation: config.tx_confirmation,
+            tx_locator: config.tx_locator,
             transaction: config.transaction,
             block: config.block,
             fee_history: config.fee_history,
@@ -114,6 +121,15 @@ impl BitcoinOps for MockBitcoinOps {
         BitcoinClientResult::Ok(self.tx_confirmation)
     }
 
+    async fn check_tx_confirmation_in_block(
+        &self,
+        _txid: &Txid,
+        _block_hash: &BlockHash,
+        _conf_num: u32,
+    ) -> BitcoinClientResult<bool> {
+        BitcoinClientResult::Ok(self.tx_confirmation)
+    }
+
     async fn fetch_block_height(&self) -> BitcoinClientResult<u64> {
         BitcoinClientResult::Ok(self.block_height)
     }
@@ -134,8 +150,39 @@ impl BitcoinOps for MockBitcoinOps {
         BitcoinClientResult::Ok(self.transaction.clone().expect("No transaction found"))
     }
 
+    async fn get_transaction_in_block(
+        &self,
+        _txid: &Txid,
+        _block_hash: &BlockHash,
+    ) -> BitcoinClientResult<Transaction> {
+        BitcoinClientResult::Ok(self.transaction.clone().expect("No transaction found"))
+    }
+
     async fn fetch_block_by_hash(&self, _block_hash: &BlockHash) -> BitcoinClientResult<Block> {
         BitcoinClientResult::Ok(self.block.clone().expect("No block found"))
+    }
+
+    async fn find_transaction_locator(
+        &self,
+        txid: &Txid,
+        _from_block_height: u64,
+        _to_block_height: u64,
+    ) -> BitcoinClientResult<Option<BitcoinTxLocator>> {
+        let locator = self
+            .tx_locator
+            .as_ref()
+            .filter(|locator| &locator.txid == txid)
+            .cloned()
+            .or_else(|| {
+                self.tx_confirmation.then_some(BitcoinTxLocator {
+                    txid: *txid,
+                    block_height: self.block_height as u32,
+                    block_hash: BlockHash::all_zeros(),
+                    tx_index: None,
+                })
+            });
+
+        BitcoinClientResult::Ok(locator)
     }
 
     async fn get_fee_history(&self, _: usize, _: usize) -> BitcoinClientResult<Vec<u64>> {

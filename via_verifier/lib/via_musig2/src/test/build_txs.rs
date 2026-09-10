@@ -63,8 +63,20 @@ mod tests {
                 Ok(Transaction::default())
             }
 
+            async fn get_transaction_in_block(&self, _txid: &Txid, _block_hash: &bitcoin::BlockHash) -> Result<Transaction, BitcoinError> {
+                Ok(Transaction::default())
+            }
+
+            async fn check_tx_confirmation_in_block(&self, _txid: &Txid, _block_hash: &bitcoin::BlockHash, _min_confirmations: u32) -> Result<bool, BitcoinError> {
+                Ok(true)
+            }
+
             async fn fetch_block_by_hash(&self, _hash: &bitcoin::BlockHash) -> Result<bitcoin::Block, BitcoinError> {
                 Ok(bitcoin::Block::default())
+            }
+
+            async fn find_transaction_locator(&self, _txid: &Txid, _from_block_height: u64, _to_block_height: u64) -> Result<Option<via_btc_client::types::BitcoinTxLocator>, BitcoinError> {
+                Ok(None)
             }
 
             async fn get_block_stats(&self, _height: u64) -> Result<GetBlockStatsResult, BitcoinError> {

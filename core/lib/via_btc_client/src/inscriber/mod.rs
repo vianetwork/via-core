@@ -60,6 +60,7 @@ const REVEAL_TX_P2TR_INPUT_COUNT: u32 = 1;
 const REVEAL_TX_P2WPKH_INPUT_COUNT: u32 = 1;
 
 const BROADCAST_RETRY_COUNT: u32 = 3;
+const CTX_CONFIRMATION_LOOKBACK_BLOCKS: u64 = 10_000;
 
 // https://bitcoin.stackexchange.com/questions/10986/what-is-meant-by-bitcoin-dust
 // https://bitcointalk.org/index.php?topic=5453107.msg62262343#msg62262343
@@ -199,18 +200,41 @@ impl Inscriber {
 
     #[instrument(skip(self), target = "bitcoin_inscriber")]
     pub async fn sync_context_with_blockchain(&mut self) -> Result<()> {
+        let current_block = self.client.fetch_block_height().await?;
+        let from_block_height = current_block.saturating_sub(CTX_CONFIRMATION_LOOKBACK_BLOCKS);
+        self.sync_context_with_blockchain_from_block(from_block_height)
+            .await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_inscriber")]
+    pub async fn sync_context_with_blockchain_from_block(
+        &mut self,
+        from_block_height: u64,
+    ) -> Result<()> {
         debug!("Syncing context with blockchain");
         if self.context.fifo_queue.is_empty() {
             debug!("Context queue is empty, no sync needed");
             return Ok(());
         }
 
+        let current_block = self.client.fetch_block_height().await?;
         while let Some(inscription) = self.context.fifo_queue.pop_front() {
             let txid_ref = &inscription.fee_payer_ctx.fee_payer_utxo_txid;
-            let res = self
+            let locator = self
                 .client
-                .check_tx_confirmation(txid_ref, CTX_REQUIRED_CONFIRMATIONS)
+                .find_transaction_locator(txid_ref, from_block_height, current_block)
                 .await?;
+            let res = if let Some(locator) = locator {
+                self.client
+                    .check_tx_confirmation_in_block(
+                        txid_ref,
+                        &locator.block_hash,
+                        CTX_REQUIRED_CONFIRMATIONS,
+                    )
+                    .await?
+            } else {
+                false
+            };
 
             if !res {
                 debug!("Transaction not confirmed, adding back to queue");
@@ -858,12 +882,15 @@ mod tests {
         #[async_trait]
         impl BitcoinOps for BitcoinOps {
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
+            async fn get_transaction_in_block(&self, txid: &Txid, block_hash: &BlockHash) -> BitcoinClientResult<Transaction>;
             async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
             async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
+            async fn find_transaction_locator(&self, txid: &Txid, from_block_height: u64, to_block_height: u64) -> BitcoinClientResult<Option<crate::types::BitcoinTxLocator>>;
             async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
             async fn broadcast_signed_transaction(&self, signed_transaction: &str) -> BitcoinClientResult<Txid>;
             async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>>;
             async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool>;
+            async fn check_tx_confirmation_in_block(&self, txid: &Txid, block_hash: &BlockHash, conf_num: u32) -> BitcoinClientResult<bool>;
             async fn fetch_block_height(&self) -> BitcoinClientResult<u64>;
             async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
             fn get_network(&self) -> BitcoinNetwork;

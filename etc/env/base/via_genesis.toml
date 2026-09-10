@@ -1,3 +1,4 @@
 [via_genesis]
 # The bootstraping inscriptions
 bootstrap_txids = []
+bootstrap_tx_locators = []

@@ -1,6 +1,6 @@
 use std::{str::FromStr, sync::Arc};
 
-use bitcoin::Txid;
+use bitcoin::{BlockHash, Txid};
 use zksync_config::configs::via_consensus::ViaGenesisConfig;
 use zksync_types::{via_bootstrap::BootstrapState, via_wallet::SystemWallets};
 
@@ -30,10 +30,30 @@ impl ViaBootstrap {
             .first()
             .ok_or_else(|| anyhow::anyhow!("Bootstrap transaction not found"))?;
 
-        let txid = Txid::from_str(&bootstrap_txid)?;
-        let tx = self.client.get_transaction(&txid).await?;
-        let block_height = self.client.fetch_block_height().await? as u32;
-        let messages = parser.parse_system_transaction(&tx, block_height, None);
+        let txid = Txid::from_str(bootstrap_txid)?;
+        let locator = self
+            .config
+            .bootstrap_tx_locators
+            .iter()
+            .find(|locator| locator.txid == *bootstrap_txid)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Bootstrap transaction locator not found for txid {}. Configure bootstrap_tx_locators with txid, block_hash, and block_height; txid-only bootstrap lookup requires -txindex and is unsupported for pruned Bitcoin nodes.",
+                    bootstrap_txid
+                )
+            })?;
+
+        let block_hash = BlockHash::from_str(&locator.block_hash)?;
+        let tx = self
+            .client
+            .get_transaction_in_block(&txid, &block_hash)
+            .await?;
+        let messages = parser.parse_system_transaction_with_block_hash(
+            &tx,
+            locator.block_height,
+            Some(block_hash),
+            None,
+        );
 
         let message = messages
             .first()

@@ -17,6 +17,7 @@ use crate::message_processors::{L1ToL2MessageProcessor, SystemWalletProcessor};
 
 /// Total L1 blocks to process at a time.
 pub const L1_BLOCKS_CHUNK: u32 = 100;
+const BTC_TX_LOCATOR_BACKFILL_MODULE_NAME: &str = "via_btc_tx_locator_backfill";
 
 #[derive(Debug)]
 pub struct L1Indexer {
@@ -25,6 +26,7 @@ pub struct L1Indexer {
     pool: ConnectionPool<Indexer>,
     system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
+    locators_backfilled: bool,
 }
 
 impl L1Indexer {
@@ -57,6 +59,7 @@ impl L1Indexer {
             pool,
             system_wallet_processor,
             message_processors,
+            locators_backfilled: false,
         })
     }
 
@@ -76,6 +79,10 @@ impl L1Indexer {
             transaction
                 .via_transactions_dal()
                 .delete_transactions(start_l1_block_number as i64)
+                .await?;
+            transaction
+                .via_btc_tx_locator_dal()
+                .delete_tx_locators_from(start_l1_block_number as i64)
                 .await?;
             transaction.via_indexer_dal().delete_metadata().await?;
             transaction
@@ -121,6 +128,9 @@ impl L1Indexer {
             .get_last_processed_l1_block(L1Indexer::module_name())
             .await? as u32;
 
+        self.backfill_existing_tx_locators(storage, last_processed_bitcoin_block)
+            .await?;
+
         let current_l1_block_number = self.indexer.fetch_block_height().await? as u32;
         if current_l1_block_number <= last_processed_bitcoin_block {
             return Ok(());
@@ -131,10 +141,16 @@ impl L1Indexer {
             to_block = current_l1_block_number;
         }
 
-        let mut messages = self
-            .indexer
-            .process_blocks(last_processed_bitcoin_block + 1, to_block)
-            .await?;
+        let mut messages = {
+            let mut locator_store = message_processors::DbBitcoinTxLocatorStore::new(storage);
+            self.indexer
+                .process_blocks_with_locator_store(
+                    last_processed_bitcoin_block + 1,
+                    to_block,
+                    &mut locator_store,
+                )
+                .await?
+        };
 
         // Re-process blocks if system wallets were updated, since the new wallet state
         // may change how subsequent messages are interpreted.
@@ -143,10 +159,16 @@ impl L1Indexer {
             .process_messages(storage, messages.clone(), &mut self.indexer)
             .await?
         {
-            messages = self
-                .indexer
-                .process_blocks(last_processed_bitcoin_block + 1, to_block)
-                .await?;
+            messages = {
+                let mut locator_store = message_processors::DbBitcoinTxLocatorStore::new(storage);
+                self.indexer
+                    .process_blocks_with_locator_store(
+                        last_processed_bitcoin_block + 1,
+                        to_block,
+                        &mut locator_store,
+                    )
+                    .await?
+            };
         }
 
         for processor in self.message_processors.iter_mut() {
@@ -158,6 +180,14 @@ impl L1Indexer {
         storage
             .via_indexer_dal()
             .update_last_processed_l1_block(L1Indexer::module_name(), to_block)
+            .await?;
+        storage
+            .via_indexer_dal()
+            .init_indexer_metadata(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, to_block)
+            .await?;
+        storage
+            .via_indexer_dal()
+            .update_last_processed_l1_block(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, to_block)
             .await?;
 
         METRICS
@@ -171,6 +201,66 @@ impl L1Indexer {
             to_block
         );
 
+        Ok(())
+    }
+
+    async fn backfill_existing_tx_locators(
+        &mut self,
+        storage: &mut Connection<'_, Indexer>,
+        last_processed_bitcoin_block: u32,
+    ) -> anyhow::Result<()> {
+        if self.locators_backfilled || last_processed_bitcoin_block == 0 {
+            return Ok(());
+        }
+
+        let starting_block = self
+            .config
+            .start_l1_block_number
+            .min(last_processed_bitcoin_block);
+        let mut backfilled_block = storage
+            .via_indexer_dal()
+            .get_last_processed_l1_block(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME)
+            .await? as u32;
+        if backfilled_block == 0 {
+            backfilled_block = starting_block.saturating_sub(1);
+            storage
+                .via_indexer_dal()
+                .init_indexer_metadata(BTC_TX_LOCATOR_BACKFILL_MODULE_NAME, backfilled_block)
+                .await?;
+        }
+
+        if backfilled_block >= last_processed_bitcoin_block {
+            if backfilled_block > last_processed_bitcoin_block {
+                storage
+                    .via_indexer_dal()
+                    .update_last_processed_l1_block(
+                        BTC_TX_LOCATOR_BACKFILL_MODULE_NAME,
+                        last_processed_bitcoin_block,
+                    )
+                    .await?;
+            }
+            self.locators_backfilled = true;
+            return Ok(());
+        }
+
+        let from_block = backfilled_block.saturating_add(1).max(starting_block);
+        let mut locator_store = message_processors::DbBitcoinTxLocatorStore::new(storage);
+        self.indexer
+            .backfill_transaction_locators(
+                from_block,
+                last_processed_bitcoin_block,
+                &mut locator_store,
+            )
+            .await?;
+        storage
+            .via_indexer_dal()
+            .update_last_processed_l1_block(
+                BTC_TX_LOCATOR_BACKFILL_MODULE_NAME,
+                last_processed_bitcoin_block,
+            )
+            .await?;
+
+        self.locators_backfilled = true;
         Ok(())
     }
 

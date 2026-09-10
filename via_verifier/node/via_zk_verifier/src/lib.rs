@@ -1,12 +1,15 @@
 use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
+use bitcoin::BlockHash;
 use metrics::METRICS;
 use tokio::sync::watch;
 use via_btc_client::{
     client::BitcoinClient,
     indexer::BitcoinInscriptionIndexer,
-    types::{BitcoinTxid, FullInscriptionMessage, L1BatchDAReference, ProofDAReference},
+    types::{
+        BitcoinTxLocator, BitcoinTxid, FullInscriptionMessage, L1BatchDAReference, ProofDAReference,
+    },
     utils::bytes_to_txid,
 };
 use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
@@ -105,7 +108,15 @@ impl ViaVerifier {
             raw_tx_id.reverse();
             let proof_txid = bytes_to_txid(&raw_tx_id).with_context(|| "Failed to parse tx_id")?;
             tracing::info!("trying to get proof_txid: {}", proof_txid);
-            let proof_msgs = self.indexer.parse_transaction(&proof_txid).await?;
+            let proof_locator = Self::load_tx_locator(storage, &proof_txid)
+                .await?
+                .with_context(|| {
+                    format!("Bitcoin locator for proof txid {proof_txid} not found")
+                })?;
+            let proof_msgs = self
+                .indexer
+                .parse_transaction_with_locator(&proof_locator)
+                .await?;
             let proof_msg = self.expect_single_msg(&proof_msgs, "ProofDAReference")?;
 
             let proof_da = match proof_msg {
@@ -118,7 +129,15 @@ impl ViaVerifier {
 
             let (proof_blob, batch_tx_id) = self.process_proof_da_reference(proof_da).await?;
 
-            let batch_msgs = self.indexer.parse_transaction(&batch_tx_id).await?;
+            let batch_locator = Self::load_tx_locator(storage, &batch_tx_id)
+                .await?
+                .with_context(|| {
+                    format!("Bitcoin locator for batch txid {batch_tx_id} not found")
+                })?;
+            let batch_msgs = self
+                .indexer
+                .parse_transaction_with_locator(&batch_locator)
+                .await?;
             let batch_msg = self.expect_single_msg(&batch_msgs, "L1BatchDAReference")?;
 
             let batch_da = match batch_msg {
@@ -276,6 +295,28 @@ impl ViaVerifier {
         }
 
         Ok(())
+    }
+
+    async fn load_tx_locator(
+        storage: &mut Connection<'_, Verifier>,
+        txid: &BitcoinTxid,
+    ) -> anyhow::Result<Option<BitcoinTxLocator>> {
+        let Some(locator) = storage
+            .via_btc_tx_locator_dal()
+            .get_tx_locator(&txid.to_string())
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let block_hash = BlockHash::from_str(&locator.l1_block_hash)?;
+
+        Ok(Some(BitcoinTxLocator {
+            txid: *txid,
+            block_height: locator.l1_block_number as u32,
+            block_hash,
+            tx_index: locator.tx_index.map(|index| index as usize),
+        }))
     }
 
     /// Check whether the first user_log corresponds to an upgrade transaction.

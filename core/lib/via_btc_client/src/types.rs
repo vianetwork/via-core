@@ -8,7 +8,7 @@ pub use bitcoin::{
 };
 use bitcoin::{
     hashes::FromSliceError, script::PushBytesBuf, taproot::Signature as TaprootSignature, Amount,
-    OutPoint, Transaction, TxIn, TxOut, Txid,
+    BlockHash, OutPoint, Transaction, TxIn, TxOut, Txid,
 };
 pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
@@ -24,6 +24,20 @@ use crate::{
     indexer::withdrawal::{L1Withdrawal, WithdrawalVersion},
     traits::Serializable,
 };
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BitcoinUtxo {
+    pub outpoint: OutPoint,
+    pub txout: TxOut,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BitcoinTxLocator {
+    pub txid: Txid,
+    pub block_height: u32,
+    pub block_hash: BlockHash,
+    pub tx_index: Option<usize>,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {
@@ -76,10 +90,22 @@ pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
     pub block_height: u32,
+    pub block_hash: Option<BlockHash>,
     pub tx_id: Txid,
     pub tx_index: Option<usize>,
     pub output_vout: Option<usize>,
     pub p2wpkh_address: Option<BitcoinAddress>,
+}
+
+impl CommonFields {
+    pub fn tx_locator(&self) -> Option<BitcoinTxLocator> {
+        Some(BitcoinTxLocator {
+            txid: self.tx_id,
+            block_height: self.block_height,
+            block_hash: self.block_hash?,
+            tx_index: self.tx_index,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -279,6 +305,23 @@ pub enum FullInscriptionMessage {
 }
 
 impl FullInscriptionMessage {
+    pub fn common(&self) -> &CommonFields {
+        match self {
+            FullInscriptionMessage::L1BatchDAReference(msg) => &msg.common,
+            FullInscriptionMessage::ProofDAReference(msg) => &msg.common,
+            FullInscriptionMessage::ValidatorAttestation(msg) => &msg.common,
+            FullInscriptionMessage::SystemBootstrapping(msg) => &msg.common,
+            FullInscriptionMessage::L1ToL2Message(msg) => &msg.common,
+            FullInscriptionMessage::SystemContractUpgradeProposal(msg) => &msg.common,
+            FullInscriptionMessage::BridgeWithdrawal(msg) => &msg.common,
+            FullInscriptionMessage::UpdateBridgeProposal(msg) => &msg.common,
+            FullInscriptionMessage::UpdateGovernance(msg) => &msg.common,
+            FullInscriptionMessage::UpdateSequencer(msg) => &msg.common,
+            FullInscriptionMessage::SystemContractUpgrade(msg) => &msg.common,
+            FullInscriptionMessage::UpdateBridge(msg) => &msg.common,
+        }
+    }
+
     /// Return a numeric sort key that reflects the enum declaration order
     fn order_key(&self) -> usize {
         match self {
@@ -466,6 +509,8 @@ pub enum IndexerError {
     BitcoinClientError(#[from] BitcoinError),
     #[error("Tx_id parsing error: {0}")]
     TxIdParsingError(#[from] FromSliceError),
+    #[error("Internal indexer error: {0}")]
+    Internal(String),
 }
 
 #[derive(Debug, Clone)]

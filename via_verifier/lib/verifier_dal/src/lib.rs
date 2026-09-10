@@ -15,13 +15,15 @@ pub use zksync_db_connection::{
 
 use crate::{
     via_blocks_dal::ViaBlocksDal, via_btc_sender_dal::ViaBtcSenderDal,
-    via_indexer_dal::ViaIndexerDal, via_l1_block_dal::ViaL1BlockDal, via_votes_dal::ViaVotesDal,
-    via_wallet_dal::ViaWalletDal, withdrawals_dal::ViaWithdrawalDal,
+    via_btc_tx_locator_dal::ViaBtcTxLocatorDal, via_indexer_dal::ViaIndexerDal,
+    via_l1_block_dal::ViaL1BlockDal, via_votes_dal::ViaVotesDal, via_wallet_dal::ViaWalletDal,
+    withdrawals_dal::ViaWithdrawalDal,
 };
 
 pub mod models;
 pub mod via_blocks_dal;
 pub mod via_btc_sender_dal;
+pub mod via_btc_tx_locator_dal;
 pub mod via_indexer_dal;
 pub mod via_l1_block_dal;
 pub mod via_protocol_versions_dal;
@@ -46,6 +48,7 @@ where
 {
     fn via_votes_dal(&mut self) -> ViaVotesDal<'_, 'a>;
     fn via_btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a>;
+    fn via_btc_tx_locator_dal(&mut self) -> ViaBtcTxLocatorDal<'_, 'a>;
     fn via_block_dal(&mut self) -> ViaBlocksDal<'_, 'a>;
     fn via_transactions_dal(&mut self) -> ViaTransactionsDal<'_, 'a>;
     fn via_protocol_versions_dal(&mut self) -> ViaProtocolVersionsDal<'_, 'a>;
@@ -70,6 +73,10 @@ impl<'a> VerifierDal<'a> for Connection<'a, Verifier> {
 
     fn via_btc_sender_dal(&mut self) -> ViaBtcSenderDal<'_, 'a> {
         ViaBtcSenderDal { storage: self }
+    }
+
+    fn via_btc_tx_locator_dal(&mut self) -> ViaBtcTxLocatorDal<'_, 'a> {
+        ViaBtcTxLocatorDal { storage: self }
     }
 
     fn via_block_dal(&mut self) -> ViaBlocksDal<'_, 'a> {

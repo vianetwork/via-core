@@ -1,7 +1,7 @@
-use std::{fmt, sync::Arc, time::Duration};
+use std::{fmt, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Context as _;
-use bitcoin::{hashes::Hash, Address as BitcoinAddress, Txid};
+use bitcoin::{hashes::Hash, Address as BitcoinAddress, BlockHash, Txid};
 use serde::Serialize;
 use tokio::sync::watch;
 use via_btc_client::{
@@ -206,15 +206,46 @@ impl ConsistencyChecker {
         let commit_tx_hash = Txid::from_byte_array(hash_bytes);
         tracing::info!("Checking commit tx {commit_tx_hash} for L1 batch #{batch_number}");
 
+        let mut storage = self
+            .pool
+            .connection()
+            .await
+            .map_err(|err| CheckError::Internal(err.into()))?;
+        let locator = storage
+            .via_btc_tx_locator_dal()
+            .get_tx_locator(&commit_tx_hash.to_string())
+            .await
+            .with_context(|| format!("failed loading Bitcoin locator for tx {commit_tx_hash}"))
+            .map_err(CheckError::Internal)?
+            .ok_or_else(|| {
+                CheckError::Internal(anyhow::anyhow!(
+                    "Bitcoin locator for commit tx {commit_tx_hash} not found"
+                ))
+            })?;
+
+        let block_hash = BlockHash::from_str(&locator.l1_block_hash)
+            .with_context(|| {
+                format!(
+                    "invalid Bitcoin block hash {} for tx {}",
+                    locator.l1_block_hash, commit_tx_hash
+                )
+            })
+            .map_err(CheckError::Internal)?;
+
         let tx = self
             .btc_client
-            .get_transaction(&commit_tx_hash)
+            .get_transaction_in_block(&commit_tx_hash, &block_hash)
             .await
             .with_context(|| format!("receipt for tx {commit_tx_hash:?} not found on L1"))
             .map_err(CheckError::Internal)?;
 
         let mut parser = MessageParser::new(self.btc_client.config.network());
-        let inscriptions = parser.parse_system_transaction(&tx, 0, None);
+        let inscriptions = parser.parse_system_transaction_with_block_hash(
+            &tx,
+            locator.l1_block_number as u32,
+            Some(block_hash),
+            None,
+        );
 
         for inscription in inscriptions {
             if let FullInscriptionMessage::L1BatchDAReference(msg) = inscription {

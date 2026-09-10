@@ -18,7 +18,13 @@ pub struct ViaBtcClientConfig {
 impl ViaBtcClientConfig {
     /// Returns the Bitcoin network
     pub fn network(&self) -> Network {
-        Network::from_str(&self.network).unwrap_or(Network::Regtest)
+        let network = self.network.trim();
+        if network.is_empty() {
+            return Network::Regtest;
+        }
+        Network::from_str(network).unwrap_or_else(|err| {
+            panic!("invalid Bitcoin network `{network}` in via_btc_client config: {err}")
+        })
     }
 
     pub fn rpc_url(&self, base_rpc_url: String, wallet: String) -> String {
