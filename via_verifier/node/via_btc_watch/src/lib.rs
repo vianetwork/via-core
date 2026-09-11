@@ -1,3 +1,5 @@
+#![warn(clippy::cognitive_complexity)]
+
 mod message_processors;
 mod metrics;
 

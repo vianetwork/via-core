@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use via_btc_client::{
-    client::BitcoinClient,
-    indexer::{BitcoinInscriptionIndexer, MessageParser},
+    indexer::{resolve_upgrade_proposals, BitcoinInscriptionIndexer},
     traits::BitcoinOps,
     types::FullInscriptionMessage,
 };
@@ -18,22 +17,12 @@ use crate::{
 /// Listens to operation events coming from the governance contract and saves new protocol upgrade proposals to the database.
 #[derive(Debug)]
 pub struct GovernanceUpgradesEventProcessor {
-    /// BTC client
-    btc_client: Arc<BitcoinClient>,
-    /// Message parser
-    message_parser: MessageParser,
-    /// upgrade proposal
-    upgrade: ViaProtocolUpgrade,
+    btc_client: Arc<dyn BitcoinOps>,
 }
 
 impl GovernanceUpgradesEventProcessor {
-    pub fn new(btc_client: Arc<BitcoinClient>) -> Self {
-        let message_parser = MessageParser::new(btc_client.get_network());
-        Self {
-            btc_client,
-            message_parser,
-            upgrade: ViaProtocolUpgrade::default(),
-        }
+    pub fn new(btc_client: Arc<dyn BitcoinOps>) -> Self {
+        Self { btc_client }
     }
 }
 
@@ -47,70 +36,29 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
     ) -> Result<Option<u32>, MessageProcessorError> {
         let mut upgrades = Vec::new();
         for msg in msgs {
-            if let FullInscriptionMessage::SystemContractUpgrade(system_contract_upgrade_msg) = &msg
-            {
-                let proposal_tx = self
-                    .btc_client
-                    .get_transaction(&system_contract_upgrade_msg.input.proposal_tx_id)
-                    .await
-                    .map_err(|err| {
-                        MessageProcessorError::Internal(anyhow::anyhow!(
-                            "Failed to fetch protocol upgrade transaction: {}, error {}",
-                            system_contract_upgrade_msg.input.proposal_tx_id,
-                            err
-                        ))
-                    })?;
-
-                let messages = self.message_parser.parse_system_transaction(
-                    &proposal_tx,
-                    system_contract_upgrade_msg.common.block_height,
-                    None,
-                );
-
-                for message in messages {
-                    match message {
-                        FullInscriptionMessage::SystemContractUpgradeProposal(
-                            system_contract_upgrade_proposal_msg,
-                        ) => {
-                            if system_contract_upgrade_proposal_msg.input.version
-                                < get_sequencer_version()
-                            {
-                                tracing::info!(
-                                    "Upgrade transaction with version {} already processed, skipping",
-                                    system_contract_upgrade_proposal_msg.input.version
-                                );
-                                continue;
-                            }
-
-                            tracing::info!(
-                                "Received upgrades with versions: {:?}",
-                                system_contract_upgrade_proposal_msg.input.version
-                            );
-
-                            let hash = self.upgrade.get_canonical_tx_hash(
-                                system_contract_upgrade_proposal_msg.input.version,
-                                system_contract_upgrade_proposal_msg.input.system_contracts,
-                            )?;
-
-                            let upgrade = (
-                                system_contract_upgrade_proposal_msg.input.version,
-                                system_contract_upgrade_proposal_msg
-                                    .input
-                                    .bootloader_code_hash,
-                                system_contract_upgrade_proposal_msg
-                                    .input
-                                    .default_account_code_hash,
-                                hash,
-                                system_contract_upgrade_proposal_msg
-                                    .input
-                                    .recursion_scheduler_level_vk_hash,
-                            );
-
-                            upgrades.push(upgrade);
-                        }
-                        _ => (),
-                    }
+            let FullInscriptionMessage::SystemContractUpgrade(activation) = msg else {
+                continue;
+            };
+            for input in resolve_upgrade_proposals(self.btc_client.as_ref(), &activation).await? {
+                if input.version < get_sequencer_version() {
+                    tracing::info!(
+                        "Upgrade transaction with version {} already processed, skipping",
+                        input.version
+                    );
+                    continue;
                 }
+
+                tracing::info!("Received upgrades with versions: {:?}", input.version);
+
+                let hash = ViaProtocolUpgrade::default()
+                    .get_canonical_tx_hash(input.version, input.system_contracts)?;
+                upgrades.push((
+                    input.version,
+                    input.bootloader_code_hash,
+                    input.default_account_code_hash,
+                    hash,
+                    input.recursion_scheduler_level_vk_hash,
+                ));
             }
         }
 

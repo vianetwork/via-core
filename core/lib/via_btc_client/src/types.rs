@@ -466,6 +466,8 @@ pub enum IndexerError {
     BitcoinClientError(#[from] BitcoinError),
     #[error("Tx_id parsing error: {0}")]
     TxIdParsingError(#[from] FromSliceError),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 #[derive(Debug, Clone)]
@@ -482,10 +484,6 @@ impl TransactionWithMetadata {
             tx_index,
             output_vout: None,
         }
-    }
-
-    pub fn set_output_vout(&mut self, output_vout: usize) {
-        self.output_vout = Some(output_vout);
     }
 }
 

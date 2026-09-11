@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::Context as _;
+use anyhow::Context;
 use via_btc_client::{
-    client::BitcoinClient,
-    indexer::{BitcoinInscriptionIndexer, MessageParser},
+    indexer::{resolve_upgrade_proposals, BitcoinInscriptionIndexer},
     traits::BitcoinOps,
     types::FullInscriptionMessage,
 };
@@ -23,25 +22,17 @@ use crate::{
 pub struct GovernanceUpgradesEventProcessor {
     /// Last protocol version seen. Used to skip events for already known upgrade proposals.
     last_seen_protocol_version: ProtocolSemanticVersion,
-    /// BTC client
-    btc_client: Arc<BitcoinClient>,
-    /// Message parser
-    message_parser: MessageParser,
-    /// upgrade proposal
-    upgrade: ViaProtocolUpgrade,
+    btc_client: Arc<dyn BitcoinOps>,
 }
 
 impl GovernanceUpgradesEventProcessor {
     pub fn new(
-        btc_client: Arc<BitcoinClient>,
+        btc_client: Arc<dyn BitcoinOps>,
         last_seen_protocol_version: ProtocolSemanticVersion,
     ) -> Self {
-        let message_parser = MessageParser::new(btc_client.get_network());
         Self {
             last_seen_protocol_version,
             btc_client,
-            message_parser,
-            upgrade: ViaProtocolUpgrade::default(),
         }
     }
 }
@@ -55,81 +46,33 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
     ) -> Result<Option<u32>, MessageProcessorError> {
         let mut upgrades = Vec::new();
         for msg in msgs {
-            if let FullInscriptionMessage::SystemContractUpgrade(system_contract_upgrade_msg) = &msg
-            {
-                let proposal_tx = self
-                    .btc_client
-                    .get_transaction(&system_contract_upgrade_msg.input.proposal_tx_id)
-                    .await
-                    .map_err(|err| {
-                        MessageProcessorError::Internal(anyhow::anyhow!(
-                            "Failed to fetch protocol upgrade transaction: {}, error {}",
-                            system_contract_upgrade_msg.input.proposal_tx_id,
-                            err
-                        ))
-                    })?;
-
-                let messages = self.message_parser.parse_system_transaction(
-                    &proposal_tx,
-                    system_contract_upgrade_msg.common.block_height,
-                    None,
-                );
-
-                for message in messages {
-                    match message {
-                        FullInscriptionMessage::SystemContractUpgradeProposal(
-                            system_contract_upgrade_proposal_msg,
-                        ) => {
-                            // Ignore if old version
-                            if system_contract_upgrade_proposal_msg.input.version
-                                <= self.last_seen_protocol_version
-                            {
-                                tracing::info!(
-                                    "Upgrade transaction with version {} already processed, skipping",
-                                    system_contract_upgrade_proposal_msg.input.version
-                                );
-                                continue;
-                            }
-
-                            tracing::info!(
-                                "Received upgrades with versions: {:?}",
-                                system_contract_upgrade_proposal_msg.input.version
-                            );
-                            let tx = self.upgrade.create_protocol_upgrade_tx(
-                                system_contract_upgrade_proposal_msg.input.version,
-                                system_contract_upgrade_proposal_msg.input.system_contracts,
-                            )?;
-
-                            let upgrade = ProtocolUpgrade {
-                                version: system_contract_upgrade_proposal_msg.input.version,
-                                bootloader_code_hash: Some(
-                                    system_contract_upgrade_proposal_msg
-                                        .input
-                                        .bootloader_code_hash,
-                                ),
-                                default_account_code_hash: Some(
-                                    system_contract_upgrade_proposal_msg
-                                        .input
-                                        .default_account_code_hash,
-                                ),
-                                evm_emulator_code_hash: system_contract_upgrade_proposal_msg
-                                    .input
-                                    .evm_emulator_code_hash,
-                                tx: Some(tx),
-                                timestamp: 0,
-                                verifier_address: None,
-                                verifier_params: None,
-                            };
-                            upgrades.push((
-                                upgrade,
-                                system_contract_upgrade_proposal_msg
-                                    .input
-                                    .recursion_scheduler_level_vk_hash,
-                            ));
-                        }
-                        _ => (),
-                    }
+            let FullInscriptionMessage::SystemContractUpgrade(activation) = msg else {
+                continue;
+            };
+            for input in resolve_upgrade_proposals(self.btc_client.as_ref(), &activation).await? {
+                if input.version <= self.last_seen_protocol_version {
+                    tracing::info!(
+                        "Upgrade transaction with version {} already processed, skipping",
+                        input.version
+                    );
+                    continue;
                 }
+
+                tracing::info!("Received upgrades with versions: {:?}", input.version);
+                let tx = ViaProtocolUpgrade::default()
+                    .create_protocol_upgrade_tx(input.version, input.system_contracts)?;
+
+                let upgrade = ProtocolUpgrade {
+                    version: input.version,
+                    bootloader_code_hash: Some(input.bootloader_code_hash),
+                    default_account_code_hash: Some(input.default_account_code_hash),
+                    evm_emulator_code_hash: input.evm_emulator_code_hash,
+                    tx: Some(tx),
+                    timestamp: 0,
+                    verifier_address: None,
+                    verifier_params: None,
+                };
+                upgrades.push((upgrade, input.recursion_scheduler_level_vk_hash));
             }
         }
 

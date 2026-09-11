@@ -1,3 +1,5 @@
+#![warn(clippy::cognitive_complexity)]
+
 use std::{fmt, str::FromStr};
 
 use anyhow::Context;

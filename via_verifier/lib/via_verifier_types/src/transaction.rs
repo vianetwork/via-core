@@ -13,28 +13,6 @@ pub struct UnsignedBridgeTx {
     pub fee_rate: u64,
 }
 
-impl UnsignedBridgeTx {
-    pub fn get_fee_per_user(&self) -> Amount {
-        let withdrawals_count = self.tx.output.len() as u64 - 2;
-        if withdrawals_count == 0 {
-            return self.fee;
-        }
-        Amount::from_sat(self.fee.to_sat() / withdrawals_count)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.tx.output.len() as u64 - 2 == 0
-    }
-
-    pub fn to_vec(unsigned_bridge_txs_bytes: Vec<Vec<u8>>) -> Vec<UnsignedBridgeTx> {
-        let mut unsigned_bridge_txs = vec![];
-        for unsigned_bridge_tx in unsigned_bridge_txs_bytes {
-            unsigned_bridge_txs.push(UnsignedBridgeTx::from_bytes(&unsigned_bridge_tx))
-        }
-        unsigned_bridge_txs
-    }
-}
-
 impl Serializable for UnsignedBridgeTx {
     fn to_bytes(&self) -> Vec<u8> {
         serialize(self).expect("error serialize the UnsignedBridgeTx")

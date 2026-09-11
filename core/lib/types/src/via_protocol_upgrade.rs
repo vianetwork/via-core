@@ -1,5 +1,10 @@
+#![warn(clippy::cognitive_complexity)]
+
 use zksync_basic_types::{
-    ethabi::encode, protocol_version::ProtocolSemanticVersion, web3::keccak256, H256,
+    ethabi::encode,
+    protocol_version::{ProtocolSemanticVersion, VersionPatch},
+    web3::keccak256,
+    H256,
 };
 use zksync_system_constants::{CONTRACT_DEPLOYER_ADDRESS, CONTRACT_FORCE_DEPLOYER_ADDRESS};
 
@@ -8,11 +13,15 @@ use crate::{
     ethabi::Token,
     helpers::unix_timestamp_ms,
     protocol_upgrade::{ProtocolUpgradeTx, ProtocolUpgradeTxCommonData},
-    Address, Execute, PROTOCOL_UPGRADE_TX_TYPE, U256,
+    Address, Execute, ProtocolVersionId, PROTOCOL_UPGRADE_TX_TYPE, U256,
 };
 
 const GAS_LIMIT: u64 = 72_000_000;
 const GAS_PER_PUB_DATA_BYTE_LIMIT: u64 = 800;
+const LAST_LEGACY_CONTRACT_DECODER_VERSION: ProtocolSemanticVersion = ProtocolSemanticVersion {
+    minor: ProtocolVersionId::Version28,
+    patch: VersionPatch(0),
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct ViaProtocolUpgrade {}
@@ -28,7 +37,7 @@ impl ViaProtocolUpgrade {
         let tx = ProtocolUpgradeTx {
             execute: Execute {
                 contract_address: Some(CONTRACT_DEPLOYER_ADDRESS),
-                calldata: self.get_calldata(system_contracts)?,
+                calldata: self.get_calldata(version, system_contracts)?,
                 value: U256::zero(),
                 factory_deps: vec![],
             },
@@ -66,7 +75,7 @@ impl ViaProtocolUpgrade {
             nonce: U256::from(version.minor as u64),
             value: U256::zero(),
             reserved: [U256::zero(), U256::zero(), U256::zero(), U256::zero()],
-            data: self.get_calldata(system_contracts.clone())?,
+            data: self.get_calldata(version, system_contracts)?,
             signature: vec![],
             factory_deps: vec![],
             paymaster_input: vec![],
@@ -76,7 +85,20 @@ impl ViaProtocolUpgrade {
         Ok(l2_transaction.hash())
     }
 
-    fn get_calldata(&self, system_contracts: Vec<(Address, H256)>) -> anyhow::Result<Vec<u8>> {
+    fn get_calldata(
+        &self,
+        version: ProtocolSemanticVersion,
+        mut system_contracts: Vec<(Address, H256)>,
+    ) -> anyhow::Result<Vec<u8>> {
+        // Versions through 0.28.0 executed the legacy N-3 contract-tail grammar.
+        // Reconstructed calldata must preserve that protocol boundary.
+        if version <= LAST_LEGACY_CONTRACT_DECODER_VERSION {
+            anyhow::ensure!(
+                system_contracts.len() >= 3,
+                "legacy protocol versions require at least three system contracts"
+            );
+            system_contracts.truncate(system_contracts.len() - 3);
+        }
         let encoded_deployments: Vec<_> = system_contracts
             .into_iter()
             .map(|(address, bytecode_hash)| {
@@ -106,42 +128,12 @@ impl ViaProtocolUpgrade {
 
 #[cfg(test)]
 mod tests {
-    use hex::FromHex;
+    use std::str::FromStr;
+
     use zksync_basic_types::{Address, H256};
     use zksync_contracts::deployer_contract;
 
     use super::*;
-
-    #[test]
-    fn test_get_calldata_encoding() {
-        let upgrader = ViaProtocolUpgrade {};
-
-        // Example inputs
-        let addr = Address::from_slice(
-            &<[u8; 20]>::from_hex("1111111111111111111111111111111111111111").unwrap(),
-        );
-        let bytecode_hash = H256::from_slice(
-            &<[u8; 32]>::from_hex(
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            )
-            .unwrap(),
-        );
-
-        let calldata = upgrader
-            .get_calldata(vec![(addr, bytecode_hash)])
-            .expect("calldata should encode");
-
-        // First 4 bytes = selector
-        let selector =
-            &keccak256(b"forceDeployOnAddresses((bytes32,address,bool,uint256,bytes)[])")[0..4];
-        assert_eq!(&calldata[0..4], selector);
-
-        // Optionally print out to compare with Solidity's abi.encodeWithSelector
-        println!("Calldata hex: 0x{}", hex::encode(&calldata));
-
-        // Minimal check: length should be > selector (ABI data present)
-        assert!(calldata.len() > 4);
-    }
 
     #[test]
     fn test_calldata_matches_contract_encoding() {
@@ -152,7 +144,10 @@ mod tests {
 
         // New way: manual encoding
         let new_calldata = upgrader
-            .get_calldata(vec![(addr, bytecode_hash)])
+            .get_calldata(
+                ProtocolSemanticVersion::new(ProtocolVersionId::Version28, VersionPatch(1)),
+                vec![(addr, bytecode_hash)],
+            )
             .expect("manual calldata");
 
         // Old way: via ABI contract binding
@@ -170,11 +165,55 @@ mod tests {
             .encode_input(&[Token::Array(encoded_deployments)])
             .unwrap();
 
-        // Compare full byte equality
         assert_eq!(
-            hex::encode(&new_calldata),
-            hex::encode(&old_calldata),
+            new_calldata, old_calldata,
             "manual encoding does not match deployer_contract encoding"
+        );
+    }
+
+    #[test]
+    fn historical_contract_tail_matches_executed_upgrade_hash() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../etc/upgrades/1762959389-via-network/testnet/l2Upgrade.json"
+        ))
+        .unwrap();
+        let contracts: Vec<_> = fixture["systemContracts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|contract| {
+                (
+                    Address::from_str(contract["address"].as_str().unwrap()).unwrap(),
+                    H256::from_str(contract["bytecodeHashes"][0].as_str().unwrap()).unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(contracts.len(), 25);
+
+        let upgrader = ViaProtocolUpgrade::default();
+        assert!(upgrader
+            .get_canonical_tx_hash(
+                LAST_LEGACY_CONTRACT_DECODER_VERSION,
+                contracts[..2].to_vec()
+            )
+            .is_err());
+        let hash = |patch| {
+            upgrader
+                .get_canonical_tx_hash(
+                    ProtocolSemanticVersion::new(ProtocolVersionId::Version28, VersionPatch(patch)),
+                    contracts.clone(),
+                )
+                .unwrap()
+        };
+        assert_eq!(
+            hash(0),
+            H256::from_str("fedcd7e7d1764682b7c19f09d9fb89d59f3b3123bdfe97b674d7b1fc3f84449f")
+                .unwrap()
+        );
+        assert_eq!(
+            hash(1),
+            H256::from_str("0f20d970d04f9b9166c3d4b7073fdae35ee9c1fbc253d0c16ee0a4b951f435b0")
+                .unwrap()
         );
     }
 }

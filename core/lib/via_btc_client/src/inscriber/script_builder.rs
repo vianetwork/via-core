@@ -22,7 +22,6 @@ pub struct InscriptionData {
     pub script_pubkey: ScriptBuf,
     pub taproot_spend_info: TaprootSpendInfo,
 }
-
 impl InscriptionData {
     #[instrument(
         skip(inscription_message, secp, internal_key),

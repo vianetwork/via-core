@@ -1,18 +1,21 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use bitcoin::{
     address::NetworkUnchecked,
     key::rand,
     script::PushBytesBuf,
     secp256k1::{self, SecretKey},
-    CompressedPublicKey, PrivateKey, ScriptBuf, TxOut,
+    CompressedPublicKey, PrivateKey, ScriptBuf, Transaction, TxOut,
 };
 use rand::Rng;
 use tokio::time::sleep;
 use via_btc_client::{
     client::BitcoinClient,
     indexer::{BitcoinInscriptionIndexer, MessageParser},
-    inscriber::Inscriber,
+    inscriber::{
+        test_utils::{MockBitcoinOps, MockBitcoinOpsConfig},
+        Inscriber,
+    },
     traits::BitcoinOps,
     types::{
         BitcoinAddress,
@@ -21,7 +24,9 @@ use via_btc_client::{
             Hash,
         },
         BitcoinTxid, CommonFields, FullInscriptionMessage, InscriptionMessage,
-        L1BatchDAReferenceInput, NodeAuth, ProofDAReferenceInput, UpdateBridge, UpdateBridgeInput,
+        L1BatchDAReferenceInput, NodeAuth, ProofDAReferenceInput, SystemContractUpgrade,
+        SystemContractUpgradeInput, SystemContractUpgradeProposal,
+        SystemContractUpgradeProposalInput, UpdateBridge, UpdateBridgeInput,
         UpdateBridgeProposalInput, UpdateGovernance, UpdateGovernanceInput, UpdateSequencer,
         UpdateSequencerInput,
     },
@@ -31,7 +36,7 @@ use zksync_types::{
     protocol_version::{ProtocolSemanticVersion, VersionPatch},
     via_bootstrap::BootstrapState,
     via_wallet::SystemWallets,
-    BitcoinNetwork, L1BatchNumber, ProtocolVersionId, H256,
+    Address as EVMAddress, BitcoinNetwork, L1BatchNumber, ProtocolVersionId, H256,
 };
 
 const RPC_URL: &str = "http://0.0.0.0:18443";
@@ -52,6 +57,80 @@ pub fn test_bitcoin_client() -> BitcoinClient {
         },
     )
     .unwrap()
+}
+
+pub fn test_bitcoin_ops_serving_transaction(transaction: Transaction) -> Arc<dyn BitcoinOps> {
+    Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig {
+        transaction: Some(transaction),
+        ..Default::default()
+    }))
+}
+
+pub fn test_system_contract_upgrade_proposal_input() -> SystemContractUpgradeProposalInput {
+    SystemContractUpgradeProposalInput {
+        version: ProtocolSemanticVersion::new(ProtocolVersionId::Version28, VersionPatch(1)),
+        bootloader_code_hash: H256::repeat_byte(0x11),
+        default_account_code_hash: H256::repeat_byte(0x22),
+        evm_emulator_code_hash: None,
+        recursion_scheduler_level_vk_hash: H256::repeat_byte(0x33),
+        system_contracts: vec![
+            (EVMAddress::repeat_byte(0x44), H256::repeat_byte(0x55)),
+            (EVMAddress::repeat_byte(0x66), H256::repeat_byte(0x77)),
+            (EVMAddress::repeat_byte(0x88), H256::repeat_byte(0x99)),
+            (EVMAddress::repeat_byte(0xaa), H256::repeat_byte(0xbb)),
+        ],
+    }
+}
+
+pub async fn test_system_contract_upgrade_proposal_transaction(
+    input: &SystemContractUpgradeProposalInput,
+) -> anyhow::Result<Transaction> {
+    let mut inscriber = via_btc_client::inscriber::test_utils::get_mock_inscriber_and_conditions(
+        via_btc_client::inscriber::test_utils::MockBitcoinOpsConfig {
+            fee_rate: 1,
+            ..Default::default()
+        },
+    );
+    let result = inscriber
+        .prepare_inscribe(
+            &InscriptionMessage::SystemContractUpgradeProposal(input.clone()),
+            None,
+        )
+        .await?;
+    Ok(result.final_reveal_tx.tx)
+}
+
+pub fn test_system_contract_upgrade_proposal(
+    input: SystemContractUpgradeProposalInput,
+) -> FullInscriptionMessage {
+    FullInscriptionMessage::SystemContractUpgradeProposal(SystemContractUpgradeProposal {
+        common: test_system_common_fields(Some(test_sequencer_wallet().0)),
+        input,
+    })
+}
+
+pub fn test_system_contract_upgrade_activation(
+    proposal_tx_id: BitcoinTxid,
+) -> FullInscriptionMessage {
+    FullInscriptionMessage::SystemContractUpgrade(SystemContractUpgrade {
+        common: test_system_common_fields(None),
+        input: SystemContractUpgradeInput {
+            inputs: vec![],
+            proposal_tx_id,
+        },
+    })
+}
+
+fn test_system_common_fields(p2wpkh_address: Option<BitcoinAddress>) -> CommonFields {
+    CommonFields {
+        schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
+        encoded_public_key: PushBytesBuf::new(),
+        block_height: 0,
+        tx_id: BitcoinTxid::all_zeros(),
+        p2wpkh_address,
+        tx_index: None,
+        output_vout: None,
+    }
 }
 
 /// Return the sequencer address and PK
@@ -114,10 +193,6 @@ pub fn test_wallets() -> SystemWallets {
 }
 
 pub fn bootstrap_state_mock() -> BootstrapState {
-    let mut sequencer_votes = HashMap::new();
-    sequencer_votes.insert(test_verifier_add_1(), true);
-    sequencer_votes.insert(test_verifier_add_2(), true);
-
     BootstrapState {
         wallets: test_wallets(),
         bootstrap_tx_id: BitcoinTxid::all_zeros(),
@@ -136,17 +211,7 @@ pub fn bootstrap_state_mock() -> BootstrapState {
 /// Create a update sequencer address inscription
 pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
     FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
-                .ok()
-                .unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: test_system_common_fields(None),
         input: UpdateSequencerInput {
             inputs: vec![],
             address: address.as_unchecked().clone(),
@@ -157,17 +222,7 @@ pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscr
 /// Create a update governance address inscription
 pub fn create_update_governance_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
     FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
-                .ok()
-                .unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: test_system_common_fields(None),
         input: UpdateGovernanceInput {
             inputs: vec![],
             address: address.as_unchecked().clone(),
@@ -197,15 +252,7 @@ pub async fn create_update_bridge_inscription(
         .await?;
 
     Ok(FullInscriptionMessage::UpdateBridge(UpdateBridge {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: test_system_common_fields(None),
         input: UpdateBridgeInput {
             inputs: vec![],
             proposal_tx_id: result.final_reveal_tx.txid,
