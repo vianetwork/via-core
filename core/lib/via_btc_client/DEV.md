@@ -70,6 +70,44 @@ Write integration tests in the `examples` directory.
 
 - Only make methods public that are needed by external users.
 
+## Deposit decoding
+
+A **bridge payment** is a Bitcoin transaction with an output to the configured bridge address. A **deposit message**
+contains the receiver and amount decoded from a bridge payment.
+
+The shared [`MessageParser`](src/indexer/parser.rs) supports two deposit encodings:
+
+| Encoding | Receiver | Contract address | Call data |
+| --- | --- | --- | --- |
+| Inscription | Exactly 20 bytes | Exactly 20 bytes | Bytes in the call data push |
+| OP_RETURN | 20 bytes at the script offset below | Zero address | Empty |
+
+A plain inscription deposit encodes the contract address as 20 zero bytes and call data as an empty push.
+
+`MessageParser::parse_op_return_deposit` examines the first OP_RETURN output. It starts at byte offset 2 of the
+script, or byte offset 3 when the whole script exceeds 75 bytes. It excludes reserved prefixes for withdrawals,
+protocol upgrades, and wallet updates. It requires at least 20 bytes at that offset, uses those bytes as the
+receiver, and ignores the remainder.
+
+This offset rule does not decode Bitcoin push lengths. For a single direct push of 74 or 75 payload bytes, it skips
+the first payload byte. The [OP_RETURN deposit example](examples/deposit_opreturn.rs) produces a single push of
+exactly 20 receiver bytes.
+
+If an address field has an invalid length, the parser produces no deposit message for that encoding. It preserves
+other successfully decoded messages and continues processing later transactions. Rejecting a message does not reverse
+the Bitcoin payment.
+
+Decoding alone does not establish acceptance for L2 processing. The indexer requires the decoded amount to equal
+the total paid to the bridge. [`ViaL1Deposit::l1_tx`](../types/src/l1/via_l1.rs) rejects reserved receiver addresses
+and amounts below its fee requirement before producing an `L1Tx`.
+
+The `ViaL1Deposit` conversion uses the receiver as the `L1Tx` destination and sets its call data to empty.
+The inscription's `l2_contract_address` and `call_data` are not used in the resulting transaction.
+
+See [Bitcoin deposits and payout signing](../../../docs/via_guides/bridging.md) for the execution flow and
+[L2 contract calls through Bitcoin](../../../docs/via_guides/bridging-proposals.md) for the earlier proposals and
+unresolved design decisions.
+
 ## Taproot Script witness data for via inscription standard
 
 ```
@@ -179,16 +217,11 @@ Sender Validation: anyone
 |      OP_IF                                                  |
 |      OP_PUSHBYTES_32  b"Str('via_inscription_protocol')"    |
 |      OP_PUSHBYTES_32  b"Str('L1ToL2Message')"               |
-|      OP_PUSHBYTES_32  b"receiver_l2_address"                |
-|      OP_PUSHBYTES_32  b"l2_contract_address"                |
-|      OP_PUSHBYTES_32  b"call_data"                          |
+|      OP_PUSHBYTES_20  b"receiver_l2_address"                |
+|      OP_PUSHBYTES_20  b"l2_contract_address"                |
+|      Data push       b"call_data"                           |
 |      OP_ENDIF                                               |
 |-------------------------------------------------------------|
- !!! for bridging the l2_contract_address and call_data is empty (0x00) !!!
- !!! and the amount is equal to the amount of btc user sends to bridge address in the same reveal tx !!!
- !!! if the contract address and call_data was provided the amount get used as fee and remaining amount get sent to l2 receiver address !!!
- !!! in future we can implement kinda enforcement withdrawal with using l1->l2 message (reference in notion) !!!
- !!! also we should support op_return only for bridging in future of the inscription indexer !!!
 
 (6)
 SystemContractUpgrade

@@ -8,7 +8,7 @@ use bitcoin::{
     Address, Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, TxOut, Txid, Witness,
 };
 use tracing::{debug, instrument, warn};
-use zksync_basic_types::H256;
+use zksync_basic_types::{parse_h160, H256};
 use zksync_types::{
     protocol_version::ProtocolSemanticVersion, via_wallet::SystemWallets, Address as EVMAddress,
     L1BatchNumber, U256,
@@ -147,7 +147,6 @@ impl MessageParser {
             messages.push(inscription_message);
         }
 
-        // If not an inscription, try to parse as OP_RETURN based deposit
         if let Some(op_return_message) =
             self.parse_op_return_deposit(tx, block_height, bridge_output)
         {
@@ -590,12 +589,10 @@ impl MessageParser {
             return None;
         }
 
-        let receiver_l2_address =
-            EVMAddress::from_slice(instructions.get(2)?.push_bytes()?.as_bytes());
+        let receiver_l2_address = parse_h160(instructions.get(2)?.push_bytes()?.as_bytes()).ok()?;
         debug!("Parsed receiver L2 address");
 
-        let l2_contract_address =
-            EVMAddress::from_slice(instructions.get(3)?.push_bytes()?.as_bytes());
+        let l2_contract_address = parse_h160(instructions.get(3)?.push_bytes()?.as_bytes()).ok()?;
         debug!("Parsed L2 contract address");
 
         let call_data = instructions.get(4)?.push_bytes()?.as_bytes().to_vec();
@@ -816,7 +813,7 @@ impl MessageParser {
             }
             // Parse receiver address from OP_RETURN data
 
-            let receiver_l2_address = EVMAddress::from_slice(&op_return_data[0..20]);
+            let receiver_l2_address = EVMAddress::from_slice(op_return_data.get(..20)?);
 
             let input = L1ToL2MessageInput {
                 receiver_l2_address,
@@ -1190,8 +1187,17 @@ pub fn get_eth_address(common_fields: &CommonFields) -> Option<EVMAddress> {
 }
 
 #[cfg(test)]
-mod tests {
-    use bitcoin::{consensus::encode::deserialize, hashes::hex::FromHex};
+pub(super) mod tests {
+    use bitcoin::{
+        absolute,
+        consensus::encode::deserialize,
+        hashes::hex::FromHex,
+        opcodes::{all, OP_FALSE},
+        script::Builder,
+        secp256k1::{Keypair, Secp256k1, SecretKey},
+        taproot::LeafVersion,
+        transaction, TxIn,
+    };
 
     use super::*;
 
@@ -1218,6 +1224,124 @@ mod tests {
             .assume_checked(),
             verifiers: vec![],
         }
+    }
+
+    pub(in crate::indexer) fn inscription_witness(receiver: &[u8], contract: &[u8]) -> Witness {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[1; 32]).unwrap();
+        let keypair = Keypair::from_secret_key(&secp, &secret_key);
+        let (internal_key, _) = keypair.x_only_public_key();
+        let script = Builder::new()
+            .push_slice(internal_key.serialize())
+            .push_opcode(all::OP_CHECKSIG)
+            .push_opcode(OP_FALSE)
+            .push_opcode(all::OP_IF)
+            .push_slice(b"via_inscription_protocol")
+            .push_slice(b"L1ToL2Message")
+            .push_slice(PushBytesBuf::try_from(receiver.to_vec()).unwrap())
+            .push_slice(PushBytesBuf::try_from(contract.to_vec()).unwrap())
+            .push_slice(PushBytesBuf::new())
+            .push_opcode(all::OP_ENDIF)
+            .into_script();
+        let mut control_block = vec![LeafVersion::TapScript.to_consensus()];
+        control_block.extend(internal_key.serialize());
+
+        Witness::from_slice(&[vec![0; 64], script.into_bytes(), control_block])
+    }
+
+    fn bridge_transaction(op_return_body: &[u8], tx_index: usize) -> TransactionWithMetadata {
+        let tx = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(100_000),
+                    script_pubkey: system_wallets().bridge.script_pubkey(),
+                },
+                TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: ScriptBuf::new_op_return(
+                        PushBytesBuf::try_from(op_return_body.to_vec()).unwrap(),
+                    ),
+                },
+            ],
+        };
+        TransactionWithMetadata::new(tx, tx_index)
+    }
+
+    fn assert_deposit(
+        messages: &[FullInscriptionMessage],
+        receiver: EVMAddress,
+        block_height: u32,
+        tx_index: usize,
+    ) {
+        let [FullInscriptionMessage::L1ToL2Message(deposit)] = messages else {
+            panic!("expected one L1-to-L2 deposit, got {messages:?}");
+        };
+        assert_eq!(deposit.input.receiver_l2_address, receiver);
+        assert_eq!(deposit.input.l2_contract_address, EVMAddress::zero());
+        assert_eq!(deposit.input.call_data, Vec::<u8>::new());
+        assert_eq!(deposit.amount, Amount::from_sat(100_000));
+        assert_eq!(deposit.common.block_height, block_height);
+        assert_eq!(deposit.common.tx_index, Some(tx_index));
+        assert_eq!(deposit.common.output_vout, Some(0));
+    }
+
+    #[test]
+    fn truncated_op_return_deposit_is_rejected_without_stopping_parser() {
+        let wallets = system_wallets();
+        let mut parser = MessageParser::new(Network::Regtest);
+
+        let mut truncated = bridge_transaction(&[0x55; 19], 7);
+        let messages = parser.parse_bridge_transaction(&mut truncated, 42, &wallets);
+        assert!(messages.is_empty());
+
+        let mut control = bridge_transaction(&[0x81; 20], 7);
+        let messages = parser.parse_bridge_transaction(&mut control, 42, &wallets);
+        assert_deposit(&messages, EVMAddress::repeat_byte(0x81), 42, 7);
+
+        let mut with_companion = bridge_transaction(&[0x55; 19], 9);
+        with_companion.tx.input[0].witness = inscription_witness(&[0x83; 20], &[0; 20]);
+        let messages = parser.parse_bridge_transaction(&mut with_companion, 44, &wallets);
+        assert_deposit(&messages, EVMAddress::repeat_byte(0x83), 44, 9);
+
+        let mut extended_body = [0x84; 21];
+        extended_body[20] = 0xff;
+        let mut extended = bridge_transaction(&extended_body, 10);
+        let messages = parser.parse_bridge_transaction(&mut extended, 45, &wallets);
+        assert_deposit(&messages, EVMAddress::repeat_byte(0x84), 45, 10);
+    }
+
+    #[test]
+    fn inscription_addresses_require_exactly_twenty_bytes() {
+        let wallets = system_wallets();
+        let mut parser = MessageParser::new(Network::Regtest);
+
+        for (receiver_len, contract_len) in
+            [(0, 20), (19, 20), (21, 20), (20, 0), (20, 19), (20, 21)]
+        {
+            let mut companion = bridge_transaction(&[0x81; 20], 8);
+            companion.tx.input[0].witness =
+                inscription_witness(&vec![0x55; receiver_len], &vec![0x66; contract_len]);
+            let messages = parser.parse_bridge_transaction(&mut companion, 42, &wallets);
+            assert_deposit(&messages, EVMAddress::repeat_byte(0x81), 42, 8);
+        }
+
+        let mut valid = bridge_transaction(&[], 9);
+        valid.tx.input[0].witness = inscription_witness(&[0x82; 20], &[0x83; 20]);
+        let messages = parser.parse_bridge_transaction(&mut valid, 43, &wallets);
+        let [FullInscriptionMessage::L1ToL2Message(deposit)] = messages.as_slice() else {
+            panic!("expected one inscription deposit, got {messages:?}");
+        };
+        assert_eq!(
+            deposit.input.receiver_l2_address,
+            EVMAddress::repeat_byte(0x82)
+        );
+        assert_eq!(
+            deposit.input.l2_contract_address,
+            EVMAddress::repeat_byte(0x83)
+        );
     }
 
     #[ignore]
