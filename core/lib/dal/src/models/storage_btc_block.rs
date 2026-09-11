@@ -71,12 +71,12 @@ impl From<ViaStorageL1BatchDetails> for L1BatchDetails {
             l2_tx_count: details.l2_tx_count as usize,
             status,
             root_hash: details.root_hash.as_deref().map(H256::from_slice),
-            commit_tx_hash: details.commit_tx_hash.map(|hash| reverse_vec_to_h256(hash)),
+            commit_tx_hash: details.commit_tx_hash.map(reverse_vec_to_h256),
             committed_at: details
                 .committed_at
                 .map(|committed_at| DateTime::<Utc>::from_naive_utc_and_offset(committed_at, Utc)),
             commit_chain_id: None,
-            prove_tx_hash: details.prove_tx_hash.map(|hash| reverse_vec_to_h256(hash)),
+            prove_tx_hash: details.prove_tx_hash.map(reverse_vec_to_h256),
             proven_at: details
                 .proven_at
                 .map(|proven_at| DateTime::<Utc>::from_naive_utc_and_offset(proven_at, Utc)),
@@ -152,12 +152,12 @@ impl From<ViaStorageBlockDetails> for BlockDetails {
             l2_tx_count: details.l2_tx_count as usize,
             status,
             root_hash: details.root_hash.as_deref().map(H256::from_slice),
-            commit_tx_hash: details.commit_tx_hash.map(|hash| reverse_vec_to_h256(hash)),
+            commit_tx_hash: details.commit_tx_hash.map(reverse_vec_to_h256),
             committed_at: details
                 .committed_at
                 .map(|committed_at| DateTime::from_naive_utc_and_offset(committed_at, Utc)),
             commit_chain_id: None,
-            prove_tx_hash: details.prove_tx_hash.map(|hash| reverse_vec_to_h256(hash)),
+            prove_tx_hash: details.prove_tx_hash.map(reverse_vec_to_h256),
             proven_at: details
                 .proven_at
                 .map(|proven_at| DateTime::<Utc>::from_naive_utc_and_offset(proven_at, Utc)),

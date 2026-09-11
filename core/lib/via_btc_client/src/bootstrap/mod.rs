@@ -30,7 +30,7 @@ impl ViaBootstrap {
             .first()
             .ok_or_else(|| anyhow::anyhow!("Bootstrap transaction not found"))?;
 
-        let txid = Txid::from_str(&bootstrap_txid)?;
+        let txid = Txid::from_str(bootstrap_txid)?;
         let tx = self.client.get_transaction(&txid).await?;
         let block_height = self.client.fetch_block_height().await? as u32;
         let messages = parser.parse_system_transaction(&tx, block_height, None);

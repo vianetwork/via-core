@@ -49,4 +49,13 @@ mappings:
   - path: "core/lib/via_reorg/**"
     area: reorg
 
+  - path: "core/lib/via_btc_client/**"
+    area: btc
+
+  - path: "core/lib/via_btc_ingestion/**"
+    area: btc
+
+  - path: "core/lib/via_btc_ingestion_tests/**"
+    area: btc
+
   # Add more mappings as needed

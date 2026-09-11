@@ -1,0 +1,28 @@
+[package]
+name = "via_ingestion_adapter"
+description = "Postgres adapter for the Via ingestion kernel: commits each block's deterministic plan atomically into the shadow observation store, one adapter serving the sequencer, verifier, and indexer databases through role configuration."
+version.workspace = true
+edition.workspace = true
+authors = ["Via Network"]
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints.clippy]
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_sign_loss = "deny"
+
+[dependencies]
+async-trait.workspace = true
+bitcoin.workspace = true
+serde_json.workspace = true
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "json"] }
+via_btc_ingestion.workspace = true
+
+[dev-dependencies]
+via_btc_client = { workspace = true, features = ["testonly"] }
+tokio = { workspace = true, features = ["full"] }
+via_btc_ingestion_tests.workspace = true

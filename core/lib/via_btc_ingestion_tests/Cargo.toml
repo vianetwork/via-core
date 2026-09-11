@@ -1,0 +1,20 @@
+[package]
+name = "via_btc_ingestion_tests"
+description = "Acceptance test suite for Via's Bitcoin ingestion. Any implementation of the ingestion contract (the block-interpretation engine and the per-database adapters) must pass these fixtures: crash recovery mid-block, reorgs, re-mined transactions, and operating against a pruned Bitcoin node. When two implementations are compared, this suite is the judge."
+version.workspace = true
+edition.workspace = true
+authors = ["Via Network"]
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bitcoin.workspace = true
+futures.workspace = true
+via_btc_ingestion.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

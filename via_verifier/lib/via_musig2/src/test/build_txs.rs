@@ -63,6 +63,14 @@ mod tests {
                 Ok(Transaction::default())
             }
 
+            async fn get_transaction_in_block(&self, _txid: &Txid, _block_hash: &bitcoin::BlockHash) -> Result<Transaction, BitcoinError> {
+                Ok(Transaction::default())
+            }
+
+            async fn check_tx_confirmation_in_block(&self, _txid: &Txid, _block_hash: &bitcoin::BlockHash, _conf_num: u32) -> Result<bool, BitcoinError> {
+                Ok(true)
+            }
+
             async fn fetch_block_by_hash(&self, _hash: &bitcoin::BlockHash) -> Result<bitcoin::Block, BitcoinError> {
                 Ok(bitcoin::Block::default())
             }

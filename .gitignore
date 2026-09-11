@@ -138,3 +138,6 @@ transactions/
 # foundry-zksync
 install
 .claude/*
+
+# Local-only working documents (agent research, drafts); never committed
+/docs/_local/

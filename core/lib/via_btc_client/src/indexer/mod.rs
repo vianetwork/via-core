@@ -5,6 +5,7 @@ use tracing::{debug, info, instrument, warn};
 
 mod parser;
 pub use parser::{get_eth_address, MessageParser};
+pub mod positioned;
 use zksync_basic_types::L1BatchNumber;
 use zksync_types::via_wallet::SystemWallets;
 
@@ -454,12 +455,14 @@ mod tests {
         #[async_trait]
         impl BitcoinOps for BitcoinOps {
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
+            async fn get_transaction_in_block(&self, txid: &Txid, block_hash: &BlockHash) -> BitcoinClientResult<Transaction>;
             async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
             async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
             async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
             async fn broadcast_signed_transaction(&self, signed_transaction: &str) -> BitcoinClientResult<Txid>;
             async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>>;
             async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool>;
+            async fn check_tx_confirmation_in_block(&self, txid: &Txid, block_hash: &BlockHash, conf_num: u32) -> BitcoinClientResult<bool>;
             async fn fetch_block_height(&self) -> BitcoinClientResult<u64>;
             async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
             fn get_network(&self) -> Network;

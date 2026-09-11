@@ -1,0 +1,7 @@
+edition = "2021"
+# Via-specific formatting rules
+# Favors a more compact 1-2 line style for method chains and function calls.
+
+max_width = 120
+use_small_heuristics = "Max"
+fn_params_layout = "Compressed"

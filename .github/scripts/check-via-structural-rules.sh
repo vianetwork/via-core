@@ -182,6 +182,10 @@ run_scoped_rule "via-avoid-duplicate-export" \
     "core/lib/via_*/**/*.rs" \
     "core/lib/types/src/**/*.rs"
 
+run_scoped_rule "via-btc-ingestion-no-zksync" \
+    "core/lib/via_btc_ingestion/**/*.rs" \
+    "core/lib/via_btc_ingestion_tests/**/*.rs"
+
 run_scoped_rule "via-workflow-ref-env-write-validation" \
     ".github/workflows/*.yml" \
     ".github/workflows/*.yaml"

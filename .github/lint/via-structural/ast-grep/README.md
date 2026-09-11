@@ -15,6 +15,7 @@ ast-grep provides fast, structural (tree-sitter based) pattern matching on Rust 
 | `via-reorg-empty-l1-blocks-nonfatal.yml` | `via-reorg-empty-l1-blocks-nonfatal` | Flags fatal `get_last_l1_block()` empty-table handling in reorg detectors. Empty `via_l1_blocks` is a valid bootstrap / inconclusive state and should lazy-bootstrap or return successfully. | Advisory |
 | `via-da-batch-before-proof.yml` | `via-da-batch-before-proof` | Flags calls to `dispatch_real_proofs` in the DA dispatcher. Advisory heuristic for batch-before-proof ordering. Requires scoping and review. | Candidate / Advisory |
 | `via-avoid-duplicate-export.yml` | `via-avoid-duplicate-export` | Flags `pub use $B::$C` when `pub mod $B` is declared in the same file. Prevents unnecessary public API duplication and multiple canonical paths to the same item. | Advisory |
+| `via-btc-ingestion-no-zksync.yml` | `via-btc-ingestion-no-zksync` | Flags `zksync_*` imports and qualified paths in the shared Bitcoin ingestion contract and acceptance suite. | Advisory |
 
 **Core identity being protected**: `bitcoin_block_height_hash` — Bitcoin blocks must be compared and ordered by **explicit height**, never by vector position or async completion order.
 

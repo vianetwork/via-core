@@ -16,6 +16,8 @@ zksync_types.workspace = true
 zksync_config.workspace = true
 zksync_basic_types.workspace = true
 zksync_object_store.workspace = true
+via_btc_ingestion.workspace = true
+via_btc_ingestion_tests = { workspace = true, optional = true }
 
 
 thiserror.workspace = true
@@ -51,6 +53,11 @@ tracing-test = "0.2.0"
 
 [features]
 regtest = []
+testonly = ["dep:via_btc_ingestion_tests"]
+
+[[test]]
+name = "engine_identity"
+required-features = ["testonly"]
 
 [[example]]
 name = "indexer"

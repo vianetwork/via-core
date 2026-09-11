@@ -11843,11 +11843,35 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-test",
+ "via_btc_ingestion",
+ "via_btc_ingestion_tests",
  "vise",
  "zksync_basic_types",
  "zksync_config",
  "zksync_object_store",
  "zksync_types",
+]
+
+[[package]]
+name = "via_btc_ingestion"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitcoin",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "via_btc_ingestion_tests"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitcoin",
+ "futures 0.3.31",
+ "tokio",
+ "via_btc_ingestion",
 ]
 
 [[package]]
@@ -12160,6 +12184,40 @@ dependencies = [
  "via_indexer_dal",
  "zksync_config",
  "zksync_dal",
+ "zksync_types",
+]
+
+[[package]]
+name = "via_ingestion_adapter"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitcoin",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "via_btc_client",
+ "via_btc_ingestion",
+ "via_btc_ingestion_tests",
+]
+
+[[package]]
+name = "via_ingestion_shadow"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "clap 4.5.23",
+ "reqwest 0.12.9",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "via_btc_client",
+ "via_btc_ingestion",
+ "via_ingestion_adapter",
+ "zksync_config",
  "zksync_types",
 ]
 

@@ -114,6 +114,15 @@ impl BitcoinOps for MockBitcoinOps {
         BitcoinClientResult::Ok(self.tx_confirmation)
     }
 
+    async fn check_tx_confirmation_in_block(
+        &self,
+        _txid: &Txid,
+        _block_hash: &BlockHash,
+        _conf_num: u32,
+    ) -> BitcoinClientResult<bool> {
+        BitcoinClientResult::Ok(self.tx_confirmation)
+    }
+
     async fn fetch_block_height(&self) -> BitcoinClientResult<u64> {
         BitcoinClientResult::Ok(self.block_height)
     }
@@ -131,6 +140,14 @@ impl BitcoinOps for MockBitcoinOps {
     }
 
     async fn get_transaction(&self, _txid: &Txid) -> BitcoinClientResult<Transaction> {
+        BitcoinClientResult::Ok(self.transaction.clone().expect("No transaction found"))
+    }
+
+    async fn get_transaction_in_block(
+        &self,
+        _txid: &Txid,
+        _block_hash: &BlockHash,
+    ) -> BitcoinClientResult<Transaction> {
         BitcoinClientResult::Ok(self.transaction.clone().expect("No transaction found"))
     }
 

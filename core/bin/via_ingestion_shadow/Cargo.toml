@@ -1,0 +1,34 @@
+[package]
+name = "via_ingestion_shadow"
+description = "Replay and shadow-comparison tool for the Via Bitcoin ingestion kernel."
+version.workspace = true
+edition.workspace = true
+authors = ["Via Network"]
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints.clippy]
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_sign_loss = "deny"
+
+[dependencies]
+anyhow.workspace = true
+bitcoin.workspace = true
+clap = { workspace = true, features = ["derive", "env"] }
+serde.workspace = true
+serde_json.workspace = true
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+via_btc_client.workspace = true
+via_btc_ingestion.workspace = true
+via_ingestion_adapter.workspace = true
+zksync_config.workspace = true
+zksync_types.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+tempfile = "3.8.0"

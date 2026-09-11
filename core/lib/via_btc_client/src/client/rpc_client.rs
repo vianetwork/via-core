@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, Txid};
+use bitcoin::{Address, Block, BlockHash, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::{
     bitcoincore_rpc_json::EstimateMode,
     json::{
@@ -14,7 +14,7 @@ use tracing::{debug, instrument};
 
 use crate::{
     traits::BitcoinRpc,
-    types::{BitcoinRpcResult, NodeAuth},
+    types::{BitcoinRpcResult, BitcoinUtxo, NodeAuth},
     utils::with_retry,
 };
 
@@ -71,14 +71,10 @@ impl BitcoinRpc for BitcoinRpcClient {
     async fn get_balance_scan(&self, address: &Address) -> BitcoinRpcResult<u64> {
         debug!("Getting balance by scanning");
         let result = self.list_unspent(address).await?;
-        let mut sum = 0u64;
-        for unspent in &result {
-            sum += self.get_transaction(&unspent.txid).await?.output[unspent.vout as usize]
-                .value
-                .to_sat();
-        }
-
-        Ok(sum)
+        Ok(result
+            .into_iter()
+            .map(|unspent| unspent.txout.value.to_sat())
+            .sum())
     }
 
     #[instrument(skip(self, tx_hex), target = "bitcoin_client::rpc_client")]
@@ -96,7 +92,7 @@ impl BitcoinRpc for BitcoinRpcClient {
     async fn list_unspent_based_on_node_wallet(
         &self,
         address: &Address,
-    ) -> BitcoinRpcResult<Vec<OutPoint>> {
+    ) -> BitcoinRpcResult<Vec<BitcoinUtxo>> {
         Self::retry_rpc(|| {
             debug!("Listing unspent outputs based on node wallet");
             let result = self.client.list_unspent(
@@ -107,11 +103,17 @@ impl BitcoinRpc for BitcoinRpcClient {
                 None,
             )?;
 
-            let unspent: Vec<OutPoint> = result
+            let unspent: Vec<BitcoinUtxo> = result
                 .into_iter()
-                .map(|unspent| OutPoint {
-                    txid: unspent.txid,
-                    vout: unspent.vout,
+                .map(|unspent| BitcoinUtxo {
+                    outpoint: OutPoint {
+                        txid: unspent.txid,
+                        vout: unspent.vout,
+                    },
+                    txout: TxOut {
+                        value: unspent.amount,
+                        script_pubkey: unspent.script_pub_key,
+                    },
                 })
                 .collect();
 
@@ -121,7 +123,7 @@ impl BitcoinRpc for BitcoinRpcClient {
     }
 
     #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
-    async fn list_unspent(&self, address: &Address) -> BitcoinRpcResult<Vec<OutPoint>> {
+    async fn list_unspent(&self, address: &Address) -> BitcoinRpcResult<Vec<BitcoinUtxo>> {
         Self::retry_rpc(|| {
             debug!("Listing unspent outputs");
             let descriptor = format!("addr({})", address);
@@ -130,9 +132,15 @@ impl BitcoinRpc for BitcoinRpcClient {
             let unspent = result
                 .unspents
                 .into_iter()
-                .map(|unspent| OutPoint {
-                    txid: unspent.txid,
-                    vout: unspent.vout,
+                .map(|unspent| BitcoinUtxo {
+                    outpoint: OutPoint {
+                        txid: unspent.txid,
+                        vout: unspent.vout,
+                    },
+                    txout: TxOut {
+                        value: unspent.amount,
+                        script_pubkey: unspent.script_pub_key,
+                    },
                 })
                 .collect();
             Ok(unspent)
@@ -146,6 +154,21 @@ impl BitcoinRpc for BitcoinRpcClient {
             debug!("Getting transaction");
             self.client
                 .get_raw_transaction(txid, None)
+                .map_err(|e| e.into())
+        })
+        .await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
+    async fn get_transaction_in_block(
+        &self,
+        txid: &Txid,
+        block_hash: &BlockHash,
+    ) -> BitcoinRpcResult<Transaction> {
+        Self::retry_rpc(|| {
+            debug!("Getting transaction in block");
+            self.client
+                .get_raw_transaction(txid, Some(block_hash))
                 .map_err(|e| e.into())
         })
         .await
@@ -197,6 +220,21 @@ impl BitcoinRpc for BitcoinRpcClient {
             debug!("Getting raw transaction info");
             self.client
                 .get_raw_transaction_info(txid, None)
+                .map_err(|e| e.into())
+        })
+        .await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
+    async fn get_raw_transaction_info_in_block(
+        &self,
+        txid: &Txid,
+        block_hash: &BlockHash,
+    ) -> BitcoinRpcResult<bitcoincore_rpc::json::GetRawTransactionResult> {
+        Self::retry_rpc(|| {
+            debug!("Getting raw transaction info in block");
+            self.client
+                .get_raw_transaction_info(txid, Some(block_hash))
                 .map_err(|e| e.into())
         })
         .await
