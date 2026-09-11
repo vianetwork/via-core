@@ -29,6 +29,7 @@ The following questions are addressed in the resources below:
 | How can I run the project?                              | [launch.md](docs/guides/launch.md)                 |
 | What is the logical project structure and architecture? | [architecture.md](docs/via_guides/architecture.md) |
 | What Is the Data Flow in the Via Protocol?              | [data-flow.md](docs/via_guides/data-flow.md)       |
+| Why were consequential architectural decisions made?    | [Architecture decision records](docs/adr/)         |
 | Where can I find protocol specs?                        | Ping Via Team Members                              |
 | Where can I find developer docs?                        | Ping Via Team Members                              |
 
