@@ -11,27 +11,28 @@ voting, and shutdown. A timeout alone does not interrupt a synchronous call or a
 ## Decision
 
 The main-node and verifier sender managers own their processing cadence, reorg-pause handling, and shutdown. Observation
-must not delay submission, confirmation, voting, resend progression, the next sender iteration, or caller-runtime drop.
+must not delay submission, confirmation, voting, resend progression, the next sender iteration, or dropping the caller's
+runtime.
 
 Run observation in a separately owned, bounded execution context with its own RPC transport and database connection
-capacity. A blocked observation must not start replacement work or accumulate retries. Telemetry reports observations;
-it does not own resend policy.
+capacity. A blocked observation must not start replacement work or accumulate retries. Telemetry reports observations.
+It does not own resend policy.
 
-Publish only observations that belong to the current sender generation and complete within their freshness budget.
-Scrapes perform no I/O and do not advance producer timestamps. Startup, expiry, invalidation, reorg pause, shutdown,
-RPC/SQL failure, and late completion must not appear as a fresh healthy zero. A successful empty observation publishes
-explicit zero counts.
+Publish a result only if its sender iteration is still current and its freshness budget has not expired. Scrapes perform
+no I/O and do not advance producer timestamps. Startup, expiry, invalidation, reorg pause, shutdown, RPC or SQL failure,
+and late completion must not appear as a fresh healthy zero. A successful empty observation publishes explicit zero
+counts.
 
 ## Alternatives and consequences
 
 Inline observation is simpler and uses fewer resources, but allows monitoring failures to stop transaction processing.
 Moving work to a task and wrapping it in a timeout is insufficient when blocking work can still occupy the sender's
-runtime or delay its shutdown. Strict isolation is chosen over those lower-cost arrangements.
+runtime or delay its shutdown. We choose strict isolation despite its additional resource cost.
 
 Isolation requires a bounded worker and separate client resources. A permanently blocked call may retain those resources
-until it returns; prompt sender shutdown does not imply that the call was cancelled. Separate connections also do not
+until it returns. Prompt sender shutdown does not imply that the call was cancelled. Separate connections also do not
 isolate database-server CPU or I/O.
 
 Alerts and dashboards must distinguish unavailable evidence from healthy zero counts and coordinate changes with the
-producer's metric contract. This accepted decision defines the required behavior; it is not evidence of implementation
+producer's metric contract. This accepted decision defines the required behavior. It is not evidence of implementation
 or deployment status.
