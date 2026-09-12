@@ -271,7 +271,7 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn get_session(&self) -> anyhow::Result<SigningSessionResponse> {
-        let url = format!("{}/session", self.verifier_config.coordinator_http_url);
+        let url = format!("{}/session", self.verifier_config.coordinator_http_url());
         let headers = self.create_request_headers()?;
         let resp = self
             .client
@@ -295,7 +295,7 @@ impl ViaWithdrawalVerifier {
     async fn get_session_nonces(&self) -> anyhow::Result<BTreeMap<usize, BTreeMap<usize, String>>> {
         let nonces_url = format!(
             "{}/session/nonce",
-            self.verifier_config.coordinator_http_url
+            self.verifier_config.coordinator_http_url()
         );
         let headers = self.create_request_headers()?;
         let resp = self
@@ -338,7 +338,7 @@ impl ViaWithdrawalVerifier {
 
         let url = format!(
             "{}/session/nonce",
-            self.verifier_config.coordinator_http_url
+            self.verifier_config.coordinator_http_url()
         );
         let headers = self.create_request_headers()?;
 
@@ -373,7 +373,7 @@ impl ViaWithdrawalVerifier {
     ) -> anyhow::Result<BTreeMap<usize, BTreeMap<usize, PartialSignature>>> {
         let url = format!(
             "{}/session/signature",
-            self.verifier_config.coordinator_http_url
+            self.verifier_config.coordinator_http_url()
         );
         let headers = self.create_request_headers()?;
         let resp = self
@@ -475,7 +475,7 @@ impl ViaWithdrawalVerifier {
 
         let url = format!(
             "{}/session/signature",
-            self.verifier_config.coordinator_http_url
+            self.verifier_config.coordinator_http_url()
         );
         let headers = self.create_request_headers()?;
 
@@ -535,7 +535,7 @@ impl ViaWithdrawalVerifier {
     }
 
     async fn create_new_session(&mut self) -> anyhow::Result<()> {
-        let url = format!("{}/session/new", self.verifier_config.coordinator_http_url);
+        let url = format!("{}/session/new", self.verifier_config.coordinator_http_url());
         let headers = self.create_request_headers()?;
         let resp = self
             .client

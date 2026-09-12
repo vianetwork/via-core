@@ -29,7 +29,6 @@ use zksync_types::via_roles::ViaNodeRole;
 use zksync_vlog::prometheus::PrometheusExporterConfig;
 
 pub struct ViaNodeBuilder {
-    is_coordinator: bool,
     node: ZkStackServiceBuilder,
     configs: ViaGeneralVerifierConfig,
 }
@@ -37,7 +36,6 @@ pub struct ViaNodeBuilder {
 impl ViaNodeBuilder {
     pub fn new(configs: ViaGeneralVerifierConfig) -> anyhow::Result<Self> {
         Ok(Self {
-            is_coordinator: configs.via_verifier_config.role == ViaNodeRole::Coordinator,
             node: ZkStackServiceBuilder::new().context("Cannot create ZkStackServiceBuilder")?,
             configs,
         })
@@ -218,11 +216,13 @@ impl ViaNodeBuilder {
             .add_object_store_layer()?
             .add_zkp_verification_layer()?;
 
-        if self.is_coordinator {
+        if self.configs.via_verifier_config.role == ViaNodeRole::Coordinator {
             self = self.add_verifier_coordinator_api_layer()?
         }
 
-        self = self.add_withdrawal_verifier_task_layer()?;
+        if self.configs.via_verifier_config.role != ViaNodeRole::Verifier {
+            self = self.add_withdrawal_verifier_task_layer()?;
+        }
 
         Ok(self.node.build())
     }

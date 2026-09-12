@@ -1,0 +1,10 @@
+__imports__ = ["base", "l2-inits/via_verifier_1.init.env"]
+
+[via_verifier]
+# The verifier role.
+role = "Verifier"
+
+[via_btc_sender]
+# The wallet used in the btc sender.
+private_key = "cNgSiSJnL76tCs2gFdXeLMC2CcB553qThyVnodbgyjFFYtb4NLT6"
+wallet_address = "bcrt1qynr9a3cxue43kluh0v2yaxp4cyhfanna7se755"
