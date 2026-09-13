@@ -9,6 +9,8 @@ pairs:
   - [core/node/via_main_node_reorg_detector, via_verifier/node/via_reorg_detector]
   - [core/node/via_btc_watch, via_verifier/node/via_btc_watch]
   - [core/node/via_btc_sender, via_verifier/node/via_btc_sender]
+  - [core/lib/dal/src/via_btc_sender_dal.rs, via_verifier/lib/verifier_dal/src/via_btc_sender_dal.rs]
+  - [core/lib/dal/src/via_blocks_dal.rs, via_verifier/lib/verifier_dal/src/via_blocks_dal.rs]
   - [core/lib/via_da_clients, via_verifier/lib/via_da_client]  # note: naming differs (clients vs client)
 
   # Add more pairs here as they are identified
