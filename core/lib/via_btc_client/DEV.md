@@ -80,22 +80,45 @@ The shared [`MessageParser`](src/indexer/parser.rs) supports two deposit encodin
 | Encoding | Receiver | Contract address | Call data |
 | --- | --- | --- | --- |
 | Inscription | Exactly 20 bytes | Exactly 20 bytes | Bytes in the call data push |
-| OP_RETURN | 20 bytes at the script offset below | Zero address | Empty |
+| OP_RETURN | First 20 bytes of the first data push | Zero address | Empty |
 
 A plain inscription deposit encodes the contract address as 20 zero bytes and call data as an empty push.
 
-`MessageParser::parse_op_return_deposit` examines the first OP_RETURN output. It starts at byte offset 2 of the
-script, or byte offset 3 when the whole script exceeds 75 bytes. It excludes reserved prefixes for withdrawals,
-protocol upgrades, and wallet updates. It requires at least 20 bytes at that offset, uses those bytes as the
-receiver, and ignores the remainder.
+`MessageParser::parse_op_return_deposit` selects the first output whose script begins with OP_RETURN. The next
+instruction must be a complete data push with at least 20 bytes. The parser uses `Script::instructions()` to decode
+direct pushes and PUSHDATA1, PUSHDATA2, and PUSHDATA4 encodings, including nonminimal pushes.
 
-This offset rule does not decode Bitcoin push lengths. For a single direct push of 74 or 75 payload bytes, it skips
-the first payload byte. The [OP_RETURN deposit example](examples/deposit_opreturn.rs) produces a single push of
-exactly 20 receiver bytes.
+A push instruction's shortest form depends on the data length. For 1 to 75 bytes the opcode byte is the length
+itself, so the shortest form for a 20-byte receiver begins `6a 14`. Longer forms can encode the same payload.
+The length ranges below describe the shortest form. The last three examples deliberately use longer forms.
 
-If an address field has an invalid length, the parser produces no deposit message for that encoding. It preserves
-other successfully decoded messages and continues processing later transactions. Rejecting a message does not reverse
-the Bitcoin payment.
+| Shortest form for this data length | Encoding | A 20-byte receiver |
+| --- | --- | --- |
+| 1 to 75 bytes | one opcode byte equal to the length, then the data | `6a 14 <20 bytes>` |
+| 76 to 255 bytes | `OP_PUSHDATA1`, a 1-byte length, then the data | `6a 4c 14 <20 bytes>` |
+| 256 to 65,535 bytes | `OP_PUSHDATA2`, a 2-byte length, then the data | `6a 4d 14 00 <20 bytes>` |
+| larger | `OP_PUSHDATA4`, a 4-byte length, then the data | `6a 4e 14 00 00 00 <20 bytes>` |
+
+All four forms decode to the same receiver.
+
+The pushed payload excludes the opcode and its length bytes. Its first 20 bytes are the receiver, in their original
+order. Remaining bytes inside that push are ignored. Instructions after that push are not inspected, even if they
+are malformed. A truncated first push, a first push shorter than 20 bytes, or a non-push first instruction produces
+no OP_RETURN deposit. Bytes from later instructions cannot complete a short first push.
+
+Payloads beginning with the active withdrawal, protocol-upgrade, or wallet-update prefixes remain excluded.
+Additional OP_RETURN outputs do not change selection, and an invalid first output does not cause a search for a
+later deposit. Inscription deposits and withdrawals are decoded independently and retain their message order.
+
+The [OP_RETURN deposit example](examples/deposit_opreturn.rs) produces `6a14<receiver20>`: OP_RETURN, a minimal
+20-byte push, and the receiver. Payloads longer than 20 bytes are eligible under the rules above, whatever their
+length or push encoding. Bytes after the receiver do not supply call data or any other deposit field.
+
+[ADR 0003](../../../docs/adr/0003-decode-op-return-deposit-pushes.md) records this decision, why the previous rule
+was wrong, and the compatibility gate.
+
+An invalid deposit encoding produces no message for that encoding. The parser preserves other successfully
+decoded messages and continues processing later transactions. Rejection does not reverse the Bitcoin payment.
 
 Decoding alone does not establish acceptance for L2 processing. The indexer requires the decoded amount to equal
 the total paid to the bridge. [`ViaL1Deposit::l1_tx`](../types/src/l1/via_l1.rs) rejects reserved receiver addresses
