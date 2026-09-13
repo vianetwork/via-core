@@ -30,6 +30,7 @@ The following questions are addressed in the resources below:
 | What is the logical project structure and architecture? | [architecture.md](docs/via_guides/architecture.md) |
 | What Is the Data Flow in the Via Protocol?              | [data-flow.md](docs/via_guides/data-flow.md)       |
 | How do Bitcoin deposits and payout signing work?        | [bridging.md](docs/via_guides/bridging.md)         |
+| What do the Bitcoin deposit terms mean?                 | [Domain glossary](CONTEXT.md)                    |
 | Why were consequential architectural decisions made?    | [Architecture decision records](docs/adr/)         |
 | Where can I find protocol specs?                        | Ping Via Team Members                              |
 | Where can I find developer docs?                        | Ping Via Team Members                              |
