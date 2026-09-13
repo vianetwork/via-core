@@ -436,8 +436,8 @@ mod tests {
 
     use async_trait::async_trait;
     use bitcoin::{
-        block::Header, hashes::Hash, Address, Amount, Block, Network, OutPoint, ScriptBuf,
-        Transaction, TxMerkleNode, TxOut,
+        absolute, block::Header, hashes::Hash, transaction, Address, Amount, Block, Network,
+        OutPoint, ScriptBuf, Transaction, TxIn, TxMerkleNode, TxOut,
     };
     use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
@@ -545,6 +545,26 @@ mod tests {
         let start_block = 1;
         let end_block = 3;
 
+        let mut op_return_script = vec![0x6a, 0x13];
+        op_return_script.extend([0x55; 19]);
+        let malformed_transaction = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(100_000),
+                    script_pubkey: get_test_addr().script_pubkey(),
+                },
+                TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: ScriptBuf::from_bytes(op_return_script),
+                },
+            ],
+        };
+        let mut valid_transaction = malformed_transaction.clone();
+        valid_transaction.output[1].script_pubkey = ScriptBuf::new_op_return([0x81; 20]);
+
         let mock_block = Block {
             header: Header {
                 version: Default::default(),
@@ -554,7 +574,7 @@ mod tests {
                 bits: Default::default(),
                 nonce: 0,
             },
-            txdata: vec![],
+            txdata: vec![malformed_transaction, valid_transaction],
         };
 
         let mut mock_client = MockBitcoinOps::new();
@@ -567,9 +587,21 @@ mod tests {
             .returning(|| Network::Testnet);
 
         let mut indexer = get_indexer_with_mock(mock_client);
-        let result = indexer.process_blocks(start_block, end_block).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
+        let messages = indexer
+            .process_blocks(start_block, end_block)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 3);
+        for (message, block_height) in messages.iter().zip([1, 2, 3]) {
+            let FullInscriptionMessage::L1ToL2Message(deposit) = message else {
+                panic!("expected an L1-to-L2 deposit, got {message:?}");
+            };
+            assert_eq!(deposit.input.receiver_l2_address.as_bytes(), &[0x81; 20]);
+            assert_eq!(deposit.amount, Amount::from_sat(100_000));
+            assert_eq!(deposit.common.block_height, block_height);
+            assert_eq!(deposit.common.tx_index, Some(1));
+            assert_eq!(deposit.common.output_vout, Some(0));
+        }
     }
 
     #[tokio::test]
