@@ -72,8 +72,8 @@ Write integration tests in the `examples` directory.
 
 ## Deposit decoding
 
-A **bridge payment** is a Bitcoin transaction with an output to the configured bridge address. A **deposit message**
-contains the receiver and amount decoded from a bridge payment.
+The [domain glossary](../../../CONTEXT.md) defines bridge payments, deposit messages, accepted deposits,
+and rejected bridge payments.
 
 The shared [`MessageParser`](src/indexer/parser.rs) supports two deposit encodings:
 
