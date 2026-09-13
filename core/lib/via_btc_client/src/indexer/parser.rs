@@ -790,19 +790,9 @@ impl MessageParser {
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
 
-        // Parse OP_RETURN data
-        let op_return_data = op_return_output.script_pubkey.as_bytes();
-        if op_return_data.len() < 2 {
-            return None;
-        }
-
-        let mut start_index = 2;
-        if op_return_data.len() > 75 {
-            start_index += 1;
-        }
-
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(start_index..) {
+        let instruction = op_return_output.script_pubkey.instructions().nth(1)?.ok()?;
+        if let Some(op_return_data) = instruction.push_bytes() {
+            let op_return_data = op_return_data.as_bytes();
             if op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX)
                 || op_return_data.starts_with(OP_RETURN_UPGRADE_PROTOCOL_PREFIX)
                 || op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX)
@@ -1311,6 +1301,99 @@ pub(super) mod tests {
         let mut extended = bridge_transaction(&extended_body, 10);
         let messages = parser.parse_bridge_transaction(&mut extended, 45, &wallets);
         assert_deposit(&messages, EVMAddress::repeat_byte(0x84), 45, 10);
+    }
+
+    #[test]
+    fn op_return_deposit_preserves_receiver_and_canonical_identity() {
+        let wallets = system_wallets();
+        let mut parser = MessageParser::new(Network::Regtest);
+        for (header, payload_len) in [
+            (vec![0x6a, 0x14], 20),
+            (vec![0x6a, 0x49], 73),
+            (vec![0x6a, 0x4a], 74),
+            (vec![0x6a, 0x4b], 75),
+            (vec![0x6a, 0x4c, 0x14], 20),
+            (vec![0x6a, 0x4c, 0x4c], 76),
+            (vec![0x6a, 0x4d, 0x14, 0], 20),
+            (vec![0x6a, 0x4e, 0x14, 0, 0, 0], 20),
+        ] {
+            let script = [header, vec![0x81; 20], vec![0x55; payload_len - 20]].concat();
+            let mut tx = bridge_transaction(&[0x81; 20], 7);
+            tx.tx.output[1].script_pubkey = ScriptBuf::from_bytes(script);
+            let messages = parser.parse_bridge_transaction(&mut tx, 42, &wallets);
+            assert_deposit(&messages, EVMAddress::repeat_byte(0x81), 42, 7);
+            let FullInscriptionMessage::L1ToL2Message(deposit) = &messages[0] else {
+                unreachable!();
+            };
+            let l1_tx = zksync_types::l1::via_l1::ViaL1Deposit {
+                l2_receiver_address: deposit.input.receiver_l2_address,
+                amount: deposit.amount.to_sat(),
+                calldata: deposit.input.call_data.clone(),
+                l1_block_number: deposit.common.block_height.into(),
+                tx_index: deposit.common.tx_index.unwrap(),
+                output_vout: deposit.common.output_vout.unwrap(),
+            }
+            .l1_tx()
+            .unwrap();
+            assert_eq!(
+                l1_tx.common_data.canonical_tx_hash,
+                H256::from_str("2172c0d2f6e012bd2fcc15922027acf482766adeeced17143459af9d56b8dd04")
+                    .unwrap()
+            );
+            assert_eq!(
+                l1_tx.execute.contract_address,
+                Some(EVMAddress::repeat_byte(0x81))
+            );
+            assert_eq!(
+                l1_tx.common_data.refund_recipient,
+                EVMAddress::repeat_byte(0x81)
+            );
+        }
+
+        let receiver = hex::decode("8182838485868788898a8b8c8d8e8f9091929394").unwrap();
+        let mut tx = bridge_transaction(&receiver, 7);
+        let messages = parser.parse_bridge_transaction(&mut tx, 42, &wallets);
+        assert_deposit(
+            &messages,
+            EVMAddress::from_str("8182838485868788898a8b8c8d8e8f9091929394").unwrap(),
+            42,
+            7,
+        );
+    }
+
+    #[test]
+    fn op_return_deposit_uses_the_first_push_boundary() {
+        let wallets = system_wallets();
+        let mut parser = MessageParser::new(Network::Regtest);
+        for tail in [vec![0x4c], vec![0x75; 80]] {
+            let mut tx = bridge_transaction(&[0x81; 20], 7);
+            let script = [tx.tx.output[1].script_pubkey.as_bytes(), &tail].concat();
+            tx.tx.output[1].script_pubkey = ScriptBuf::from_bytes(script);
+            assert_deposit(
+                &parser.parse_bridge_transaction(&mut tx, 42, &wallets),
+                EVMAddress::repeat_byte(0x81),
+                42,
+                7,
+            );
+        }
+
+        for script in [
+            [vec![0x6a, 0x13], vec![0x81; 20]].concat(),
+            [vec![0x6a, 0x15], vec![0x81; 20]].concat(),
+            [vec![0x6a, 0x4e, 0xff, 0xff, 0xff, 0xff], vec![0x81; 20]].concat(),
+            [vec![0x6a, 0x75], vec![0x81; 20]].concat(),
+            [vec![0x6a, 0x4a], b"VIA_WI".to_vec(), vec![0xff; 68]].concat(),
+            [vec![0x6a, 0x4c, 0x14], b"VIA_WI".to_vec(), vec![0xff; 14]].concat(),
+        ] {
+            let mut tx = bridge_transaction(&[0x81; 20], 7);
+            tx.tx.output[1].script_pubkey = ScriptBuf::from_bytes(script.clone());
+            let messages = parser.parse_bridge_transaction(&mut tx, 42, &wallets);
+            assert!(
+                messages.is_empty(),
+                "script {}: {messages:?}",
+                hex::encode(script)
+            );
+        }
     }
 
     #[test]

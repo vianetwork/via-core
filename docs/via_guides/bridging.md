@@ -20,8 +20,8 @@ The depositor supplies that account in a note. Via uses a 20-byte L2 address, th
 
 The parser supports two ways to carry the note:
 
-- An OP_RETURN output is unspendable and carries data. Via reads the receiver from that data using the offset rule
-  in the encoding reference.
+- An OP_RETURN output is unspendable and carries data. Via reads the receiver from the first 20 bytes of its
+  first data push. The encoding reference defines the accepted forms and ignored data.
 - An inscription puts data in a taproot script branch guarded by `OP_FALSE OP_IF`. The branch does not execute.
   Via reads the enclosed data from the transaction witness, which supplies data for a Bitcoin spend.
   [Ordinals use the same envelope pattern](https://docs.ordinals.com/inscriptions.html).
