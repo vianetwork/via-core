@@ -110,6 +110,10 @@ Payloads beginning with the active withdrawal, protocol-upgrade, or wallet-updat
 Additional OP_RETURN outputs do not change selection, and an invalid first output does not cause a search for a
 later deposit. Inscription deposits and withdrawals are decoded independently and retain their message order.
 
+The withdrawal decoder rejects a note without a version byte or metadata at a recipient's output index.
+It rejects the whole withdrawal message and preserves an independently valid deposit in the same transaction.
+This check precedes withdrawal authorization because anyone can attach a withdrawal prefix to a bridge payment.
+
 The [OP_RETURN deposit example](examples/deposit_opreturn.rs) produces `6a14<receiver20>`: OP_RETURN, a minimal
 20-byte push, and the receiver. Payloads longer than 20 bytes are eligible under the rules above, whatever their
 length or push encoding. Bytes after the receiver do not supply call data or any other deposit field.

@@ -864,7 +864,7 @@ impl MessageParser {
             }
 
             let version_start = OP_RETURN_WITHDRAW_PREFIX.len();
-            let version: u8 = op_return_data[version_start];
+            let version = *op_return_data.get(version_start)?;
 
             let version = match WithdrawalVersion::try_from(version) {
                 Ok(version) => version,
@@ -906,7 +906,7 @@ impl MessageParser {
                 }
 
                 withdrawals.push(L1Withdrawal {
-                    l2_meta: withdrawals_meta[i].clone(),
+                    l2_meta: withdrawals_meta.get(i)?.clone(),
                     receiver: receiver,
                     value: output.value,
                 });
@@ -1301,6 +1301,50 @@ pub(super) mod tests {
         let mut extended = bridge_transaction(&extended_body, 10);
         let messages = parser.parse_bridge_transaction(&mut extended, 45, &wallets);
         assert_deposit(&messages, EVMAddress::repeat_byte(0x84), 45, 10);
+    }
+
+    #[test]
+    fn withdrawal_without_version_preserves_companion_deposit() {
+        let wallets = system_wallets();
+        let mut parser = MessageParser::new(Network::Regtest);
+        let mut tx = bridge_transaction(b"VIA_WI", 7);
+        tx.tx.input[0].witness = inscription_witness(&[0x83; 20], &[0; 20]);
+        let messages = parser.parse_bridge_transaction(&mut tx, 42, &wallets);
+        assert_deposit(&messages, EVMAddress::repeat_byte(0x83), 42, 7);
+    }
+
+    #[test]
+    fn withdrawal_requires_metadata_at_each_recipient_output_index() {
+        let wallets = system_wallets();
+        let mut parser = MessageParser::new(Network::Regtest);
+        let body = [b"VIA_WI\0".as_slice(), &[0x90; 10]].concat();
+        let mut tx = bridge_transaction(&body, 7);
+        let recipient = TxOut {
+            value: Amount::from_sat(10_000),
+            script_pubkey: wallets.sequencer.script_pubkey(),
+        };
+        tx.tx.output.insert(0, recipient.clone());
+
+        let messages = parser.parse_bridge_transaction(&mut tx, 42, &wallets);
+        let [FullInscriptionMessage::BridgeWithdrawal(withdrawal)] = messages.as_slice() else {
+            panic!("expected one withdrawal, got {messages:?}");
+        };
+        assert_eq!(withdrawal.input.withdrawals.len(), 1);
+        let recipient_withdrawal = &withdrawal.input.withdrawals[0];
+        assert_eq!(recipient_withdrawal.receiver, wallets.sequencer);
+        assert_eq!(recipient_withdrawal.value, Amount::from_sat(10_000));
+        assert_eq!(recipient_withdrawal.l2_meta.l2_id, "90909090909090909090");
+        assert_eq!(recipient_withdrawal.l2_meta.l2_tx_event_index, 0x9090);
+
+        let mut shifted = tx.clone();
+        shifted.tx.output.swap(0, 1);
+        let mut partial = tx;
+        partial.tx.output.insert(1, recipient);
+        for mut malformed in [shifted, partial] {
+            assert!(parser
+                .parse_bridge_transaction(&mut malformed, 42, &wallets)
+                .is_empty());
+        }
     }
 
     #[test]

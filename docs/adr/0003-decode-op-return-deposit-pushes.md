@@ -62,8 +62,10 @@ PUSHDATA1 pushes of 20 to 72 bytes, and PUSHDATA2 or PUSHDATA4 pushes of at leas
 73 bytes or more already had the correct offset. Later instructions can move the old script-length threshold
 even when the first push stays the same.
 
-`parse_op_return_withdrawal` keeps the length-based offset. Its only producer is the verifier's transaction builder,
-and that builder emits the short form. Replacing that offset is a separate change.
+`parse_op_return_withdrawal` keeps the length-based offset. The verifier's transaction builder emits the short form,
+but anyone can attach a withdrawal prefix to a bridge payment. The parser reads that data before the indexer checks
+whether the transaction spends bridge funds. A trusted builder does not make those bytes trusted input.
+Replacing the withdrawal offset is a separate change.
 
 A rejected OP_RETURN note does not reject an independently valid inscription in the same transaction. A bridge
 payment that produces no accepted deposit receives no L2 credit. Rejection does not reverse or refund the Bitcoin
