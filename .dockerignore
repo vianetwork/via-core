@@ -7,6 +7,8 @@
 !docker/contract-verifier/install-all-solc.sh
 !docker/via-server/Dockerfile
 !docker/via-external-node/Dockerfile
+!docker/via-verifier/Dockerfile
+!docker/via-l1-indexer/Dockerfile
 !docker/snapshots-creator/Dockerfile
 !etc/test_config
 !etc/env/target/dev.env.example

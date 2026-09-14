@@ -39,7 +39,7 @@ jobs:
     runs-on: [ubuntu-latest]
     outputs:
       image_tag_suffix: ${{ steps.set.outputs.image_tag_suffix }}
-      source_ref: ${{ steps.set.outputs.source_ref }}
+      source_ref: ${{ steps.source.outputs.revision }}
       prover_fri_gpu_key_id: ${{ steps.extract-prover-fri-setup-key-ids.outputs.gpu_short_commit_sha }}
     steps:
       - name: Generate output with git tag
@@ -74,6 +74,13 @@ jobs:
         with:
           ref: ${{ steps.set.outputs.source_ref }}
           persist-credentials: false
+
+      - name: Resolve release source
+        id: source
+        shell: bash
+        run: |
+          revision=$(git rev-parse HEAD)
+          printf 'revision=%s\n' "$revision" >> "$GITHUB_OUTPUT"
 
       - name: Generate outputs with Prover FRI setup data keys IDs
         id: extract-prover-fri-setup-key-ids

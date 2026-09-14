@@ -1,6 +1,8 @@
 # Will work locally only after prior contracts build
 # syntax=docker/dockerfile:experimental
-FROM matterlabs/zksync-build-base:latest AS builder
+FROM lukemathwalker/cargo-chef:0.1.77-rust-bookworm AS cargo-chef
+
+FROM matterlabs/zksync-build-base:latest AS chef
 
 # set of args for use of sccache
 ARG SCCACHE_GCS_BUCKET=""
@@ -15,10 +17,24 @@ ENV RUSTC_WRAPPER=${RUSTC_WRAPPER}
 
 WORKDIR /usr/src/via
 
-COPY . .
+RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev git && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
-RUN cargo build --release --bin via_indexer_bin
+COPY --from=cargo-chef /usr/local/cargo/bin/cargo-chef /usr/local/cargo/bin/cargo-chef
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS cacher
+COPY --from=planner /usr/src/via/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json --bin via_indexer_bin
+
+FROM chef AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends mold && rm -rf /var/lib/apt/lists/*
+COPY . .
+COPY --from=cacher /usr/local/cargo /usr/local/cargo
+COPY --from=cacher /usr/src/via/target target
+RUN mold -run cargo build --release --bin via_indexer_bin
 
 FROM debian:bookworm-slim
 
