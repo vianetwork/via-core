@@ -1,8 +1,8 @@
 # Core Image Builds
 
 This is the maintainer/operator guide for how Via's **core Docker images**
-(`via-server`, `via-external-node`, `snapshots-creator`) are built, cached, and
-published in CI.
+(`via-server`, `via-external-node`, `snapshots-creator`, `via-verifier`, and
+`via-l1-indexer`) are built, cached, and published in CI.
 
 It is written to be read top to bottom by someone who has never touched this path.
 It first explains the Via build system in general (which is under-documented), then the
@@ -24,8 +24,8 @@ the build:
 
 - **A large Rust workspace** — the root `Cargo.toml` defines ~113 members, almost all
   under `core/` (plus sibling crate trees like `via_verifier/`, `via_indexer/`,
-  `prover/`). The shipped image binaries (`via_server`, `via_external_node`,
-  `snapshots_creator`, …) live in `core/bin/*`. The toolchain is pinned in
+  `prover/`). The shipped binaries live under `core/bin/`, `via_verifier/`,
+  and `via_indexer/`. The toolchain is pinned in
   `rust-toolchain` (`nightly-2024-08-01`), and `.cargo/config.toml` is deliberately
   minimal (`git-fetch-with-cli = true` only — **no hidden `RUSTFLAGS` or custom
   linker**, which matters later).
@@ -63,9 +63,9 @@ in mind and the rest of the doc is just details:
 
 | The cost | The lever | Where |
 |---|---|---|
-| Recompiling all third-party dependencies on every source edit | **cargo-chef** splits "cook dependencies" from "build our source" into separate, separately-cached Docker stages | the three Dockerfiles |
+| Recompiling all third-party dependencies on every source edit | **cargo-chef** splits dependency compilation from source compilation into separately cached Docker stages | the five Dockerfiles |
 | Recomputing that dependency layer in every PR's runner | **A shared BuildKit cache** computed once on trusted refs and *read* by all PRs | `cache-from`/`cache-to` + `export_build_cache` |
-| The final link, which reruns on *every* source change and can't be cached | **mold**, a faster linker, on the final build only | the three Dockerfiles |
+| The final link, which reruns on every source change | **mold** runs the final build without changing Cargo fingerprints | the five Dockerfiles |
 | Shipping a noisy build context that destabilizes cache keys | **A deny-all `.dockerignore` allowlist** of just the compile inputs | `.dockerignore` |
 | Mixing the Solidity/JS toolchain into the hot Rust path | **Contracts built once, outside Docker, injected as an artifact** | `prepare-contracts` job |
 | Hidden infra dependencies that make checks un-runnable | **GitHub-hosted runners only** — no self-hosted/custom labels | `build-core-template.yml` |
@@ -77,7 +77,7 @@ which cost it removes. Most of the non-obvious choices are load-bearing.
 
 ## 3. What a core image is, and how it's assembled
 
-All three images are built by **one reusable workflow**,
+All five images are built by one reusable workflow,
 `.github/workflows/build-core-template.yml`, from the repo root as build context
 (`context: .`). Each Dockerfile is a multi-stage build that ends in a slim runtime
 image containing the binary plus component-specific runtime assets.
@@ -89,13 +89,18 @@ The pipeline has three phases:
    compiled artifacts being present (hence the Dockerfile note *"Will work locally only
    after prior contracts build"*). `via-server` and `via-external-node` then **copy the
    contract artifacts into their runtime image** (external-node also ships the `sqlx`
-   binary, an `entrypoint.sh`, and DAL migrations); `snapshots-creator` ships only its
-   binary.
+   binary, an `entrypoint.sh`, and DAL migrations). `snapshots-creator` and
+   `via-l1-indexer` ship their binaries. The verifier also ships `/keys/protocol_version`
+   and keeps `VIA_VK_KEY_PATH=/keys`.
 
 2. **The build matrix** — one job per `(component, platform)`:
    - `via-server` → `linux/amd64`
    - `snapshots-creator` → `linux/amd64`
    - `via-external-node` → `linux/amd64` **and** `linux/arm64`
+   - `via-verifier` → `linux/amd64`
+   - `via-l1-indexer` → `linux/amd64`
+
+   This produces six platform images and five release manifests.
 
    Two mutually exclusive jobs implement this:
    - **`build-images`** (`action != "push"`): PRs, merge queue, and build-only branch
@@ -107,6 +112,11 @@ The pipeline has three phases:
 3. **`create_manifest`** (publish only) — assembles a multi-arch manifest from the
    per-platform tags with `docker manifest create`. This is why Buildx `provenance` is
    **disabled** on the push step: attestation descriptors would break `manifest create`.
+
+The tag workflow resolves its selected tag once, after checkout, and passes that full
+commit SHA as `source_ref` to the reusable workflow. Every image records its checkout
+in `org.opencontainers.image.revision`. Require those labels to match the selected
+release SHA. Labels are build metadata, not independent attestations.
 
 Images always publish Docker Hub tags as `vianetwork/<component>`. When
 `GAR_JSON_KEY` is set, the same run also publishes matching Google Artifact Registry
@@ -126,17 +136,16 @@ failure by itself.
 |---|---|---|
 | Build toolchain (`chef`) | `zksync-build-base:latest` | No — `:latest` is intentional; pinning by digest is a separate reproducibility decision, not a correctness requirement |
 | cargo-chef binary source | `lukemathwalker/cargo-chef:0.1.77-rust-bookworm` | Yes — copied in only to avoid compiling cargo-chef on cold builds |
-| Runtime (all three) | `debian:bookworm-slim` + apt runtime deps | — |
+| Runtime (all five) | `debian:bookworm-slim` + apt runtime deps | — |
 
-**Heads-up — the three Dockerfiles are not perfectly uniform.** They drifted and are
-worth normalizing if you touch them:
+The Dockerfiles preserve these component-specific differences:
 
-- The build base is referenced two ways: `via-server` / `via-external-node` use
-  `matterlabs/zksync-build-base:latest` (Docker Hub) with `WORKDIR /usr/src/via`, while
-  `snapshots-creator` uses `ghcr.io/matter-labs/zksync-build-base:latest` (GHCR) with
+- `via-server`, `via-external-node`, `via-verifier`, and `via-l1-indexer` use
+  `matterlabs/zksync-build-base:latest` with `WORKDIR /usr/src/via`.
+  `snapshots-creator` uses `ghcr.io/matter-labs/zksync-build-base:latest` with
   `WORKDIR /usr/src/zksync`.
 - Runtime apt deps differ slightly (`via-external-node` omits `liburing-dev`).
-- All three carry unused `SCCACHE_*` / `RUSTC_WRAPPER` build args inherited from the
+- All five carry unused `SCCACHE_*` / `RUSTC_WRAPPER` build args inherited from the
   upstream sccache setup; they are empty in this pipeline.
 
 ### The build context allowlist
@@ -147,7 +156,7 @@ need: the Cargo workspace inputs (`Cargo.toml`, `Cargo.lock`, `rust-toolchain`, 
 dirs (`contracts/`, several `contracts/system-contracts/...artifacts` paths), the JS
 tooling needed to build contracts (`package.json`, `yarn.lock`, `infrastructure/zk`,
 `infrastructure/local-setup-preparation`, `sdk/zksync-rs`), selected `etc/` and `bin/`
-paths, and the three core Dockerfiles. This keeps the context small, keeps cache keys
+paths, and the five core Dockerfiles. This keeps the context small, keeps cache keys
 stable, and prevents local state or secrets from leaking into a build. **When you add a
 workspace path a build needs, add it here too** — otherwise the build can't see it, and
 note that the list is an explicit allowlist, not the whole repo (e.g. `zkstack_cli/` is
@@ -232,10 +241,11 @@ repo-owned refs means PRs ride on a clean shared cache instead of fighting over 
 1. A PR that changes dependency metadata (`Cargo.toml` / `Cargo.lock`) will get **cold
    `cargo chef cook` builds** until the change lands on `main`, a release publishes, or
    the weekly warmer runs. That is the intended trade-off, not a regression.
-2. Warm builds depend on the **repo's Actions cache cap being above the default 10 GiB**
-   (currently **20 GiB**; the footprint is ≈ 15 GiB). This cap is a *repository
-   setting, not in this code*. If warm builds suddenly start recompiling dependencies,
-   check the cache cap, retention, and eviction **before** suspecting the Dockerfiles.
+2. Each component/platform pair has its own cache scope. The verifier and indexer add
+   two amd64 dependency caches. Measure usage and eviction after all six platform
+   builds export their caches. Do not assume the earlier three-family footprint or
+   cache cap is sufficient. The cap is a repository setting, not part of this code.
+   New scopes remain cold until a trusted build exports them.
 
 ---
 
@@ -252,8 +262,8 @@ Otherwise a Dockerfile-only PR can pass without building the image it changed.
 
 Two facts about that filter today:
 
-- It also triggers on `Cargo.toml`, `Cargo.lock`, `core/**`, and `zkstack_cli/**` —
-  correct, because those feed the cargo-chef recipe.
+- It also triggers on `Cargo.toml`, `Cargo.lock`, `core/**`, `via_verifier/**`,
+  `via_indexer/**`, and `zkstack_cli/**`, which feed the dependency recipe.
 - It still lists `docker/contract-verifier/**`, `docker/external-node/**`, and
   `docker/server/**`, which have **no image in the active matrix**. Editing those paths
   triggers a core build that builds none of them. Treat them as legacy entries; the
