@@ -567,6 +567,8 @@ mod tests {
         let mut malformed_receiver = malformed_transaction.clone();
         malformed_receiver.input[0].witness =
             parser::tests::inscription_witness(&[0x55; 19], &[0; 20]);
+        let mut malformed_withdrawal = malformed_transaction.clone();
+        malformed_withdrawal.output[1].script_pubkey = ScriptBuf::new_op_return(b"VIA_WI");
 
         let mock_block = Block {
             header: Header {
@@ -577,7 +579,12 @@ mod tests {
                 bits: Default::default(),
                 nonce: 0,
             },
-            txdata: vec![malformed_transaction, malformed_receiver, valid_transaction],
+            txdata: vec![
+                malformed_transaction,
+                malformed_receiver,
+                malformed_withdrawal,
+                valid_transaction,
+            ],
         };
 
         let mut mock_client = MockBitcoinOps::new();
@@ -602,7 +609,7 @@ mod tests {
             assert_eq!(deposit.input.receiver_l2_address.as_bytes(), &[0x81; 20]);
             assert_eq!(deposit.amount, Amount::from_sat(100_000));
             assert_eq!(deposit.common.block_height, block_height);
-            assert_eq!(deposit.common.tx_index, Some(2));
+            assert_eq!(deposit.common.tx_index, Some(3));
             assert_eq!(deposit.common.output_vout, Some(0));
         }
     }
