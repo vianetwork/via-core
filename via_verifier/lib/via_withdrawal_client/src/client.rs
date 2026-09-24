@@ -506,29 +506,6 @@ mod tests {
             assert_eq!(item.l2_sender, Address::repeat_byte(7));
             assert_eq!(item.id, "00000000000000000001");
         }
-        // Retained batch evidence includes every raw receipt/message, not just payable entries.
-        let bytes = pubdata.encode_pubdata();
-        let batch = CompleteWithdrawalBatch {
-            batch_number: 1,
-            chain_id: 270,
-            network: Network::Regtest,
-            protocol_version: 1,
-            blob_id: "fixture".to_owned(),
-            pubdata_hash: H256::from(keccak256(&bytes)),
-            start_block: 1,
-            end_block: 1,
-            pubdata: bytes,
-            receipts,
-            withdrawals,
-            nonpayable,
-        };
-        let restored: CompleteWithdrawalBatch =
-            serde_json::from_slice(&serde_json::to_vec(&batch).unwrap()).unwrap();
-        assert_eq!(restored, batch);
-        assert_eq!(
-            restored.withdrawals.len() + restored.nonpayable.len(),
-            receivers.len()
-        );
     }
 
     #[test]

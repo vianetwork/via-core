@@ -32,7 +32,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                     let pubdata_msgs = indexer.parse_transaction(&proof_msg.input.l1_batch_reveal_txid).await?;
 
                     if pubdata_msgs.len() != 1 {
-                        return Err(MessageProcessorError::Internal(anyhow::Error::msg("Invalid pubdata msg lenght")));
+                        return Err(MessageProcessorError::Internal(anyhow::Error::msg("Invalid pubdata msg length")));
                     }
 
                     let inscription = pubdata_msgs[0].clone();

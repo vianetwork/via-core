@@ -156,8 +156,6 @@ impl VerifierBtcWatch {
             return Ok(());
         }
 
-        self.reconcile_withdrawals(storage).await?;
-
         let last_processed_bitcoin_block =
             storage.via_indexer_dal().get_last_processed_l1_block(VerifierBtcWatch::module_name()).await? as u32;
 
@@ -166,6 +164,7 @@ impl VerifierBtcWatch {
                 anyhow::anyhow!("The indexer was not initialized".to_string()),
             ));
         }
+        let from_block = last_processed_bitcoin_block + 1;
 
         if let Some(last_protocol_version) = storage
             .via_protocol_versions_dal()
@@ -176,6 +175,28 @@ impl VerifierBtcWatch {
             check_if_supported_sequencer_version(last_protocol_version)
                 .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?;
         }
+
+        let system_wallets_map =
+            match storage.via_wallet_dal().get_system_wallets_raw(last_processed_bitcoin_block as i64).await? {
+                Some(map) => map,
+                None => {
+                    tracing::info!("Wait for storage init, block number {}", from_block);
+                    return Ok(());
+                }
+            };
+
+        let system_wallets = SystemWallets::try_from(system_wallets_map)?;
+        if self
+            .withdrawal_fulfillment
+            .as_ref()
+            .is_some_and(|policy| policy.config.bridge_address != system_wallets.bridge)
+        {
+            return Err(MessageProcessorError::Internal(anyhow::anyhow!(
+                "Withdrawal fulfillment wallet differs from the current bridge wallet"
+            )));
+        }
+        storage.via_withdrawal_dal().verify_withdrawal_wallet(system_wallets.bridge.script_pubkey().as_bytes()).await?;
+        self.reconcile_withdrawals(storage).await?;
 
         let current_l1_block_number = self
             .indexer
@@ -202,23 +223,9 @@ impl VerifierBtcWatch {
             to_block = last_l1_block_number as u32;
         }
 
-        let from_block = last_processed_bitcoin_block + 1;
-
         if to_block < from_block {
             return Ok(());
         }
-
-        let system_wallets_map =
-            match storage.via_wallet_dal().get_system_wallets_raw(last_processed_bitcoin_block as i64).await? {
-                Some(map) => map,
-                None => {
-                    tracing::info!("Wait for storage init, block number {}", from_block);
-                    return Ok(());
-                }
-            };
-
-        let system_wallets = SystemWallets::try_from(system_wallets_map)?;
-        storage.via_withdrawal_dal().verify_withdrawal_wallet(system_wallets.bridge.script_pubkey().as_bytes()).await?;
 
         self.indexer.update_system_wallets(
             Some(system_wallets.sequencer),

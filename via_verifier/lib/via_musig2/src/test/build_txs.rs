@@ -1200,10 +1200,6 @@ mod tests {
             let produced = builder
                 .build_bridge_txs(inputs, outputs.clone(), config.clone(), 1)
                 .await?;
-            assert_eq!(
-                bitcoin::consensus::serialize(&fixed.tx),
-                bitcoin::consensus::serialize(&produced[0].tx)
-            );
             assert_eq!(fixed, produced[0]);
             assert_eq!(fixed.tx.output[0].value.to_sat(), net);
             assert_eq!(fixed.fee.to_sat(), 254);

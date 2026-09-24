@@ -100,6 +100,10 @@ quarantine holds, **not** trusted amounts, origins or paid flags. Preserve the o
 reservation, observation and conflict evidence. The down migration intentionally refuses automatic rollback:
 restoring an old binary or deleting holds could authorize a second payment.
 
+Take and verify a full database backup and rehearse the cutover on an isolated copy before upgrading an existing
+network. Restoring a backup after proposals or signatures were exposed is not a safe rollback: reconcile all later
+signing/payment evidence before reactivation so the restore cannot discard a possible payment.
+
 The public indexer's separate `20260924000000_withdrawal_output_identity` migration changes output identity to
 `(tx_id, vout)`; historical rows retain unknown vout rather than fabricated output provenance. It does not backfill
 verifier authority or clear any verifier quarantine.
@@ -137,10 +141,12 @@ rewinding past a canonical proof. Removed proofs or deposit dependencies still d
 chain inclusively. Proof-driven rejections and rejected competing forks are not reopened by vote pruning.
 This is local accepted-chain validation, not a race-free canonical-at-signing guarantee.
 
-The database binds one active withdrawal wallet and one chain/network/protocol domain. Rotation is not an
-automatic migration: wallet changes fail closed at the verifier watcher, stopping its shared cursor (including
-other message processing), even with signing disabled. Domain changes also fail closed. Do not clear the singleton
-records to bypass these checks; rotation requires separately reviewed reconciliation of old obligations and holds.
+The database binds one active withdrawal wallet and one chain/network/protocol domain. Before reconciliation or
+Bitcoin polling, the watcher checks the current bridge wallet against that binding and any configured fulfillment
+wallet. Rotation is not an automatic migration: wallet changes fail closed, stopping the watcher's shared cursor
+(including other message processing), even with signing disabled. Domain changes also fail closed. Do not clear
+the singleton records to bypass these checks; rotation requires separately reviewed reconciliation of old obligations
+and holds.
 
 #### Bitcoin evidence and fulfillment
 
