@@ -8,6 +8,13 @@ use sha2::{Digest, Sha256};
 
 pub const MAX_BODY: usize = 8 * 1024 * 1024;
 
+/// Bind the operation and audience as well as the payload, following AWS SigV4's
+/// canonical-request principle; this envelope uses Bitcoin keys, not AWS HMAC credentials.
+/// https://github.com/boto/botocore/blob/a3bbf61a0a3548c6bc7b68dd0a23bb6242a8e630/botocore/auth.py
+/// RFC 9421 covered components and RFC 9530 authenticated digests inform the boundary,
+/// but this exact-byte envelope implements neither RFC's HTTP field format:
+/// https://www.rfc-editor.org/rfc/rfc9421.html#section-2
+/// https://www.rfc-editor.org/rfc/rfc9530.html#section-6.3
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Binding {
     pub version: u8,
@@ -47,6 +54,9 @@ impl Envelope {
         Ok(Message::from_digest(digest(&bytes)))
     }
 
+    /// Key use is separate from business authorization, as in zkSync Era's OperatorSigner.
+    /// Producing a signature does not establish verifier membership or withdrawal eligibility:
+    /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/operator_signer/src/lib.rs
     pub fn sign(binding: Binding, body: Vec<u8>, key: &SecretKey) -> anyhow::Result<Self> {
         let signature = Secp256k1::new().sign_ecdsa(&Self::message(&binding, &body)?, key);
         Ok(Self {

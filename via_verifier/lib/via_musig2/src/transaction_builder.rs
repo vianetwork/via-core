@@ -150,6 +150,9 @@ impl TransactionBuilder {
 
     /// Reconstructs exactly one ordered proposal; never selects coins or drops requests.
     /// Prefix sufficiency preserves utxo_manager's ordered selector at 8a49f355.
+    /// sBTC's report-derived transaction/sighash construction is the design precedent;
+    /// Via supplies its own ordered obligations, fee arithmetic and wallet context:
+    /// https://github.com/stacks-network/sbtc/blob/ee7ec0076f610e7bf96f0893df80b4a9a0dcbcef/signer/src/bitcoin/validation.rs
     pub fn build_fixed_bridge_tx(
         &self,
         inputs: &[(OutPoint, TxOut)],
@@ -215,6 +218,12 @@ impl TransactionBuilder {
     }
 
     /// Parent bytes prove the referenced output, not current unspentness (BIP341 prevouts).
+    /// zkSync Era's consistency checker likewise checks chain transaction evidence
+    /// rather than trusting stored calldata; this check accepts supplied parent bytes too:
+    /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/consistency_checker/src/lib.rs
+    /// BIP174's signer checks also bind supplied UTXOs to the transaction;
+    /// this interface carries transactions and prevouts directly, not PSBT serialization:
+    /// https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki#signer
     pub fn verify_fixed_bridge_tx(
         &self,
         candidate: &UnsignedBridgeTx,
@@ -248,6 +257,9 @@ impl TransactionBuilder {
 
     /// Validates independent payment evidence; the caller authenticates parent bytes and inclusion.
     /// Only witness is excluded: scriptSig, sequences and every output remain exact.
+    /// Like tBTC redemption validation, compare payment against the retained obligation.
+    /// Via uses exact equal-fee equations, not tBTC's fee range or request deletion:
+    /// https://github.com/keep-network/tbtc-v2/blob/40a11d1dcdcf82d3962e430067cfe3f97be81483/solidity/contracts/bridge/Redemption.sol
     pub fn verify_observed_withdrawal(
         &self,
         observation: &WithdrawalObservation,
@@ -366,7 +378,10 @@ impl TransactionBuilder {
         Ok(())
     }
 
-    /// Generates taproot signature hashes for all inputs
+    /// BIP341 ALL without ANYONECANPAY commits every prevout's amount and script
+    /// and every output. Incorrect supplied prevouts cannot authorize a different real spend;
+    /// the commitment does not establish current unspentness or canonical inclusion.
+    /// https://github.com/bitcoin/bips/blob/eba8e50cb66d436c65c6bc8b0a175b643effe9d3/bip-0341.mediawiki#common-signature-message
     #[instrument(skip(self, unsigned_tx), target = "bitcoin_transaction_builder")]
     pub fn get_tr_sighashes(&self, unsigned_tx: &UnsignedBridgeTx) -> Result<Vec<Vec<u8>>> {
         Self::validate_input_alignment(&unsigned_tx.tx, &unsigned_tx.utxos)?;

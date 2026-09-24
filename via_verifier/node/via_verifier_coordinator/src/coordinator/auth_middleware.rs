@@ -12,6 +12,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use via_verifier_dal::VerifierDal;
 
+/// Carry the verified key's signer slot to handlers, never a caller-asserted slot.
+/// Matrix Synapse similarly propagates an authenticated origin; its server-name
+/// key discovery is not used for Via's configured verifier set:
+/// https://github.com/element-hq/synapse/blob/fcffd2e897aaef1583bcb1f93893f254330ec81c/synapse/federation/transport/server/_base.py
 #[derive(Clone)]
 pub struct AuthenticatedRequest {
     pub signer: usize,

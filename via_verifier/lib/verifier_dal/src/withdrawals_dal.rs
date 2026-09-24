@@ -25,6 +25,12 @@ pub enum WithdrawalAttemptState {
     Retired,
 }
 
+/// Signing progress belongs to an attempt, not to the expected withdrawal.
+/// Fedimint separates logical peg-outs from unsigned/pending transactions; Rootstock
+/// separates requests from transactions awaiting signatures or confirmations.
+/// These are storage precedents, not MuSig2 protocols or transferable transition rules:
+/// https://github.com/fedimint/fedimint/blob/1b8a5638e0ee3f327ba196bba6eebc344dbb1a49/modules/fedimint-wallet-server/src/db.rs
+/// https://github.com/rsksmart/rskj/blob/d312d6723b57bf366e5d68856290c63651ef6ef1/rskj-core/src/main/java/co/rsk/peg/BridgeStorageProvider.java#L168-L324
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithdrawalAttemptRecord {
     pub round_id: Vec<u8>,
@@ -38,6 +44,8 @@ pub struct WithdrawalAttemptRecord {
 // Eligibility needs a fresh READ COMMITTED statement after lock acquisition.
 // Invalidation takes the exclusive global gate; normal mutations share it and
 // take the wallet lock.
+// PostgreSQL transaction-level advisory locks end at commit/rollback, not Bitcoin settlement:
+// https://www.postgresql.org/docs/17/explicit-locking.html#ADVISORY-LOCKS
 async fn lock_wallet(storage: &mut Connection<'_, Verifier>, wallet: &[u8]) -> anyhow::Result<()> {
     ensure!(!wallet.is_empty(), "empty withdrawal wallet context");
     let isolation = sqlx::query("SELECT current_setting('transaction_isolation') AS isolation")
@@ -525,6 +533,9 @@ fn validate_observation(wallet: &[u8], observation: &WithdrawalObservation) -> a
 }
 
 impl ViaWithdrawalDal<'_, '_> {
+    /// Output evidence and block inclusion have separate identities, as in NBXplorer.
+    /// Recording a new inclusion must not rewrite payment facts or establish fulfillment:
+    /// https://github.com/btcpayserver/NBXplorer/blob/27585a7a83b11a96adad9facf092c0d07d327ac2/NBXplorer/DBScripts/FullSchema.sql
     pub async fn record_withdrawal_observation(
         &mut self,
         wallet: &[u8],
@@ -569,6 +580,8 @@ impl ViaWithdrawalDal<'_, '_> {
         }
         // Holds have no expected-request FK: observed-first and complete-import-first
         // converge, and malformed/conflicting candidate facts never overwrite authority.
+        // sBTC uses the same observation-first boundary by omitting the request FK:
+        // https://github.com/stacks-network/sbtc/blob/ee7ec0076f610e7bf96f0893df80b4a9a0dcbcef/signer/migrations/0014__add_bitcoin_tx_outputs_.sql#L1-L19
         for output in &observation.withdrawals {
             hold(&mut tx, wallet, &output.reference, "observation", &txid).await?;
         }
@@ -651,6 +664,9 @@ impl ViaWithdrawalDal<'_, '_> {
 
     /// The caller must first validate the complete transaction with the shared
     /// fixed payment verifier. This method accepts no default confirmation policy.
+    /// zkSync Era's pending-receipt/executed split is the precedent: receipt is not acceptance.
+    /// Bitcoin payment validation and confirmation policy remain Via-owned:
+    /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/dal/src/eth_sender_dal.rs
     pub async fn fulfill_withdrawal_observation(
         &mut self,
         wallet: &[u8],
@@ -832,6 +848,12 @@ impl ViaWithdrawalDal<'_, '_> {
             .await
     }
 
+    // Like LND's RegisterAttempt, check eligibility and reserve the attempt in one transaction.
+    // This reserves local authority, not Bitcoin UTXOs across independent signers:
+    // https://github.com/lightningnetwork/lnd/blob/d72a3aaf261e278fa4aad5be4453df2f74ab50ee/channeldb/payment_control.go#L316-L456
+    // The Idempotency-Key draft's equal-retry/changed-payload distinction applies to the
+    // durable round identity; HTTP challenges have a separate, shorter replay lifetime:
+    // https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header-07#section-2.6
     async fn reserve_withdrawal_attempt(
         &mut self,
         wallet: &[u8],
@@ -991,6 +1013,10 @@ impl ViaWithdrawalDal<'_, '_> {
             .await
     }
 
+    // Persist-before-response follows CometBFT's saved-signature retry discipline.
+    // Public bytes are immutable; its timestamp-only equivalence is not valid here.
+    // This is not nonce recovery: a missing share after nonce consumption remains unsafe.
+    // https://github.com/cometbft/cometbft/blob/f4d73cd5a091a997d1f040850710b6937e650125/privval/file.go
     async fn persist_public_batch(
         &mut self,
         wallet: &[u8],

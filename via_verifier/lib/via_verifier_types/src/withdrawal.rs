@@ -3,6 +3,11 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use zksync_types::{api::TransactionReceipt, ethabi::Address, H256};
 
+/// Expected gross obligation; an observed payment never replaces this amount.
+/// BTCPay Server's separate invoice/payment amounts are the design precedent,
+/// not its invoice accounting or payment-status policy:
+/// https://github.com/btcpayserver/btcpayserver/blob/a305e951761784e65834f03f082cb880b93b99b0/BTCPayServer.Data/Data/InvoiceData.cs
+/// https://github.com/btcpayserver/btcpayserver/blob/a305e951761784e65834f03f082cb880b93b99b0/BTCPayServer.Data/Data/PaymentData.cs
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WithdrawalRequest {
     pub id: String,

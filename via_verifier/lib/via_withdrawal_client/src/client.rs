@@ -223,6 +223,9 @@ fn validate_event(log: &Log, receipt: &TransactionReceipt, index: usize) -> anyh
     Ok(())
 }
 
+// zkSync Era stores L2-to-L1 logs in transaction and within-transaction order.
+// Preserve that order across receipts and DA; equal message hashes are not unique origins:
+// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/dal/src/events_dal.rs#L119-L179
 fn associate_withdrawals(
     network: Network,
     batch: L1BatchNumber,
