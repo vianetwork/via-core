@@ -19,8 +19,9 @@ Reconcile those records without allowing an observation to create or overwrite e
 facts. A net payment must not replace the gross request amount. Recording an observation does not
 itself establish fulfillment or authorize another payment.
 
-The [withdrawal lifecycle design](../design/withdrawal-lifecycle.md) describes the integrated
-contract built on this separation. Storage separation alone cannot authorize a signature.
+The [storage research](../research/withdrawal-intent-and-observation.md) compares the alternatives.
+The [authorization research](../research/withdrawal-authorization-and-refork.md) explains why storage
+separation alone cannot authorize a signature.
 
 ## Alternatives and consequences
 
@@ -29,8 +30,8 @@ expected obligation from an incomplete observation. Update-only observation hand
 ordering or replay that prevents an early payment from being lost. Separate records preserve both
 facts without that arrival-order requirement, at the cost of reconciliation and migration work.
 
-This decision selects the separation, not an exact schema, table count, or API. The following
-choices are governed by the linked lifecycle design rather than by this ADR alone:
+This decision selects the separation, not an exact schema, table count, or API. It leaves the
+following choices open:
 
 - The authoritative expected-fact source and parent-output provenance at signing.
 - The exact authorization algorithm and concurrent signing admission rules.
@@ -39,5 +40,5 @@ choices are governed by the linked lifecycle design rather than by this ADR alon
 
 The existing fee policy and selected signing guarantee remain unchanged. This ADR does not add a
 fresh `gettxout` requirement or claim that preserved facts remain canonical at signing.
-It records an accepted design decision, not implementation, migration, deployment, or permission
+It records an accepted planning decision, not implementation, migration, deployment, or permission
 to resume signing.
