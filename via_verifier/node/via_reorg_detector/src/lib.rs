@@ -252,7 +252,9 @@ impl ViaVerifierReorgDetector {
             reorg_start_block_height - 1
         };
 
-        let l1_batch_number_opt = storage.via_transactions_dal().get_l1_batch_number_affected_by_reorg(l1_block_number_to_keep).await?;
+        let deposit_batch = storage.via_transactions_dal().get_l1_batch_number_affected_by_reorg(l1_block_number_to_keep).await?;
+        let source_batch = storage.via_votes_dal().get_l1_batch_number_affected_by_source_reorg(l1_block_number_to_keep).await?;
+        let l1_batch_number_opt = deposit_batch.into_iter().chain(source_batch).min();
 
         let transactions_count = storage.via_transactions_dal().get_not_finalized_transactions(l1_block_number_to_keep).await?;
 

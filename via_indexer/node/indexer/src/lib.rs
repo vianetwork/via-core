@@ -8,7 +8,10 @@ use metrics::METRICS;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
-use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
+use via_btc_client::{
+    client::BitcoinClient,
+    indexer::{BitcoinInscriptionIndexer, WithdrawalScanMode},
+};
 use via_indexer_dal::{Connection, ConnectionPool, Indexer, IndexerDal};
 use zksync_config::ViaBtcWatchConfig;
 
@@ -53,7 +56,7 @@ impl L1Indexer {
 
         Ok(Self {
             config,
-            indexer,
+            indexer: indexer.with_withdrawal_mode(WithdrawalScanMode::BestEffort),
             pool,
             system_wallet_processor,
             message_processors,

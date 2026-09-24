@@ -7,8 +7,6 @@ use crate::fee::FeeStrategy;
 #[derive(Debug, Clone)]
 pub struct TransactionMetadata {
     pub outputs: Vec<TransactionOutput>,
-    /// The data inscribed into op_return per output. Can be empty.
-    // pub op_return_data_per_output: Vec<Vec<u8>>,
     pub inputs: Vec<(OutPoint, TxOut)>,
     pub total_amount: Amount,
     pub fee: Amount,
@@ -17,7 +15,6 @@ pub struct TransactionMetadata {
 
 #[derive(Debug, Clone)]
 pub struct TransactionOutput {
-    /// The output
     pub output: TxOut,
     /// The output metadata to store in OP_RETURN
     pub op_return_data: Option<Vec<u8>>,
@@ -25,22 +22,34 @@ pub struct TransactionOutput {
 
 #[derive(Clone)]
 pub struct TransactionBuilderConfig {
-    /// The fee strategy
     pub fee_strategy: Arc<dyn FeeStrategy>,
     /// The max tx weight
     pub max_tx_weight: u64,
     /// The max number of output to include in each transaction
     pub max_output_per_tx: usize,
-    /// The OP_RETURN prefix
     pub op_return_prefix: Vec<u8>,
-    /// Bridge address
     pub bridge_address: Address,
     /// The fee rate.
     pub default_fee_rate_opt: Option<u64>,
-    /// The transaction fee rate
+    /// Fixed input candidates instead of querying the wallet.
     pub default_available_utxos_opt: Option<Vec<(OutPoint, TxOut)>>,
-    /// Unique data thta will be inscribed in all the bridge txs
+    /// Shared metadata inscribed before the per-output metadata.
     pub op_return_data_input_opt: Option<Vec<u8>>,
+}
+
+impl TransactionBuilderConfig {
+    pub fn withdrawal(bridge_address: Address) -> Self {
+        Self {
+            fee_strategy: Arc::new(crate::fee::WithdrawalFeeStrategy::new()),
+            max_tx_weight: bitcoin::policy::MAX_STANDARD_TX_WEIGHT as u64,
+            max_output_per_tx: 7,
+            op_return_prefix: b"VIA_WI\0".to_vec(),
+            bridge_address,
+            default_fee_rate_opt: None,
+            default_available_utxos_opt: None,
+            op_return_data_input_opt: None,
+        }
+    }
 }
 
 #[derive(Clone, Default)]

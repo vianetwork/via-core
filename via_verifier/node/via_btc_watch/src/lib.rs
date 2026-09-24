@@ -7,7 +7,11 @@ use message_processors::{GovernanceUpgradesEventProcessor, WithdrawalProcessor};
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
-use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
+use via_btc_client::{
+    client::BitcoinClient,
+    indexer::{BitcoinInscriptionIndexer, WithdrawalScanMode},
+};
+use via_musig2::{transaction_builder::TransactionBuilder, types::TransactionBuilderConfig};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
@@ -29,31 +33,98 @@ pub struct VerifierBtcWatch {
     pool: ConnectionPool<Verifier>,
     system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
+    withdrawal_builder: TransactionBuilder,
+    withdrawal_fulfillment: Option<WithdrawalFulfillment>,
+}
+
+struct WithdrawalFulfillment {
+    config: TransactionBuilderConfig,
+    confirmations: u32,
+}
+
+impl std::fmt::Debug for WithdrawalFulfillment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("WithdrawalFulfillment")
+            .field("confirmations", &self.confirmations)
+            .finish_non_exhaustive()
+    }
 }
 
 impl VerifierBtcWatch {
     pub async fn new(
-        config: ViaBtcWatchConfig,
-        indexer: BitcoinInscriptionIndexer,
-        btc_client: Arc<BitcoinClient>,
+        config: ViaBtcWatchConfig, indexer: BitcoinInscriptionIndexer, btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Verifier>,
     ) -> anyhow::Result<Self> {
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
+        let withdrawal_builder = TransactionBuilder::new(btc_client.clone())?;
 
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
             Box::new(GovernanceUpgradesEventProcessor::new(btc_client)),
             Box::new(L1ToL2MessageProcessor::default()),
             Box::new(VerifierMessageProcessor::default()),
-            Box::new(WithdrawalProcessor::default()),
+            Box::new(WithdrawalProcessor),
         ];
 
         Ok(Self {
             config,
-            indexer,
+            indexer: indexer.with_withdrawal_mode(WithdrawalScanMode::Required),
             pool,
             system_wallet_processor,
             message_processors,
+            withdrawal_builder,
+            withdrawal_fulfillment: None,
         })
+    }
+
+    pub fn with_withdrawal_fulfillment(
+        mut self, config: TransactionBuilderConfig, confirmations: u32,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(confirmations > 0, "Withdrawal fulfillment requires positive confirmations");
+        self.withdrawal_fulfillment = Some(WithdrawalFulfillment { config, confirmations });
+        Ok(self)
+    }
+
+    async fn reconcile_withdrawals(&self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
+        let Some(policy) = &self.withdrawal_fulfillment else {
+            return Ok(());
+        };
+        let Some((tip, _)) = storage.via_l1_block_dal().get_last_l1_block().await? else {
+            return Ok(());
+        };
+        let wallet = policy.config.bridge_address.script_pubkey();
+        let observations = storage.via_withdrawal_dal().pending_withdrawal_observations(wallet.as_bytes()).await?;
+        for observation in observations {
+            let references = observation.withdrawals.iter().map(|output| output.reference.clone()).collect::<Vec<_>>();
+            let requests =
+                match storage.via_withdrawal_dal().load_expected_withdrawals(wallet.as_bytes(), &references).await {
+                    Ok(requests) => requests,
+                    Err(err) => {
+                        tracing::debug!("Withdrawal expected evidence not ready: {err:#}");
+                        continue;
+                    }
+                };
+            if let Err(err) =
+                self.withdrawal_builder.verify_observed_withdrawal(&observation, &requests, &policy.config)
+            {
+                tracing::warn!("Withdrawal observation remains held: {err:#}");
+                continue;
+            }
+            if storage
+                .via_withdrawal_dal()
+                .fulfill_withdrawal_observation(
+                    wallet.as_bytes(),
+                    &observation,
+                    &requests,
+                    u32::try_from(tip)?,
+                    policy.confirmations,
+                )
+                .await?
+            {
+                METRICS.withdrawal_confirmed.inc();
+            }
+        }
+        Ok(())
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
@@ -66,9 +137,7 @@ impl VerifierBtcWatch {
                 _ = stop_receiver.changed() => break,
             }
 
-            let mut storage = pool
-                .connection_tagged(VerifierBtcWatch::module_name())
-                .await?;
+            let mut storage = pool.connection_tagged(VerifierBtcWatch::module_name()).await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(err) => {
@@ -82,28 +151,20 @@ impl VerifierBtcWatch {
         Ok(())
     }
 
-    async fn loop_iteration(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-    ) -> Result<(), MessageProcessorError> {
-        if storage
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some()
-        {
+    async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), MessageProcessorError> {
+        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
 
-        let last_processed_bitcoin_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block(VerifierBtcWatch::module_name())
-            .await? as u32;
+        self.reconcile_withdrawals(storage).await?;
+
+        let last_processed_bitcoin_block =
+            storage.via_indexer_dal().get_last_processed_l1_block(VerifierBtcWatch::module_name()).await? as u32;
 
         if last_processed_bitcoin_block == 0 {
-            return Err(MessageProcessorError::Internal(anyhow::anyhow!(
-                "The indexer was not initialized".to_string()
-            )));
+            return Err(MessageProcessorError::Internal(
+                anyhow::anyhow!("The indexer was not initialized".to_string()),
+            ));
         }
 
         if let Some(last_protocol_version) = storage
@@ -116,19 +177,17 @@ impl VerifierBtcWatch {
                 .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?;
         }
 
-        let current_l1_block_number =
-            self.indexer
-                .fetch_block_height()
-                .await
-                .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
-                .saturating_sub(self.config.block_confirmations) as u32;
+        let current_l1_block_number = self
+            .indexer
+            .fetch_block_height()
+            .await
+            .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
+            .saturating_sub(self.config.block_confirmations) as u32;
         if current_l1_block_number <= last_processed_bitcoin_block {
             return Ok(());
         }
 
-        let Some((last_l1_block_number, _)) =
-            storage.via_l1_block_dal().get_last_l1_block().await?
-        else {
+        let Some((last_l1_block_number, _)) = storage.via_l1_block_dal().get_last_l1_block().await? else {
             tracing::warn!("Reorg did not start yet");
             return Ok(());
         };
@@ -149,19 +208,17 @@ impl VerifierBtcWatch {
             return Ok(());
         }
 
-        let system_wallets_map = match storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_bitcoin_block as i64)
-            .await?
-        {
-            Some(map) => map,
-            None => {
-                tracing::info!("Wait for storage init, block number {}", from_block);
-                return Ok(());
-            }
-        };
+        let system_wallets_map =
+            match storage.via_wallet_dal().get_system_wallets_raw(last_processed_bitcoin_block as i64).await? {
+                Some(map) => map,
+                None => {
+                    tracing::info!("Wait for storage init, block number {}", from_block);
+                    return Ok(());
+                }
+            };
 
         let system_wallets = SystemWallets::try_from(system_wallets_map)?;
+        storage.via_withdrawal_dal().verify_withdrawal_wallet(system_wallets.bridge.script_pubkey().as_bytes()).await?;
 
         self.indexer.update_system_wallets(
             Some(system_wallets.sequencer),
@@ -178,12 +235,15 @@ impl VerifierBtcWatch {
 
         // Re-process blocks if system wallets were updated, since the new wallet state
         // may change how subsequent messages are interpreted.
-        if let Some(block_number) = self
+        let updated_at = self
             .system_wallet_processor
             .process_messages(storage, messages.clone(), &mut self.indexer)
             .await
-            .map_err(|e| MessageProcessorError::Internal(e.into()))?
-        {
+            .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+        // The active withdrawal wallet is an immutable activation boundary. Stop before
+        // rescanning or advancing under a rotated wallet; old holds remain authoritative.
+        storage.via_withdrawal_dal().verify_withdrawal_wallet(self.indexer.bridge_script_pubkey().as_bytes()).await?;
+        if let Some(block_number) = updated_at {
             // Process the blocks until where the update wallets block.
             to_block = block_number;
 
@@ -202,10 +262,8 @@ impl VerifierBtcWatch {
         }
 
         // Check if the last processed block was updated by another thread. This could happen when a reorg is detected.
-        let current_last_processed_bitcoin_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block(VerifierBtcWatch::module_name())
-            .await? as u32;
+        let current_last_processed_bitcoin_block =
+            storage.via_indexer_dal().get_last_processed_l1_block(VerifierBtcWatch::module_name()).await? as u32;
 
         if current_last_processed_bitcoin_block != last_processed_bitcoin_block {
             tracing::info!(
@@ -214,17 +272,15 @@ impl VerifierBtcWatch {
             return Ok(());
         }
 
+        storage.via_withdrawal_dal().verify_withdrawal_wallet(self.indexer.bridge_script_pubkey().as_bytes()).await?;
+
         storage
             .via_indexer_dal()
             .update_last_processed_l1_block(VerifierBtcWatch::module_name(), to_block)
             .await
             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
-        tracing::info!(
-            "The btc_watch processed blocks, from {} to {}",
-            from_block,
-            to_block,
-        );
+        tracing::info!("The btc_watch processed blocks, from {} to {}", from_block, to_block,);
 
         Ok(())
     }

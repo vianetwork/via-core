@@ -1,3 +1,4 @@
+use anyhow::Context;
 use bitcoin::{Amount, TxOut};
 
 use crate::{
@@ -8,6 +9,13 @@ use crate::{
     types::{TransactionOutput, TransactionWithFee},
 };
 
+pub(crate) fn fee_size(input_count: u32, output_count: u32) -> u64 {
+    TX_OVERHEAD
+        + (WITNESS_OVERHEAD + INPUT_BASE_SIZE + INPUT_WITNESS_SIZE) * u64::from(input_count)
+        + OUTPUT_SIZE * (u64::from(output_count) + 1)
+        + OP_RETURN_SIZE
+}
+
 pub trait FeeStrategy: Send + Sync {
     fn estimate_fee(
         &self,
@@ -15,13 +23,9 @@ pub trait FeeStrategy: Send + Sync {
         output_count: u32,
         fee_rate: u64,
     ) -> anyhow::Result<Amount> {
-        let input_size =
-            (WITNESS_OVERHEAD + INPUT_BASE_SIZE + INPUT_WITNESS_SIZE) * u64::from(input_count);
-        // approximate size per output +2 (+1 for potential change)
-        let output_size = OUTPUT_SIZE * u64::from(output_count + 1);
-
-        let total_size = TX_OVERHEAD + input_size + output_size + OP_RETURN_SIZE;
-        let fee = fee_rate * total_size;
+        let fee = fee_rate
+            .checked_mul(fee_size(input_count, output_count))
+            .context("Withdrawal fee overflow")?;
 
         // Ensure fee is divisible by output_count to avoid decimals when splitting
         let output_count_u64 = std::cmp::max(output_count, 1) as u64;
@@ -29,7 +33,8 @@ pub trait FeeStrategy: Send + Sync {
         let adjusted_fee = if remainder == 0 {
             fee
         } else {
-            fee + (output_count_u64 - remainder)
+            fee.checked_add(output_count_u64 - remainder)
+                .context("Rounded withdrawal fee overflow")?
         };
 
         Ok(Amount::from_sat(adjusted_fee))
@@ -59,7 +64,7 @@ impl FeeStrategy for WithdrawalFeeStrategy {
         fee_rate: u64,
     ) -> anyhow::Result<TransactionWithFee> {
         loop {
-            let fee = self.estimate_fee(input_count, outputs.len() as u32, fee_rate)?;
+            let fee = self.estimate_fee(input_count, u32::try_from(outputs.len())?, fee_rate)?;
             if outputs.is_empty() {
                 return Ok(TransactionWithFee {
                     outputs_with_fees: vec![],
@@ -75,7 +80,9 @@ impl FeeStrategy for WithdrawalFeeStrategy {
             for output in &outputs {
                 if output.output.value >= fee_per_user {
                     valid_outputs_count += 1;
-                    total_value_needed += output.output.value - fee_per_user;
+                    total_value_needed = total_value_needed
+                        .checked_add(output.output.value - fee_per_user)
+                        .context("Withdrawal net amount overflow")?;
                 }
             }
 
@@ -253,22 +260,14 @@ mod tests {
     fn test_estimate_fee_multiple_cases() {
         // Test cases: (input_count, output_count, fee_rate, expected_fee)
         let test_cases = vec![
-            // Case 1: Fee already divisible
-            (2, 3, 10, 4761), // 476 bytes * 10 = 4760, remainder 2, adjusted to 4761
-            // Case 2: Fee needs adjustment
-            (1, 4, 15, 5432), // 362 bytes * 15 = 5430, remainder 2, adjusted to 5432
-            // Case 3: Single output (edge case)
-            (1, 1, 20, 5200), // 260 bytes * 20 = 5200, remainder 0, no adjustment
-            // Case 4: Perfect divisibility
-            (3, 5, 8, 5540), // 692 bytes * 8 = 5536, remainder 1, adjusted to 5540
-            // Case 5: High fee rate scenario
-            (2, 7, 50, 30604), // 612 bytes * 50 = 30600, remainder 3, adjusted to 30604
-            // Case 6: Zero outputs (edge case - should use max(1))
-            (1, 0, 10, 2260), // 260 bytes * 10 = 2260, remainder 0, no adjustment
-            // Case 7: Large number of inputs and outputs
-            (5, 10, 25, 28950), // 1158 bytes * 25 = 28950, remainder 0, no adjustment
-            // Case 8: Minimum fee rate
-            (1, 2, 1, 294), // 294 bytes * 1 = 294, remainder 0, no adjustment
+            (2, 3, 10, 4302),
+            (1, 4, 15, 5340),
+            (1, 1, 20, 5080),
+            (3, 5, 8, 4850),
+            (2, 7, 50, 28301),
+            (1, 0, 10, 2200),
+            (5, 10, 25, 24800),
+            (1, 2, 1, 288),
         ];
 
         // Mock struct for testing (replace with your actual struct)

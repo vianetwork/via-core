@@ -76,6 +76,9 @@ pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
     pub block_height: u32,
+    /// Inclusion in the block actually scanned, not a current-canonical-chain guarantee.
+    /// Standalone transaction parsing leaves this unknown.
+    pub block_hash: Option<bitcoin::BlockHash>,
     pub tx_id: Txid,
     pub tx_index: Option<usize>,
     pub output_vout: Option<usize>,
@@ -197,6 +200,10 @@ pub struct BridgeWithdrawal {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BridgeWithdrawalInput {
+    pub transaction: bitcoin::Transaction,
+    pub prevouts: Vec<(OutPoint, bitcoin::TxOut)>,
+    pub block_hash: Option<bitcoin::BlockHash>,
+    pub bridge_script_pubkey: Option<bitcoin::ScriptBuf>,
     /// The withdrawal version.
     pub version: WithdrawalVersion,
     /// The tx total size.

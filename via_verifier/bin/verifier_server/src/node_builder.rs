@@ -113,6 +113,10 @@ impl ViaNodeBuilder {
         self.node.add_layer(VerifierBtcWatchLayer {
             via_bridge_config: self.configs.via_bridge_config.clone(),
             via_btc_watch_config: self.configs.via_btc_watch_config.clone(),
+            withdrawal_fulfillment_confirmations: self
+                .configs
+                .via_verifier_config
+                .withdrawal_fulfillment_confirmations,
         });
         Ok(self)
     }
@@ -133,6 +137,12 @@ impl ViaNodeBuilder {
             self.configs.via_bridge_config.clone(),
             self.configs.via_btc_client_config.clone(),
             self.configs.via_verifier_config.clone(),
+            self.configs
+                .wallets
+                .vote_operator
+                .as_ref()
+                .context("Coordinator authentication wallet unavailable")?
+                .clone(),
         ));
         Ok(self)
     }

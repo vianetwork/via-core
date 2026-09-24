@@ -2,6 +2,7 @@
 pub struct Withdrawal {
     pub id: String,
     pub tx_id: Vec<u8>,
+    pub vout: u32,
     pub l2_tx_log_index: i64,
     pub block_number: i64,
     pub receiver: String,

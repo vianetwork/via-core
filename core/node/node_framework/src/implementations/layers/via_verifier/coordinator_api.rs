@@ -27,6 +27,7 @@ pub struct ViaCoordinatorApiLayer {
     via_bridge_config: ViaBridgeConfig,
     via_btc_client: ViaBtcClientConfig,
     verifier_config: ViaVerifierConfig,
+    coordinator_wallet: zksync_config::configs::via_wallets::ViaWallet,
 }
 
 #[derive(Debug, FromContext)]
@@ -50,11 +51,13 @@ impl ViaCoordinatorApiLayer {
         via_bridge_config: ViaBridgeConfig,
         via_btc_client: ViaBtcClientConfig,
         verifier_config: ViaVerifierConfig,
+        coordinator_wallet: zksync_config::configs::via_wallets::ViaWallet,
     ) -> Self {
         Self {
             via_bridge_config,
             via_btc_client,
             verifier_config,
+            coordinator_wallet,
         }
     }
 }
@@ -85,6 +88,7 @@ impl WiringLayer for ViaCoordinatorApiLayer {
             btc_client,
             withdrawal_client,
             via_bridge_config: self.via_bridge_config,
+            coordinator_wallet: self.coordinator_wallet,
         };
         Ok(Output {
             via_coordinator_api_task,
@@ -99,6 +103,7 @@ pub struct ViaCoordinatorApiTask {
     btc_client: Arc<dyn BitcoinOps>,
     withdrawal_client: WithdrawalClient,
     via_bridge_config: ViaBridgeConfig,
+    coordinator_wallet: zksync_config::configs::via_wallets::ViaWallet,
 }
 
 #[async_trait::async_trait]
@@ -114,6 +119,7 @@ impl Task for ViaCoordinatorApiTask {
             self.btc_client,
             self.withdrawal_client,
             self.via_bridge_config.verifiers_pub_keys.clone(),
+            self.coordinator_wallet.private_key,
             stop_receiver.0,
         )
         .await

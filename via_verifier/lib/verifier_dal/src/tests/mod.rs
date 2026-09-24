@@ -38,6 +38,7 @@ async fn test_via_vote_workflow() {
             "test_blob_id".to_string(),
             "test_pubdata_tx_id".to_string(),
             "test_pubdata_blob_id".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -46,7 +47,7 @@ async fn test_via_vote_workflow() {
     // Test inserting a vote
     storage
         .via_votes_dal()
-        .insert_vote(votable_transaction_id, &verifier_address, vote)
+        .insert_vote(votable_transaction_id, &verifier_address, vote, None)
         .await
         .unwrap();
     storage
@@ -100,6 +101,7 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain() {
                 format!("test_blob_id_{i}").to_string(),
                 format!("test_pubdata_tx_id_{i}").to_string(),
                 format!("test_pubdata_blob_id_{i}").to_string(),
+                None,
             )
             .await
             .unwrap();
@@ -111,7 +113,7 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain() {
 
         storage
             .via_votes_dal()
-            .insert_vote(votable_transaction_id, &verifier_address, true)
+            .insert_vote(votable_transaction_id, &verifier_address, true, None)
             .await
             .unwrap();
         storage
@@ -166,6 +168,7 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
                 format!("test_blob_id_{i}").to_string(),
                 format!("test_pubdata_tx_id_{i}").to_string(),
                 format!("test_pubdata_blob_id_{i}").to_string(),
+                None,
             )
             .await
             .unwrap();
@@ -191,7 +194,7 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
 
         storage
             .via_votes_dal()
-            .insert_vote(votable_transaction_id, &verifier_address, vote)
+            .insert_vote(votable_transaction_id, &verifier_address, vote, None)
             .await
             .unwrap();
         storage
@@ -257,6 +260,7 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
                 format!("test_blob_id_{i}_fix").to_string(),
                 format!("test_pubdata_tx_id_{i}_fix").to_string(),
                 format!("test_pubdata_blob_id_{i}_fix").to_string(),
+                None,
             )
             .await
             .unwrap();
@@ -269,7 +273,7 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
 
         storage
             .via_votes_dal()
-            .insert_vote(votable_transaction_id, &verifier_address, vote)
+            .insert_vote(votable_transaction_id, &verifier_address, vote, None)
             .await
             .unwrap();
 

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use bitcoin::{Address, Amount, BlockHash, OutPoint, Transaction as BitcoinTransaction, Txid};
 use tracing::{debug, info, instrument, warn};
@@ -19,12 +19,30 @@ use crate::{
 
 pub mod withdrawal;
 
+/// Controls withdrawal provenance work independently of deposit and system-message ingestion.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WithdrawalScanMode {
+    /// Defer the whole scan on unavailable parents or credible malformed metadata.
+    /// The RPC adapter needs historical transaction availability (normally txindex).
+    /// Worst case: one RPC per distinct historical candidate parent per block scan,
+    /// including third-party candidates. Same-block parents and repeats are cached.
+    Required,
+    /// Emit verified observations; skip unclassifiable withdrawals, not other messages.
+    #[default]
+    BestEffort,
+    /// Do not recognize withdrawals or fetch their parents; still parse deposits.
+    Ignore,
+}
+
+type WithdrawalParents<'a> = HashMap<Txid, Result<Cow<'a, BitcoinTransaction>, String>>;
+
 /// The main indexer struct for processing Bitcoin inscriptions
 #[derive(Debug, Clone)]
 pub struct BitcoinInscriptionIndexer {
     client: Arc<dyn BitcoinOps>,
     wallets: Arc<SystemWallets>,
     parser: MessageParser,
+    withdrawal_mode: WithdrawalScanMode,
 }
 
 impl BitcoinInscriptionIndexer {
@@ -37,7 +55,13 @@ impl BitcoinInscriptionIndexer {
             client: client.clone(),
             parser: MessageParser::new(client.get_network()),
             wallets,
+            withdrawal_mode: WithdrawalScanMode::default(),
         }
+    }
+
+    pub fn with_withdrawal_mode(mut self, mode: WithdrawalScanMode) -> Self {
+        self.withdrawal_mode = mode;
+        self
     }
 
     #[instrument(skip(self), target = "bitcoin_indexer")]
@@ -89,6 +113,10 @@ impl BitcoinInscriptionIndexer {
         self.wallets = Arc::new(new_wallets);
     }
 
+    pub fn bridge_script_pubkey(&self) -> bitcoin::ScriptBuf {
+        self.wallets.bridge.script_pubkey()
+    }
+
     #[instrument(skip(self), target = "bitcoin_indexer")]
     pub async fn process_block(
         &mut self,
@@ -97,6 +125,7 @@ impl BitcoinInscriptionIndexer {
         debug!("Processing block at height {}", block_height);
 
         let block = self.client.fetch_block(block_height as u128).await?;
+        let block_hash = block.block_hash();
         // TODO: check block header is belong to a valid chain of blocks (reorg detection and management)
         // TODO: deal with malicious sequencer, verifiers from being able to make trouble by sending invalid messages / valid messages with invalid data
 
@@ -138,29 +167,81 @@ impl BitcoinInscriptionIndexer {
             let messages: Vec<_> = parsed_messages
                 .into_iter()
                 .filter(|message| self.is_valid_system_message(message))
+                .map(|mut message| {
+                    match &mut message {
+                        FullInscriptionMessage::ProofDAReference(proof) => {
+                            proof.common.block_hash = Some(block_hash);
+                        }
+                        FullInscriptionMessage::ValidatorAttestation(vote) => {
+                            vote.common.block_hash = Some(block_hash);
+                        }
+                        _ => {}
+                    }
+                    message
+                })
                 .collect();
 
             valid_messages.extend(messages);
         }
 
         if !system_txs.bridge_txs.is_empty() {
-            let parsed_messages: Vec<_> = system_txs
-                .bridge_txs
-                .iter_mut()
-                .flat_map(|tx| {
-                    self.parser
-                        .parse_bridge_transaction(tx, block_height, &self.wallets)
-                })
-                .collect();
-
-            let mut messages = vec![];
-            for message in parsed_messages {
-                if self.is_valid_bridge_message(&message).await {
-                    messages.push(message);
+            let mut parents = WithdrawalParents::new();
+            if self.withdrawal_mode != WithdrawalScanMode::Ignore {
+                parents.extend(
+                    block
+                        .txdata
+                        .iter()
+                        .map(|tx| (tx.compute_txid(), Ok(Cow::Borrowed(tx)))),
+                );
+            }
+            for tx in &mut system_txs.bridge_txs {
+                let parsed = self
+                    .parser
+                    .parse_bridge_transaction(tx, block_height, &self.wallets);
+                if self.withdrawal_mode == WithdrawalScanMode::Required
+                    && MessageParser::is_withdrawal_candidate(&tx.tx)
+                    && !parsed.iter().any(|message| {
+                        matches!(message, FullInscriptionMessage::BridgeWithdrawal(_))
+                    })
+                {
+                    let prevouts = self
+                        .verified_withdrawal_prevouts(&tx.tx, &mut parents)
+                        .await
+                        .map_err(|err| {
+                            crate::types::BitcoinError::InvalidTransaction(err.to_string())
+                        })?;
+                    if self.has_bridge_input(&prevouts) {
+                        return Err(crate::types::BitcoinError::InvalidTransaction(
+                            "Credible bridge withdrawal has incomplete metadata; defer scan".into(),
+                        )
+                        .into());
+                    }
+                }
+                for mut message in parsed {
+                    let valid = match self
+                        .is_valid_bridge_message(&mut message, &mut parents)
+                        .await
+                    {
+                        Ok(valid) => valid,
+                        Err(err) if self.withdrawal_mode == WithdrawalScanMode::BestEffort => {
+                            warn!("Skipping unclassifiable withdrawal: {err}");
+                            false
+                        }
+                        Err(err) => {
+                            return Err(crate::types::BitcoinError::InvalidTransaction(
+                                err.to_string(),
+                            )
+                            .into())
+                        }
+                    };
+                    if valid {
+                        if let FullInscriptionMessage::BridgeWithdrawal(withdrawal) = &mut message {
+                            withdrawal.input.block_hash = Some(block_hash);
+                        }
+                        valid_messages.push(message);
+                    }
                 }
             }
-
-            valid_messages.extend(messages);
         }
 
         debug!(
@@ -206,7 +287,9 @@ impl BitcoinInscriptionIndexer {
                     .iter()
                     .any(|output| output.script_pubkey == self.wallets.bridge.script_pubkey());
 
-                if is_bridge_output {
+                let is_withdrawal = self.withdrawal_mode != WithdrawalScanMode::Ignore
+                    && MessageParser::is_withdrawal_candidate(tx);
+                if is_bridge_output || is_withdrawal {
                     Some(TransactionWithMetadata::new(tx.clone(), tx_index))
                 } else {
                     None
@@ -321,13 +404,20 @@ impl BitcoinInscriptionIndexer {
         }
     }
 
-    async fn is_valid_bridge_message(&self, message: &FullInscriptionMessage) -> bool {
+    async fn is_valid_bridge_message(
+        &self,
+        message: &mut FullInscriptionMessage,
+        parents: &mut WithdrawalParents<'_>,
+    ) -> anyhow::Result<bool> {
         match message {
-            FullInscriptionMessage::L1ToL2Message(m) => self.is_valid_l1_to_l2_transfer(m),
+            FullInscriptionMessage::L1ToL2Message(m) => Ok(self.is_valid_l1_to_l2_transfer(m)),
             FullInscriptionMessage::BridgeWithdrawal(m) => {
-                self.is_valid_bridge_withdrawal(m).await.unwrap_or(false)
+                if self.withdrawal_mode == WithdrawalScanMode::Ignore {
+                    return Ok(false);
+                }
+                self.is_valid_bridge_withdrawal(m, parents).await
             }
-            _ => false,
+            _ => Ok(false),
         }
     }
 
@@ -369,15 +459,63 @@ impl BitcoinInscriptionIndexer {
         is_valid_receiver && is_valid_amount
     }
 
-    #[instrument(skip(self, message), target = "bitcoin_indexer")]
-    async fn is_valid_bridge_withdrawal(&self, message: &BridgeWithdrawal) -> anyhow::Result<bool> {
-        if let Some(outpoint) = message.input.inputs.first() {
-            let tx = self.client.get_transaction(&outpoint.txid).await?;
-            if let Some(txout) = tx.output.get(outpoint.vout as usize) {
-                return Ok(txout.script_pubkey == self.wallets.bridge.script_pubkey());
-            }
+    #[instrument(skip(self, message, parents), target = "bitcoin_indexer")]
+    async fn is_valid_bridge_withdrawal(
+        &self,
+        message: &mut BridgeWithdrawal,
+        parents: &mut WithdrawalParents<'_>,
+    ) -> anyhow::Result<bool> {
+        let prevouts = self
+            .verified_withdrawal_prevouts(&message.input.transaction, parents)
+            .await?;
+        if !self.has_bridge_input(&prevouts) {
+            return Ok(false);
         }
-        Ok(false)
+        message.input.prevouts = prevouts;
+        message.input.bridge_script_pubkey = Some(self.wallets.bridge.script_pubkey());
+        Ok(true)
+    }
+
+    fn has_bridge_input(&self, prevouts: &[(OutPoint, bitcoin::TxOut)]) -> bool {
+        let script = self.wallets.bridge.script_pubkey();
+        prevouts
+            .iter()
+            .any(|(_, output)| output.script_pubkey == script)
+    }
+
+    async fn verified_withdrawal_prevouts(
+        &self,
+        transaction: &BitcoinTransaction,
+        parents: &mut WithdrawalParents<'_>,
+    ) -> anyhow::Result<Vec<(OutPoint, bitcoin::TxOut)>> {
+        let mut prevouts = Vec::with_capacity(transaction.input.len());
+        for input in &transaction.input {
+            let outpoint = input.previous_output;
+            if let std::collections::hash_map::Entry::Vacant(entry) = parents.entry(outpoint.txid) {
+                let parent = self
+                    .client
+                    .get_transaction(&outpoint.txid)
+                    .await
+                    .map_err(|err| err.to_string())
+                    .and_then(|parent| {
+                        if parent.compute_txid() == outpoint.txid {
+                            Ok(Cow::Owned(parent))
+                        } else {
+                            Err("Parent transaction ID mismatch".into())
+                        }
+                    });
+                entry.insert(parent);
+            }
+            let parent = parents[&outpoint.txid]
+                .as_ref()
+                .map_err(|err| anyhow::anyhow!("{err}"))?;
+            let txout = parent
+                .output
+                .get(outpoint.vout as usize)
+                .ok_or_else(|| anyhow::anyhow!("Withdrawal parent output unavailable"))?;
+            prevouts.push((outpoint, txout.clone()));
+        }
+        Ok(prevouts)
     }
 
     #[instrument(skip(self, outpoint_opt), target = "bitcoin_indexer")]
@@ -484,6 +622,7 @@ mod tests {
             schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
             encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
             block_height: 0,
+            block_hash: None,
             tx_id: Txid::all_zeros(),
             p2wpkh_address: Some(get_test_addr()),
             tx_index: None,
@@ -503,7 +642,482 @@ mod tests {
             client: Arc::new(mock_client),
             parser: MessageParser::new(Network::Testnet),
             wallets,
+            withdrawal_mode: WithdrawalScanMode::Required,
         }
+    }
+
+    #[tokio::test]
+    async fn source_inclusion_requires_block_scan_and_preserves_sender_authorization() {
+        use bitcoin::{
+            opcodes::{all, OP_FALSE},
+            script::Builder,
+            secp256k1::{Keypair, Secp256k1, SecretKey},
+            taproot::LeafVersion,
+            CompressedPublicKey, Witness,
+        };
+
+        let keypair =
+            Keypair::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&[1; 32]).unwrap());
+        let (internal_key, _) = keypair.x_only_public_key();
+        let sender = Address::p2wpkh(&CompressedPublicKey(keypair.public_key()), Network::Testnet);
+        let envelope = |message_type: &[u8]| {
+            Builder::new()
+                .push_slice(internal_key.serialize())
+                .push_opcode(all::OP_CHECKSIG)
+                .push_opcode(OP_FALSE)
+                .push_opcode(all::OP_IF)
+                .push_slice(b"via_inscription_protocol")
+                .push_slice(bitcoin::script::PushBytesBuf::try_from(message_type.to_vec()).unwrap())
+                .push_slice([7; 32])
+        };
+        let proof = envelope(types::PROOF_DA_REFERENCE_MSG.as_bytes())
+            .push_slice(b"test-da")
+            .push_slice(b"test-proof")
+            .push_opcode(all::OP_ENDIF)
+            .into_script();
+        let vote = envelope(types::VALIDATOR_ATTESTATION_MSG.as_bytes())
+            .push_int(1)
+            .push_opcode(all::OP_ENDIF)
+            .into_script();
+        let mut control_block = vec![LeafVersion::TapScript.to_consensus()];
+        control_block.extend(internal_key.serialize());
+        let mut inputs: Vec<_> = [proof, vote]
+            .into_iter()
+            .map(|script| TxIn {
+                witness: Witness::from_slice(&[
+                    vec![0; 64],
+                    script.into_bytes(),
+                    control_block.clone(),
+                ]),
+                ..TxIn::default()
+            })
+            .collect();
+        inputs.push(TxIn {
+            witness: Witness::from_slice(&[vec![0; 64], keypair.public_key().serialize().to_vec()]),
+            ..TxIn::default()
+        });
+        let transaction = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: inputs,
+            output: vec![],
+        };
+        let block = Block {
+            header: Header {
+                version: Default::default(),
+                prev_blockhash: BlockHash::all_zeros(),
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 42,
+                bits: Default::default(),
+                nonce: 7,
+            },
+            txdata: vec![transaction.clone()],
+        };
+        let scanned_hash = block.block_hash();
+        let common = |message: FullInscriptionMessage| match message {
+            FullInscriptionMessage::ProofDAReference(proof) => proof.common,
+            FullInscriptionMessage::ValidatorAttestation(vote) => vote.common,
+            other => panic!("unexpected source message: {other:?}"),
+        };
+        let parsed =
+            MessageParser::new(Network::Testnet).parse_system_transaction(&transaction, 42, None);
+        assert_eq!(parsed.len(), 2);
+        for message in parsed {
+            assert_eq!(common(message).block_hash, None);
+        }
+        for mode in [
+            WithdrawalScanMode::Ignore,
+            WithdrawalScanMode::BestEffort,
+            WithdrawalScanMode::Required,
+        ] {
+            let mut client = MockBitcoinOps::new();
+            let scanned_block = block.clone();
+            client
+                .expect_fetch_block()
+                .with(eq(42u128))
+                .times(2)
+                .returning(move |_| Ok(scanned_block.clone()));
+            let mut indexer = get_indexer_with_mock(client).with_withdrawal_mode(mode);
+            let wallets = Arc::make_mut(&mut indexer.wallets);
+            wallets.sequencer = sender.clone();
+            wallets.verifiers = vec![sender.clone()];
+            let messages = indexer.process_block(42).await.unwrap();
+            assert_eq!(messages.len(), 2);
+            for message in messages {
+                let source = common(message);
+                assert_eq!(
+                    (source.block_height, source.block_hash),
+                    (42, Some(scanned_hash))
+                );
+            }
+            Arc::make_mut(&mut indexer.wallets).verifiers.clear();
+            let messages = indexer.process_block(42).await.unwrap();
+            assert!(matches!(
+                messages.as_slice(),
+                [FullInscriptionMessage::ProofDAReference(_)]
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn withdrawal_modes_scope_missing_parent_and_spam_to_withdrawals() {
+        let bridge = Address::p2tr(
+            &bitcoin::secp256k1::Secp256k1::new(),
+            bitcoin::XOnlyPublicKey::from_str(
+                "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            )
+            .unwrap(),
+            None,
+            Network::Testnet,
+        );
+        for mode in [
+            WithdrawalScanMode::Ignore,
+            WithdrawalScanMode::BestEffort,
+            WithdrawalScanMode::Required,
+        ] {
+            for malformed in [false, true] {
+                let metadata = if malformed {
+                    b"VIA_WI".to_vec()
+                } else {
+                    [b"VIA_WI\0".as_slice(), &[1; 10]].concat()
+                };
+                let mut candidate = Transaction {
+                    version: transaction::Version::TWO,
+                    lock_time: absolute::LockTime::ZERO,
+                    input: vec![TxIn::default()],
+                    output: vec![
+                        TxOut {
+                            value: Amount::from_sat(100_000),
+                            script_pubkey: bridge.script_pubkey(),
+                        },
+                        TxOut {
+                            value: Amount::ZERO,
+                            script_pubkey: ScriptBuf::new_op_return(
+                                bitcoin::script::PushBytesBuf::try_from(metadata).unwrap(),
+                            ),
+                        },
+                    ],
+                };
+                // An unrelated deposit on the same transaction must survive skipping
+                // its withdrawal classification, as must a separate deposit transaction.
+                candidate.input[0].witness =
+                    parser::tests::inscription_witness(&[0x83; 20], &[0; 20]);
+                let deposit = Transaction {
+                    version: transaction::Version::TWO,
+                    lock_time: absolute::LockTime::ZERO,
+                    input: vec![TxIn::default()],
+                    output: vec![
+                        TxOut {
+                            value: Amount::from_sat(100_000),
+                            script_pubkey: bridge.script_pubkey(),
+                        },
+                        TxOut {
+                            value: Amount::ZERO,
+                            script_pubkey: ScriptBuf::new_op_return([0x81; 20]),
+                        },
+                    ],
+                };
+                let block = Block {
+                    header: Header {
+                        version: Default::default(),
+                        prev_blockhash: BlockHash::all_zeros(),
+                        merkle_root: TxMerkleNode::all_zeros(),
+                        time: 0,
+                        bits: Default::default(),
+                        nonce: 0,
+                    },
+                    txdata: vec![candidate, deposit],
+                };
+                let mut client = MockBitcoinOps::new();
+                client
+                    .expect_fetch_block()
+                    .returning(move |_| Ok(block.clone()));
+                let lookups = usize::from(
+                    mode != WithdrawalScanMode::Ignore
+                        && (!malformed || mode == WithdrawalScanMode::Required),
+                );
+                client
+                    .expect_get_transaction()
+                    .times(lookups)
+                    .returning(|_| {
+                        Err(types::BitcoinError::InvalidTransaction(
+                            "parent unavailable".into(),
+                        ))
+                    });
+                let mut indexer = get_indexer_with_mock(client).with_withdrawal_mode(mode);
+                Arc::make_mut(&mut indexer.wallets).bridge = bridge.clone();
+                let result = indexer.process_blocks(42, 42).await;
+                if mode == WithdrawalScanMode::Required {
+                    assert!(result.is_err());
+                } else {
+                    let messages = result.unwrap();
+                    let receivers: Vec<_> = messages
+                        .iter()
+                        .map(|message| {
+                            let FullInscriptionMessage::L1ToL2Message(deposit) = message else {
+                                panic!("expected only deposits, got {message:?}");
+                            };
+                            deposit.input.receiver_l2_address
+                        })
+                        .collect();
+                    assert_eq!(
+                        receivers,
+                        vec![
+                            zksync_types::Address::repeat_byte(0x83),
+                            zksync_types::Address::repeat_byte(0x81)
+                        ]
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn same_block_parents_preserve_verified_mixed_input_payments_without_rpc() {
+        for mode in [WithdrawalScanMode::Required, WithdrawalScanMode::BestEffort] {
+            let parent = Transaction {
+                version: transaction::Version::TWO,
+                lock_time: absolute::LockTime::ZERO,
+                input: vec![TxIn::default()],
+                output: vec![
+                    TxOut {
+                        value: Amount::from_sat(10_000),
+                        script_pubkey: ScriptBuf::new(),
+                    },
+                    TxOut {
+                        value: Amount::from_sat(10_000),
+                        script_pubkey: get_test_addr().script_pubkey(),
+                    },
+                ],
+            };
+            let payment = Transaction {
+                version: transaction::Version::TWO,
+                lock_time: absolute::LockTime::ZERO,
+                input: [0, 1]
+                    .into_iter()
+                    .map(|vout| TxIn {
+                        previous_output: OutPoint {
+                            txid: parent.compute_txid(),
+                            vout,
+                        },
+                        ..TxIn::default()
+                    })
+                    .collect(),
+                output: vec![
+                    TxOut {
+                        value: Amount::from_sat(19_000),
+                        script_pubkey: get_test_addr().script_pubkey(),
+                    },
+                    TxOut {
+                        value: Amount::ZERO,
+                        script_pubkey: ScriptBuf::new_op_return(
+                            bitcoin::script::PushBytesBuf::try_from(
+                                [b"VIA_WI\0".as_slice(), &[1; 10]].concat(),
+                            )
+                            .unwrap(),
+                        ),
+                    },
+                ],
+            };
+            let block = Block {
+                header: Header {
+                    version: Default::default(),
+                    prev_blockhash: BlockHash::all_zeros(),
+                    merkle_root: TxMerkleNode::all_zeros(),
+                    time: 0,
+                    bits: Default::default(),
+                    nonce: 0,
+                },
+                txdata: vec![parent.clone(), payment.clone()],
+            };
+            let mut client = MockBitcoinOps::new();
+            client
+                .expect_fetch_block()
+                .returning(move |_| Ok(block.clone()));
+            client.expect_get_transaction().times(0);
+            let mut indexer = get_indexer_with_mock(client).with_withdrawal_mode(mode);
+            let messages = indexer.process_blocks(42, 42).await.unwrap();
+            let [FullInscriptionMessage::BridgeWithdrawal(observation)] = messages.as_slice()
+            else {
+                panic!("expected complete mixed-input observation, got {messages:?}");
+            };
+            assert_eq!(observation.input.transaction, payment);
+            assert_eq!(observation.common.tx_id, payment.compute_txid());
+            assert_eq!(
+                observation.input.prevouts,
+                payment
+                    .input
+                    .iter()
+                    .zip(&parent.output)
+                    .map(|(input, output)| (input.previous_output, output.clone()))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn withdrawal_parent_unavailability_defers_and_retry_retains_whole_payment() {
+        let parent = BitcoinTransaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output: vec![TxOut {
+                value: Amount::from_sat(10_000),
+                script_pubkey: get_test_addr().script_pubkey(),
+            }],
+        };
+        let payment = BitcoinTransaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: parent.compute_txid(),
+                    vout: 0,
+                },
+                ..TxIn::default()
+            }],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(9_000),
+                    script_pubkey: get_test_addr().script_pubkey(),
+                },
+                TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: ScriptBuf::new_op_return(
+                        bitcoin::script::PushBytesBuf::try_from(
+                            [b"VIA_WI\0".as_slice(), &[1; 10]].concat(),
+                        )
+                        .unwrap(),
+                    ),
+                },
+            ],
+        };
+        let block = Block {
+            header: Header {
+                version: Default::default(),
+                prev_blockhash: BlockHash::all_zeros(),
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0,
+                bits: Default::default(),
+                nonce: 0,
+            },
+            txdata: vec![payment.clone()],
+        };
+        let block_hash = block.block_hash();
+        let mut client = MockBitcoinOps::new();
+        client
+            .expect_fetch_block()
+            .returning(move |_| Ok(block.clone()));
+        let mut sequence = mockall::Sequence::new();
+        client
+            .expect_get_transaction()
+            .times(1)
+            .in_sequence(&mut sequence)
+            .returning(|_| {
+                Err(types::BitcoinError::InvalidTransaction(
+                    "parent unavailable".into(),
+                ))
+            });
+        let verified_parent = parent.clone();
+        client
+            .expect_get_transaction()
+            .times(1)
+            .in_sequence(&mut sequence)
+            .returning(move |_| Ok(verified_parent.clone()));
+        let mut indexer = get_indexer_with_mock(client);
+        assert!(indexer.process_blocks(42, 42).await.is_err());
+        let messages = indexer.process_blocks(42, 42).await.unwrap();
+        let [FullInscriptionMessage::BridgeWithdrawal(observation)] = messages.as_slice() else {
+            panic!("expected bridge payment");
+        };
+        assert_eq!(observation.input.transaction, payment);
+        assert_eq!(
+            observation.input.prevouts,
+            vec![(payment.input[0].previous_output, parent.output[0].clone())]
+        );
+        assert_eq!(observation.input.block_hash, Some(block_hash));
+    }
+
+    #[tokio::test]
+    async fn third_party_metadata_does_not_create_a_bridge_observation() {
+        let parent = BitcoinTransaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(10_000),
+                    script_pubkey: ScriptBuf::new(),
+                },
+                TxOut {
+                    value: Amount::from_sat(1_000),
+                    script_pubkey: get_test_addr().script_pubkey(),
+                },
+            ],
+        };
+        let mut tx = BitcoinTransaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: parent.compute_txid(),
+                    vout: 0,
+                },
+                ..TxIn::default()
+            }],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(9_000),
+                    script_pubkey: get_test_addr().script_pubkey(),
+                },
+                TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: ScriptBuf::new_op_return(
+                        bitcoin::script::PushBytesBuf::try_from(
+                            [b"VIA_WI\0".as_slice(), &[1; 10]].concat(),
+                        )
+                        .unwrap(),
+                    ),
+                },
+            ],
+        };
+        let mut client = MockBitcoinOps::new();
+        client
+            .expect_get_transaction()
+            .times(2)
+            .returning(move |_| Ok(parent.clone()));
+        let indexer = get_indexer_with_mock(client);
+        let mut message = indexer
+            .parser
+            .parse_op_return_withdrawal(&tx, 42, &indexer.wallets)
+            .unwrap();
+        assert!(!indexer
+            .is_valid_bridge_message(&mut message, &mut WithdrawalParents::new())
+            .await
+            .unwrap());
+        tx.input.push(TxIn {
+            previous_output: OutPoint {
+                txid: tx.input[0].previous_output.txid,
+                vout: 1,
+            },
+            ..TxIn::default()
+        });
+        let mut mixed = indexer
+            .parser
+            .parse_op_return_withdrawal(&tx, 42, &indexer.wallets)
+            .unwrap();
+        assert!(indexer
+            .is_valid_bridge_message(&mut mixed, &mut WithdrawalParents::new())
+            .await
+            .unwrap());
+        let FullInscriptionMessage::BridgeWithdrawal(mixed) = mixed else {
+            unreachable!()
+        };
+        assert_eq!(mixed.input.prevouts.len(), 2);
+        assert_eq!(
+            mixed.input.bridge_script_pubkey,
+            Some(get_test_addr().script_pubkey())
+        );
     }
 
     #[tokio::test]
@@ -541,6 +1155,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn malformed_bridge_metadata_defers_but_unrelated_metadata_does_not() {
+        for bridge_spend in [true, false] {
+            let parent = Transaction {
+                version: transaction::Version::TWO,
+                lock_time: absolute::LockTime::ZERO,
+                input: vec![TxIn::default()],
+                output: vec![TxOut {
+                    value: Amount::from_sat(10_000),
+                    script_pubkey: if bridge_spend {
+                        get_test_addr().script_pubkey()
+                    } else {
+                        ScriptBuf::new()
+                    },
+                }],
+            };
+            let payment = Transaction {
+                version: transaction::Version::TWO,
+                lock_time: absolute::LockTime::ZERO,
+                input: vec![TxIn {
+                    previous_output: OutPoint {
+                        txid: parent.compute_txid(),
+                        vout: 0,
+                    },
+                    ..TxIn::default()
+                }],
+                output: vec![TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: ScriptBuf::new_op_return(b"VIA_WI"),
+                }],
+            };
+            let block = Block {
+                header: Header {
+                    version: Default::default(),
+                    prev_blockhash: BlockHash::all_zeros(),
+                    merkle_root: TxMerkleNode::all_zeros(),
+                    time: 0,
+                    bits: Default::default(),
+                    nonce: 0,
+                },
+                txdata: vec![payment],
+            };
+            let mut client = MockBitcoinOps::new();
+            client
+                .expect_fetch_block()
+                .returning(move |_| Ok(block.clone()));
+            client
+                .expect_get_transaction()
+                .returning(move |_| Ok(parent.clone()));
+            let mut indexer = get_indexer_with_mock(client);
+            let result = indexer.process_blocks(42, 42).await;
+            if bridge_spend {
+                assert!(result.is_err());
+            } else {
+                assert!(result.unwrap().is_empty());
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn test_process_blocks() {
         let start_block = 1;
         let end_block = 3;
@@ -569,6 +1242,19 @@ mod tests {
             parser::tests::inscription_witness(&[0x55; 19], &[0; 20]);
         let mut malformed_withdrawal = malformed_transaction.clone();
         malformed_withdrawal.output[1].script_pubkey = ScriptBuf::new_op_return(b"VIA_WI");
+        let unrelated_parent = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output: vec![TxOut {
+                value: Amount::from_sat(100_000),
+                script_pubkey: ScriptBuf::new(),
+            }],
+        };
+        malformed_withdrawal.input[0].previous_output = OutPoint {
+            txid: unrelated_parent.compute_txid(),
+            vout: 0,
+        };
 
         let mock_block = Block {
             header: Header {
@@ -588,6 +1274,9 @@ mod tests {
         };
 
         let mut mock_client = MockBitcoinOps::new();
+        mock_client
+            .expect_get_transaction()
+            .returning(move |_| Ok(unrelated_parent.clone()));
         mock_client
             .expect_fetch_block()
             .returning(move |_| Ok(mock_block.clone()))
@@ -634,6 +1323,7 @@ mod tests {
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                     block_height: 0,
+                    block_hash: None,
                     tx_id: Txid::all_zeros(),
                     p2wpkh_address: Some(get_test_addr()),
                     tx_index: None,
@@ -650,7 +1340,7 @@ mod tests {
         // We didn't vote for the sequencer yet, so this message is invalid
         assert!(indexer.is_valid_system_message(&l1_batch_da_reference));
 
-        let l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
+        let mut l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
             common: get_test_common_fields(),
             amount: Amount::from_sat(1000),
             input: types::L1ToL2MessageInput {
@@ -663,7 +1353,10 @@ mod tests {
                 script_pubkey: indexer.wallets.bridge.script_pubkey(),
             }],
         });
-        assert!(indexer.is_valid_bridge_message(&l1_to_l2_message).await);
+        assert!(indexer
+            .is_valid_bridge_message(&mut l1_to_l2_message, &mut WithdrawalParents::new())
+            .await
+            .unwrap());
 
         let system_bootstrapping =
             FullInscriptionMessage::SystemBootstrapping(types::SystemBootstrapping {

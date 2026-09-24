@@ -98,6 +98,12 @@ those transactions under the [bridge wallet's spending conditions](musig2.md).
 The [forced-withdrawal proposal](bridging-proposals.md#l2-execution-does-not-guarantee-bitcoin-payout) explains why
 forced L2 execution alone does not guarantee a Bitcoin payout.
 
+Withdrawal signing is disabled by default. The [verifier withdrawal cutover and recovery
+guide](../../via_verifier/README.md#withdrawal-processing-and-coordinated-cutover) describes complete-history
+authority, legacy quarantine, authenticated participant mapping, full-parent availability, durable holds and
+canonical-inclusion fulfillment. Fulfillment has no default positive confirmation policy. Neither this guide nor
+an observed Bitcoin payment authorizes enabling signing.
+
 ## Invalid messages and incomplete processing
 
 If a deposit address fails the length checks in the encoding reference, the parser produces no message for that

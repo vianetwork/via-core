@@ -168,7 +168,7 @@ mod tests {
         };
 
         let bridge_txs = builder
-            .build_transaction_with_op_return(outputs.clone(), config)
+            .build_transaction_with_op_return(outputs.clone(), config, &[])
             .await?;
 
         Ok(bridge_txs)
@@ -1123,6 +1123,262 @@ mod tests {
         assert_eq!(bridge_txs[1].tx.input.len(), 2);
         assert_eq!(bridge_txs[2].tx.input.len(), 3);
 
+        Ok(())
+    }
+
+    fn fixed_fixture(
+        value: u64,
+        gross: u64,
+    ) -> (
+        TransactionBuilder,
+        TransactionBuilderConfig,
+        Transaction,
+        Vec<TransactionOutput>,
+    ) {
+        let bridge = get_bridge_address_mock();
+        let parent = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![TxOut {
+                value: Amount::from_sat(value),
+                script_pubkey: bridge.script_pubkey(),
+            }],
+        };
+        let config = TransactionBuilderConfig::withdrawal(bridge.clone());
+        let outputs = vec![TransactionOutput {
+            output: TxOut {
+                value: Amount::from_sat(gross),
+                script_pubkey: bridge.script_pubkey(),
+            },
+            op_return_data: Some(vec![1; 10]),
+        }];
+        (
+            create_tx_builder_mock(None).unwrap(),
+            config,
+            parent,
+            outputs,
+        )
+    }
+
+    #[tokio::test]
+    async fn held_inputs_are_excluded_before_coin_selection() -> Result<()> {
+        let (builder, mut config, parent, outputs) = fixed_fixture(20_000, 10_000);
+        let held = (
+            OutPoint::new(parent.compute_txid(), 0),
+            parent.output[0].clone(),
+        );
+        let mut available_parent = parent.clone();
+        available_parent.output[0].value = Amount::from_sat(15_000);
+        let available = (
+            OutPoint::new(available_parent.compute_txid(), 0),
+            available_parent.output[0].clone(),
+        );
+        config.default_available_utxos_opt = Some(vec![held.clone(), available.clone()]);
+        config.default_fee_rate_opt = Some(1);
+
+        let transactions = builder
+            .build_transaction_with_op_return(outputs.clone(), config.clone(), &[held.0])
+            .await?;
+        assert_eq!(transactions[0].utxos, vec![available.clone()]);
+        assert!(builder
+            .build_transaction_with_op_return(outputs, config, &[held.0, available.0],)
+            .await
+            .is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fixed_construction_preserves_producer_and_zero_net_no_change() -> Result<()> {
+        for (value, gross, net, change) in [(20_000, 10_000, 9_746, 10_000), (254, 254, 0, 0)] {
+            let (builder, config, parent, outputs) = fixed_fixture(value, gross);
+            let inputs = vec![(
+                OutPoint::new(parent.compute_txid(), 0),
+                parent.output[0].clone(),
+            )];
+            let fixed = builder.build_fixed_bridge_tx(&inputs, outputs.clone(), &config, 1)?;
+            let produced = builder
+                .build_bridge_txs(inputs, outputs.clone(), config.clone(), 1)
+                .await?;
+            assert_eq!(
+                bitcoin::consensus::serialize(&fixed.tx),
+                bitcoin::consensus::serialize(&produced[0].tx)
+            );
+            assert_eq!(fixed, produced[0]);
+            assert_eq!(fixed.tx.output[0].value.to_sat(), net);
+            assert_eq!(fixed.fee.to_sat(), 254);
+            assert_eq!(fixed.change_amount.to_sat(), change);
+            assert_eq!(fixed.tx.output.len(), if change == 0 { 2 } else { 3 });
+            builder.verify_fixed_bridge_tx(&fixed, outputs, &config, &[parent])?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_authorization_rejects_mutated_transaction_and_derived_fields() -> Result<()> {
+        let (builder, config, parent, outputs) = fixed_fixture(20_000, 10_000);
+        let inputs = vec![(
+            OutPoint::new(parent.compute_txid(), 0),
+            parent.output[0].clone(),
+        )];
+        let fixed = builder.build_fixed_bridge_tx(&inputs, outputs.clone(), &config, 1)?;
+        builder.verify_fixed_bridge_tx(&fixed, outputs.clone(), &config, &[parent.clone()])?;
+        let mutations: Vec<Box<dyn Fn(&mut UnsignedBridgeTx)>> = vec![
+            Box::new(|tx| tx.tx.output[0].value = Amount::from_sat(9_747)),
+            Box::new(|tx| tx.tx.output[0].script_pubkey = ScriptBuf::new()),
+            Box::new(|tx| tx.tx.output[1].script_pubkey = ScriptBuf::new_op_return([2; 10])),
+            Box::new(|tx| tx.tx.output[2].value = Amount::from_sat(9_999)),
+            Box::new(|tx| tx.tx.input[0].sequence = bitcoin::Sequence::MAX),
+            Box::new(|tx| tx.tx.input[0].script_sig = ScriptBuf::new_op_return([1])),
+            Box::new(|tx| tx.utxos[0].1.value = Amount::from_sat(20_001)),
+            Box::new(|tx| tx.fee = Amount::from_sat(255)),
+            Box::new(|tx| tx.fee_rate = 2),
+            Box::new(|tx| tx.change_amount = Amount::from_sat(9_999)),
+            Box::new(|tx| tx.txid = Txid::all_zeros()),
+        ];
+        for mutate in mutations {
+            let mut changed = fixed.clone();
+            mutate(&mut changed);
+            assert!(builder
+                .verify_fixed_bridge_tx(&changed, outputs.clone(), &config, &[parent.clone()])
+                .is_err());
+        }
+        let mut fake_parent = parent.clone();
+        fake_parent.output[0].value = Amount::from_sat(20_001);
+        assert!(builder
+            .verify_fixed_bridge_tx(&fixed, outputs, &config, &[fake_parent])
+            .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_inputs_require_exact_sufficient_prefix_and_aligned_sighashes() -> Result<()> {
+        let (builder, config, parent, outputs) = fixed_fixture(20_000, 10_000);
+        let input = (
+            OutPoint::new(parent.compute_txid(), 0),
+            parent.output[0].clone(),
+        );
+        let mut trailing = input.clone();
+        trailing.0.vout = 1;
+        assert!(builder
+            .build_fixed_bridge_tx(
+                &[input.clone(), trailing.clone()],
+                outputs.clone(),
+                &config,
+                1
+            )
+            .is_err());
+        assert!(builder
+            .build_fixed_bridge_tx(&[input.clone(), input.clone()], outputs.clone(), &config, 1)
+            .is_err());
+        let mut first = input.clone();
+        first.1.value = Amount::from_sat(5_000);
+        trailing.1.value = Amount::from_sat(6_000);
+        let fixed = builder.build_fixed_bridge_tx(&[first, trailing], outputs, &config, 1)?;
+        assert_eq!(fixed.change_amount.to_sat(), 1_000);
+        assert_eq!(builder.get_tr_sighashes(&fixed)?.len(), 2);
+        let mut changed = fixed.clone();
+        changed.utxos.reverse();
+        assert!(builder.get_tr_sighashes(&changed).is_err());
+        changed.utxos.clear();
+        assert!(builder.get_tr_sighashes(&changed).is_err());
+        let (_, _, _, small) = fixed_fixture(20_000, 253);
+        assert!(builder
+            .build_fixed_bridge_tx(&[input], small, &config, 1)
+            .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn observed_payment_accepts_governance_witness_without_local_round_and_rejects_underpayment(
+    ) -> Result<()> {
+        use via_verifier_types::{
+            withdrawal::WithdrawalRequest,
+            withdrawal_observation::{ObservedWithdrawal, WithdrawalObservation},
+        };
+        let (builder, config, parent, outputs) = fixed_fixture(254, 254);
+        let inputs = vec![(
+            OutPoint::new(parent.compute_txid(), 0),
+            parent.output[0].clone(),
+        )];
+        let fixed = builder.build_fixed_bridge_tx(&inputs, outputs, &config, 1)?;
+        let requests = vec![WithdrawalRequest {
+            id: hex::encode([1; 10]),
+            receiver: config.bridge_address.clone(),
+            amount: Amount::from_sat(254),
+            l2_sender: Default::default(),
+            l2_tx_hash: Default::default(),
+            l2_tx_log_index: 0,
+        }];
+        let mut observation = WithdrawalObservation {
+            transaction: fixed.tx,
+            prevouts: inputs,
+            withdrawals: vec![ObservedWithdrawal {
+                vout: 0,
+                reference: requests[0].id.clone(),
+                script_pubkey: config.bridge_address.script_pubkey(),
+                amount: Amount::ZERO,
+            }],
+            inclusion: None,
+        };
+        observation.transaction.input[0].witness.push([3; 64]);
+        observation.transaction.input[0].witness.push([4; 33]);
+        builder.verify_observed_withdrawal(&observation, &requests, &config)?;
+        let mut wrong = requests.clone();
+        wrong[0].amount = Amount::from_sat(255);
+        assert!(builder
+            .verify_observed_withdrawal(&observation, &wrong, &config)
+            .is_err());
+        observation.withdrawals[0].vout = 1;
+        assert!(builder
+            .verify_observed_withdrawal(&observation, &requests, &config)
+            .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_construction_rejects_amount_and_fee_overflow() -> Result<()> {
+        let (builder, config, parent, mut outputs) = fixed_fixture(u64::MAX, u64::MAX);
+        let inputs = vec![(
+            OutPoint::new(parent.compute_txid(), 0),
+            parent.output[0].clone(),
+        )];
+        assert!(builder
+            .build_fixed_bridge_tx(&inputs, outputs.clone(), &config, u64::MAX)
+            .is_err());
+        outputs.push(outputs[0].clone());
+        assert!(builder
+            .build_fixed_bridge_tx(&inputs, outputs, &config, 1)
+            .is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fixed_rounding_preserves_equal_split_and_never_drops_a_request() -> Result<()> {
+        let (builder, config, parent, mut outputs) = fixed_fixture(4_000, 1_000);
+        let inputs = vec![(
+            OutPoint::new(parent.compute_txid(), 0),
+            parent.output[0].clone(),
+        )];
+        for reference in [2u8, 3u8] {
+            let mut output = outputs[0].clone();
+            output.op_return_data = Some(vec![reference; 10]);
+            outputs.push(output);
+        }
+        let fixed = builder.build_fixed_bridge_tx(&inputs, outputs.clone(), &config, 1)?;
+        assert_eq!(fixed.fee.to_sat(), 324);
+        assert_eq!(fixed.tx.output[0].value.to_sat(), 892);
+        assert_eq!(fixed.tx.output[1].value.to_sat(), 892);
+        assert_eq!(fixed.tx.output[2].value.to_sat(), 892);
+        assert_eq!(fixed.change_amount.to_sat(), 1_000);
+        let produced = builder
+            .build_bridge_txs(inputs.clone(), outputs.clone(), config.clone(), 1)
+            .await?;
+        assert_eq!(fixed, produced[0]);
+        outputs[1].output.value = Amount::from_sat(107);
+        assert!(builder
+            .build_fixed_bridge_tx(&inputs, outputs, &config, 1)
+            .is_err());
         Ok(())
     }
 }

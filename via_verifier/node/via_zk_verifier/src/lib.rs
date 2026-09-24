@@ -217,6 +217,12 @@ impl ViaVerifier {
                 );
             }
             let mut transaction = storage.start_transaction().await?;
+            if !is_verified {
+                transaction
+                    .via_withdrawal_dal()
+                    .invalidate_withdrawal_batches_from(u32::try_from(l1_batch_number)?)
+                    .await?;
+            }
 
             let votable_transaction_id = transaction
                 .via_votes_dal()

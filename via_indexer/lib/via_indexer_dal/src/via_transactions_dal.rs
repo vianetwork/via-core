@@ -101,28 +101,23 @@ impl ViaTransactionsDal<'_, '_> {
     }
 
     pub async fn insert_withdraw(&mut self, withdrawal: Withdrawal) -> DalResult<()> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO withdrawals (
-                id,
-                tx_id,
-                l2_tx_log_index,
-                receiver,
-                value,
-                timestamp,
-                block_number
+                id, tx_id, vout, l2_tx_log_index, receiver, value, timestamp, block_number
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (id) DO NOTHING
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (tx_id, vout) DO NOTHING
             "#,
-            withdrawal.id,
-            withdrawal.tx_id,
-            withdrawal.l2_tx_log_index,
-            withdrawal.receiver,
-            withdrawal.value,
-            withdrawal.timestamp,
-            withdrawal.block_number
         )
+        .bind(withdrawal.id)
+        .bind(withdrawal.tx_id)
+        .bind(i64::from(withdrawal.vout))
+        .bind(withdrawal.l2_tx_log_index)
+        .bind(withdrawal.receiver)
+        .bind(withdrawal.value)
+        .bind(withdrawal.timestamp)
+        .bind(withdrawal.block_number)
         .instrument("insert_withdrawal")
         .execute(&mut self.storage)
         .await?;

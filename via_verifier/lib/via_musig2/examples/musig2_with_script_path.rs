@@ -224,7 +224,7 @@ async fn process_withdraw_using_key_hash(
     };
 
     let mut unsigned_tx = tx_builder
-        .build_transaction_with_op_return(outputs, config)
+        .build_transaction_with_op_return(outputs, config, &[])
         .await?[0]
         .clone();
 

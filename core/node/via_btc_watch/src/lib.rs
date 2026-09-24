@@ -7,7 +7,10 @@ use message_processors::GovernanceUpgradesEventProcessor;
 use tokio::sync::watch;
 // re-export via_btc_client types
 pub use via_btc_client::types::BitcoinNetwork;
-use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer};
+use via_btc_client::{
+    client::BitcoinClient,
+    indexer::{BitcoinInscriptionIndexer, WithdrawalScanMode},
+};
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::via_wallet::SystemWallets;
@@ -32,19 +35,14 @@ pub struct BtcWatch {
 impl BtcWatch {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
-        btc_watch_config: ViaBtcWatchConfig,
-        indexer: BitcoinInscriptionIndexer,
-        btc_client: Arc<BitcoinClient>,
-        pool: ConnectionPool<Core>,
-        is_main_node: bool,
+        btc_watch_config: ViaBtcWatchConfig, indexer: BitcoinInscriptionIndexer, btc_client: Arc<BitcoinClient>,
+        pool: ConnectionPool<Core>, is_main_node: bool,
     ) -> anyhow::Result<Self> {
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
 
         // Only build message processors that match the actor role:
-        let mut message_processors: Vec<Box<dyn MessageProcessor>> = vec![
-            Box::new(L1ToL2MessageProcessor::default()),
-            Box::new(VotableMessageProcessor::default()),
-        ];
+        let mut message_processors: Vec<Box<dyn MessageProcessor>> =
+            vec![Box::new(L1ToL2MessageProcessor::default()), Box::new(VotableMessageProcessor::default())];
 
         if is_main_node {
             let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
@@ -56,15 +54,13 @@ impl BtcWatch {
                 .expect("Failed to load the latest protocol semantic version")
                 .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
 
-            message_processors.push(Box::new(GovernanceUpgradesEventProcessor::new(
-                btc_client,
-                protocol_semantic_version,
-            )));
+            message_processors
+                .push(Box::new(GovernanceUpgradesEventProcessor::new(btc_client, protocol_semantic_version)));
         }
 
         Ok(Self {
             btc_watch_config,
-            indexer,
+            indexer: indexer.with_withdrawal_mode(WithdrawalScanMode::Ignore),
             pool,
             message_processors,
             system_wallet_processor,
@@ -95,43 +91,29 @@ impl BtcWatch {
         Ok(())
     }
 
-    async fn loop_iteration(
-        &mut self,
-        storage: &mut Connection<'_, Core>,
-    ) -> Result<(), MessageProcessorError> {
-        if storage
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some()
-        {
+    async fn loop_iteration(&mut self, storage: &mut Connection<'_, Core>) -> Result<(), MessageProcessorError> {
+        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
 
-        let last_processed_bitcoin_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block(BtcWatch::module_name())
-            .await? as u32;
+        let last_processed_bitcoin_block =
+            storage.via_indexer_dal().get_last_processed_l1_block(BtcWatch::module_name()).await? as u32;
 
         if last_processed_bitcoin_block == 0 {
-            return Err(MessageProcessorError::Internal(anyhow::anyhow!(
-                "The indexer is not initialized".to_string()
-            )));
+            return Err(MessageProcessorError::Internal(anyhow::anyhow!("The indexer is not initialized".to_string())));
         }
 
-        let current_l1_block_number =
-            self.indexer
-                .fetch_block_height()
-                .await
-                .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
-                .saturating_sub(self.btc_watch_config.block_confirmations) as u32;
+        let current_l1_block_number = self
+            .indexer
+            .fetch_block_height()
+            .await
+            .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
+            .saturating_sub(self.btc_watch_config.block_confirmations) as u32;
         if current_l1_block_number <= last_processed_bitcoin_block {
             return Ok(());
         }
 
-        let Some((last_l1_block_number, _)) =
-            storage.via_l1_block_dal().get_last_l1_block().await?
-        else {
+        let Some((last_l1_block_number, _)) = storage.via_l1_block_dal().get_last_l1_block().await? else {
             tracing::warn!("Reorg did not start yet");
             return Ok(());
         };
@@ -152,17 +134,14 @@ impl BtcWatch {
             return Ok(());
         }
 
-        let system_wallets_map = match storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_bitcoin_block as i64)
-            .await?
-        {
-            Some(map) => map,
-            None => {
-                tracing::info!("Wait for storage init, block number {}", from_block);
-                return Ok(());
-            }
-        };
+        let system_wallets_map =
+            match storage.via_wallet_dal().get_system_wallets_raw(last_processed_bitcoin_block as i64).await? {
+                Some(map) => map,
+                None => {
+                    tracing::info!("Wait for storage init, block number {}", from_block);
+                    return Ok(());
+                }
+            };
 
         let system_wallets = SystemWallets::try_from(system_wallets_map)?;
         self.indexer.update_system_wallets(
@@ -209,11 +188,7 @@ impl BtcWatch {
             .await
             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
-        tracing::info!(
-            "The btc_watch processed blocks, from {} to {}",
-            from_block,
-            to_block,
-        );
+        tracing::info!("The btc_watch processed blocks, from {} to {}", from_block, to_block,);
 
         Ok(())
     }
