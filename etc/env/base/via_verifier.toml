@@ -9,9 +9,14 @@ coordinator_http_url = "http://0.0.0.0:6060"
 verifier_request_timeout = 10
 # The verifier_mode can be simple verifier or coordinator.
 role = "Coordinator"
-# The session timeout (seconds).
-session_timeout = 30
 # The transaction weight limit
 max_tx_weight = 380000
 # The bridge address merkle root.
 bridge_address_merkle_root = "0e45879bc42970c9b60ddeafa369472405ab87293380e79c4af3dad99623c5ad"
+
+# Remains disabled until complete history, recovery and coordinated cutover are approved.
+withdrawal_signing_enabled = false
+# Set the coordinator's verifier public key before enabling authenticated signing.
+coordinator_public_key = ""
+# Fulfillment is disabled until an explicit inclusion policy is selected.
+# withdrawal_fulfillment_confirmations = <approved positive confirmation depth>

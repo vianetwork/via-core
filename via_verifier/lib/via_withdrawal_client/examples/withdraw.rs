@@ -79,12 +79,17 @@ async fn main() -> Result<()> {
     let withdrawal_client =
         WithdrawalClient::new(da_client, bitcoin::Network::Regtest, web3_client);
 
-    let withdrawals = withdrawal_client
+    let batch = withdrawal_client
         .get_withdrawals(header.blob_id.as_str(), L1BatchNumber(block_number))
         .await?;
 
     info!("--------------------------------------------------------");
-    info!("Withdrawals {:?}", withdrawals);
+    info!(
+        "Complete batch {} ({} receipts), withdrawals {:?}",
+        batch.batch_number,
+        batch.receipts.len(),
+        batch.withdrawals
+    );
     info!("--------------------------------------------------------");
 
     Ok(())

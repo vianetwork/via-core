@@ -11,36 +11,28 @@ pub struct VerifierMessageProcessor {}
 #[async_trait::async_trait]
 impl MessageProcessor for VerifierMessageProcessor {
     async fn process_messages(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-        msgs: Vec<FullInscriptionMessage>,
+        &mut self, storage: &mut Connection<'_, Verifier>, msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         for msg in msgs {
             match msg {
                 FullInscriptionMessage::ProofDAReference(ref proof_msg) => {
+                    let source_hash = proof_msg.common.block_hash.ok_or_else(|| {
+                        MessageProcessorError::Internal(anyhow::anyhow!(
+                            "ProofDAReference is missing its scanned Bitcoin block hash"
+                        ))
+                    })?;
                     let proof_reveal_tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
 
-                    if storage
-                        .via_votes_dal()
-                        .proof_reveal_tx_exists(proof_reveal_tx_id.as_bytes())
-                        .await?
-                    {
-                        tracing::info!(
-                            "Skipping duplicate proof reveal tx: {:?}",
-                            proof_reveal_tx_id
-                        );
+                    if storage.via_votes_dal().proof_reveal_tx_exists(proof_reveal_tx_id.as_bytes()).await? {
+                        tracing::info!("Skipping duplicate proof reveal tx: {:?}", proof_reveal_tx_id);
                         continue;
                     }
 
-                    let pubdata_msgs = indexer
-                        .parse_transaction(&proof_msg.input.l1_batch_reveal_txid)
-                        .await?;
+                    let pubdata_msgs = indexer.parse_transaction(&proof_msg.input.l1_batch_reveal_txid).await?;
 
                     if pubdata_msgs.len() != 1 {
-                        return Err(MessageProcessorError::Internal(anyhow::Error::msg(
-                            "Invalid pubdata msg lenght",
-                        )));
+                        return Err(MessageProcessorError::Internal(anyhow::Error::msg("Invalid pubdata msg length")));
                     }
 
                     let inscription = pubdata_msgs[0].clone();
@@ -48,9 +40,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                     let l1_batch_da_ref_inscription = match inscription {
                         FullInscriptionMessage::L1BatchDAReference(da_msg) => da_msg,
                         _ => {
-                            return Err(MessageProcessorError::Internal(anyhow::Error::msg(
-                                "Invalid inscription type",
-                            )))
+                            return Err(MessageProcessorError::Internal(anyhow::Error::msg("Invalid inscription type")))
                         }
                     };
 
@@ -63,9 +53,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                     );
 
                     if new_l1_batch_number == 0 {
-                        tracing::info!(
-                            "Skipping ProofDAReference message with l1_batch_number ZERO."
-                        );
+                        tracing::info!("Skipping ProofDAReference message with l1_batch_number ZERO.");
                         continue;
                     } else if new_l1_batch_number == 1 {
                         if storage.via_votes_dal().batch_exists(1).await? {
@@ -73,35 +61,25 @@ impl MessageProcessor for VerifierMessageProcessor {
                             continue;
                         }
                     } else if new_l1_batch_number > 1 {
-                        let last_batch_in_canonical_chain = match storage
-                            .via_votes_dal()
-                            .get_last_batch_in_canonical_chain()
-                            .await?
-                        {
-                            Some(last_batch_in_canonical_chain) => last_batch_in_canonical_chain,
-                            None => {
-                                return Err(MessageProcessorError::Internal(anyhow::Error::msg(
-                                    "Last batch in canonical chain not found",
-                                )))
-                            }
-                        };
+                        let last_batch_in_canonical_chain =
+                            match storage.via_votes_dal().get_last_batch_in_canonical_chain().await? {
+                                Some(last_batch_in_canonical_chain) => last_batch_in_canonical_chain,
+                                None => {
+                                    return Err(MessageProcessorError::Internal(anyhow::Error::msg(
+                                        "Last batch in canonical chain not found",
+                                    )))
+                                }
+                            };
 
                         if last_batch_in_canonical_chain.0 + 1 != new_l1_batch_number {
                             // Possible reorg: validate whether the batch is a fork of a previously reverted batch.
                             // If this batch is valid (i.e., a fork of a previously valid batch),
                             // the verifier treats it as a new fork, implicitly marking all earlier batches as invalid.
-                            let parent_hash = l1_batch_da_ref_inscription
-                                .input
-                                .prev_l1_batch_hash
-                                .as_bytes()
-                                .to_vec();
+                            let parent_hash = l1_batch_da_ref_inscription.input.prev_l1_batch_hash.as_bytes().to_vec();
 
                             let exists = storage
                                 .via_votes_dal()
-                                .get_parent_batch_exists_for_l1_batch(
-                                    new_l1_batch_number as i64,
-                                    &parent_hash,
-                                )
+                                .get_parent_batch_exists_for_l1_batch(new_l1_batch_number as i64, &parent_hash)
                                 .await?;
                             if !exists {
                                 tracing::info!(
@@ -118,25 +96,21 @@ impl MessageProcessor for VerifierMessageProcessor {
                             );
 
                             let from_l1_batch_number = (new_l1_batch_number - 1) as i64;
-
                             let mut transaction = storage.start_transaction().await?;
                             transaction
-                                .via_votes_dal()
-                                .delete_votable_transactions(from_l1_batch_number)
+                                .via_withdrawal_dal()
+                                .invalidate_withdrawal_batches_from(new_l1_batch_number)
                                 .await?;
 
-                            transaction
-                                .via_transactions_dal()
-                                .reset_transactions(from_l1_batch_number)
-                                .await?;
+                            transaction.via_votes_dal().delete_votable_transactions(from_l1_batch_number).await?;
+
+                            transaction.via_transactions_dal().reset_transactions(from_l1_batch_number).await?;
 
                             transaction.commit().await?;
 
-                            METRICS.inscriptions_processed[&InscriptionStage::Reorg]
-                                .set(from_l1_batch_number as usize);
+                            METRICS.inscriptions_processed[&InscriptionStage::Reorg].set(from_l1_batch_number as usize);
                         } else {
-                            if last_batch_in_canonical_chain.1
-                                != l1_batch_da_ref_inscription.input.prev_l1_batch_hash.0
+                            if last_batch_in_canonical_chain.1 != l1_batch_da_ref_inscription.input.prev_l1_batch_hash.0
                             {
                                 tracing::info!(
                                 "Skipping ProofDAReference message with l1_batch_number: {:?}. Last batch in canonical chain: {:?}",
@@ -148,8 +122,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                         }
                     }
 
-                    METRICS.inscriptions_processed[&InscriptionStage::IndexedL1Batch]
-                        .set(new_l1_batch_number as usize);
+                    METRICS.inscriptions_processed[&InscriptionStage::IndexedL1Batch].set(new_l1_batch_number as usize);
 
                     storage
                         .via_votes_dal()
@@ -162,35 +135,33 @@ impl MessageProcessor for VerifierMessageProcessor {
                             proof_msg.input.blob_id.clone(),
                             proof_msg.input.l1_batch_reveal_txid.to_string(),
                             l1_batch_da_ref_inscription.input.blob_id,
+                            Some((proof_msg.common.block_height, source_hash)),
                         )
                         .await?;
 
-                    tracing::info!(
-                        "New votable transaction for L1 batch {:?}",
-                        new_l1_batch_number
-                    );
+                    tracing::info!("New votable transaction for L1 batch {:?}", new_l1_batch_number);
                 }
                 ref f @ FullInscriptionMessage::ValidatorAttestation(ref attestation_msg) => {
+                    let source_hash = attestation_msg.common.block_hash.ok_or_else(|| {
+                        MessageProcessorError::Internal(anyhow::anyhow!(
+                            "ValidatorAttestation is missing its scanned Bitcoin block hash"
+                        ))
+                    })?;
                     if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
-                        let reveal_proof_txid =
-                            convert_txid_to_h256(attestation_msg.input.reference_txid);
+                        let reveal_proof_txid = convert_txid_to_h256(attestation_msg.input.reference_txid);
                         let tx_id = convert_txid_to_h256(attestation_msg.common.tx_id);
 
                         // Vote = true if attestation_msg.input.attestation == Vote::Ok
-                        let is_ok = matches!(
-                            attestation_msg.input.attestation,
-                            via_btc_client::types::Vote::Ok
-                        );
+                        let is_ok = matches!(attestation_msg.input.attestation, via_btc_client::types::Vote::Ok);
 
-                        if let Some(votable_transaction_id) = storage
-                            .via_votes_dal()
-                            .get_votable_transaction_id(&reveal_proof_txid.as_bytes())
-                            .await?
+                        if let Some(votable_transaction_id) =
+                            storage.via_votes_dal().get_votable_transaction_id(&reveal_proof_txid.as_bytes()).await?
                         {
-                            let p2wpkh_address =
-                                attestation_msg.common.p2wpkh_address.as_ref().expect(
-                                    "ValidatorAttestation message must have a p2wpkh address",
-                                );
+                            let p2wpkh_address = attestation_msg
+                                .common
+                                .p2wpkh_address
+                                .as_ref()
+                                .expect("ValidatorAttestation message must have a p2wpkh address");
 
                             let mut transaction = storage.start_transaction().await?;
 
@@ -200,13 +171,13 @@ impl MessageProcessor for VerifierMessageProcessor {
                                     votable_transaction_id,
                                     &p2wpkh_address.to_string(),
                                     is_ok,
+                                    Some((attestation_msg.common.block_height, source_hash)),
                                 )
                                 .await?;
 
                             tracing::info!("New vote found for L1 batch {:?}", l1_batch_number);
 
-                            METRICS.inscriptions_processed[&InscriptionStage::Vote]
-                                .set(l1_batch_number.0 as usize);
+                            METRICS.inscriptions_processed[&InscriptionStage::Vote].set(l1_batch_number.0 as usize);
 
                             // Check finalization
                             if transaction
@@ -222,9 +193,9 @@ impl MessageProcessor for VerifierMessageProcessor {
                                     .set(l1_batch_number.0 as usize);
 
                                 tracing::info!(
-                                        "Finalizing transaction with tx_id: {:?} and block number: {:?}",
-                                        tx_id,
-                                        l1_batch_number
+                                    "Finalizing transaction with tx_id: {:?} and block number: {:?}",
+                                    tx_id,
+                                    l1_batch_number
                                 );
                             }
 

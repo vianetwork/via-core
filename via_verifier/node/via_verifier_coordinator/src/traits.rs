@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use axum::async_trait;
-use bitcoin::Txid;
+use bitcoin::Transaction;
 
 use crate::types::SessionOperation;
 
@@ -27,7 +27,7 @@ pub trait ISession: Any + Send + Sync {
 
     async fn after_broadcast_final_transaction(
         &self,
-        txid: Txid,
+        transaction: &Transaction,
         session_op: &SessionOperation,
     ) -> anyhow::Result<bool>;
 

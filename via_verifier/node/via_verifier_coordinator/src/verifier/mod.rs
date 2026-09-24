@@ -1,20 +1,30 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
+use crate::{
+    auth::{digest, random_id, Binding, Envelope, MAX_BODY},
+    sessions::withdrawal::WithdrawalSession,
+    traits::ISession,
+    types::{NoncePair, PartialSignaturePair, SessionOperation, SigningSessionResponse},
+    utils::{decode_nonce, decode_signature, encode_nonce, encode_signature},
 };
-
 use anyhow::Context;
-use bitcoin::{TapSighashType, Witness};
-use musig2::{CompactSignature, PartialSignature};
-use reqwest::{header, Client, StatusCode};
-use tokio::sync::watch;
-use via_btc_client::traits::{BitcoinOps, Serializable};
-use via_musig2::{
-    get_signer_with_merkle_root, transaction_builder::TransactionBuilder, verify_signature, Signer,
+use bitcoin::{
+    secp256k1::{PublicKey, Secp256k1, SecretKey},
+    TapSighashType, Transaction, Witness,
 };
-use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc};
+use tokio::sync::watch;
+use via_btc_client::traits::BitcoinOps;
+use via_musig2::{
+    get_signer_with_merkle_root,
+    transaction_builder::TransactionBuilder,
+    utils::{aggregate_public_signatures, verify_partial_signature},
+    Signer,
+};
+use via_verifier_dal::{
+    withdrawals_dal::{WithdrawalAttemptRecord, WithdrawalAttemptState},
+    Connection, ConnectionPool, Verifier, VerifierDal,
+};
 use via_verifier_state::sync::ViaState;
-use via_verifier_types::{protocol_version::get_sequencer_version, transaction::UnsignedBridgeTx};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{
     configs::{
@@ -24,27 +34,31 @@ use zksync_config::{
 };
 use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets};
 
-use crate::{
-    metrics::METRICS,
-    sessions::{session_manager::SessionManager, withdrawal::WithdrawalSession},
-    traits::ISession,
-    types::{
-        NoncePair, PartialSignaturePair, SessionOperation, SessionType, SigningSessionResponse,
-    },
-    utils::{decode_nonce, decode_signature, encode_nonce, encode_signature, seconds_since_epoch},
-};
+type PublicTranscript = BTreeMap<usize, BTreeMap<usize, String>>;
+#[derive(Serialize, Deserialize)]
+pub(crate) struct CachedShares {
+    pub nonces: PublicTranscript,
+    pub shares: BTreeMap<usize, PartialSignaturePair>,
+}
+use crate::types::AdmittedContent;
+struct LiveRound {
+    id: [u8; 32],
+    content: Vec<u8>,
+    signers: Option<Vec<Signer>>,
+    // Keep the exact batch with its secrets even if COMMIT returns an uncertain result.
+    public_nonces: Vec<u8>,
+}
 
 pub struct ViaWithdrawalVerifier {
     verifier_config: ViaVerifierConfig,
     wallet: ViaWallet,
-    session_manager: SessionManager,
+    withdrawal_session: WithdrawalSession,
     btc_client: Arc<dyn BitcoinOps>,
     master_connection_pool: ConnectionPool<Verifier>,
-    client: Client,
-    signer_per_utxo_input: BTreeMap<usize, Signer>,
-    final_sig_per_utxo_input: BTreeMap<usize, CompactSignature>,
+    client: reqwest::Client,
     via_bridge_config: ViaBridgeConfig,
     state: ViaState,
+    live: Option<LiveRound>,
 }
 
 impl ViaWithdrawalVerifier {
@@ -57,684 +71,670 @@ impl ViaWithdrawalVerifier {
         via_bridge_config: ViaBridgeConfig,
         via_btc_watch_config: ViaBtcWatchConfig,
     ) -> anyhow::Result<Self> {
-        let transaction_builder = Arc::new(TransactionBuilder::new(btc_client.clone())?);
-
+        if verifier_config.withdrawal_signing_enabled {
+            PublicKey::from_str(&verifier_config.coordinator_public_key)?;
+            anyhow::ensure!(
+                via_bridge_config
+                    .verifiers_pub_keys
+                    .contains(&verifier_config.coordinator_public_key),
+                "Coordinator must belong to wallet"
+            );
+            let unique: std::collections::BTreeSet<_> =
+                via_bridge_config.verifiers_pub_keys.iter().collect();
+            anyhow::ensure!(
+                unique.len() == via_bridge_config.verifiers_pub_keys.len(),
+                "Duplicate participants"
+            );
+        }
         let withdrawal_session = WithdrawalSession::new(
             master_connection_pool.clone(),
-            transaction_builder.clone(),
+            Arc::new(TransactionBuilder::new(btc_client.clone())?),
             withdrawal_client,
         );
-
         let state = ViaState::new(
             master_connection_pool.clone(),
             btc_client.clone(),
             via_btc_watch_config,
         );
-
-        // Add sessions type the verifier network can process
-        let sessions: HashMap<SessionType, Arc<dyn ISession>> = [(
-            SessionType::Withdrawal,
-            Arc::new(withdrawal_session) as Arc<dyn ISession>,
-        )]
-        .into_iter()
-        .collect();
-
         Ok(Self {
             verifier_config,
             wallet,
-            session_manager: SessionManager::new(sessions),
+            withdrawal_session,
             btc_client,
             master_connection_pool,
-            client: Client::new(),
-            signer_per_utxo_input: BTreeMap::new(),
-            final_sig_per_utxo_input: BTreeMap::new(),
+            client: reqwest::Client::new(),
             via_bridge_config,
             state,
+            live: None,
         })
     }
 
-    pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
+    pub async fn run(mut self, mut stop: watch::Receiver<bool>) -> anyhow::Result<()> {
+        if !self.verifier_config.withdrawal_signing_enabled {
+            while !*stop.borrow_and_update() {
+                if stop.changed().await.is_err() {
+                    break;
+                }
+            }
+            return Ok(());
+        }
+        self.withdrawal_session.prepare_session().await?;
+        let wallet = self.withdrawal_session.wallet_script().await?;
+        let pool = self.master_connection_pool.clone();
+        let mut owner = pool.connection().await?;
+        anyhow::ensure!(
+            owner
+                .via_withdrawal_dal()
+                .acquire_withdrawal_signer_lock(&wallet)
+                .await?,
+            "Another signer process owns this wallet"
+        );
+        owner
+            .via_withdrawal_dal()
+            .retire_incomplete_withdrawal_attempts(&wallet)
+            .await?;
         let mut timer = tokio::time::interval(self.verifier_config.polling_interval());
-
-        while !*stop_receiver.borrow_and_update() {
-            tokio::select! {
-                _ = timer.tick() => { /* continue iterations */ }
-                _ = stop_receiver.changed() => break,
-            }
-
-            match self.loop_iteration().await {
-                Ok(()) => {}
-                Err(err) => {
-                    METRICS.errors.inc();
-                    tracing::error!("Failed to process verifier withdrawal task: {err}");
-                }
+        while !*stop.borrow_and_update() {
+            tokio::select! { _ = timer.tick() => {}, _ = stop.changed() => break }
+            // Never replace/reacquire this connection: a lost owner terminates the process task.
+            Self::check_owner(&mut owner, &wallet).await?;
+            if let Err(error) = self.iteration(&mut owner, &wallet).await {
+                crate::metrics::METRICS.errors.inc();
+                tracing::error!("Withdrawal signing deferred: {error:#}");
             }
         }
-
-        tracing::info!("Stop signal received, verifier withdrawal is shutting down");
-        Ok(())
-    }
-    async fn loop_iteration(&mut self) -> Result<(), anyhow::Error> {
-        self.session_manager.prepare_session().await?;
-
-        if self.state.is_reorg_in_progress().await? {
-            return Ok(());
-        }
-
-        if self.state.is_sync_in_progress().await? {
-            return Ok(());
-        }
-
-        self.validate_verifier_addresses().await?;
-
-        let mut session_info = self.get_session().await?;
-
-        if self.is_coordinator() {
-            self.create_new_session().await?;
-            session_info = self.get_session().await?;
-
-            if session_info.session_op.is_empty() {
-                tracing::debug!("Empty session, nothing to process");
-                return Ok(());
-            }
-
-            let session_op = SessionOperation::from_bytes(&session_info.session_op);
-
-            if !self
-                .session_manager
-                .before_process_session(&session_op)
-                .await?
-            {
-                tracing::debug!("Session already processed");
-                return Ok(());
-            }
-        }
-
-        if session_info.session_op.is_empty() {
-            tracing::debug!("Empty session, nothing to process");
-            return Ok(());
-        }
-        let session_op = SessionOperation::from_bytes(&session_info.session_op);
-
-        if self
-            .build_and_broadcast_final_transaction(&session_info, &session_op)
-            .await?
-        {
-            return Ok(());
-        }
-
-        let messages = session_op.get_message_to_sign();
-
-        if self
-            .session_manager
-            .is_bridge_session_already_processed(&session_op)
-            .await?
-        {
-            tracing::info!(
-                "Session already processed, txid: {}",
-                session_op.get_unsigned_bridge_tx().txid.to_string()
-            );
-            return Ok(());
-        }
-
-        if self.signer_per_utxo_input.len() < messages.len() {
-            self.init_signers(messages.len())?;
-        }
-
-        let input_index = 0;
-
-        let session_signatures = self.get_session_signatures().await?;
-        let session_nonces = self.get_session_nonces().await?;
-
-        let signer = match self.signer_per_utxo_input.get_mut(&input_index) {
-            Some(signer) => signer,
-            None => {
-                tracing::warn!("No signer found for input index {input_index}");
-                return Ok(());
-            }
-        };
-
-        let already_signed = session_signatures
-            .get(&input_index)
-            .map_or(false, |map| map.contains_key(&signer.signer_index()));
-
-        let already_sent_nonce = session_nonces
-            .get(&input_index)
-            .map_or(false, |map| map.contains_key(&signer.signer_index()));
-
-        if already_signed && already_sent_nonce {
-            return Ok(());
-        }
-
-        if !already_signed
-            && !already_sent_nonce
-            && (signer.has_created_partial_sig() || signer.has_submitted_nonce())
-        {
-            self.clear_signers();
-            return Ok(());
-        }
-
-        let received_nonces = session_nonces.get(&input_index).map_or(0, |map| map.len());
-        if received_nonces < session_info.required_signers {
-            if !self.session_manager.verify_message(&session_op).await? {
-                anyhow::bail!("Invalid session message");
-            }
-
-            if !already_sent_nonce {
-                self.submit_nonce(messages).await?;
-            }
-        } else if received_nonces >= session_info.required_signers {
-            if signer.has_created_partial_sig() {
-                return Ok(());
-            }
-
-            self.submit_partial_signature(session_nonces).await?;
-        }
-
+        self.live = None;
+        owner
+            .via_withdrawal_dal()
+            .release_withdrawal_signer_lock(&wallet)
+            .await?;
         Ok(())
     }
 
-    fn create_request_headers(&self) -> anyhow::Result<header::HeaderMap> {
-        let mut headers = header::HeaderMap::new();
-        let timestamp = chrono::Utc::now().timestamp().to_string();
-        let signer = get_signer_with_merkle_root(
-            &self.wallet.private_key,
-            self.via_bridge_config.verifiers_pub_keys.clone(),
-            self.verifier_config.bridge_address_merkle_root(),
-        )?;
-        let verifier_index = signer.signer_index().to_string();
-        let sequencer_version = get_sequencer_version().to_string();
-
-        let private_key = bitcoin::PrivateKey::from_wif(&self.wallet.private_key)?;
-        let secret_key = private_key.inner;
-
-        // Sign timestamp + verifier_index + sequencer_version as a JSON object
-        let payload = serde_json::json!({
-            "timestamp": timestamp,
-            "verifier_index": verifier_index,
-            "sequencer_version": sequencer_version
-        });
-        let signature = crate::auth::sign_request(&payload, &secret_key)?;
-
-        headers.insert("X-Timestamp", header::HeaderValue::from_str(&timestamp)?);
-        headers.insert(
-            "X-Verifier-Index",
-            header::HeaderValue::from_str(&verifier_index)?,
-        );
-        headers.insert("X-Signature", header::HeaderValue::from_str(&signature)?);
-        headers.insert(
-            "X-Sequencer-Version",
-            header::HeaderValue::from_str(&sequencer_version)?,
-        );
-
-        Ok(headers)
-    }
-
-    async fn get_session(&self) -> anyhow::Result<SigningSessionResponse> {
-        let url = format!("{}/session", self.verifier_config.coordinator_http_url);
-        let headers = self.create_request_headers()?;
-        let resp = self
-            .client
-            .get(&url)
-            .headers(headers.clone())
-            .send()
-            .await?;
-        if resp.status().as_u16() != StatusCode::OK.as_u16() {
-            anyhow::bail!(
-                "Error to fetch the session, status: {}, url: {}, headers: {:?}, resp: {:?}",
-                resp.status(),
-                url,
-                headers,
-                resp.text().await?
-            );
-        }
-        let session_info: SigningSessionResponse = resp.json().await?;
-        Ok(session_info)
-    }
-
-    async fn get_session_nonces(&self) -> anyhow::Result<BTreeMap<usize, BTreeMap<usize, String>>> {
-        let nonces_url = format!(
-            "{}/session/nonce",
-            self.verifier_config.coordinator_http_url
-        );
-        let headers = self.create_request_headers()?;
-        let resp = self
-            .client
-            .get(&nonces_url)
-            .headers(headers.clone())
-            .send()
-            .await?;
-
-        if resp.status().as_u16() != StatusCode::OK.as_u16() {
-            anyhow::bail!(
-                "Error to fetch the session nonces, status: {}, url: {}, headers: {:?}, resp: {:?}",
-                resp.status(),
-                nonces_url,
-                headers,
-                resp.text().await?
-            );
-        }
-        let nonces: BTreeMap<usize, BTreeMap<usize, String>> = resp.json().await?;
-        Ok(nonces)
-    }
-
-    pub async fn submit_nonce(&mut self, messages: Vec<Vec<u8>>) -> anyhow::Result<()> {
-        let mut nonce_map: BTreeMap<usize, NoncePair> = BTreeMap::new();
-
-        for (input_index, signer) in self.signer_per_utxo_input.iter_mut() {
-            if signer.has_not_started() {
-                signer.start_signing_session(messages[*input_index].clone())?;
-            }
-
-            let nonce = signer
-                .our_nonce()
-                .ok_or_else(|| anyhow::anyhow!("No nonce available for input {}", input_index))?;
-
-            let nonce_pair = encode_nonce(signer.signer_index(), nonce)
-                .map_err(|e| anyhow::anyhow!("Failed to encode nonce: {}", e))?;
-
-            nonce_map.insert(*input_index, nonce_pair);
-        }
-
-        let url = format!(
-            "{}/session/nonce",
-            self.verifier_config.coordinator_http_url
-        );
-        let headers = self.create_request_headers()?;
-
-        let res = self
-            .client
-            .post(&url)
-            .headers(headers.clone())
-            .json(&nonce_map)
-            .send()
-            .await?;
-
-        if res.status().is_success() {
-            for (_, signer) in self.signer_per_utxo_input.iter_mut() {
-                signer.mark_nonce_submitted();
-            }
-
-            tracing::debug!("All nonces submitted successfully");
-            Ok(())
-        } else {
-            anyhow::bail!(
-                "Failed to submit nonce map. Status: {}, URL: {}, Headers: {:?}, Response: {}",
-                res.status(),
-                url,
-                headers,
-                res.text().await?
-            );
-        }
-    }
-
-    pub async fn get_session_signatures(
-        &self,
-    ) -> anyhow::Result<BTreeMap<usize, BTreeMap<usize, PartialSignature>>> {
-        let url = format!(
-            "{}/session/signature",
-            self.verifier_config.coordinator_http_url
-        );
-        let headers = self.create_request_headers()?;
-        let resp = self
-            .client
-            .get(&url)
-            .headers(headers.clone())
-            .send()
-            .await?;
-
-        if resp.status() != StatusCode::OK {
-            anyhow::bail!(
-                "Error fetching session signatures. Status: {}, URL: {}, Headers: {:?}, Body: {}",
-                resp.status(),
-                url,
-                headers,
-                resp.text().await?
-            );
-        }
-
-        let raw_sigs: BTreeMap<usize, Vec<PartialSignaturePair>> = resp.json().await?;
-        let mut decoded_sigs: BTreeMap<usize, BTreeMap<usize, PartialSignature>> = BTreeMap::new();
-
-        for (input_index, sigs_per_signer) in raw_sigs {
-            let mut inner_map = BTreeMap::new();
-
-            for encoded_sig in sigs_per_signer {
-                let sig = decode_signature(encoded_sig.signature).with_context(|| {
-                    format!(
-                        "Failed to decode signature for input {} signer {}",
-                        input_index, encoded_sig.signer_index
-                    )
-                })?;
-                inner_map.insert(encoded_sig.signer_index, sig);
-            }
-
-            decoded_sigs.insert(input_index, inner_map);
-        }
-
-        Ok(decoded_sigs)
-    }
-
-    pub async fn submit_partial_signature(
-        &mut self,
-        session_nonces: BTreeMap<usize, BTreeMap<usize, String>>,
+    async fn check_owner(
+        owner: &mut Connection<'_, Verifier>,
+        wallet: &[u8],
     ) -> anyhow::Result<()> {
-        let mut sig_pair_per_input = BTreeMap::new();
-
-        for (input_index, nonces) in session_nonces {
-            let signer = self
-                .signer_per_utxo_input
-                .get_mut(&input_index)
-                .ok_or_else(|| anyhow::anyhow!("Missing signer for input index {}", input_index))?;
-
-            for (signer_index, nonce_b64) in nonces {
-                if signer_index != signer.signer_index() {
-                    let nonce = decode_nonce(NoncePair {
-                        signer_index,
-                        nonce: nonce_b64,
-                    })
-                    .map_err(|e| {
-                        anyhow::anyhow!(
-                            "Failed to decode or parse nonce for signer {}: {}",
-                            signer_index,
-                            e
-                        )
-                    })?;
-
-                    signer.receive_nonce(signer_index, nonce).map_err(|e| {
-                        anyhow::anyhow!(
-                            "Signer {} failed to receive nonce from {}: {}",
-                            input_index,
-                            signer_index,
-                            e
-                        )
-                    })?;
-                }
-            }
-
-            tracing::info!("Creating partial signature for input {}", input_index);
-
-            let partial_sig = signer.create_partial_signature().map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to create partial signature for input {}: {}",
-                    input_index,
-                    e
-                )
-            })?;
-
-            let encoded = encode_signature(signer.signer_index(), partial_sig).map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to encode partial signature for input {}: {}",
-                    input_index,
-                    e
-                )
-            })?;
-
-            sig_pair_per_input.insert(input_index, encoded);
-        }
-
-        let url = format!(
-            "{}/session/signature",
-            self.verifier_config.coordinator_http_url
+        anyhow::ensure!(
+            owner
+                .via_withdrawal_dal()
+                .check_withdrawal_signer_lock(wallet)
+                .await?,
+            "Signer ownership lost"
         );
-        let headers = self.create_request_headers()?;
-
-        tracing::debug!("Submitting all partial signatures to {}", url);
-
-        let response = self
-            .client
-            .post(&url)
-            .headers(headers.clone())
-            .json(&sig_pair_per_input)
-            .send()
-            .await?;
-
-        if response.status().is_success() {
-            for input_index in sig_pair_per_input.keys() {
-                if let Some(signer) = self.signer_per_utxo_input.get_mut(input_index) {
-                    signer.mark_partial_sig_submitted();
-                }
-            }
-
-            tracing::debug!("Partial signatures submitted successfully");
-            Ok(())
-        } else {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-
-            anyhow::bail!(
-            "Failed to submit partial signatures. Status: {}, Body: {}, URL: {}, Headers: {:?}, Payload: {:?}",
-            status,
-            body,
-            url,
-            headers,
-            sig_pair_per_input
-        );
-        }
+        Ok(())
     }
 
-    fn init_signers(&mut self, count: usize) -> anyhow::Result<()> {
-        self.clear_signers();
+    fn secret(&self) -> anyhow::Result<SecretKey> {
+        Ok(bitcoin::PrivateKey::from_wif(&self.wallet.private_key)?.inner)
+    }
+    fn signer_index(&self) -> anyhow::Result<usize> {
+        let public = PublicKey::from_secret_key(&Secp256k1::new(), &self.secret()?).to_string();
+        self.via_bridge_config
+            .verifiers_pub_keys
+            .iter()
+            .position(|key| key == &public)
+            .context("Local signer not in wallet")
+    }
 
-        for i in 0..count {
-            self.signer_per_utxo_input.insert(
-                i,
-                get_signer_with_merkle_root(
+    async fn request(
+        &self,
+        method: &str,
+        target: &str,
+        round: [u8; 32],
+        content: [u8; 32],
+        body: Vec<u8>,
+    ) -> anyhow::Result<Vec<u8>> {
+        let key = self.secret()?;
+        let binding = Binding {
+            version: 1,
+            sequencer_version: via_verifier_types::protocol_version::get_sequencer_version()
+                .to_string(),
+            principal: PublicKey::from_secret_key(&Secp256k1::new(), &key).to_string(),
+            audience: self.verifier_config.coordinator_public_key.clone(),
+            method: method.into(),
+            target: target.into(),
+            round,
+            content,
+            challenge: random_id(),
+            timestamp: chrono::Utc::now().timestamp(),
+            status: 0,
+        };
+        let envelope = Envelope::sign(binding.clone(), body, &key)?;
+        let mut response = self
+            .client
+            .request(
+                reqwest::Method::from_bytes(method.as_bytes())?,
+                format!(
+                    "{}{}",
+                    self.verifier_config
+                        .coordinator_http_url
+                        .trim_end_matches('/'),
+                    target
+                ),
+            )
+            .timeout(std::time::Duration::from_secs(u64::from(
+                self.verifier_config.verifier_request_timeout,
+            )))
+            .json(&envelope)
+            .send()
+            .await?;
+        let status = response.status();
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            anyhow::ensure!(
+                bytes.len() + chunk.len() <= MAX_BODY,
+                "Oversized coordinator response"
+            );
+            bytes.extend_from_slice(&chunk);
+        }
+        let reply: Envelope = serde_json::from_slice(&bytes).with_context(|| {
+            format!(
+                "Invalid authenticated coordinator response for {method} {target}: HTTP {status}"
+            )
+        })?;
+        reply.verify_response(
+            &binding,
+            &PublicKey::from_str(&self.verifier_config.coordinator_public_key)?,
+            status.as_u16(),
+            chrono::Utc::now().timestamp(),
+            self.verifier_config.verifier_request_timeout,
+        )?;
+        anyhow::ensure!(
+            status.is_success(),
+            "Coordinator rejected request: {}",
+            String::from_utf8_lossy(&reply.body)
+        );
+        Ok(reply.body)
+    }
+
+    async fn snapshot(&self) -> anyhow::Result<SigningSessionResponse> {
+        Ok(serde_json::from_slice(
+            &self
+                .request("GET", "/session/", [0; 32], [0; 32], Vec::new())
+                .await?,
+        )?)
+    }
+
+    async fn iteration(
+        &mut self,
+        owner: &mut Connection<'_, Verifier>,
+        wallet: &[u8],
+    ) -> anyhow::Result<()> {
+        self.withdrawal_session.prepare_session().await?;
+        if self.state.is_reorg_in_progress().await? || self.state.is_sync_in_progress().await? {
+            return Ok(());
+        }
+        self.validate_verifier_addresses().await?;
+        anyhow::ensure!(
+            self.withdrawal_session.wallet_script().await? == wallet,
+            "Wallet changed while signer active"
+        );
+        for record in owner
+            .via_withdrawal_dal()
+            .list_recoverable_withdrawal_attempts(wallet)
+            .await?
+        {
+            if let Some(bytes) = &record.finalized_transaction {
+                let recovered: anyhow::Result<()> = async {
+                    let bound: AdmittedContent = bincode::deserialize(&record.content)?;
+                    anyhow::ensure!(
+                        bound.wallet == wallet
+                            && bound.network == self.btc_client.get_network()
+                            && bound.chain_id == self.withdrawal_session.chain_id().await?
+                            && bound.participants == self.via_bridge_config.verifiers_pub_keys
+                            && bound.tweak == self.verifier_config.bridge_address_merkle_root,
+                        "Changed finalized recovery domain"
+                    );
+                    let operation: SessionOperation = bincode::deserialize(&bound.proposal)?;
+                    self.broadcast(owner, wallet, &operation, bytes).await
+                }
+                .await;
+                if let Err(error) = recovered {
+                    Self::check_owner(owner, wallet).await?;
+                    crate::metrics::METRICS.errors.inc();
+                    tracing::error!(round = %hex::encode(&record.round_id), "Withdrawal recovery deferred: {error:#}");
+                }
+            }
+        }
+        let mut snapshot = self.snapshot().await?;
+        if self.verifier_config.role == ViaNodeRole::Coordinator {
+            self.request(
+                "POST",
+                "/session/new",
+                snapshot.round_id,
+                snapshot.content_hash,
+                Vec::new(),
+            )
+            .await?;
+            snapshot = self.snapshot().await?;
+        }
+        if self
+            .live
+            .as_ref()
+            .is_some_and(|live| live.id != snapshot.round_id)
+        {
+            let old = self.live.take().unwrap();
+            let record = owner
+                .via_withdrawal_dal()
+                .get_withdrawal_attempt(wallet, &old.id)
+                .await?;
+            if record.as_ref().is_some_and(|record| {
+                !matches!(
+                    record.state,
+                    WithdrawalAttemptState::Signed | WithdrawalAttemptState::Finalized
+                )
+            }) {
+                owner
+                    .via_withdrawal_dal()
+                    .retire_withdrawal_attempt(wallet, &old.id)
+                    .await?;
+            }
+        }
+        if snapshot.session_op.is_empty() {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            snapshot.round_id != [0; 32]
+                && digest(&snapshot.authorized_content) == snapshot.content_hash,
+            "Invalid proposal commitment"
+        );
+        anyhow::ensure!(
+            snapshot.required_signers == self.via_bridge_config.verifiers_pub_keys.len(),
+            "Changed participant count"
+        );
+        let operation: SessionOperation = bincode::deserialize(&snapshot.session_op)?;
+        let messages = operation.get_message_to_sign();
+        anyhow::ensure!(!messages.is_empty(), "Empty signing round");
+        validate_transcript(&snapshot.nonces, messages.len(), snapshot.required_signers)?;
+        validate_transcript(
+            &snapshot.signatures,
+            messages.len(),
+            snapshot.required_signers,
+        )?;
+        let existing = owner
+            .via_withdrawal_dal()
+            .get_withdrawal_attempt(wallet, &snapshot.round_id)
+            .await?;
+        let record = if let Some(record) = existing {
+            let bound: AdmittedContent = bincode::deserialize(&record.content)?;
+            anyhow::ensure!(
+                record.content == snapshot.authorized_content
+                    && bound.proposal == snapshot.session_op
+                    && bound.wallet == wallet
+                    && bound.chain_id == self.withdrawal_session.chain_id().await?
+                    && bound.network == self.btc_client.get_network()
+                    && bound.participants == self.via_bridge_config.verifiers_pub_keys
+                    && bound.tweak == self.verifier_config.bridge_address_merkle_root,
+                "Changed admitted context"
+            );
+            record
+        } else {
+            let expected = self
+                .withdrawal_session
+                .authorize_withdrawal(&operation)
+                .await?;
+            let content = bincode::serialize(&AdmittedContent {
+                proposal: snapshot.session_op.clone(),
+                network: self.btc_client.get_network(),
+                chain_id: self.withdrawal_session.chain_id().await?,
+                wallet: wallet.to_vec(),
+                participants: self.via_bridge_config.verifiers_pub_keys.clone(),
+                tweak: self.verifier_config.bridge_address_merkle_root.clone(),
+                expected: expected.clone(),
+            })?;
+            anyhow::ensure!(
+                content == snapshot.authorized_content,
+                "Coordinator expected snapshot or wallet domain differs"
+            );
+            owner
+                .via_withdrawal_dal()
+                .admit_withdrawal_attempt(
+                    wallet,
+                    &snapshot.round_id,
+                    &content,
+                    &expected,
+                    &operation.get_unsigned_bridge_tx().utxos,
+                )
+                .await?
+        };
+        if record.state == WithdrawalAttemptState::Retired {
+            anyhow::bail!("Retired round cannot recreate nonce");
+        }
+        if let Some(bytes) = &record.finalized_transaction {
+            return self.broadcast(owner, wallet, &operation, bytes).await;
+        }
+        if let Some(bytes) = &record.public_signatures {
+            let cached: CachedShares = serde_json::from_slice(bytes)?;
+            return self
+                .publish_cached(owner, wallet, &snapshot, &operation, &record, &cached)
+                .await;
+        }
+        if record.state == WithdrawalAttemptState::MayHaveSigned {
+            anyhow::bail!("Uncertain round held without nonce recreation");
+        }
+        if self.live.is_none() {
+            if record.public_nonces.is_some() {
+                owner
+                    .via_withdrawal_dal()
+                    .retire_withdrawal_attempt(wallet, &snapshot.round_id)
+                    .await?;
+                anyhow::bail!("Nonce secret unavailable; round retired");
+            }
+            let mut signers = Vec::with_capacity(messages.len());
+            let mut nonces = BTreeMap::new();
+            for (input, message) in messages.iter().enumerate() {
+                let mut signer = get_signer_with_merkle_root(
                     &self.wallet.private_key,
                     self.via_bridge_config.verifiers_pub_keys.clone(),
                     self.verifier_config.bridge_address_merkle_root(),
-                )?,
-            );
+                )?;
+                let nonce = signer.start_signing_session(message.clone())?;
+                nonces.insert(input, encode_nonce(signer.signer_index(), nonce)?);
+                signers.push(signer);
+            }
+            let bytes = serde_json::to_vec(&nonces)?;
+            self.live = Some(LiveRound {
+                id: snapshot.round_id,
+                content: record.content.clone(),
+                signers: Some(signers),
+                public_nonces: bytes,
+            });
         }
-        Ok(())
-    }
-
-    fn clear_signers(&mut self) {
-        self.signer_per_utxo_input.clear();
-        self.final_sig_per_utxo_input = BTreeMap::new();
-    }
-
-    async fn create_new_session(&mut self) -> anyhow::Result<()> {
-        let url = format!("{}/session/new", self.verifier_config.coordinator_http_url);
-        let headers = self.create_request_headers()?;
-        let resp = self
-            .client
-            .post(&url)
-            .headers(headers.clone())
-            .header(header::CONTENT_TYPE, "application/json")
-            .send()
+        let live = self.live.as_ref().unwrap();
+        anyhow::ensure!(
+            live.id == snapshot.round_id && live.content == record.content,
+            "Mixed live signing round"
+        );
+        // A failed write must retry the same nonce, never generate a replacement. If
+        // COMMIT succeeded but its acknowledgement was lost, readback confirms the
+        // identical batch; if it rolled back, the idempotent write commits it now.
+        if let Some(persisted) = &record.public_nonces {
+            anyhow::ensure!(
+                persisted == &live.public_nonces,
+                "Durable nonce differs from live secret"
+            );
+        } else {
+            owner
+                .via_withdrawal_dal()
+                .persist_withdrawal_nonces(wallet, &live.id, &live.content, &live.public_nonces)
+                .await?;
+        }
+        let nonce_bytes = &live.public_nonces;
+        let own_nonces: BTreeMap<usize, NoncePair> = serde_json::from_slice(nonce_bytes)?;
+        let index = self.signer_index()?;
+        if !contains_batch(&snapshot.nonces, &own_nonces, index)? {
+            Self::check_owner(owner, wallet).await?;
+            self.request(
+                "POST",
+                "/session/nonce",
+                snapshot.round_id,
+                snapshot.content_hash,
+                nonce_bytes.clone(),
+            )
             .await?;
-
-        if !resp.status().is_success() {
-            tracing::warn!(
-                "Failed to create a new session, status: {}, response: {}, url: {}, headers: {:?}",
-                resp.status().as_str(),
-                resp.text().await?,
-                url,
-                headers
-            );
-            self.clear_signers();
-        }
-        Ok(())
-    }
-
-    pub async fn create_final_signature(&mut self, messages: &[Vec<u8>]) -> anyhow::Result<()> {
-        if !self.final_sig_per_utxo_input.is_empty() {
             return Ok(());
         }
-
-        let signatures = self.get_session_signatures().await?;
-        let input_count = self.signer_per_utxo_input.len();
-
-        if signatures.len() != input_count {
-            anyhow::bail!(
-                "Mismatch: expected signatures for {} inputs, but got {}",
-                input_count,
-                signatures.len()
-            );
+        if !complete(&snapshot.nonces, messages.len(), snapshot.required_signers) {
+            return Ok(());
         }
-
-        if messages.len() != input_count {
-            anyhow::bail!(
-                "Mismatch: expected messages for {} inputs, but got {}",
-                input_count,
-                messages.len()
-            );
-        }
-
-        let mut final_sig_per_utxo_input = BTreeMap::new();
-
-        for (input_index, sigs_per_signer) in &signatures {
-            let signer = self
-                .signer_per_utxo_input
-                .get_mut(input_index)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("No signer found for input index {}", input_index)
-                })?;
-
-            for (&signer_index, partial_sig) in sigs_per_signer {
-                if signer.signer_index() != signer_index {
-                    signer
-                        .receive_partial_signature(signer_index, *partial_sig)
-                        .map_err(|e| {
-                            anyhow::anyhow!(
-                                "Error receiving partial signature (input {}, signer {}): {}",
-                                input_index,
-                                signer_index,
-                                e
-                            )
-                        })?;
+        // Decode and receive the full transcript before making signing risk durable.
+        // Invalid public data must not strand an otherwise unsigned reservation.
+        let signers = self
+            .live
+            .as_mut()
+            .unwrap()
+            .signers
+            .as_mut()
+            .context("Round nonce already consumed")?;
+        for (input, signer) in signers.iter_mut().enumerate() {
+            for (other, nonce) in &snapshot.nonces[&input] {
+                if *other != index {
+                    signer.receive_nonce(
+                        *other,
+                        decode_nonce(NoncePair {
+                            signer_index: *other,
+                            nonce: nonce.clone(),
+                        })?,
+                    )?;
                 }
             }
-
-            let final_sig = signer.create_final_signature().map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to create final signature (input {}): {}",
-                    input_index,
-                    e
-                )
-            })?;
-
-            let message = messages.get(*input_index).ok_or_else(|| {
-                anyhow::anyhow!("Missing message for input index {}", input_index)
-            })?;
-
-            verify_signature(signer.aggregated_pubkey(), final_sig, message).map_err(|e| {
-                anyhow::anyhow!(
-                    "Final signature verification failed (input {}): {}",
-                    input_index,
-                    e
-                )
-            })?;
-
-            tracing::debug!(
-                "Final signature created and verified for input {}",
-                input_index
-            );
-            final_sig_per_utxo_input.insert(*input_index, final_sig);
         }
+        // BIP327 nonce consumption is irreversible. The early durable marker deliberately
+        // strands uncertain attempts rather than releasing requests after a crash.
+        // https://github.com/bitcoin/bips/blob/eba8e50cb66d436c65c6bc8b0a175b643effe9d3/bip-0327.mediawiki#nonce-generation
+        owner
+            .via_withdrawal_dal()
+            .mark_withdrawal_may_have_signed(wallet, &snapshot.round_id, &record.content)
+            .await?;
+        let mut signers = self
+            .live
+            .as_mut()
+            .unwrap()
+            .signers
+            .take()
+            .context("Round nonce already consumed")?;
+        let mut shares = BTreeMap::new();
+        for (input, signer) in signers.iter_mut().enumerate() {
+            shares.insert(
+                input,
+                encode_signature(index, signer.create_partial_signature()?)?,
+            );
+        }
+        let cached = CachedShares {
+            nonces: snapshot.nonces.clone(),
+            shares,
+        };
+        let bytes = serde_json::to_vec(&cached)?;
+        owner
+            .via_withdrawal_dal()
+            .persist_withdrawal_signatures(wallet, &snapshot.round_id, &record.content, &bytes)
+            .await?;
+        self.publish_cached(owner, wallet, &snapshot, &operation, &record, &cached)
+            .await
+    }
 
-        self.final_sig_per_utxo_input = final_sig_per_utxo_input;
+    async fn publish_cached(
+        &self,
+        owner: &mut Connection<'_, Verifier>,
+        wallet: &[u8],
+        snapshot: &SigningSessionResponse,
+        operation: &SessionOperation,
+        record: &WithdrawalAttemptRecord,
+        cached: &CachedShares,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            cached.nonces == snapshot.nonces,
+            "Coordinator changed signed nonce transcript"
+        );
+        let index = self.signer_index()?;
+        let mut submitted = true;
+        for (input, pair) in &cached.shares {
+            match snapshot.signatures.get(input).and_then(|m| m.get(&index)) {
+                Some(value) => {
+                    anyhow::ensure!(value == &pair.signature, "Coordinator changed cached share")
+                }
+                None => submitted = false,
+            }
+        }
+        if !submitted {
+            Self::check_owner(owner, wallet).await?;
+            self.request(
+                "POST",
+                "/session/signature",
+                snapshot.round_id,
+                snapshot.content_hash,
+                serde_json::to_vec(&cached.shares)?,
+            )
+            .await?;
+            return Ok(());
+        }
+        let messages = operation.get_message_to_sign();
+        if !complete(
+            &snapshot.signatures,
+            messages.len(),
+            snapshot.required_signers,
+        ) {
+            return Ok(());
+        }
+        let mut transaction = operation.get_unsigned_bridge_tx().tx;
+        for (input, message) in messages.iter().enumerate() {
+            let nonces = snapshot.nonces[&input]
+                .iter()
+                .map(|(index, nonce)| {
+                    decode_nonce(NoncePair {
+                        signer_index: *index,
+                        nonce: nonce.clone(),
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let signatures = snapshot.signatures[&input]
+                .values()
+                .map(|sig| decode_signature(sig.clone()))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            for (signer, signature) in signatures.iter().enumerate() {
+                if let Err(error) = verify_partial_signature(
+                    nonces[signer].clone(),
+                    nonces.clone(),
+                    self.via_bridge_config.verifiers_pub_keys[signer].clone(),
+                    self.via_bridge_config.verifiers_pub_keys.clone(),
+                    *signature,
+                    message,
+                    self.verifier_config.bridge_address_merkle_root(),
+                ) {
+                    crate::metrics::METRICS.verifier_errors[&crate::metrics::VerifierErrorLabel {
+                        pubkey: self.via_bridge_config.verifiers_pub_keys[signer].clone(),
+                        kind: crate::metrics::ErrorKind::PartialSignature,
+                    }]
+                        .inc();
+                    return Err(error);
+                }
+            }
+            let final_signature = aggregate_public_signatures(
+                self.via_bridge_config.verifiers_pub_keys.clone(),
+                self.verifier_config.bridge_address_merkle_root(),
+                nonces,
+                signatures,
+                message,
+            )?;
+            let mut witness = final_signature.serialize().to_vec();
+            witness.push(TapSighashType::All as u8);
+            transaction.input[input].witness = Witness::from(vec![witness]);
+        }
+        let bytes = bitcoin::consensus::serialize(&transaction);
+        owner
+            .via_withdrawal_dal()
+            .finalize_withdrawal_attempt(wallet, &snapshot.round_id, &record.content, &bytes)
+            .await?;
+        crate::metrics::METRICS
+            .session_time
+            .set(crate::utils::seconds_since_epoch().saturating_sub(snapshot.created_at) as usize);
+        self.broadcast(owner, wallet, operation, &bytes).await
+    }
+
+    async fn broadcast(
+        &self,
+        owner: &mut Connection<'_, Verifier>,
+        wallet: &[u8],
+        operation: &SessionOperation,
+        bytes: &[u8],
+    ) -> anyhow::Result<()> {
+        if !self
+            .withdrawal_session
+            .before_broadcast_final_transaction(operation)
+            .await?
+        {
+            return Ok(());
+        }
+        Self::check_owner(owner, wallet).await?;
+        let transaction: Transaction = bitcoin::consensus::deserialize(bytes)?;
+        let authorized = operation.get_unsigned_bridge_tx().tx;
+        anyhow::ensure!(
+            transaction.version == authorized.version
+                && transaction.lock_time == authorized.lock_time
+                && transaction.output == authorized.output
+                && transaction.input.len() == authorized.input.len()
+                && transaction
+                    .input
+                    .iter()
+                    .zip(&authorized.input)
+                    .all(|(actual, expected)| {
+                        actual.previous_output == expected.previous_output
+                            && actual.sequence == expected.sequence
+                            && actual.script_sig == expected.script_sig
+                    }),
+            "Finalized transaction differs from authorized proposal"
+        );
+        self.btc_client
+            .broadcast_signed_transaction(&hex::encode(bytes))
+            .await?;
+        self.withdrawal_session
+            .after_broadcast_final_transaction(&transaction, operation)
+            .await?;
         Ok(())
     }
 
-    fn sign_transaction(&self, unsigned_tx: UnsignedBridgeTx) -> String {
-        let mut unsigned_tx = unsigned_tx;
-        let sighash_type = TapSighashType::All;
-        for (input_index, musig2_signature) in self.final_sig_per_utxo_input.clone() {
-            let mut final_sig_with_hashtype = musig2_signature.serialize().to_vec();
-            final_sig_with_hashtype.push(sighash_type as u8);
-            unsigned_tx.tx.input[input_index].witness =
-                Witness::from(vec![final_sig_with_hashtype.clone()]);
-        }
-        bitcoin::consensus::encode::serialize_hex(&unsigned_tx.tx)
-    }
-
-    async fn build_and_broadcast_final_transaction(
-        &mut self,
-        session_info: &SigningSessionResponse,
-        session_op: &SessionOperation,
-    ) -> anyhow::Result<bool> {
-        let input_index = 0;
-        let received_partial_signatures = session_info
-            .received_partial_signatures
-            .get(&input_index)
-            .map_or(0, |len| *len);
-
-        if received_partial_signatures < session_info.required_signers {
-            return Ok(false);
-        }
-
-        let unsigned_tx = session_op.get_unsigned_bridge_tx();
-        let messages = session_op.get_message_to_sign();
-
-        self.create_final_signature(&messages)
-            .await
-            .map_err(|e| anyhow::format_err!("Error create final signature: {e}"))?;
-
-        if !self.final_sig_per_utxo_input.is_empty() {
-            if !self
-                .session_manager
-                .before_broadcast_final_transaction(session_op)
-                .await?
-            {
-                return Ok(false);
-            }
-
-            let signed_tx = self.sign_transaction(unsigned_tx.clone());
-
-            tracing::debug!("Signed transaction {:?}", &signed_tx);
-
-            let txid = self
-                .btc_client
-                .broadcast_signed_transaction(&signed_tx)
-                .await?;
-
-            tracing::info!(
-                "Broadcast {} signed transaction with txid {}",
-                &session_op.get_session_type(),
-                &txid.to_string()
-            );
-
-            self.session_manager
-                .after_broadcast_final_transaction(txid, session_op)
-                .await?;
-
-            METRICS
-                .session_time
-                .set((seconds_since_epoch() - session_info.created_at) as usize);
-
-            self.clear_signers();
-
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    fn is_coordinator(&self) -> bool {
-        self.verifier_config.role == ViaNodeRole::Coordinator
-    }
-
-    /// Check if the verifier is in the verifier set and the bridge address is correct.
     async fn validate_verifier_addresses(&self) -> anyhow::Result<()> {
         let mut storage = self.master_connection_pool.connection().await?;
-
-        let last_processed_l1_block = storage
+        let height = storage
             .via_indexer_dal()
             .get_last_processed_l1_block("via_btc_watch")
             .await?;
-
-        let Some(wallets_map) = storage
+        let map = storage
             .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_l1_block as i64)
+            .get_system_wallets_raw(height as i64)
             .await?
-        else {
-            anyhow::bail!("System wallets not found")
-        };
-
-        let wallets = SystemWallets::try_from(wallets_map)?;
-
+            .context("System wallets not found")?;
+        let wallets = SystemWallets::try_from(map)?;
         wallets.is_valid_verifier_address(self.verifier_config.wallet_address()?)?;
         wallets.is_valid_bridge_address(self.via_bridge_config.bridge_address()?)
     }
 }
+
+fn validate_transcript(
+    transcript: &PublicTranscript,
+    inputs: usize,
+    signers: usize,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        transcript.keys().all(|index| *index < inputs)
+            && transcript
+                .values()
+                .all(|values| values.keys().all(|index| *index < signers)),
+        "Out-of-range transcript contribution"
+    );
+    for signer in 0..signers {
+        let count = transcript
+            .values()
+            .filter(|values| values.contains_key(&signer))
+            .count();
+        anyhow::ensure!(count == 0 || count == inputs, "Partial participant batch");
+    }
+    Ok(())
+}
+fn complete(transcript: &PublicTranscript, inputs: usize, signers: usize) -> bool {
+    transcript.len() == inputs
+        && transcript.keys().copied().eq(0..inputs)
+        && transcript
+            .values()
+            .all(|values| values.len() == signers && values.keys().copied().eq(0..signers))
+}
+fn contains_batch(
+    transcript: &PublicTranscript,
+    own: &BTreeMap<usize, NoncePair>,
+    signer: usize,
+) -> anyhow::Result<bool> {
+    let mut present = true;
+    for (input, pair) in own {
+        match transcript.get(input).and_then(|values| values.get(&signer)) {
+            Some(value) => {
+                anyhow::ensure!(value == &pair.nonce, "Coordinator substituted local nonce")
+            }
+            None => present = false,
+        }
+    }
+    Ok(present)
+}
+
+#[cfg(test)]
+mod tests;

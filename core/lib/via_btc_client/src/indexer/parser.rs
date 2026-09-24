@@ -124,6 +124,9 @@ impl MessageParser {
         wallets: &SystemWallets,
     ) -> Vec<FullInscriptionMessage> {
         let mut messages = Vec::new();
+        if let Some(withdrawal) = self.parse_op_return_withdrawal(&tx.tx, block_height, wallets) {
+            messages.push(withdrawal);
+        }
 
         let vout = match tx.tx.output.iter().enumerate().find_map(|(index, output)| {
             if output.script_pubkey == wallets.bridge.script_pubkey() {
@@ -151,13 +154,6 @@ impl MessageParser {
             self.parse_op_return_deposit(tx, block_height, bridge_output)
         {
             messages.push(op_return_message);
-        }
-
-        // Try to parse withdrawals processed by the bridge address.
-        if let Some(bridge_withdrawals) =
-            self.parse_op_return_withdrawal(&tx.tx, block_height, wallets)
-        {
-            messages.push(bridge_withdrawals);
         }
 
         messages
@@ -207,6 +203,7 @@ impl MessageParser {
             schnorr_signature: signature,
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
             block_height,
+            block_hash: None,
             tx_id: tx.compute_ntxid().into(),
             p2wpkh_address: Some(address),
             tx_index: None,
@@ -759,6 +756,7 @@ impl MessageParser {
                 schnorr_signature: signature,
                 encoded_public_key: PushBytesBuf::from(control_block.internal_key.serialize()),
                 block_height,
+                block_hash: None,
                 tx_id: tx.tx.compute_ntxid().into(),
                 p2wpkh_address,
                 tx_index: Some(tx.tx_index),
@@ -823,6 +821,7 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
+                block_hash: None,
                 tx_id: tx.tx.compute_ntxid().into(),
                 p2wpkh_address,
                 tx_index: Some(tx.tx_index),
@@ -839,7 +838,28 @@ impl MessageParser {
         None
     }
 
-    fn parse_op_return_withdrawal(
+    pub(super) fn is_withdrawal_candidate(tx: &Transaction) -> bool {
+        tx.output.iter().any(|output| {
+            let script = output.script_pubkey.as_bytes();
+            if !output.script_pubkey.is_op_return() {
+                return false;
+            }
+            // Recognize the protocol even if the declared push length is truncated.
+            // A credible wallet spend must then defer, not disappear as unrelated data.
+            let offset = match script.get(1) {
+                Some(0x01..=0x4b) => 2,
+                Some(0x4c) => 3,
+                Some(0x4d) => 4,
+                Some(0x4e) => 6,
+                _ => return false,
+            };
+            script
+                .get(offset..)
+                .is_some_and(|data| data.starts_with(OP_RETURN_WITHDRAW_PREFIX))
+        })
+    }
+
+    pub(super) fn parse_op_return_withdrawal(
         &self,
         tx: &Transaction,
         block_height: u32,
@@ -851,14 +871,13 @@ impl MessageParser {
             .iter()
             .find(|output| output.script_pubkey.is_op_return())?;
 
-        let mut start_index = 2;
-        // When data > 75 OP_PUSHDATA1 is used which requires additional byte.
-        if op_return_output.script_pubkey.as_bytes().len() > 75 {
-            start_index += 1;
+        let mut instructions = op_return_output.script_pubkey.instructions();
+        instructions.next()?.ok()?;
+        let data = instructions.next()?.ok()?;
+        if instructions.next().is_some() {
+            return None;
         }
-
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(start_index..) {
+        if let Some(op_return_data) = data.push_bytes().map(|bytes| bytes.as_bytes()) {
             if !op_return_data.starts_with(OP_RETURN_WITHDRAW_PREFIX) {
                 return None;
             }
@@ -889,30 +908,36 @@ impl MessageParser {
                     }
                 };
 
-            let mut withdrawals = Vec::new();
-            for (i, output) in tx.output.iter().enumerate() {
-                let receiver =
-                    match Address::from_script(&output.script_pubkey.clone(), self.network) {
-                        Ok(receiver) => receiver,
-                        Err(_) => continue,
-                    };
-
-                if receiver == wallets.bridge {
-                    continue;
+            // Metadata positions identify payment outputs, including zero-net and bridge
+            // recipients. Only the optional trailing change belongs to the wallet.
+            let count = withdrawals_meta.len();
+            if count == 0 || !(tx.output.len() == count + 1 || tx.output.len() == count + 2) {
+                return None;
+            }
+            if !tx.output.get(count)?.script_pubkey.is_op_return() {
+                return None;
+            }
+            if let Some(change) = tx.output.get(count + 1) {
+                if change.script_pubkey != wallets.bridge.script_pubkey() {
+                    return None;
                 }
-
-                if output.value == Amount::ZERO {
-                    continue;
-                }
-
+            }
+            let mut withdrawals = Vec::with_capacity(count);
+            for (i, meta) in withdrawals_meta.into_iter().enumerate() {
+                let output = &tx.output[i];
                 withdrawals.push(L1Withdrawal {
-                    l2_meta: withdrawals_meta.get(i)?.clone(),
-                    receiver: receiver,
+                    vout: u32::try_from(i).ok()?,
+                    l2_meta: meta,
+                    receiver: Address::from_script(&output.script_pubkey, self.network).ok()?,
                     value: output.value,
                 });
             }
 
             let input = BridgeWithdrawalInput {
+                transaction: tx.clone(),
+                prevouts: Vec::new(),
+                block_hash: None,
+                bridge_script_pubkey: None,
                 version,
                 v_size: tx.vsize() as i64,
                 total_size: tx.total_size() as i64,
@@ -926,7 +951,8 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
-                tx_id: tx.compute_ntxid().into(),
+                block_hash: None,
+                tx_id: tx.compute_txid(),
                 p2wpkh_address: None,
                 tx_index: None,
                 output_vout: None,
@@ -978,6 +1004,7 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
+                block_hash: None,
                 tx_id: tx.compute_ntxid().into(),
                 p2wpkh_address: None,
                 tx_index: None,
@@ -1032,6 +1059,7 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
+                block_hash: None,
                 tx_id: tx.compute_ntxid().into(),
                 p2wpkh_address: None,
                 tx_index: None,
@@ -1082,6 +1110,7 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
+                block_hash: None,
                 tx_id: tx.compute_ntxid().into(),
                 p2wpkh_address: None,
                 tx_index: None,
@@ -1132,6 +1161,7 @@ impl MessageParser {
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
+                block_hash: None,
                 tx_id: tx.compute_ntxid().into(),
                 p2wpkh_address: None,
                 tx_index: None,
@@ -1324,6 +1354,7 @@ pub(super) mod tests {
             script_pubkey: wallets.sequencer.script_pubkey(),
         };
         tx.tx.output.insert(0, recipient.clone());
+        tx.tx.output.swap(1, 2);
 
         let messages = parser.parse_bridge_transaction(&mut tx, 42, &wallets);
         let [FullInscriptionMessage::BridgeWithdrawal(withdrawal)] = messages.as_slice() else {
@@ -1337,7 +1368,7 @@ pub(super) mod tests {
         assert_eq!(recipient_withdrawal.l2_meta.l2_tx_event_index, 0x9090);
 
         let mut shifted = tx.clone();
-        shifted.tx.output.swap(0, 1);
+        shifted.tx.output.swap(0, 2);
         let mut partial = tx;
         partial.tx.output.insert(1, recipient);
         for mut malformed in [shifted, partial] {
@@ -1345,6 +1376,67 @@ pub(super) mod tests {
                 .parse_bridge_transaction(&mut malformed, 42, &wallets)
                 .is_empty());
         }
+    }
+
+    #[test]
+    fn withdrawal_preserves_bridge_zero_net_and_repeated_output_positions_without_change() {
+        let wallets = system_wallets();
+        let mut parser = MessageParser::new(Network::Regtest);
+        let body = [
+            b"VIA_WI\0".as_slice(),
+            &[0x11; 10],
+            &[0x22; 10],
+            &[0x33; 10],
+        ]
+        .concat();
+        let mut tx = bridge_transaction(&body, 0);
+        let metadata = tx.tx.output.pop().unwrap();
+        tx.tx.output = vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: wallets.bridge.script_pubkey(),
+            },
+            TxOut {
+                value: Amount::from_sat(800),
+                script_pubkey: wallets.sequencer.script_pubkey(),
+            },
+            TxOut {
+                value: Amount::from_sat(900),
+                script_pubkey: wallets.sequencer.script_pubkey(),
+            },
+            metadata,
+        ];
+        tx.tx.input[0].script_sig = ScriptBuf::from_bytes(vec![0x51]);
+        let messages = parser.parse_bridge_transaction(&mut tx, 42, &wallets);
+        let [FullInscriptionMessage::BridgeWithdrawal(payment)] = messages.as_slice() else {
+            panic!("expected payment, got {messages:?}");
+        };
+        assert_eq!(payment.common.tx_id, tx.tx.compute_txid());
+        assert_eq!(payment.input.transaction, tx.tx);
+        let outputs = &payment.input.withdrawals;
+        assert_eq!(
+            outputs.iter().map(|output| output.vout).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert_eq!(outputs[0].receiver, wallets.bridge);
+        assert_eq!(outputs[0].value, Amount::ZERO);
+        assert_eq!(outputs[1].l2_meta.l2_id, "22222222222222222222");
+        assert_eq!(outputs[2].l2_meta.l2_id, "33333333333333333333");
+
+        tx.tx.output.remove(0);
+        tx.tx.output.pop();
+        tx.tx.output.push(TxOut {
+            value: Amount::ZERO,
+            script_pubkey: ScriptBuf::new_op_return(
+                PushBytesBuf::try_from([b"VIA_WI\0".as_slice(), &[0x22; 10], &[0x33; 10]].concat())
+                    .unwrap(),
+            ),
+        });
+        let messages = parser.parse_bridge_transaction(&mut tx, 42, &wallets);
+        assert!(matches!(
+            messages.as_slice(),
+            [FullInscriptionMessage::BridgeWithdrawal(_)]
+        ));
     }
 
     #[test]

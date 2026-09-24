@@ -466,7 +466,7 @@ async fn create_signing_session(state: &AppState) -> anyhow::Result<SigningSessi
         };
 
         transaction_builder
-            .build_transaction_with_op_return(outputs, config)
+            .build_transaction_with_op_return(outputs, config, &[])
             .await?[0]
             .clone()
     };
@@ -548,24 +548,24 @@ fn create_test_withdrawal_requests() -> anyhow::Result<Vec<WithdrawalRequest>> {
     let addr1 =
         Address::from_str("bcrt1pv6dtdf0vrrj6ntas926v8vw9u0j3mga29vmfnxh39zfxya83p89qz9ze3l")?
             .require_network(Network::Regtest)?;
-    let addr2 = Address::from_str("bcrt1qxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyz0abcd")?
+    let addr2 = Address::from_str("bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56")?
         .require_network(Network::Regtest)?;
 
     let requests = vec![
         WithdrawalRequest {
-            id: "11111111".into(),
+            id: "11111111111111110000".into(),
             receiver: addr1,
             amount: Amount::from_btc(0.1)?,
             l2_sender: EVMAddress::random(),
-            l2_tx_hash: "".into(),
+            l2_tx_hash: zksync_types::H256::repeat_byte(0x11),
             l2_tx_log_index: 0,
         },
         WithdrawalRequest {
-            id: "22222222".into(),
+            id: "22222222222222220000".into(),
             receiver: addr2,
             amount: Amount::from_btc(0.05)?,
             l2_sender: EVMAddress::random(),
-            l2_tx_hash: "".into(),
+            l2_tx_hash: zksync_types::H256::repeat_byte(0x22),
             l2_tx_log_index: 0,
         },
     ];

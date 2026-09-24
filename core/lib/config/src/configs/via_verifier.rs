@@ -41,11 +41,20 @@ pub struct ViaVerifierConfig {
     /// The bridge address merkle root.
     pub bridge_address_merkle_root: Option<String>,
 
-    /// The session timeout.
-    pub session_timeout: u64,
-
     /// Transaction weight limit.
     pub max_tx_weight: Option<u64>,
+
+    /// Enable only after withdrawal history and signer recovery have been reconciled.
+    #[serde(default)]
+    pub withdrawal_signing_enabled: bool,
+
+    /// Authenticated coordinator identity; must be a configured verifier public key.
+    #[serde(default)]
+    pub coordinator_public_key: String,
+
+    /// Explicit fulfillment depth, independent of the watcher ingestion cutoff.
+    #[serde(default)]
+    pub withdrawal_fulfillment_confirmations: Option<u32>,
 }
 
 impl ViaVerifierConfig {
@@ -80,9 +89,11 @@ impl ViaVerifierConfig {
             coordinator_port: 3000,
             verifier_request_timeout: 10,
             wallet_address: "".into(),
-            session_timeout: 30,
             max_tx_weight: None,
             bridge_address_merkle_root: None,
+            withdrawal_signing_enabled: false,
+            coordinator_public_key: String::new(),
+            withdrawal_fulfillment_confirmations: None,
         }
     }
 

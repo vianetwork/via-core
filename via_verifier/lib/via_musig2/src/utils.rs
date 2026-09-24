@@ -3,7 +3,10 @@ use std::str::FromStr;
 use anyhow::Context;
 
 use bitcoin::{TapNodeHash, TapTweakHash};
-use musig2::{verify_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce};
+use musig2::{
+    aggregate_partial_signatures, verify_partial, verify_single, AggNonce, CompactSignature,
+    KeyAggContext, PartialSignature, PubNonce,
+};
 use secp256k1_musig2::PublicKey;
 
 use crate::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
@@ -17,29 +20,8 @@ pub fn verify_partial_signature(
     message: &[u8],
     merkle_root: Option<TapNodeHash>,
 ) -> anyhow::Result<()> {
-    let pubkeys = pubkeys_str
-        .iter()
-        .map(|pubkey_str| musig2::secp256k1::PublicKey::from_str(pubkey_str))
-        .collect::<Result<Vec<PublicKey>, _>>()?;
-
     let aggregated_nonce = AggNonce::sum(nonces);
-    let mut musig_key_agg_cache = KeyAggContext::new(pubkeys.clone())?;
-
-    let agg_pubkey = musig_key_agg_cache.aggregated_pubkey::<secp256k1_musig2::PublicKey>();
-    let (xonly_agg_key, _) = agg_pubkey.x_only_public_key();
-
-    // Convert to bitcoin XOnlyPublicKey first
-    let internal_key = bitcoin::XOnlyPublicKey::from_slice(&xonly_agg_key.serialize())?;
-
-    // Calculate taproot tweak
-    let tap_tweak = TapTweakHash::from_key_and_tweak(internal_key, merkle_root);
-    let tweak = tap_tweak.to_scalar();
-    let tweak_bytes = tweak.to_be_bytes();
-    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak_bytes)
-        .with_context(|| TAPROOT_TWEAK_SCALAR_RANGE_ERR)?;
-
-    // Apply tweak to the key aggregation context before signing
-    musig_key_agg_cache = musig_key_agg_cache.with_xonly_tweak(tweak)?;
+    let musig_key_agg_cache = tweaked_key_context(&pubkeys_str, merkle_root)?;
 
     let individual_pubkey = PublicKey::from_str(&individual_pubkey_str)?;
 
@@ -53,6 +35,44 @@ pub fn verify_partial_signature(
     )?;
 
     Ok(())
+}
+
+fn tweaked_key_context(
+    pubkeys: &[String],
+    merkle_root: Option<TapNodeHash>,
+) -> anyhow::Result<KeyAggContext> {
+    let pubkeys = pubkeys
+        .iter()
+        .map(|key| PublicKey::from_str(key))
+        .collect::<Result<Vec<_>, _>>()?;
+    let context = KeyAggContext::new(pubkeys)?;
+    let aggregate = context.aggregated_pubkey::<PublicKey>();
+    let (xonly, _) = aggregate.x_only_public_key();
+    let internal_key = bitcoin::XOnlyPublicKey::from_slice(&xonly.serialize())?;
+    let tweak = TapTweakHash::from_key_and_tweak(internal_key, merkle_root).to_scalar();
+    let tweak = secp256k1_musig2::Scalar::from_be_bytes(tweak.to_be_bytes())
+        .with_context(|| TAPROOT_TWEAK_SCALAR_RANGE_ERR)?;
+    Ok(context.with_xonly_tweak(tweak)?)
+}
+
+/// Completes a persisted public signing batch without recreating or retaining secret nonces.
+pub fn aggregate_public_signatures(
+    pubkeys: Vec<String>,
+    merkle_root: Option<TapNodeHash>,
+    nonces: Vec<PubNonce>,
+    signatures: Vec<PartialSignature>,
+    message: &[u8],
+) -> anyhow::Result<CompactSignature> {
+    anyhow::ensure!(
+        !pubkeys.is_empty() && pubkeys.len() == nonces.len() && pubkeys.len() == signatures.len(),
+        "Incomplete public signing batch"
+    );
+    let context = tweaked_key_context(&pubkeys, merkle_root)?;
+    let aggregate_nonce = AggNonce::sum(nonces);
+    let signature: CompactSignature =
+        aggregate_partial_signatures(&context, &aggregate_nonce, signatures, message)?;
+    verify_single(context.aggregated_pubkey::<PublicKey>(), signature, message)?;
+    Ok(signature)
 }
 
 #[cfg(test)]
@@ -325,6 +345,33 @@ mod tests {
         second_round_1.receive_signature(2, Scalar::from_slice(&partial_sig_3).unwrap())?;
 
         let final_signature: Signature = second_round_1.finalize()?;
+        let public_signature = aggregate_public_signatures(
+            pubkeys_str.clone(),
+            None,
+            vec![nonce_1.clone(), nonce_2.clone(), nonce_3.clone()],
+            vec![
+                PartialSignature::from_slice(&partial_sig_1)?,
+                PartialSignature::from_slice(&partial_sig_2)?,
+                PartialSignature::from_slice(&partial_sig_3)?,
+            ],
+            sighash.as_byte_array(),
+        )?;
+        assert_eq!(
+            public_signature.serialize(),
+            final_signature.to_byte_array()
+        );
+        assert!(aggregate_public_signatures(
+            pubkeys_str,
+            None,
+            vec![nonce_1, nonce_2, nonce_3],
+            vec![
+                PartialSignature::from_slice(&partial_sig_1)?,
+                PartialSignature::from_slice(&partial_sig_2)?,
+                PartialSignature::from_slice(&partial_sig_3)?,
+            ],
+            &[0; 32],
+        )
+        .is_err());
 
         // Update the witness stack with the aggregated signature
         let signature = bitcoin::taproot::Signature {

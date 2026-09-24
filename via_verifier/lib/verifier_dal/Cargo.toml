@@ -18,6 +18,7 @@ zksync_types.workspace = true
 via_verifier_types.workspace = true
 
 thiserror.workspace = true
+serde_json.workspace = true
 
 bitcoin = { version = "0.32.2" }
 strum = { workspace = true, features = ["derive"] }

@@ -27,27 +27,33 @@ impl fmt::Display for SessionType {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SessionOperation {
-    Withdrawal(UnsignedBridgeTx, Vec<Vec<u8>>),
+    Withdrawal(UnsignedBridgeTx, Vec<Vec<u8>>, Vec<bitcoin::Transaction>),
 }
 
 impl SessionOperation {
     pub fn get_session_type(&self) -> SessionType {
         match self {
-            Self::Withdrawal(_, _) => SessionType::Withdrawal,
+            Self::Withdrawal(_, _, _) => SessionType::Withdrawal,
         }
     }
 
     pub fn get_message_to_sign(&self) -> Vec<Vec<u8>> {
         match self {
-            Self::Withdrawal(_, message) => message.clone(),
+            Self::Withdrawal(_, message, _) => message.clone(),
         }
     }
 
     pub fn get_unsigned_bridge_tx(&self) -> UnsignedBridgeTx {
         match self {
-            Self::Withdrawal(unsigned_tx, _) => {
+            Self::Withdrawal(unsigned_tx, _, _) => {
                 return unsigned_tx.clone();
             }
+        }
+    }
+
+    pub fn get_parent_transactions(&self) -> &[bitcoin::Transaction] {
+        match self {
+            Self::Withdrawal(_, _, parents) => parents,
         }
     }
 }
@@ -69,12 +75,13 @@ impl Serializable for SessionOperation {
 pub struct ViaWithdrawalState {
     pub signing_session: Arc<RwLock<SigningSession>>,
     pub verifiers_pub_keys: Vec<bitcoin::secp256k1::PublicKey>,
-    pub verifier_request_timeout: u8,
-    pub session_timeout: u64,
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct SigningSession {
+    pub round_id: [u8; 32],
+    pub content_hash: [u8; 32],
+    pub authorized_content: Vec<u8>,
     pub session_op: Option<SessionOperation>,
     pub received_nonces: BTreeMap<usize, BTreeMap<usize, PubNonce>>,
     pub received_sigs: BTreeMap<usize, BTreeMap<usize, PartialSignature>>,
@@ -99,9 +106,25 @@ pub struct PartialSignaturePair {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SigningSessionResponse {
+    pub round_id: [u8; 32],
+    pub content_hash: [u8; 32],
+    pub authorized_content: Vec<u8>,
+    pub nonces: BTreeMap<usize, BTreeMap<usize, String>>,
+    pub signatures: BTreeMap<usize, BTreeMap<usize, String>>,
     pub session_op: Vec<u8>,
     pub required_signers: usize,
     pub received_nonces: BTreeMap<usize, usize>,
     pub received_partial_signatures: BTreeMap<usize, usize>,
     pub created_at: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct AdmittedContent {
+    pub proposal: Vec<u8>,
+    pub network: bitcoin::Network,
+    pub chain_id: u64,
+    pub wallet: Vec<u8>,
+    pub participants: Vec<String>,
+    pub tweak: Option<String>,
+    pub expected: Vec<via_verifier_types::withdrawal::WithdrawalRequest>,
 }

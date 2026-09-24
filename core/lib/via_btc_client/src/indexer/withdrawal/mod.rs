@@ -23,6 +23,7 @@ impl TryFrom<u8> for WithdrawalVersion {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct L1Withdrawal {
+    pub vout: u32,
     pub l2_meta: L2WithdrawalMeta,
     pub receiver: Address,
     pub value: Amount,

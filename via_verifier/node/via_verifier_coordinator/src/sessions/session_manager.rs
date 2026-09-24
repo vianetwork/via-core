@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bitcoin::Txid;
+use bitcoin::Transaction;
 
 use crate::{
     traits::ISession,
@@ -79,7 +79,7 @@ impl SessionManager {
 
     pub async fn after_broadcast_final_transaction(
         &self,
-        txid: Txid,
+        transaction: &Transaction,
         session_op: &SessionOperation,
     ) -> anyhow::Result<bool> {
         let session = self
@@ -88,7 +88,7 @@ impl SessionManager {
             .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
 
         session
-            .after_broadcast_final_transaction(txid, session_op)
+            .after_broadcast_final_transaction(transaction, session_op)
             .await
     }
 

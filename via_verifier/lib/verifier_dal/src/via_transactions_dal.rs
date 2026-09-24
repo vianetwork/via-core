@@ -135,31 +135,25 @@ impl ViaTransactionsDal<'_, '_> {
         Ok(exists.is_some())
     }
 
+    /// First batch containing a deposit / priority transaction removed by a reorg.
+    /// `l1_block_number` is the last retained Bitcoin height, not the first removed height.
     pub async fn get_l1_batch_number_affected_by_reorg(
         &mut self,
         l1_block_number: i64,
     ) -> DalResult<Option<i64>> {
-        let record = sqlx::query!(
+        sqlx::query_scalar(
             r#"
-            SELECT
-                l1_batch_number
-            FROM
-                via_transactions
-            WHERE
-                l1_batch_number IS NOT NULL AND l1_block_number > $1
-            ORDER BY
-                l1_batch_number DESC
-            LIMIT
-                1
+            SELECT MIN(l1_batch_number)
+            FROM via_transactions
+            WHERE l1_block_number > $1
             "#,
-            l1_block_number,
         )
+        .bind(l1_block_number)
         .instrument("get_l1_batch_number_affected_by_reorg")
+        .with_arg("last_retained_l1_block", &l1_block_number)
         .report_latency()
-        .fetch_optional(self.storage)
-        .await?;
-
-        Ok(record.and_then(|r| r.l1_batch_number))
+        .fetch_one(self.storage)
+        .await
     }
 
     pub async fn get_not_finalized_transactions(&mut self, l1_block_number: i64) -> DalResult<i64> {

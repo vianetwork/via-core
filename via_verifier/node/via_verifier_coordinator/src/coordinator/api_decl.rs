@@ -15,7 +15,6 @@ use crate::{
     sessions::{session_manager::SessionManager, withdrawal::WithdrawalSession},
     traits::ISession,
     types::{SessionType, SigningSession, ViaWithdrawalState},
-    utils::seconds_since_epoch,
 };
 
 pub struct RestApi {
@@ -23,6 +22,10 @@ pub struct RestApi {
     pub state: ViaWithdrawalState,
     pub session_manager: SessionManager,
     pub master_connection_pool: ConnectionPool<Verifier>,
+    pub response_key: bitcoin::secp256k1::SecretKey,
+    pub challenges: tokio::sync::Mutex<HashMap<(usize, [u8; 32]), i64>>,
+    pub creation: tokio::sync::Mutex<()>,
+    pub network: bitcoin::Network,
 }
 
 const API_TIMEOUT: Duration = Duration::from_secs(30);
@@ -34,15 +37,24 @@ impl RestApi {
         btc_client: Arc<dyn BitcoinOps>,
         withdrawal_client: WithdrawalClient,
         verifiers_pub_keys: Vec<String>,
+        coordinator_private_key: String,
     ) -> anyhow::Result<Self> {
+        let response_key = bitcoin::PrivateKey::from_wif(&coordinator_private_key)?.inner;
+        let public = bitcoin::secp256k1::PublicKey::from_secret_key(
+            &bitcoin::secp256k1::Secp256k1::new(),
+            &response_key,
+        )
+        .to_string();
+        anyhow::ensure!(
+            public == config.coordinator_public_key && verifiers_pub_keys.contains(&public),
+            "Coordinator authentication key is not the configured participant"
+        );
         let state = ViaWithdrawalState {
             signing_session: Arc::new(RwLock::new(SigningSession::default())),
             verifiers_pub_keys: verifiers_pub_keys
                 .iter()
-                .map(|s| bitcoin::secp256k1::PublicKey::from_str(s).unwrap())
-                .collect(),
-            verifier_request_timeout: config.verifier_request_timeout,
-            session_timeout: config.session_timeout,
+                .map(|s| bitcoin::secp256k1::PublicKey::from_str(s))
+                .collect::<Result<_, _>>()?,
         };
 
         let transaction_builder = Arc::new(TransactionBuilder::new(btc_client.clone())?);
@@ -66,6 +78,10 @@ impl RestApi {
             session_manager: SessionManager::new(sessions),
             state,
             master_connection_pool,
+            response_key,
+            challenges: tokio::sync::Mutex::new(HashMap::new()),
+            creation: tokio::sync::Mutex::new(()),
+            network: btc_client.get_network(),
         })
     }
 
@@ -76,23 +92,15 @@ impl RestApi {
         // Create middleware layers using from_fn_with_state.
         let auth_mw =
             middleware::from_fn_with_state(shared_state.clone(), auth_middleware::auth_middleware);
-        let body_mw =
-            middleware::from_fn_with_state(shared_state.clone(), auth_middleware::extract_body);
 
-        let router = axum::Router::new()
-            .route("/new", axum::routing::post(Self::new_session))
-            .route("/", axum::routing::get(Self::get_session))
+        axum::Router::new()
+            .route("/session/new", axum::routing::post(Self::new_session))
+            .route("/session/", axum::routing::get(Self::get_session))
             .route(
-                "/signature",
+                "/session/signature",
                 axum::routing::post(Self::submit_partial_signature),
             )
-            .route(
-                "/signature",
-                axum::routing::get(Self::get_submitted_signatures),
-            )
-            .route("/nonce", axum::routing::post(Self::submit_nonce))
-            .route("/nonce", axum::routing::get(Self::get_nonces))
-            .route_layer(body_mw)
+            .route("/session/nonce", axum::routing::post(Self::submit_nonce))
             .route_layer(auth_mw)
             .with_state(shared_state.clone())
             .layer(
@@ -100,13 +108,6 @@ impl RestApi {
                     .layer(TimeoutLayer::new(API_TIMEOUT))
                     .layer(CorsLayer::permissive())
                     .into_inner(),
-            );
-
-        axum::Router::new().nest("/session", router)
-    }
-
-    pub async fn is_session_timeout(&self) -> bool {
-        let created_at = self.state.signing_session.read().await.created_at.clone();
-        created_at + self.state.session_timeout < seconds_since_epoch()
+            )
     }
 }

@@ -16,8 +16,17 @@ pub async fn start_coordinator_server(
     btc_client: Arc<dyn BitcoinOps>,
     withdrawal_client: WithdrawalClient,
     verifiers_pub_keys: Vec<String>,
+    coordinator_private_key: String,
     mut stop_receiver: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
+    if !config.withdrawal_signing_enabled {
+        while !*stop_receiver.borrow_and_update() {
+            if stop_receiver.changed().await.is_err() {
+                break;
+            }
+        }
+        return Ok(());
+    }
     let bind_address = config.bind_addr();
     let api = RestApi::new(
         config,
@@ -25,6 +34,7 @@ pub async fn start_coordinator_server(
         btc_client,
         withdrawal_client,
         verifiers_pub_keys,
+        coordinator_private_key,
     )?
     .into_router();
 

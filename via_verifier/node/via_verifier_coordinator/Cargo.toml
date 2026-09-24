@@ -41,3 +41,9 @@ bincode = "1.3"
 indexmap = "2.2"
 
 [dev-dependencies]
+zksync_da_clients.workspace = true
+zksync_web3_decl.workspace = true
+zksync_db_connection.workspace = true
+sqlx.workspace = true
+bitcoincore-rpc.workspace = true
+parking_lot = "0.12"

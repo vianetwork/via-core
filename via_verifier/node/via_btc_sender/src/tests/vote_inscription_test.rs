@@ -3,8 +3,7 @@ mod tests {
 
     use tokio::{sync::watch, time};
     use via_btc_client::{
-        inscriber::test_utils::MockBitcoinOpsConfig, traits::Serializable,
-        types::InscriptionMessage,
+        inscriber::test_utils::MockBitcoinOpsConfig, traits::Serializable, types::InscriptionMessage,
     };
     use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
     use zksync_config::ViaBtcSenderConfig;
@@ -21,23 +20,15 @@ mod tests {
     }
 
     impl ViaVoteInscriptionTest {
-        pub async fn new(
-            pool: ConnectionPool<Verifier>,
-            mut config: Option<ViaBtcSenderConfig>,
-        ) -> Self {
+        pub async fn new(pool: ConnectionPool<Verifier>, mut config: Option<ViaBtcSenderConfig>) -> Self {
             let storage = pool.connection().await.unwrap();
 
             if config.is_none() {
                 config = Some(ViaBtcSenderConfig::for_tests());
             }
-            let aggregator = ViaVoteInscription::new(pool, config.unwrap())
-                .await
-                .unwrap();
+            let aggregator = ViaVoteInscription::new(pool, config.unwrap()).await.unwrap();
 
-            Self {
-                aggregator,
-                storage,
-            }
+            Self { aggregator, storage }
         }
     }
 
@@ -60,61 +51,31 @@ mod tests {
                 "".to_string(),
                 "".to_string(),
                 "".to_string(),
+                None,
             )
             .await;
 
-        let op = aggregator_test
-            .aggregator
-            .get_voting_operation(&mut aggregator_test.storage)
-            .await
-            .unwrap();
+        let op = aggregator_test.aggregator.get_voting_operation(&mut aggregator_test.storage).await.unwrap();
         assert!(op.is_none());
 
-        let _ = aggregator_test
-            .storage
-            .via_votes_dal()
-            .verify_votable_transaction(1, tx_id, true)
-            .await;
+        let _ = aggregator_test.storage.via_votes_dal().verify_votable_transaction(1, tx_id, true).await;
 
-        let op = aggregator_test
-            .aggregator
-            .get_voting_operation(&mut aggregator_test.storage)
-            .await
-            .unwrap();
+        let op = aggregator_test.aggregator.get_voting_operation(&mut aggregator_test.storage).await.unwrap();
         assert!(op.is_some());
         let (votable_transaction_id, vote, tx_id_vec) = op.unwrap();
         assert_eq!(votable_transaction_id, 1);
         assert!(vote);
         assert_eq!(H256::from_slice(&tx_id_vec), tx_id);
 
-        let inscription = aggregator_test
-            .aggregator
-            .construct_voting_inscription_message(vote, tx_id_vec)
-            .unwrap();
+        let inscription = aggregator_test.aggregator.construct_voting_inscription_message(vote, tx_id_vec).unwrap();
 
-        aggregator_test
-            .aggregator
-            .loop_iteration(&mut aggregator_test.storage)
-            .await
-            .unwrap();
+        aggregator_test.aggregator.loop_iteration(&mut aggregator_test.storage).await.unwrap();
 
-        let inscriptions = aggregator_test
-            .storage
-            .via_btc_sender_dal()
-            .list_new_inscription_request(10)
-            .await
-            .unwrap();
+        let inscriptions = aggregator_test.storage.via_btc_sender_dal().list_new_inscription_request(10).await.unwrap();
         assert_eq!(inscriptions.len(), 1);
 
         assert_eq!(
-            InscriptionMessage::from_bytes(
-                inscriptions
-                    .first()
-                    .unwrap()
-                    .inscription_message
-                    .as_ref()
-                    .unwrap()
-            ),
+            InscriptionMessage::from_bytes(inscriptions.first().unwrap().inscription_message.as_ref().unwrap()),
             inscription
         );
     }
@@ -142,24 +103,17 @@ mod tests {
                 "".to_string(),
                 "".to_string(),
                 "".to_string(),
+                None,
             )
             .await;
 
-        let _ = aggregator_test
-            .storage
-            .via_votes_dal()
-            .verify_votable_transaction(1, tx_id, true)
-            .await;
+        let _ = aggregator_test.storage.via_votes_dal().verify_votable_transaction(1, tx_id, true).await;
 
         run_aggregator(pool.clone()).await;
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
-        let inflight_inscriptions_before = aggregator_test
-            .storage
-            .via_btc_sender_dal()
-            .get_inflight_inscriptions()
-            .await
-            .unwrap();
+        let inflight_inscriptions_before =
+            aggregator_test.storage.via_btc_sender_dal().get_inflight_inscriptions().await.unwrap();
 
         assert!(!inflight_inscriptions_before.is_empty());
 
@@ -180,12 +134,8 @@ mod tests {
 
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
-        let inflight_inscriptions_after = aggregator_test
-            .storage
-            .via_btc_sender_dal()
-            .get_inflight_inscriptions()
-            .await
-            .unwrap();
+        let inflight_inscriptions_after =
+            aggregator_test.storage.via_btc_sender_dal().get_inflight_inscriptions().await.unwrap();
 
         assert!(inflight_inscriptions_after.is_empty());
 
@@ -196,10 +146,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(last_inscription_history_after
-            .unwrap()
-            .confirmed_at
-            .is_some());
+        assert!(last_inscription_history_after.unwrap().confirmed_at.is_some());
 
         // Run the manager to make sure there is no unexpected behavior
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
@@ -208,8 +155,7 @@ mod tests {
     async fn run_aggregator(pool: ConnectionPool<Verifier>) {
         {
             // Create an async channel to break the while loop afer 3 seconds.
-            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) =
-                watch::channel(false);
+            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) = watch::channel(false);
 
             let toggle_handler = tokio::spawn(async move {
                 let mut toggle = false;
@@ -234,14 +180,11 @@ mod tests {
     }
 
     async fn run_manager(
-        pool: ConnectionPool<Verifier>,
-        config: ViaBtcSenderConfig,
-        mock_btc_ops_config: MockBitcoinOpsConfig,
+        pool: ConnectionPool<Verifier>, config: ViaBtcSenderConfig, mock_btc_ops_config: MockBitcoinOpsConfig,
     ) {
         {
             // Create an async channel to break the while loop afer 3 seconds.
-            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) =
-                watch::channel(false);
+            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) = watch::channel(false);
 
             let toggle_handler = tokio::spawn(async move {
                 let mut toggle = false;
@@ -257,8 +200,7 @@ mod tests {
             });
 
             let inscription_manager_mock =
-                get_inscription_manager_mock(pool.clone(), config.clone(), mock_btc_ops_config)
-                    .await;
+                get_inscription_manager_mock(pool.clone(), config.clone(), mock_btc_ops_config).await;
 
             inscription_manager_mock.run(receiver).await.unwrap();
             if let Err(e) = toggle_handler.await {

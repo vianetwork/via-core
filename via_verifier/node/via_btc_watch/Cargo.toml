@@ -15,6 +15,7 @@ vise.workspace = true
 via_btc_client.workspace = true
 via_consensus.workspace = true
 via_verifier_types.workspace = true
+via_musig2.workspace = true
 zksync_shared_metrics.workspace = true
 zksync_types.workspace = true
 zksync_config.workspace = true
@@ -28,4 +29,5 @@ sqlx.workspace = true
 via_verifier_dal.workspace = true
 
 [dev-dependencies]
+bitcoin.workspace = true
 via_test_utils.workspace = true

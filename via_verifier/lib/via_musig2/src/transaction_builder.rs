@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::{Context, Result};
 use bitcoin::{
@@ -11,14 +14,17 @@ use bitcoin::{
 };
 use tracing::instrument;
 use via_btc_client::traits::BitcoinOps;
-use via_verifier_types::transaction::UnsignedBridgeTx;
+use via_verifier_types::{
+    transaction::UnsignedBridgeTx, withdrawal::WithdrawalRequest,
+    withdrawal_observation::WithdrawalObservation,
+};
 
 use crate::{
     constants::{
         INPUT_BASE_SIZE, INPUT_WITNESS_SIZE, OP_RETURN_SIZE, OUTPUT_SIZE, TX_OVERHEAD,
         WITNESS_OVERHEAD,
     },
-    fee::FeeStrategy,
+    fee::{fee_size, FeeStrategy, WithdrawalFeeStrategy},
     types::{TransactionBuilderConfig, TransactionOutput, TransactionWithFee},
     utxo_manager::UtxoManager,
 };
@@ -54,10 +60,15 @@ impl TransactionBuilder {
         &self,
         outputs: Vec<TransactionOutput>,
         config: TransactionBuilderConfig,
+        excluded_inputs: &[OutPoint],
     ) -> Result<Vec<UnsignedBridgeTx>> {
         self.utxo_manager.sync_context_with_blockchain().await?;
 
-        let available_utxos = self.get_available_utxos(&config).await?;
+        let mut available_utxos = self.get_available_utxos(&config).await?;
+        if !excluded_inputs.is_empty() {
+            let excluded: HashSet<_> = excluded_inputs.iter().collect();
+            available_utxos.retain(|(outpoint, _)| !excluded.contains(outpoint));
+        }
         let fee_rate = self.get_fee_rate(&config).await?;
 
         self.build_bridge_txs(available_utxos, outputs, config, fee_rate)
@@ -92,6 +103,10 @@ impl TransactionBuilder {
         config: TransactionBuilderConfig,
         fee_rate: u64,
     ) -> Result<Vec<UnsignedBridgeTx>> {
+        anyhow::ensure!(
+            config.max_output_per_tx > 0,
+            "Output chunk size must be positive"
+        );
         let output_chunks = self.chunk_outputs(&outputs, config.max_output_per_tx);
         let mut utxos_pool = available_utxos;
         let mut bridge_txs = Vec::new();
@@ -115,13 +130,16 @@ impl TransactionBuilder {
         fee_rate: u64,
         fee_strategy: Arc<dyn FeeStrategy>,
     ) -> Result<(TransactionWithFee, Vec<(OutPoint, TxOut)>)> {
-        let total_needed = self.calculate_total_output_value(&outputs);
+        let total_needed = self.calculate_total_output_value(&outputs)?;
         let selected_utxos = self.select_utxos(available_utxos, total_needed).await?;
 
         tracing::debug!("Selected UTXOs {:?}", &selected_utxos);
 
-        let tx_fee =
-            fee_strategy.apply_fee_to_outputs(outputs, selected_utxos.len() as u32, fee_rate)?;
+        let tx_fee = fee_strategy.apply_fee_to_outputs(
+            outputs,
+            u32::try_from(selected_utxos.len())?,
+            fee_rate,
+        )?;
 
         if tx_fee.fee == Amount::ZERO {
             anyhow::bail!("Error to prepare build transaction, fee=0");
@@ -130,9 +148,243 @@ impl TransactionBuilder {
         Ok((tx_fee, selected_utxos))
     }
 
-    /// Generates taproot signature hashes for all inputs
+    /// Reconstructs exactly one ordered proposal; never selects coins or drops requests.
+    /// Prefix sufficiency preserves utxo_manager's ordered selector at 8a49f355.
+    /// sBTC's report-derived transaction/sighash construction is the design precedent;
+    /// Via supplies its own ordered obligations, fee arithmetic and wallet context:
+    /// https://github.com/stacks-network/sbtc/blob/ee7ec0076f610e7bf96f0893df80b4a9a0dcbcef/signer/src/bitcoin/validation.rs
+    pub fn build_fixed_bridge_tx(
+        &self,
+        inputs: &[(OutPoint, TxOut)],
+        outputs: Vec<TransactionOutput>,
+        config: &TransactionBuilderConfig,
+        fee_rate: u64,
+    ) -> Result<UnsignedBridgeTx> {
+        anyhow::ensure!(
+            !inputs.is_empty() && !outputs.is_empty(),
+            "Empty fixed withdrawal"
+        );
+        anyhow::ensure!(
+            outputs.len() <= config.max_output_per_tx,
+            "Too many withdrawal outputs"
+        );
+        let gross = self.calculate_total_output_value(&outputs)?;
+        let bridge_script = config.bridge_address.script_pubkey();
+        let mut seen = HashSet::with_capacity(inputs.len());
+        let mut total = Amount::ZERO;
+        for (index, (outpoint, prevout)) in inputs.iter().enumerate() {
+            anyhow::ensure!(seen.insert(*outpoint), "Duplicate withdrawal input");
+            anyhow::ensure!(
+                prevout.script_pubkey == bridge_script,
+                "Non-bridge withdrawal input"
+            );
+            total = total
+                .checked_add(prevout.value)
+                .context("Withdrawal input amount overflow")?;
+            anyhow::ensure!(
+                index + 1 == inputs.len() || total < gross,
+                "Redundant trailing withdrawal inputs"
+            );
+        }
+        anyhow::ensure!(total >= gross, "Insufficient fixed withdrawal inputs");
+        let output_count = outputs.len();
+        let tx_fee = config.fee_strategy.apply_fee_to_outputs(
+            outputs,
+            u32::try_from(inputs.len())?,
+            fee_rate,
+        )?;
+        anyhow::ensure!(tx_fee.fee != Amount::ZERO, "Zero withdrawal fee");
+        anyhow::ensure!(
+            tx_fee.outputs_with_fees.len() == output_count,
+            "Fee would drop a withdrawal"
+        );
+        anyhow::ensure!(
+            self.calculate_total_needed(&tx_fee, 0)? == gross,
+            "Fee strategy changes gross withdrawal value"
+        );
+        self.validate_transaction_weight(&tx_fee, inputs, config.max_tx_weight)?;
+        let amounts = self.calculate_and_validate_amounts(&tx_fee, inputs, 0)?;
+        let components =
+            self.build_transaction_components(&tx_fee, inputs, config, amounts.change)?;
+        let tx = self.assemble_transaction(components.inputs, components.outputs);
+        Ok(UnsignedBridgeTx {
+            txid: tx.compute_txid(),
+            tx,
+            utxos: inputs.to_vec(),
+            change_amount: amounts.change,
+            fee: tx_fee.fee,
+            fee_rate,
+        })
+    }
+
+    /// Parent bytes prove the referenced output, not current unspentness (BIP341 prevouts).
+    /// zkSync Era's consistency checker likewise checks chain transaction evidence
+    /// rather than trusting stored calldata; this check accepts supplied parent bytes too:
+    /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/consistency_checker/src/lib.rs
+    /// BIP174's signer checks also bind supplied UTXOs to the transaction;
+    /// this interface carries transactions and prevouts directly, not PSBT serialization:
+    /// https://github.com/bitcoin/bips/blob/eba8e50cb66d436c65c6bc8b0a175b643effe9d3/bip-0174.mediawiki#signer
+    pub fn verify_fixed_bridge_tx(
+        &self,
+        candidate: &UnsignedBridgeTx,
+        requested_outputs: Vec<TransactionOutput>,
+        config: &TransactionBuilderConfig,
+        parents: &[Transaction],
+    ) -> Result<()> {
+        Self::validate_input_alignment(&candidate.tx, &candidate.utxos)?;
+        let rebuilt = self.build_fixed_bridge_tx(
+            &candidate.utxos,
+            requested_outputs,
+            config,
+            candidate.fee_rate,
+        )?;
+        anyhow::ensure!(
+            &rebuilt == candidate,
+            "Withdrawal differs from exact authorized construction"
+        );
+        let parents: HashMap<_, _> = parents.iter().map(|tx| (tx.compute_txid(), tx)).collect();
+        for (outpoint, supplied) in &candidate.utxos {
+            let parent = parents
+                .get(&outpoint.txid)
+                .context("Missing verified withdrawal parent")?;
+            anyhow::ensure!(
+                parent.output.get(outpoint.vout as usize) == Some(supplied),
+                "Withdrawal prevout differs from parent bytes"
+            );
+        }
+        Ok(())
+    }
+
+    /// Validates independent payment evidence; the caller authenticates parent bytes and inclusion.
+    /// Only witness is excluded: scriptSig, sequences and every output remain exact.
+    /// Like tBTC redemption validation, compare payment against the retained obligation.
+    /// Via uses exact equal-fee equations, not tBTC's fee range or request deletion:
+    /// https://github.com/keep-network/tbtc-v2/blob/40a11d1dcdcf82d3962e430067cfe3f97be81483/solidity/contracts/bridge/Redemption.sol
+    pub fn verify_observed_withdrawal(
+        &self,
+        observation: &WithdrawalObservation,
+        requests: &[WithdrawalRequest],
+        config: &TransactionBuilderConfig,
+    ) -> Result<()> {
+        anyhow::ensure!(!requests.is_empty(), "Empty observed withdrawal");
+        anyhow::ensure!(
+            observation.withdrawals.len() == requests.len(),
+            "Observed request count mismatch"
+        );
+        Self::validate_input_alignment(&observation.transaction, &observation.prevouts)?;
+        let input_total = self.calculate_total_input_amount(&observation.prevouts, 0)?;
+        let output_total =
+            observation
+                .transaction
+                .output
+                .iter()
+                .try_fold(Amount::ZERO, |sum, out| {
+                    sum.checked_add(out.value)
+                        .context("Observed output sum overflow")
+                })?;
+        let fee = input_total
+            .checked_sub(output_total)
+            .context("Observed negative fee")?
+            .to_sat();
+        let n = u64::try_from(requests.len())?;
+        anyhow::ensure!(
+            fee > 0 && fee % n == 0,
+            "Observed fee cannot be split equally"
+        );
+        let size = fee_size(
+            u32::try_from(observation.prevouts.len())?,
+            u32::try_from(requests.len())?,
+        );
+        // Existing economics: F = ceil(rate * size / n) * n, not actual witness vsize.
+        let min_rate = (fee - n) / size + 1;
+        let max_rate = fee / size;
+        anyhow::ensure!(
+            min_rate == max_rate && min_rate > 0,
+            "Observed fee rate interpretation is impossible or ambiguous"
+        );
+        let canonical_fee = WithdrawalFeeStrategy::new().estimate_fee(
+            u32::try_from(observation.prevouts.len())?,
+            u32::try_from(requests.len())?,
+            min_rate,
+        )?;
+        anyhow::ensure!(
+            canonical_fee.to_sat() == fee,
+            "Observed fee equation mismatch"
+        );
+        let mut references = HashSet::with_capacity(requests.len());
+        let mut outputs = Vec::with_capacity(requests.len());
+        for (index, (request, observed)) in
+            requests.iter().zip(&observation.withdrawals).enumerate()
+        {
+            let reference = hex::decode(&request.id)?;
+            anyhow::ensure!(
+                reference.len() == 10 && references.insert(reference.clone()),
+                "Invalid or duplicate withdrawal reference"
+            );
+            let actual = observation
+                .transaction
+                .output
+                .get(index)
+                .context("Missing observed payment")?;
+            anyhow::ensure!(
+                observed.vout == u32::try_from(index)?
+                    && observed.reference == request.id
+                    && observed.script_pubkey == actual.script_pubkey
+                    && observed.amount == actual.value,
+                "Observed payment identity mismatch"
+            );
+            outputs.push(TransactionOutput {
+                output: TxOut {
+                    value: request.amount,
+                    script_pubkey: request.receiver.script_pubkey(),
+                },
+                op_return_data: Some(reference),
+            });
+        }
+        anyhow::ensure!(
+            config.op_return_data_input_opt.is_none(),
+            "Withdrawal metadata override is not authorized"
+        );
+        let rebuilt =
+            self.build_fixed_bridge_tx(&observation.prevouts, outputs, config, min_rate)?;
+        anyhow::ensure!(
+            rebuilt.fee.to_sat() == fee,
+            "Observed fee strategy mismatch"
+        );
+        let mut unsigned = observation.transaction.clone();
+        for input in &mut unsigned.input {
+            input.witness = Witness::default();
+        }
+        anyhow::ensure!(
+            rebuilt.tx == unsigned,
+            "Observed payment differs from exact authorized construction"
+        );
+        Ok(())
+    }
+
+    fn validate_input_alignment(tx: &Transaction, prevouts: &[(OutPoint, TxOut)]) -> Result<()> {
+        anyhow::ensure!(
+            !tx.input.is_empty() && tx.input.len() == prevouts.len(),
+            "Input/prevout count mismatch"
+        );
+        let mut seen = HashSet::with_capacity(prevouts.len());
+        for (input, (outpoint, _)) in tx.input.iter().zip(prevouts) {
+            anyhow::ensure!(
+                input.previous_output == *outpoint,
+                "Input/prevout order mismatch"
+            );
+            anyhow::ensure!(seen.insert(*outpoint), "Duplicate transaction input");
+        }
+        Ok(())
+    }
+
+    /// BIP341 ALL without ANYONECANPAY commits every prevout's amount and script
+    /// and every output. Incorrect supplied prevouts cannot authorize a different real spend;
+    /// the commitment does not establish current unspentness or canonical inclusion.
+    /// https://github.com/bitcoin/bips/blob/eba8e50cb66d436c65c6bc8b0a175b643effe9d3/bip-0341.mediawiki#common-signature-message
     #[instrument(skip(self, unsigned_tx), target = "bitcoin_transaction_builder")]
     pub fn get_tr_sighashes(&self, unsigned_tx: &UnsignedBridgeTx) -> Result<Vec<Vec<u8>>> {
+        Self::validate_input_alignment(&unsigned_tx.tx, &unsigned_tx.utxos)?;
         let mut sighash_cache = SighashCache::new(&unsigned_tx.tx);
         let sighash_type = TapSighashType::All;
 
@@ -323,11 +575,11 @@ impl TransactionBuilder {
         self.build_unsigned_transaction(inputs, outputs)
     }
 
-    fn calculate_total_output_value(&self, outputs: &[TransactionOutput]) -> Amount {
-        outputs
-            .iter()
-            .map(|output| output.output.value)
-            .sum::<Amount>()
+    fn calculate_total_output_value(&self, outputs: &[TransactionOutput]) -> Result<Amount> {
+        outputs.iter().try_fold(Amount::ZERO, |sum, output| {
+            sum.checked_add(output.output.value)
+                .context("Gross withdrawal amount overflow")
+        })
     }
 
     async fn select_utxos(
@@ -478,6 +730,9 @@ impl TransactionBuilder {
         outputs: &[TxOut],
         change_utxo: TxOut,
     ) {
+        if change_utxo.value == Amount::ZERO {
+            return;
+        }
         utxos_pool.push((
             OutPoint {
                 txid,

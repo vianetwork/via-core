@@ -16,6 +16,7 @@ zksync_types.workspace = true
 zksync_config.workspace = true
 
 via_btc_client.workspace = true
+via_consensus.workspace = true
 via_verifier_dal.workspace = true
 
 tokio.workspace = true
@@ -25,3 +26,8 @@ async-trait.workspace = true
 tracing.workspace = true
 futures.workspace = true
 bitcoin.workspace = true
+
+[dev-dependencies]
+sqlx.workspace = true
+zksync_db_connection.workspace = true
+via_verifier_types.workspace = true

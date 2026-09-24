@@ -1,18 +1,8 @@
-use via_btc_client::{
-    indexer::BitcoinInscriptionIndexer,
-    types::{
-        BitcoinSecp256k1::hashes::{
-            hex::{Case, DisplayHex},
-            Hash,
-        },
-        FullInscriptionMessage,
-    },
-};
+use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
-use via_verifier_types::withdrawal::get_withdrawal_requests;
+use via_verifier_types::withdrawal_observation::{ObservedWithdrawal, WithdrawalInclusion, WithdrawalObservation};
 
 use super::{MessageProcessor, MessageProcessorError};
-use crate::metrics::METRICS;
 
 #[derive(Default, Debug)]
 pub struct WithdrawalProcessor;
@@ -20,61 +10,36 @@ pub struct WithdrawalProcessor;
 #[async_trait::async_trait]
 impl MessageProcessor for WithdrawalProcessor {
     async fn process_messages(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-        msgs: Vec<FullInscriptionMessage>,
+        &mut self, storage: &mut Connection<'_, Verifier>, msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         for msg in msgs {
-            if let FullInscriptionMessage::BridgeWithdrawal(withdrawal_msg) = msg {
-                tracing::info!("Processing withdrawal bridge transaction...");
-
-                let tx_id = withdrawal_msg.common.tx_id.as_byte_array().to_vec();
-                let withdrawals = get_withdrawal_requests(withdrawal_msg.input.withdrawals);
-
-                let id_opt = storage
-                    .via_withdrawal_dal()
-                    .get_bridge_withdrawal_id(&tx_id)
-                    .await?;
-
-                let mut transaction = storage.start_transaction().await?;
-
-                let id = match id_opt {
-                    Some(id) => id,
-                    None => {
-                        transaction
-                            .via_withdrawal_dal()
-                            .insert_bridge_withdrawal_tx(&tx_id)
-                            .await?
-                    }
+            if let FullInscriptionMessage::BridgeWithdrawal(message) = msg {
+                let wallet = message
+                    .input
+                    .bridge_script_pubkey
+                    .ok_or_else(|| anyhow::anyhow!("Missing verified withdrawal wallet context"))?;
+                let block_hash =
+                    message.input.block_hash.ok_or_else(|| anyhow::anyhow!("Missing withdrawal block inclusion"))?;
+                let observation = WithdrawalObservation {
+                    transaction: message.input.transaction,
+                    prevouts: message.input.prevouts,
+                    withdrawals: message
+                        .input
+                        .withdrawals
+                        .into_iter()
+                        .map(|payment| ObservedWithdrawal {
+                            vout: payment.vout,
+                            reference: payment.l2_meta.l2_id,
+                            script_pubkey: payment.receiver.script_pubkey(),
+                            amount: payment.value,
+                        })
+                        .collect(),
+                    inclusion: Some(WithdrawalInclusion { block_hash, block_height: message.common.block_height }),
                 };
-
-                transaction
-                    .via_withdrawal_dal()
-                    .mark_bridge_withdrawal_tx_as_processed(&tx_id)
-                    .await?;
-
-                transaction
-                    .via_withdrawal_dal()
-                    .insert_withdrawals(&withdrawals)
-                    .await?;
-
-                transaction
-                    .via_withdrawal_dal()
-                    .mark_withdrawals_as_processed(id, &withdrawals)
-                    .await?;
-
-                transaction.commit().await?;
-
-                tracing::info!(
-                    "Bridge withdrawal {} indexed",
-                    tx_id.to_hex_string(Case::Lower)
-                );
-
-                METRICS.withdrawal_confirmed.inc();
+                storage.via_withdrawal_dal().record_withdrawal_observation(wallet.as_bytes(), &observation).await?;
             }
         }
-
         Ok(None)
     }
 }

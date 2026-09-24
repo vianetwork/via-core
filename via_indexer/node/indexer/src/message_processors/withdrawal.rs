@@ -13,7 +13,6 @@ use via_btc_client::{
     },
 };
 use via_indexer_dal::{models::withdraw::Withdrawal, Connection, Indexer, IndexerDal};
-use via_verifier_types::withdrawal::get_withdrawal_requests;
 
 use crate::message_processors::MessageProcessor;
 
@@ -39,7 +38,7 @@ impl MessageProcessor for WithdrawalProcessor {
         for msg in msgs {
             if let FullInscriptionMessage::BridgeWithdrawal(withdrawal_msg) = msg {
                 let tx_id = withdrawal_msg.common.tx_id.as_byte_array().to_vec();
-                let withdrawals = get_withdrawal_requests(withdrawal_msg.input.withdrawals);
+                let withdrawals = withdrawal_msg.input.withdrawals;
 
                 tracing::info!(
                     "New bridge withdrawal found: hash: {}, count: {}",
@@ -58,12 +57,13 @@ impl MessageProcessor for WithdrawalProcessor {
                         transaction
                             .via_transactions_dal()
                             .insert_withdraw(Withdrawal {
-                                id: w.id,
+                                id: w.l2_meta.l2_id,
                                 tx_id: tx_id.clone(),
-                                l2_tx_log_index: w.l2_tx_log_index as i64,
+                                vout: w.vout,
+                                l2_tx_log_index: i64::from(w.l2_meta.l2_tx_event_index),
                                 block_number: withdrawal_msg.common.block_height as i64,
                                 receiver: w.receiver.to_string(),
-                                value: w.amount.to_sat() as i64,
+                                value: i64::try_from(w.value.to_sat())?,
                                 timestamp: block.time as i64,
                             })
                             .await?;

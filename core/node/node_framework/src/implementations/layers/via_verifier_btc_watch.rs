@@ -1,4 +1,5 @@
 use via_btc_client::indexer::BitcoinInscriptionIndexer;
+use via_musig2::types::TransactionBuilderConfig;
 use via_verifier_btc_watch::VerifierBtcWatch;
 use via_verifier_storage_init::wallets::ViaWalletsInitializer;
 use zksync_config::{configs::via_bridge::ViaBridgeConfig, ViaBtcWatchConfig};
@@ -21,6 +22,7 @@ use crate::{
 pub struct VerifierBtcWatchLayer {
     pub via_bridge_config: ViaBridgeConfig,
     pub via_btc_watch_config: ViaBtcWatchConfig,
+    pub withdrawal_fulfillment_confirmations: Option<u32>,
 }
 
 #[derive(Debug, FromContext)]
@@ -60,8 +62,14 @@ impl WiringLayer for VerifierBtcWatchLayer {
 
         let btc_indexer_resource = BtcIndexerResource::from(indexer.clone());
 
-        let btc_watch =
+        let mut btc_watch =
             VerifierBtcWatch::new(self.via_btc_watch_config, indexer, client, main_pool).await?;
+        if let Some(confirmations) = self.withdrawal_fulfillment_confirmations {
+            btc_watch = btc_watch.with_withdrawal_fulfillment(
+                TransactionBuilderConfig::withdrawal(self.via_bridge_config.bridge_address()?),
+                confirmations,
+            )?;
+        }
 
         Ok(Output {
             system_wallets_resource,

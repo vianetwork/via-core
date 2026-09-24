@@ -1,29 +1,26 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, collections::HashSet, sync::Arc};
 
-use anyhow::Ok;
+use anyhow::Context;
 use axum::async_trait;
-use bitcoin::{hashes::Hash, policy::MAX_STANDARD_TX_WEIGHT, Transaction, TxOut, Txid};
+use bitcoin::{hashes::Hash, Transaction, TxOut};
 use via_btc_client::{
-    indexer::{
-        withdrawal::{L1Withdrawal, WithdrawalVersion},
-        MessageParser,
-    },
+    indexer::{withdrawal::L1Withdrawal, MessageParser},
     types::{FullInscriptionMessage, TransactionWithMetadata},
 };
 use via_musig2::{
-    fee::WithdrawalFeeStrategy,
     transaction_builder::TransactionBuilder,
     types::{TransactionBuilderConfig, TransactionOutput},
 };
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
-use via_verifier_types::{transaction::UnsignedBridgeTx, withdrawal::get_withdrawal_requests};
+use via_verifier_types::{
+    withdrawal::WithdrawalRequest,
+    withdrawal_observation::{ObservedWithdrawal, WithdrawalObservation},
+};
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_types::{via_wallet::SystemWallets, L1BatchNumber};
 
 use crate::{traits::ISession, types::SessionOperation};
 
-const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_WI";
-const WITHDRAWAL_VERSION: WithdrawalVersion = WithdrawalVersion::Version0;
 const WITHDRAWAL_LIMIT: u32 = 7;
 
 #[derive(Debug, Clone)]
@@ -41,322 +38,159 @@ impl WithdrawalSession {
     ) -> Self {
         Self {
             master_connection_pool,
-            withdrawal_client,
             transaction_builder,
+            withdrawal_client,
         }
     }
-}
 
-#[async_trait]
-impl ISession for WithdrawalSession {
-    async fn prepare_session(&self) -> anyhow::Result<()> {
-        self.prepare_withdrawal_session().await?;
-        Ok(())
+    fn requested_outputs(requests: &[WithdrawalRequest]) -> anyhow::Result<Vec<TransactionOutput>> {
+        requests
+            .iter()
+            .map(|request| {
+                Ok(TransactionOutput {
+                    output: TxOut {
+                        value: request.amount,
+                        script_pubkey: request.receiver.script_pubkey(),
+                    },
+                    op_return_data: Some(
+                        hex::decode(&request.id)
+                            .context("Invalid retained withdrawal reference")?,
+                    ),
+                })
+            })
+            .collect()
     }
 
-    async fn session(&self) -> anyhow::Result<Option<SessionOperation>> {
-        let mut storage = self
-            .master_connection_pool
-            .connection_tagged("verifier task")
-            .await?;
-
-        // Set the minimum amount to withdraw + fee = 660 sats.
-        let min_value = 660;
-
-        let no_processed_withdrawals = storage
-            .via_withdrawal_dal()
-            .list_no_processed_withdrawals(min_value, WITHDRAWAL_LIMIT)
-            .await?;
-
-        if no_processed_withdrawals.is_empty() {
-            tracing::debug!(
-                "There are no withdrawal to process with a min_value {} sats",
-                min_value
-            );
-            return Ok(None);
-        }
-
-        tracing::info!(
-            "There are {} withdrawals not yet processed",
-            no_processed_withdrawals.len()
-        );
-
-        let mut outputs = vec![];
-        for w in no_processed_withdrawals {
-            let mut op_return_data = Vec::new();
-            op_return_data.extend_from_slice(&hex::decode(w.id)?);
-
-            outputs.push(TransactionOutput {
-                output: TxOut {
-                    value: w.amount,
-                    script_pubkey: w.receiver.script_pubkey(),
-                },
-                op_return_data: Some(op_return_data),
-            });
-        }
-
-        let mut op_return_prefix = Vec::new();
-        op_return_prefix.extend_from_slice(OP_RETURN_WITHDRAW_PREFIX);
-        op_return_prefix.push(WITHDRAWAL_VERSION as u8);
-
-        let config = TransactionBuilderConfig {
-            fee_strategy: Arc::new(WithdrawalFeeStrategy::new()),
-            max_tx_weight: MAX_STANDARD_TX_WEIGHT as u64,
-            max_output_per_tx: WITHDRAWAL_LIMIT as usize,
-            op_return_prefix,
-            bridge_address: self.get_system_wallets().await?.bridge,
-            default_fee_rate_opt: None,
-            default_available_utxos_opt: None,
-            op_return_data_input_opt: None,
-        };
-
-        let unsigned_txs = self
-            .transaction_builder
-            .build_transaction_with_op_return(outputs, config)
-            .await?;
-
-        if unsigned_txs.is_empty() {
-            return Ok(None);
-        }
-
-        let sig_hashes = self
-            .transaction_builder
-            .get_tr_sighashes(&unsigned_txs[0])?;
-
-        Ok(Some(SessionOperation::Withdrawal(
-            unsigned_txs[0].clone(),
-            sig_hashes,
-        )))
+    pub async fn wallet_script(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(self
+            .get_system_wallets()
+            .await?
+            .bridge
+            .script_pubkey()
+            .into_bytes())
     }
 
-    async fn is_session_in_progress(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
-        let exists = self.is_bridge_session_already_processed(session_op).await?;
-        Ok(!exists)
-    }
-
-    async fn verify_message(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
-        let messages = session_op.get_message_to_sign();
-        let unsigned_tx = session_op.get_unsigned_bridge_tx();
-
-        if !self._verify_withdrawals(&session_op).await? {
-            tracing::error!("Failed to verify session withdrawals");
-            return Ok(false);
-        }
-
-        if !self._verify_sighashes(&unsigned_tx, &messages).await? {
-            tracing::error!("Failed to verify session message");
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
-    async fn before_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
-        let exists = self.is_bridge_session_already_processed(session_op).await?;
-        return Ok(!exists);
-    }
-
-    async fn before_broadcast_final_transaction(
-        &self,
-        session_op: &SessionOperation,
-    ) -> anyhow::Result<bool> {
-        let tx_id = session_op
-            .get_unsigned_bridge_tx()
-            .txid
-            .as_byte_array()
-            .to_vec();
-
-        let exists = self
-            .master_connection_pool
-            .connection_tagged("verifier task")
+    pub async fn chain_id(&self) -> anyhow::Result<u64> {
+        let wallet = self.wallet_script().await?;
+        self.master_connection_pool
+            .connection_tagged("withdrawal authority domain")
             .await?
             .via_withdrawal_dal()
-            .bridge_withdrawal_exists(&tx_id)
-            .await?;
-
-        Ok(!exists)
+            .withdrawal_authority_chain_id(&wallet)
+            .await
     }
 
-    async fn after_broadcast_final_transaction(
-        &self,
-        txid: Txid,
-        session_op: &SessionOperation,
-    ) -> anyhow::Result<bool> {
-        let mut storage = self
-            .master_connection_pool
-            .connection_tagged("verifier task")
-            .await?;
-        let mut transaction = storage.start_transaction().await?;
-
-        let id = transaction
-            .via_withdrawal_dal()
-            .insert_bridge_withdrawal_tx(&txid.as_byte_array().to_vec())
-            .await?;
-
-        let l1_withdrawals = self
-            .parse_bridge_withdrawal(session_op.get_unsigned_bridge_tx().tx.clone())
-            .await?;
-
-        let withdrawals = get_withdrawal_requests(l1_withdrawals);
-
-        transaction
-            .via_withdrawal_dal()
-            .mark_withdrawals_as_processed(id, &withdrawals)
-            .await?;
-
-        transaction.commit().await?;
-
-        self.transaction_builder
-            .utxo_manager_insert_transaction(session_op.get_unsigned_bridge_tx().tx.clone())
-            .await;
-
-        tracing::info!("Final withdrawal transaction broadcasted: txid {}", txid);
-
-        Ok(true)
-    }
-
-    async fn is_bridge_session_already_processed(
+    /// Authorize fixed transaction content, then let durable admission reserve its exact facts.
+    /// Like sBTC's approved-sighash handoff, this does not authorize another proposal:
+    /// https://github.com/stacks-network/sbtc/blob/ee7ec0076f610e7bf96f0893df80b4a9a0dcbcef/signer/src/transaction_signer.rs#L1218-L1245
+    pub async fn authorize_withdrawal(
         &self,
         session_op: &SessionOperation,
-    ) -> anyhow::Result<bool> {
-        let tx_id = session_op
-            .get_unsigned_bridge_tx()
-            .txid
-            .as_byte_array()
-            .to_vec();
-
-        let exists = self
+    ) -> anyhow::Result<Vec<WithdrawalRequest>> {
+        let candidate = session_op.get_unsigned_bridge_tx();
+        let config = TransactionBuilderConfig::withdrawal(self.get_system_wallets().await?.bridge);
+        let wallet = config.bridge_address.script_pubkey();
+        let payments = self.parse_bridge_withdrawal(candidate.tx.clone()).await?;
+        anyhow::ensure!(!payments.is_empty(), "Withdrawal proposal has no payments");
+        let references: Vec<_> = payments
+            .iter()
+            .map(|payment| payment.l2_meta.l2_id.clone())
+            .collect();
+        let requests = self
             .master_connection_pool
-            .connection_tagged("withdrawal session")
+            .connection_tagged("withdrawal authorization")
             .await?
             .via_withdrawal_dal()
-            .bridge_withdrawal_exists(&tx_id)
+            .load_expected_withdrawals(wallet.as_bytes(), &references)
             .await?;
-
-        Ok(exists)
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl WithdrawalSession {
-    pub async fn prepare_withdrawal_session(&self) -> anyhow::Result<()> {
-        let mut storage = self
-            .master_connection_pool
-            .connection_tagged("verifier task")
-            .await?;
-
-        // Get the l1 batches finalized but withdrawals not yet processed
-        let l1_batches = storage
-            .via_withdrawal_dal()
-            .list_finalized_blocks_with_no_bridge_withdrawal()
-            .await?;
-
-        if l1_batches.is_empty() {
-            return Ok(());
-        }
-
-        tracing::info!(
-            "Found {} finalized unprocessed L1 batch(es) with withdrawals waiting to be processed",
-            l1_batches.len()
+        anyhow::ensure!(
+            requests.iter().all(|request| request
+                .receiver
+                .as_unchecked()
+                .is_valid_for_network(self.withdrawal_client.network)),
+            "Retained withdrawal recipient belongs to a different Bitcoin network"
         );
 
-        let mut transaction = storage.start_transaction().await?;
-
-        for (batch_number, blob_id, proof_tx_id) in l1_batches.iter() {
-            let withdrawals = self
-                .withdrawal_client
-                .get_withdrawals(blob_id, L1BatchNumber(batch_number.clone() as u32))
-                .await?;
-
-            transaction
-                .via_withdrawal_dal()
-                .insert_l1_batch_bridge_withdrawals(&proof_tx_id.clone())
-                .await?;
-
-            if !withdrawals.is_empty() {
-                transaction
-                    .via_withdrawal_dal()
-                    .insert_withdrawals(&withdrawals)
-                    .await?;
-            }
-
-            tracing::info!(
-                "L1 batch number {} contains {} withdrawal requests",
-                batch_number.clone(),
-                withdrawals.len()
-            );
-        }
-
-        transaction.commit().await?;
-
-        Ok(())
-    }
-
-    async fn _verify_withdrawals(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
-        // Verify the fee used to build the withdrawal transaction.
-        let fee_rate = self
-            .transaction_builder
-            .utxo_manager
-            .get_btc_client()
+        let client = self.transaction_builder.utxo_manager.get_btc_client();
+        let network_fee = client
             .get_fee_rate(1)
-            .await?;
-
-        let used_fee_rate = session_op.get_unsigned_bridge_tx().fee_rate;
-
-        // Acceptable if difference is within ±1 sat/vbyte
-        if (used_fee_rate as i32 - fee_rate as i32).abs() > 1 {
-            tracing::error!("Fee mismatch: used={}, network={}", used_fee_rate, fee_rate);
-            return Ok(false);
-        }
-
-        let l1_withdrawals = self
-            .parse_bridge_withdrawal(session_op.get_unsigned_bridge_tx().tx.clone())
-            .await?;
-
-        let mut storage = self
-            .master_connection_pool
-            .connection_tagged("verifier task")
-            .await?;
-
-        for w in l1_withdrawals {
-            let not_processed = storage
-                .via_withdrawal_dal()
-                .check_if_withdrawal_exists_unprocessed(&w.clone().into())
-                .await?;
-
-            if !not_processed {
-                tracing::error!(
-                    "Withdrawal already processed or not exists was found in this session, tx hash id: {:?}",
-                    w.l2_meta.l2_id
+            .await
+            .context("Withdrawal fee estimate unavailable")?;
+        anyhow::ensure!(
+            candidate.fee_rate.abs_diff(network_fee) <= 1,
+            "Withdrawal fee rate outside accepted tolerance"
+        );
+        let mut parents = session_op.get_parent_transactions().to_vec();
+        let mut seen: HashSet<_> = parents.iter().map(Transaction::compute_txid).collect();
+        for (outpoint, _) in &candidate.utxos {
+            if seen.insert(outpoint.txid) {
+                parents.push(
+                    client
+                        .get_transaction(&outpoint.txid)
+                        .await
+                        .with_context(|| {
+                            format!("Required withdrawal parent {} unavailable", outpoint.txid)
+                        })?,
                 );
-                return Ok(false);
             }
         }
-
-        Ok(true)
+        self.transaction_builder
+            .verify_fixed_bridge_tx(
+                &candidate,
+                Self::requested_outputs(&requests)?,
+                &config,
+                &parents,
+            )
+            .context("Withdrawal transaction differs from retained authority")?;
+        anyhow::ensure!(
+            self.transaction_builder.get_tr_sighashes(&candidate)?
+                == session_op.get_message_to_sign(),
+            "Withdrawal signing messages differ from the authorized transaction"
+        );
+        Ok(requests)
     }
 
-    async fn _verify_sighashes(
-        &self,
-        unsigned_tx: &UnsignedBridgeTx,
-        sighashes_inputs: &Vec<Vec<u8>>,
-    ) -> anyhow::Result<bool> {
-        let sig_hashes = &self.transaction_builder.get_tr_sighashes(unsigned_tx)?;
-        if sighashes_inputs != sig_hashes {
-            tracing::error!("Invalid transaction sig_hashes for session",);
-            return Ok(false);
+    pub async fn prepare_withdrawal_session(&self) -> anyhow::Result<()> {
+        let wallet = self.wallet_script().await?;
+        let batches = self
+            .master_connection_pool
+            .connection_tagged("withdrawal import")
+            .await?
+            .via_withdrawal_dal()
+            .list_finalized_blocks_with_no_bridge_withdrawal(&wallet)
+            .await?;
+        for (number, blob_id, proof_tx_id) in batches {
+            let imported: anyhow::Result<()> = async {
+                // Source I/O precedes the short atomic import; a missing batch never commits a marker.
+                let batch = self
+                    .withdrawal_client
+                    .get_withdrawals(
+                        &blob_id,
+                        L1BatchNumber(
+                            u32::try_from(number).context("Invalid withdrawal batch number")?,
+                        ),
+                    )
+                    .await?;
+                self.master_connection_pool
+                    .connection_tagged("withdrawal import")
+                    .await?
+                    .via_withdrawal_dal()
+                    .import_complete_batch(&wallet, &proof_tx_id, &batch)
+                    .await
+            }
+            .await;
+            if let Err(error) = imported {
+                tracing::warn!(
+                    batch_number = number,
+                    "Withdrawal batch remains ineligible: {error:#}"
+                );
+            }
         }
-        tracing::info!("All sig_hashes are valid");
-        Ok(true)
+        Ok(())
     }
 
     async fn parse_bridge_withdrawal(&self, tx: Transaction) -> anyhow::Result<Vec<L1Withdrawal>> {
-        let mut parser = MessageParser::new(self.withdrawal_client.network.clone());
-        let system_wallets = self.get_system_wallets().await?;
-
+        let mut parser = MessageParser::new(self.withdrawal_client.network);
         let messages = parser.parse_bridge_transaction(
             &mut TransactionWithMetadata {
                 tx,
@@ -364,39 +198,186 @@ impl WithdrawalSession {
                 tx_index: 0,
             },
             0,
-            &system_wallets,
+            &self.get_system_wallets().await?,
         );
-
-        let Some(msg) = messages.first() else {
-            anyhow::bail!("Could not parse the transaction");
-        };
-
-        let inscription = match msg {
-            FullInscriptionMessage::BridgeWithdrawal(inscription) => inscription,
-            _ => anyhow::bail!(
-            "Found invalid inscription type, should be FullInscriptionMessage::BridgeWithdrawal found {:?}", &msg
-        ),
-        };
-
-        Ok(inscription.input.withdrawals.clone())
+        anyhow::ensure!(
+            messages.len() == 1,
+            "Expected exactly one withdrawal message"
+        );
+        match messages.into_iter().next() {
+            Some(FullInscriptionMessage::BridgeWithdrawal(message)) => {
+                Ok(message.input.withdrawals)
+            }
+            _ => anyhow::bail!("Transaction does not contain a complete withdrawal message"),
+        }
     }
 
     async fn get_system_wallets(&self) -> anyhow::Result<SystemWallets> {
         let mut storage = self.master_connection_pool.connection().await?;
-
-        let last_processed_l1_block = storage
+        let height = storage
             .via_indexer_dal()
             .get_last_processed_l1_block("via_btc_watch")
             .await?;
-        let Some(system_wallets_map) = storage
+        let wallets = storage
             .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_l1_block as i64)
+            .get_system_wallets_raw(
+                i64::try_from(height)
+                    .context("Withdrawal observation cursor exceeds storage range")?,
+            )
             .await?
-        else {
-            anyhow::bail!("Error load system wallets");
-        };
+            .context("System wallets unavailable at withdrawal observation cursor")?;
+        SystemWallets::try_from(wallets)
+    }
+}
 
-        let system_wallets = SystemWallets::try_from(system_wallets_map)?;
-        Ok(system_wallets)
+#[async_trait]
+impl ISession for WithdrawalSession {
+    async fn prepare_session(&self) -> anyhow::Result<()> {
+        self.prepare_withdrawal_session().await
+    }
+
+    async fn session(&self) -> anyhow::Result<Option<SessionOperation>> {
+        let config = TransactionBuilderConfig::withdrawal(self.get_system_wallets().await?.bridge);
+        let wallet = config.bridge_address.script_pubkey();
+        let requests = self
+            .master_connection_pool
+            .connection_tagged("withdrawal selection")
+            .await?
+            .via_withdrawal_dal()
+            .list_eligible_withdrawals(wallet.as_bytes(), 660, WITHDRAWAL_LIMIT)
+            .await?;
+        if requests.is_empty() {
+            return Ok(None);
+        }
+        let excluded_inputs = self
+            .master_connection_pool
+            .connection_tagged("withdrawal held inputs")
+            .await?
+            .via_withdrawal_dal()
+            .held_withdrawal_inputs(wallet.as_bytes())
+            .await?;
+        let transactions = self
+            .transaction_builder
+            .build_transaction_with_op_return(
+                Self::requested_outputs(&requests)?,
+                config,
+                &excluded_inputs,
+            )
+            .await?;
+        let Some(transaction) = transactions.into_iter().next() else {
+            return Ok(None);
+        };
+        let messages = self.transaction_builder.get_tr_sighashes(&transaction)?;
+        let client = self.transaction_builder.utxo_manager.get_btc_client();
+        let mut parents = Vec::with_capacity(transaction.utxos.len());
+        let mut seen = HashSet::with_capacity(transaction.utxos.len());
+        for (outpoint, _) in &transaction.utxos {
+            if seen.insert(outpoint.txid) {
+                let parent = client
+                    .get_transaction(&outpoint.txid)
+                    .await
+                    .with_context(|| {
+                        format!("Required proposal parent {} unavailable", outpoint.txid)
+                    })?;
+                anyhow::ensure!(
+                    parent.compute_txid() == outpoint.txid,
+                    "Proposal parent identity mismatch"
+                );
+                parents.push(parent);
+            }
+        }
+        Ok(Some(SessionOperation::Withdrawal(
+            transaction,
+            messages,
+            parents,
+        )))
+    }
+
+    async fn is_session_in_progress(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
+        Ok(!self.is_bridge_session_already_processed(session_op).await?)
+    }
+
+    async fn verify_message(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
+        self.authorize_withdrawal(session_op).await?;
+        Ok(true)
+    }
+
+    async fn before_process_session(&self, session_op: &SessionOperation) -> anyhow::Result<bool> {
+        self.is_session_in_progress(session_op).await
+    }
+
+    async fn before_broadcast_final_transaction(
+        &self,
+        session_op: &SessionOperation,
+    ) -> anyhow::Result<bool> {
+        let wallet = self.wallet_script().await?;
+        Ok(!self
+            .master_connection_pool
+            .connection_tagged("withdrawal rebroadcast inclusion")
+            .await?
+            .via_withdrawal_dal()
+            .observed_withdrawal_transaction_has_canonical_inclusion(
+                &wallet,
+                session_op.get_unsigned_bridge_tx().txid.as_byte_array(),
+            )
+            .await?)
+    }
+
+    async fn after_broadcast_final_transaction(
+        &self,
+        transaction: &Transaction,
+        session_op: &SessionOperation,
+    ) -> anyhow::Result<bool> {
+        let candidate = session_op.get_unsigned_bridge_tx();
+        anyhow::ensure!(
+            transaction.compute_txid() == candidate.txid,
+            "Broadcast transaction identity differs from authorization"
+        );
+        let payments = self.parse_bridge_withdrawal(transaction.clone()).await?;
+        let observation = WithdrawalObservation {
+            transaction: transaction.clone(),
+            prevouts: candidate.utxos,
+            withdrawals: payments
+                .into_iter()
+                .map(|payment| ObservedWithdrawal {
+                    vout: payment.vout,
+                    reference: payment.l2_meta.l2_id,
+                    script_pubkey: payment.receiver.script_pubkey(),
+                    amount: payment.value,
+                })
+                .collect(),
+            inclusion: None,
+        };
+        let wallet = self.wallet_script().await?;
+        self.master_connection_pool
+            .connection_tagged("withdrawal broadcast observation")
+            .await?
+            .via_withdrawal_dal()
+            .record_withdrawal_observation(&wallet, &observation)
+            .await?;
+        self.transaction_builder
+            .utxo_manager_insert_transaction(transaction.clone())
+            .await;
+        Ok(true)
+    }
+
+    async fn is_bridge_session_already_processed(
+        &self,
+        session_op: &SessionOperation,
+    ) -> anyhow::Result<bool> {
+        let wallet = self.wallet_script().await?;
+        self.master_connection_pool
+            .connection_tagged("withdrawal observation lookup")
+            .await?
+            .via_withdrawal_dal()
+            .observed_withdrawal_transaction_exists(
+                &wallet,
+                session_op.get_unsigned_bridge_tx().txid.as_byte_array(),
+            )
+            .await
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

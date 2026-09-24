@@ -16,6 +16,17 @@ This module creates a **bridge address** that supports two spending methods:
 This design provides both operational security (via MuSig2 key-path spending) and governance flexibility (via
 script-path spending).
 
+Governance spending does not bypass withdrawal accounting. A governance **payout** must use the shared `VIA_WI`
+authorization and observation path, or have an explicit durable hold established before payout. The current
+implementation does not census arbitrary payouts without metadata. A governance sweep alone is not fulfillment.
+For recognized payments, script-path witness differences are allowed only when all remaining withdrawal
+construction requirements, including sequence and fee-adjusted outputs, match.
+
+Wallet rotation fails closed at the verifier watcher, including while signing is disabled; it requires separately
+reviewed reconciliation, not resetting wallet identity or deleting old holds. See the [withdrawal cutover and
+recovery guide](../../via_verifier/README.md#withdrawal-processing-and-coordinated-cutover). The example below
+computes wallet parameters; it does not authorize activation, rotation or out-of-band payouts.
+
 ## Example
 
 ```sh
