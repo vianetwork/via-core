@@ -223,7 +223,7 @@ impl TransactionBuilder {
     /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/consistency_checker/src/lib.rs
     /// BIP174's signer checks also bind supplied UTXOs to the transaction;
     /// this interface carries transactions and prevouts directly, not PSBT serialization:
-    /// https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki#signer
+    /// https://github.com/bitcoin/bips/blob/eba8e50cb66d436c65c6bc8b0a175b643effe9d3/bip-0174.mediawiki#signer
     pub fn verify_fixed_bridge_tx(
         &self,
         candidate: &UnsignedBridgeTx,
