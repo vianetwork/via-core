@@ -49,6 +49,11 @@ Before adding or changing production logic:
 
 Complete these ownership checks before implementation. Record the evidence required by `.github/pull_request_template.md` when preparing the PR.
 
+- **Research:** Before choosing an approach or resolving an unfamiliar implementation detail, read and apply the [research workflow](docs/research/README.md#research-before-and-during-design-and-implementation). Reuse fitting research and ADRs; inspect Via owners and siblings, pinned upstream, and comparable systems.
+- **Contracts:** Before changing withdrawal, coordinator authentication, signing, proof, deposit, upgrade, or monitoring behavior, read the relevant [design-record section](docs/design/via-correctness-and-monitoring/README.md). Accepted boundaries hold; pending recommendations are not implementation authority.
+- **Design:** Before presenting or consolidating design choices and research answers, read and apply the [design-and-rationale workflow](docs/research/README.md#design-and-rationale-records).
+- **Learning:** When evidence or a correction contradicts a fact or instruction used in the task, an instructed procedure cannot produce its required result, or retained records show independent tasks rebuilding the same procedure, read and apply the [gap checks](docs/research/README.md#learning-and-workflow-improvement).
+
 ### Anti-pattern and preferred pattern
 
 - **Anti-pattern:** Copy detector, poller, or fetch/compare logic into main-node and verifier paths with only minor differences.
