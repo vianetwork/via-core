@@ -4,6 +4,10 @@ status: accepted
 
 # Decode OP_RETURN deposit pushes while preserving ignored data
 
+[ADR 0006](0006-reject-recognized-deposit-carrier-coexistence.md) later changes deposit eligibility when
+recognized witness and unreserved OP_RETURN deposit carriers coexist. It supersedes the independence
+stated below only for that case, without changing this ADR's OP_RETURN byte-decoding rules.
+
 A Bitcoin script stores data in a push instruction. The shortest form for 1 to 75 payload bytes uses one opcode
 byte that is also the length. For 76 to 255 bytes, the shortest form is `OP_PUSHDATA1`, with a separate length
 byte. Larger payloads need `OP_PUSHDATA2` or `OP_PUSHDATA4`.
