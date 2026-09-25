@@ -2,7 +2,7 @@ use rand::random;
 use zksync_db_connection::{connection::Connection, connection_pool::ConnectionPool};
 use zksync_types::H256;
 
-use crate::{Verifier, VerifierDal};
+use crate::{via_store_mode_dal::StoreMode, Verifier, VerifierDal};
 
 // Helper functions for testing
 async fn create_test_connection() -> Connection<'static, Verifier> {
@@ -329,4 +329,182 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
         .await
         .unwrap();
     assert!(rejected_l1_batch.is_none());
+}
+
+fn store_mode(dev: bool, network: &str, genesis: &str) -> StoreMode {
+    StoreMode {
+        proof_verification_dev_mode: dev,
+        bitcoin_network: network.to_string(),
+        bitcoin_genesis_hash: genesis.to_string(),
+    }
+}
+
+#[tokio::test]
+async fn store_mode_is_designated_once_and_enforced() {
+    let mut storage = create_test_connection().await;
+    let mut dal = storage.via_store_mode_dal();
+    let dev = store_mode(true, "regtest", "regtest-genesis");
+
+    assert!(dal
+        .ensure_proof_verification_mode(&store_mode(true, "testnet4", "t4-genesis"))
+        .await
+        .is_err());
+    dal.ensure_proof_verification_mode(&dev).await.unwrap();
+    dal.ensure_proof_verification_mode(&dev).await.unwrap();
+
+    let reopened_strict = dal
+        .ensure_proof_verification_mode(&store_mode(false, "regtest", "regtest-genesis"))
+        .await;
+    assert!(reopened_strict
+        .unwrap_err()
+        .to_string()
+        .contains("designated"));
+    assert!(dal
+        .ensure_proof_verification_mode(&store_mode(true, "regtest", "other-genesis"))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn strict_store_rejects_development_mode() {
+    let mut storage = create_test_connection().await;
+    let mut dal = storage.via_store_mode_dal();
+
+    dal.ensure_proof_verification_mode(&store_mode(false, "regtest", "g"))
+        .await
+        .unwrap();
+    assert!(dal
+        .ensure_proof_verification_mode(&store_mode(true, "regtest", "g"))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn development_designation_refuses_a_store_with_verdicts() {
+    let mut storage = create_test_connection().await;
+    let proof_reveal_tx_id = H256::random();
+    insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
+    storage
+        .via_votes_dal()
+        .verify_votable_transaction(1, proof_reveal_tx_id, true)
+        .await
+        .unwrap();
+
+    let designated = storage
+        .via_store_mode_dal()
+        .ensure_proof_verification_mode(&store_mode(true, "regtest", "g"))
+        .await;
+    assert!(designated
+        .unwrap_err()
+        .to_string()
+        .contains("already holds verdicts"));
+    // The refusal rolled its designation back, so the store can still be designated strict.
+    // That designation reports the adopted legacy verdict once, and a restart does not report it again.
+    let strict = store_mode(false, "regtest", "g");
+    let mut dal = storage.via_store_mode_dal();
+    assert!(dal.ensure_proof_verification_mode(&strict).await.unwrap());
+    assert!(!dal.ensure_proof_verification_mode(&strict).await.unwrap());
+}
+
+#[tokio::test]
+async fn development_store_restarts_after_its_own_verdicts() {
+    let mut storage = create_test_connection().await;
+    let dev = store_mode(true, "regtest", "g");
+    storage
+        .via_store_mode_dal()
+        .ensure_proof_verification_mode(&dev)
+        .await
+        .unwrap();
+    let proof_reveal_tx_id = H256::random();
+    insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
+    storage
+        .via_votes_dal()
+        .verify_votable_transaction(1, proof_reveal_tx_id, true)
+        .await
+        .unwrap();
+
+    // A second process that loses the first-start insert must be admitted, not mistaken for a legacy store.
+    storage
+        .via_store_mode_dal()
+        .ensure_proof_verification_mode(&dev)
+        .await
+        .unwrap();
+}
+
+async fn insert_test_votable_transaction(
+    storage: &mut Connection<'_, Verifier>,
+    proof_reveal_tx_id: H256,
+) {
+    storage
+        .via_votes_dal()
+        .insert_votable_transaction(
+            1,
+            H256::random(),
+            H256::random(),
+            "test_da_id".to_string(),
+            proof_reveal_tx_id,
+            "test_blob_id".to_string(),
+            "test_pubdata_tx_id".to_string(),
+            "test_pubdata_blob_id".to_string(),
+            None,
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn unverified_dev_marker_is_recorded_with_the_verdict() {
+    let mut storage = create_test_connection().await;
+    storage
+        .via_store_mode_dal()
+        .ensure_proof_verification_mode(&store_mode(true, "regtest", "g"))
+        .await
+        .unwrap();
+    let proof_reveal_tx_id = H256::random();
+    insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
+    let id = storage
+        .via_votes_dal()
+        .verify_votable_transaction(1, proof_reveal_tx_id, true)
+        .await
+        .unwrap();
+    storage
+        .via_votes_dal()
+        .mark_unverified_dev(id)
+        .await
+        .unwrap();
+    assert!(storage
+        .via_votes_dal()
+        .mark_unverified_dev(id + 1)
+        .await
+        .is_err());
+
+    let marked: bool =
+        sqlx::query_scalar("SELECT unverified_dev FROM via_votable_transactions WHERE id = $1")
+            .bind(id)
+            .fetch_one(storage.conn())
+            .await
+            .unwrap();
+    assert!(marked);
+}
+
+#[tokio::test]
+async fn strict_store_refuses_the_unverified_dev_marker() {
+    let mut storage = create_test_connection().await;
+    storage
+        .via_store_mode_dal()
+        .ensure_proof_verification_mode(&store_mode(false, "regtest", "g"))
+        .await
+        .unwrap();
+    let proof_reveal_tx_id = H256::random();
+    insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
+    let id = storage
+        .via_votes_dal()
+        .verify_votable_transaction(1, proof_reveal_tx_id, true)
+        .await
+        .unwrap();
+    assert!(storage
+        .via_votes_dal()
+        .mark_unverified_dev(id)
+        .await
+        .is_err());
 }

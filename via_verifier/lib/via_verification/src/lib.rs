@@ -1,4 +1,4 @@
-use zksync_types::ProtocolVersionId;
+use zksync_types::{L1BatchNumber, ProtocolVersionId, H256};
 
 use crate::{
     version_27::{types::ProveBatches as ProveBatchesV27, verify_proof as verify_proof_v27},
@@ -12,6 +12,51 @@ pub mod version_28;
 pub enum ProveBatchData {
     V27(ProveBatchesV27),
     V28(ProveBatchesV28),
+}
+
+impl ProveBatchData {
+    /// A usable package has exactly one batch and at most one proof, because a missing proof may be fetched separately.
+    /// zkSync's Executor likewise verifies one batch per proof, but always receives the proof with the batch:
+    /// https://github.com/matter-labs/era-contracts/blob/df2c3baabd8bf1ea7b82fb6aafa5ae550c0f9b80/l1-contracts/contracts/state-transition/chain-deps/facets/Executor.sol#L517-L521
+    pub fn check_shape(&self) -> anyhow::Result<()> {
+        let (batches, proofs) = match self {
+            Self::V27(data) => (data.l1_batches.len(), data.proofs.len()),
+            Self::V28(data) => (data.l1_batches.len(), data.proofs.len()),
+        };
+        anyhow::ensure!(batches == 1, "Expected exactly one L1 batch, got {batches}");
+        anyhow::ensure!(proofs <= 1, "Expected at most one proof, got {proofs}");
+        Ok(())
+    }
+
+    /// The batch number, root and parent root the package claims, assuming `check_shape` passed.
+    pub fn claimed_batch(&self) -> (L1BatchNumber, H256, H256) {
+        match self {
+            Self::V27(data) => (
+                data.l1_batches[0].header.number,
+                data.l1_batches[0].metadata.root_hash,
+                data.prev_l1_batch.metadata.root_hash,
+            ),
+            Self::V28(data) => (
+                data.l1_batches[0].header.number,
+                data.l1_batches[0].metadata.root_hash,
+                data.prev_l1_batch.metadata.root_hash,
+            ),
+        }
+    }
+
+    pub fn protocol_version_id(&self) -> Option<ProtocolVersionId> {
+        match self {
+            Self::V27(data) => data.l1_batches.first()?.header.protocol_version,
+            Self::V28(data) => data.l1_batches.first()?.header.protocol_version,
+        }
+    }
+
+    pub fn has_proof(&self) -> bool {
+        match self {
+            Self::V27(data) => !data.proofs.is_empty(),
+            Self::V28(data) => !data.proofs.is_empty(),
+        }
+    }
 }
 
 /// Decodes the proof data into the appropriate version. It's possible that the data serialization format changes even within the same version.

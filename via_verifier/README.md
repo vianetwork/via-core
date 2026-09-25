@@ -62,6 +62,35 @@ sequenceDiagram
   Sequencer->>Sequencer: Finalize L1 batch once majority is reached
 ```
 
+### Proof verification outcomes
+
+The ZK verifier approves a batch when its package names the inscribed batch and the package's proof verifies.
+Development mode, below, is the only other approval.
+Anything else records nothing, so the verifier retries the same batch and progress stops there.
+It records no rejections until proofs are bound to the inscribed batch ([ADR 0007](../docs/adr/0007-record-only-completed-proof-verdicts.md)).
+
+- Progress has stopped when `via_verifier_zk_last_indexed_l1_batch` stays ahead of `via_verifier_zk_last_valid_l1_batch`
+  and the latter stops advancing. The stuck batch is the next one after it. Both are read from the database on every
+  poll, so they survive restarts and reorgs, and a fetch that hangs without an error keeps the gap visible.
+- `via_verifier_zk_non_verdicts{reason}` counts polls that ended without a verdict. `package_unavailable`,
+  `proof_unavailable` and `deposit_index_incomplete` usually resolve once evidence arrives or the index catches up.
+  `malformed_package`, `proof_store_error`, `proof_failed`, `deposit_mismatch` and `verification_error` need an
+  operator to inspect the logged cause.
+- The package's `should_verify` flag never skips verification.
+
+`proof_verification_dev_mode = true` in the verifier config lets local regtest runs without a prover approve a batch
+whose proof is absent. A proof that is present is still verified. Development approvals are marked `unverified_dev`.
+
+- The first start permanently designates the database for development or strict mode on one Bitcoin chain, even if
+  that start then fails. Later starts in the other mode, or against another chain, refuse to run.
+- Development mode requires regtest and a database without earlier verdicts. Use a fresh database for it.
+  The local `via_verifier` and `via_coordinator` environments enable it, because the local main node dispatches
+  proof-free packages. Reinitialize an existing local verifier database once.
+- A strict first start keeps verdicts written by earlier binaries and logs a warning. Rows with an id up to
+  `via_verifier_store_mode.designated_after_votable_id` are unproven legacy results, whatever their `unverified_dev`
+  value. Trusting them is a separate historical-evidence decision.
+- The designation migration refuses to roll back a development database. Discard that database instead.
+
 ### Withdrawal processing and coordinated cutover
 
 The withdrawal lifecycle separates complete L2 obligations, observed Bitcoin payments, and durable signing

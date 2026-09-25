@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 
+use sqlx::{postgres::PgRow, Row};
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
 use zksync_types::{
     protocol_version::{ProtocolSemanticVersion, VersionPatch},
@@ -109,6 +110,30 @@ impl ViaProtocolVersionsDal<'_, '_> {
             }));
         }
         Ok(None)
+    }
+
+    /// All registered patches of one minor version, newest first.
+    /// Upstream zkSync lists a minor's patches the same way but keeps only those matching the L1-authorized key.
+    /// Via keeps one verification key per minor, so every patch is returned:
+    /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/dal/src/protocol_versions_dal.rs#L320-L347
+    pub async fn semantic_versions_of_minor(
+        &mut self,
+        minor: ProtocolVersionId,
+    ) -> DalResult<Vec<ProtocolSemanticVersion>> {
+        let patches =
+            sqlx::query("SELECT patch FROM protocol_patches WHERE minor = $1 ORDER BY patch DESC")
+                .bind(minor as i32)
+                .map(|row: PgRow| row.get::<i32, _>("patch"))
+                .instrument("semantic_versions_of_minor")
+                .fetch_all(self.storage)
+                .await?;
+        Ok(patches
+            .into_iter()
+            .map(|patch| ProtocolSemanticVersion {
+                minor,
+                patch: VersionPatch(patch as u32),
+            })
+            .collect())
     }
 
     pub async fn latest_protocol_semantic_version(
