@@ -40,9 +40,16 @@ The push branch in `Monitor.start` compares elapsed time to `beatInterval * 1000
 
 This inspected release's push route is GET, not a drop-in receiver for an Alertmanager webhook POST. An approved compatibility adapter or a different receiver is needed; an adapter adds another component whose failures and retries must be understood. Self-hosting this receiver on the observability host would also defeat the purpose. The source establishes the mechanism, not suitability of a particular hosting arrangement.
 
+The method restriction is version-specific. At inspected commit
+[`b6adc19d00e4e6700f4b6ffc64a5c4e105e8004c`](https://github.com/louislam/uptime-kuma/blob/b6adc19d00e4e6700f4b6ffc64a5c4e105e8004c/server/routers/api-router.js#L40-L95),
+the push route uses `router.all`, including POST, and reads status from query parameters with an
+`up` default. The old release's adapter requirement must not be generalized to this revision.
+Pin the actual receiver version and verify token, active monitor, parameter interpretation,
+stored last-success time and notification delivery; accepting a method is only one compatibility check.
+
 ## Judgment and failure domains
 
-Reuse an existing receiver mechanism rather than writing another timer in `via-core`. The application should not own outside-account provisioning, routing credentials, paging policy, or the monitor's persistence. A health service such as Healthchecks is a closer fit for POST heartbeat receipt; Uptime Kuma illustrates an alternative with a concrete method mismatch that must not be ignored. No vendor is selected by this research.
+Reuse an existing receiver mechanism rather than writing another timer in `via-core`. The application should not own outside-account provisioning, routing credentials, paging policy, or the monitor's persistence. Healthchecks supports POST heartbeat receipt; Uptime Kuma's suitability depends on the inspected version and its configured push semantics. No vendor is selected by this research. Measure arrivals through the actual Alertmanager route before choosing receiver period and grace: nominal repeat settings alone do not establish runtime cadence.
 
 ### Existing Hetzner and NixOS configuration
 

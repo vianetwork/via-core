@@ -1,6 +1,6 @@
 # Proof verification and historical evidence
 
-Status: research; remediation and rollout decisions pending. Evidence inspected on 2026-09-23 and 2026-09-24. This note is not a release approval or an operational collection procedure. Restricted findings and candidate details are intentionally absent.
+Status: research. Verdict and isolated development policies were accepted on 2026-09-25 in [ADR 0007](../adr/0007-record-only-completed-proof-verdicts.md); [ADR 0008](../adr/0008-bind-proofs-by-chaining-verified-commitments.md) subsequently accepted commitment chaining with root openings. Binding proof obligations, failed-opening policy, the trusted anchor, historical trust and rollout remain pending. Earlier alternatives below are historical where these ADRs supersede them. Evidence inspected on 2026-09-23 and 2026-09-24. This note is not a release approval or an operational collection procedure; restricted candidate details remain outside it.
 
 The question is what a successful proof result establishes, and what evidence makes previously accepted or still-pending history trustworthy. A change to the verifier cannot retroactively certify a stored status, a published vote, or a dependent withdrawal.
 
@@ -116,13 +116,17 @@ using a negative batch-policy result. A shortage of locally indexed deposits lea
 a conclusive priority-order mismatch is a separate policy case. A library correction alone cannot
 establish those consumer transitions.
 
-The requirement for local cryptographic success before an approving network-threshold finalization
-is also a consensus-policy choice. It must be stated separately from result representation rather
-than changed implicitly during a library repair.
+The user selected the current finalization rule unchanged in ADR 0007. Requiring a positive local
+result before network-threshold finalization is not part of this remediation.
 
-For P2, the smallest production policy is no bypass. If development execution without proofs is needed, use an explicitly separate development path with no production vote publisher or shared production store. RISC Zero's `disable-dev-mode` build feature illustrates a stronger guard than a warning. SP1's mock verifier illustrates why a generic successful return cannot identify the mode. Persisted development results must remain identifiable after restart and must not enter a production verdict import.
+For P2, the user selected proof-free end-to-end development through the verifier's own configuration,
+restricted to regtest/development networks and stores. Producer `SkipEveryProof` remains usable locally
+but cannot enable verifier development mode. Accepted development results vote normally locally and
+remain marked `unverified-dev` across restart; they must not become production verification evidence.
+Production has no bypass. RISC Zero's verifier-owned development context and SP1's mock-verifier
+distinction inform this contract without supplying Via's exact configuration or persistence design.
 
-These are recommendations, not accepted implementation decisions. They add no required framework, storage table, or protocol flag. The existing proof clones and verification work remain separate performance concerns. A type change alone does not remove an allocation, a key-file read, or an object-store request.
+The accepted policies do not choose a framework, storage table or new wire flag. Their implementation must preserve the development/result distinction through consumers and restart. The existing proof clones and verification work remain separate performance concerns; a type change alone does not remove an allocation, key-file read or object-store request.
 
 ## Historical evidence is a separate rollout gate
 

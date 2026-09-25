@@ -17,6 +17,8 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
   expected obligations, and comparable bridge implementations.
 - [Proof verification and historical evidence](proof-verification-and-history.md): verification
   inputs, result handling, and historical trust.
+- [Proof-statement binding](proof-statement-binding.md): binding a verified proof to the inscribed batch,
+  inspected implementations and their engineering patterns.
 - [Coordinator request authentication](coordinator-request-authentication.md): signed content,
   request identity, retries, and signing-session conflicts.
 - [Deposit compatibility evidence](deposit-compatibility-evidence.md): historical interpretation
@@ -34,7 +36,10 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
 - [Withdrawal intent and observed Bitcoin payments](withdrawal-intent-and-observation.md): comparable
   storage models, observation-first ingestion, identity and replay rules, and candidate Via ownership.
   [ADR 0004](../adr/0004-separate-expected-withdrawals-from-observed-payments.md) accepts the storage
-  separation. Schema, signing, hold, and recovery choices remain open.
+  separation. The [implemented verifier contract](../../via_verifier/README.md) supersedes the
+  earlier open schema, signing, hold and recovery proposals; activation and historical evidence remain separate.
+- [Alloy engineering patterns](alloy-engineering-patterns.md): concrete adapter, lock, retry,
+  watcher and ABI-decoder mechanisms, their resource costs and limits, and possible later Via use.
 
 These studies retain research status. Linked ADRs identify accepted subdecisions; the remaining
 recommendations are not accepted architecture decisions.

@@ -15,10 +15,16 @@ handle; it does not replace their evidence or create a second task tracker.
 
 ## Status, ownership, and evidence
 
-The accepted boundaries below remain fixed. All 41 identified choices in the topic tables remain
-**pending**; a recommendation is not acceptance. Their identifiers provide traceability, not priority
-or implementation order. Reading or updating this record authorizes no migration, funded probe,
-shared-state operation, deployment, or signing resumption.
+The accepted boundaries below remain fixed. The topic tables retain the original 41-choice research
+catalogue; they are not a count of choices still open. At source revision
+`269b81cf056b2bb13294a042b93720b4f5500efe`, the withdrawal and authenticated-signing implementation
+supersedes their earlier schema, authorization, hold and recovery proposals. The
+[verifier's implemented contract](../../../via_verifier/README.md) governs those details;
+historical preparation, positive fulfillment depth and activation remain separate gates.
+Read the W/S tables as historical alternatives where that contract supersedes them, not permission
+to reopen accepted behavior. Other recommendations remain pending unless their owning ADR records
+acceptance. Identifiers provide traceability, not implementation order. Updating this record
+authorizes no migration, funded probe, shared-state operation, deployment or signing resumption.
 
 Maintain disclosure-safe design reasoning here. Keep restricted findings, private candidate reviews,
 operational artifacts, and their supporting evidence in the approved private version-controlled store.
@@ -67,6 +73,18 @@ project demonstrates a mechanism, not that its trust assumptions or policy trans
   [ADR 0001](../../adr/0001-isolate-btc-inscription-observability.md) requires separately owned bounded
   execution and resources, current and fresh observations, and unavailable evidence distinct from
   healthy zero. It does not choose a metric representation or prove activation.
+- **Proof approval cannot come from the package's skip flag.**
+  [ADR 0007](../../adr/0007-record-only-completed-proof-verdicts.md) accepts no verdict for missing
+  evidence or malformed evidence without conclusive invalidity, preserves holds and finalization,
+  and requires verifier-configured isolated proof-free development with durable `unverified-dev`
+  results and normal local voting. Binding is a separate required design before historical trust
+  claims or withdrawal activation. These decisions are not yet an implementation.
+- **Proof statements must follow accepted commitments and open the inscribed root.**
+  [ADR 0008](../../adr/0008-bind-proofs-by-chaining-verified-commitments.md) selects this direction;
+  publishing commitments on Bitcoin is deferred as a possible later addition for new batches.
+  Consumed messages need their own authenticated openings. Failed-opening policy, the trusted first
+  commitment, batch identity and parent-root authentication remain decisions or proof obligations,
+  not implemented guarantees.
 
 These are accepted planning contracts, not assertions about current implementation. Preserve the
 existing withdrawal fee policy and the selected signing guarantee; ADR 0004 adds neither a mandatory
@@ -167,16 +185,27 @@ checks the expected program and public journal; SP1 binds the verification key, 
 circuit version. Ethereum's Engine API distinguishes incomplete processing from `VALID`. These
 comparisons explain result meaning; they do not select Via's consensus or historical recovery policy.
 
+The verdict and development policies are now accepted in
+[ADR 0007](../../adr/0007-record-only-completed-proof-verdicts.md).
+The verifier, not the package, selects isolated development mode. Its proof-free results vote
+normally only locally and retain their `unverified-dev` identity across restart; production has
+no bypass. Missing evidence does not create a vote or invalidation, and existing holds remain.
+The finalization rule is unchanged. [ADR 0008](../../adr/0008-bind-proofs-by-chaining-verified-commitments.md)
+accepts commitment chaining with root openings, but its sufficiency still requires offline proof.
+The [binding research](../../research/proof-statement-binding.md) separates failed-opening and anchor
+choices from parent-root, batch-identity, consumed-data and persistence obligations. Historical clearance
+and activation remain unresolved.
+
 Prefer preserving these meanings through callers, persistence, votes, and restart. A richer enum is
 useful only if consumers retain its distinctions. A smaller `Result<bool>` can be adequate when a
 successful boolean means a completed verdict and errors remain non-verdicts throughout the path.
 
-| Choice | Alternatives and recommendation; reason it remains open |
+| Choice | Accepted boundary and remaining work |
 | --- | --- |
-| P1 — Durable verdict meaning | Retain the existing result shape with explicit errors, or introduce a richer outcome where consumers need it. Prefer the smallest representation that preserves completed checks, missing prerequisites, and non-verdicts through storage and outgoing votes. Consensus-threshold policy is a separate choice. |
-| P2 — Development execution | Remove proof-free execution or isolate it in a development path without production storage or vote publication. Prefer no production bypass. If simulation remains necessary, its results must remain identifiable after restart. |
-| P3 — Historical trust | Re-verify an explicitly bounded history, or adopt a separately approved trusted boundary with stated limits. Prefer joined proof, batch, key, process, and stored-result evidence. Missing objects and unsupported history remain unknown, not cleared. |
-| P4 — Recovery and activation | Keep source correction, historical disposition, and activation separately authorized. Re-verification, checkpointing, replay, and republishing have different consequences. Prefer preserving evidence and holding affected activation until the selected recovery policy is satisfied. |
+| P1 — Durable verdict meaning | Accepted: no package-controlled approval; no verdict for missing proof, incomplete deposit indexing or malformed evidence unless invalidity is conclusive. Missing, permanently unusable and invalid remain distinct. Preserve holds and current finalization. Commitment chaining with root openings is selected; failed-opening policy and sufficient binding evidence remain open alongside representation and caller integration. |
+| P2 — Development execution | Accepted: local end-to-end runs without a prover use verifier-configured development mode, restricted to regtest/development networks and stores. Producer `SkipEveryProof` remains available locally. Development results vote normally locally and remain `unverified-dev` across restart; production has no bypass. Exact fencing and persistence need implementation and proof. |
+| P3 — Historical trust | Still open: select and justify bounded historical trust and any recovery. Sufficient proof-to-batch binding is a required follow-up before clearance. Missing objects and unsupported history remain unknown, not cleared; no checkpoint is selected. |
+| P4 — Recovery and activation | Still open: keep source correction, historical disposition and activation separately authorized. Binding is required before withdrawal activation. Re-verification, checkpointing, replay and republishing have different consequences; none is selected here. |
 
 **Proof needed:** genuine supported proof formats, changed commitments, invalid proofs, unavailable
 objects, incomplete prerequisites, persisted verdict and vote replay, restart, and already-finalized

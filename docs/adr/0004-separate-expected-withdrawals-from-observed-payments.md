@@ -30,8 +30,8 @@ expected obligation from an incomplete observation. Update-only observation hand
 ordering or replay that prevents an early payment from being lost. Separate records preserve both
 facts without that arrival-order requirement, at the cost of reconciliation and migration work.
 
-This decision selects the separation, not an exact schema, table count, or API. It leaves the
-following choices open:
+This decision selected the separation, not an exact schema, table count, or API. At acceptance it
+left the following choices open:
 
 - The authoritative expected-fact source and parent-output provenance at signing.
 - The exact authorization algorithm and concurrent signing admission rules.
@@ -42,3 +42,12 @@ The existing fee policy and selected signing guarantee remain unchanged. This AD
 fresh `gettxout` requirement or claim that preserved facts remain canonical at signing.
 It records an accepted planning decision, not implementation, migration, deployment, or permission
 to resume signing.
+
+## Subsequent implementation
+
+At source revision `269b81cf056b2bb13294a042b93720b4f5500efe`, withdrawal authorization,
+authenticated signing, durable holds, fulfillment and reorg/restart handling are implemented.
+The [verifier contract](../../via_verifier/README.md) owns those details and supersedes the
+historical open list above where specified. Historical preparation and trust, a positive
+fulfillment depth and activation evidence remain separate gates. This status update changes
+neither this ADR's storage decision nor permission to migrate or resume signing.
