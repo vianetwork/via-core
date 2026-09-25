@@ -40,6 +40,7 @@ impl ViaDataAvailabilityDispatcher {
         blob_store: Arc<dyn ObjectStore>,
         dispatch_real_proof: bool,
     ) -> Self {
+        METRICS.initialize();
         Self {
             pool,
             config,

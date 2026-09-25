@@ -18,7 +18,9 @@ use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_object_store::ObjectStore;
-use zksync_types::{via_wallet::SystemWallets, L1BatchNumber, H160, H256};
+use zksync_types::{
+    helpers::unix_timestamp_ms, via_wallet::SystemWallets, L1BatchNumber, H160, H256,
+};
 
 mod metrics;
 
@@ -43,6 +45,7 @@ impl ViaVerifier {
         via_btc_watch_config: ViaBtcWatchConfig,
         blob_store: Arc<dyn ObjectStore>,
     ) -> anyhow::Result<Self> {
+        METRICS.initialize();
         let state = ViaState::new(pool.clone(), btc_client.clone(), via_btc_watch_config);
 
         Ok(Self {
@@ -67,7 +70,11 @@ impl ViaVerifier {
 
             let mut storage = pool.connection_tagged("via_zk_verifier").await?;
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => {}
+                Ok(()) => {
+                    METRICS
+                        .last_iteration_timestamp
+                        .set(unix_timestamp_ms() / 1_000);
+                }
                 Err(err) => {
                     METRICS.errors.inc();
                     tracing::error!("Failed to process via_zk_verifier: {err}")

@@ -38,5 +38,26 @@ pub(super) struct DataAvailabilityDispatcherMetrics {
     pub errors: Counter,
 }
 
+impl DataAvailabilityDispatcherMetrics {
+    pub(super) fn initialize(&self) {
+        self.last_dispatched_l1_batch.inc_by(0);
+        self.last_dispatched_proof_batch.inc_by(0);
+        self.last_included_l1_batch.inc_by(0);
+        self.last_included_proof_batch.inc_by(0);
+        self.errors.inc_by(0);
+    }
+}
+
 #[vise::register]
 pub(super) static METRICS: vise::Global<DataAvailabilityDispatcherMetrics> = vise::Global::new();
+
+#[cfg(test)]
+#[test]
+fn materializes_metrics_before_work() {
+    let registry = vise::MetricsCollection::lazy().filter(|group| group.module_path == module_path!()).collect();
+    METRICS.initialize();
+    let mut output = String::new();
+    registry.encode(&mut output, vise::Format::OpenMetricsForPrometheus).unwrap();
+    assert_eq!(output.matches("_batch 0\n").count(), 4, "{output}");
+    assert!(output.contains("\nvia_server_da_dispatcher_errors 0\n"), "{output}");
+}
