@@ -12007,7 +12007,9 @@ dependencies = [
 name = "via_da_dispatcher_lib"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "serde",
+ "tokio",
  "tracing",
  "zksync_object_store",
  "zksync_prover_interface",
@@ -12588,6 +12590,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
  "tokio",
  "tracing",
  "via_btc_client",

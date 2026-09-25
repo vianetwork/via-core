@@ -20,3 +20,5 @@ withdrawal_signing_enabled = false
 coordinator_public_key = ""
 # Fulfillment is disabled until an explicit inclusion policy is selected.
 # withdrawal_fulfillment_confirmations = <approved positive confirmation depth>
+# Development only: accept batches without a proof on a regtest development store.
+proof_verification_dev_mode = false

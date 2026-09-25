@@ -23,6 +23,12 @@ Existing holds remain. The verifier waits for sufficient evidence; retry does no
 Missing evidence, permanently unusable packages and conclusively invalid batches remain distinct outcomes.
 A permanently unusable package leaves the verifier visibly stopped at that batch until a separately decided recovery.
 
+**Until proofs are bound to the inscribed batch, the verifier records no rejection.** A proof that does not verify
+and a deposit-order disagreement each yield no verdict. Neither establishes that the inscribed batch is invalid:
+the proof's public inputs come from the package, and the deposit comparison depends on this node's own index.
+The verifier therefore approves a batch or stops at it, and an unapproved batch never reaches the finalization threshold.
+Recording rejections again requires the binding selected in ADR 0008.
+
 **Proof-free operation is a verifier-side development mode.** Local end-to-end runs without a prover
 are required. The verifier's own configuration enables this mode, never the proof package.
 It refuses non-regtest/non-development networks and stores. The producer's `SkipEveryProof` mode

@@ -4,7 +4,7 @@ use anyhow::Context;
 use chrono::Utc;
 use rand::Rng;
 use tokio::sync::watch::Receiver;
-use via_da_dispatcher_lib::blob::load_wrapped_fri_proofs_for_range;
+use via_da_dispatcher_lib::blob::find_wrapped_proof;
 use zksync_config::DADispatcherConfig;
 use zksync_da_client::{
     types::{DAError, InclusionData},
@@ -309,16 +309,16 @@ impl ViaDataAvailabilityDispatcher {
             .get_proof_data(batch_to_prove)
             .await?;
 
-        let proof = match load_wrapped_fri_proofs_for_range(
-            self.blob_store.clone(),
-            batch_to_prove,
-            &allowed_versions,
-        )
-        .await
+        let proof = match find_wrapped_proof(&*self.blob_store, batch_to_prove, &allowed_versions)
+            .await
         {
-            Some(proof) => proof,
-            None => {
+            Ok(Some(proof)) => proof,
+            Ok(None) => {
                 tracing::error!("Failed to load proof for batch {}", batch_to_prove);
+                return None;
+            }
+            Err(err) => {
+                tracing::error!("Failed to load proof for batch {batch_to_prove}: {err}");
                 return None;
             }
         };

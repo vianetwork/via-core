@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 
+use sqlx::{postgres::PgRow, Row};
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
 use zksync_types::{
     protocol_version::{ProtocolSemanticVersion, VersionPatch},
@@ -109,6 +110,27 @@ impl ViaProtocolVersionsDal<'_, '_> {
             }));
         }
         Ok(None)
+    }
+
+    /// All registered patches of one minor version, newest first.
+    pub async fn semantic_versions_of_minor(
+        &mut self,
+        minor: ProtocolVersionId,
+    ) -> DalResult<Vec<ProtocolSemanticVersion>> {
+        let patches =
+            sqlx::query("SELECT patch FROM protocol_patches WHERE minor = $1 ORDER BY patch DESC")
+                .bind(minor as i32)
+                .map(|row: PgRow| row.get::<i32, _>("patch"))
+                .instrument("semantic_versions_of_minor")
+                .fetch_all(self.storage)
+                .await?;
+        Ok(patches
+            .into_iter()
+            .map(|patch| ProtocolSemanticVersion {
+                minor,
+                patch: VersionPatch(patch as u32),
+            })
+            .collect())
     }
 
     pub async fn latest_protocol_semantic_version(

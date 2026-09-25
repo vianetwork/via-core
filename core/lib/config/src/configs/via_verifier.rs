@@ -55,6 +55,10 @@ pub struct ViaVerifierConfig {
     /// Explicit fulfillment depth, independent of the watcher ingestion cutoff.
     #[serde(default)]
     pub withdrawal_fulfillment_confirmations: Option<u32>,
+
+    /// Accepts batches without a proof, as unverified development results. Regtest development stores only.
+    #[serde(default)]
+    pub proof_verification_dev_mode: bool,
 }
 
 impl ViaVerifierConfig {
@@ -94,6 +98,7 @@ impl ViaVerifierConfig {
             withdrawal_signing_enabled: false,
             coordinator_public_key: String::new(),
             withdrawal_fulfillment_confirmations: None,
+            proof_verification_dev_mode: false,
         }
     }
 

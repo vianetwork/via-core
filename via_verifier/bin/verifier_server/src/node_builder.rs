@@ -184,6 +184,10 @@ impl ViaNodeBuilder {
         let layer = ViaVerifierInitLayer {
             via_genesis_config: self.configs.via_genesis_config.clone(),
             via_btc_watch_config: self.configs.via_btc_watch_config.clone(),
+            proof_verification_dev_mode: self
+                .configs
+                .via_verifier_config
+                .proof_verification_dev_mode,
         };
         self.node.add_layer(layer);
         Ok(self)
