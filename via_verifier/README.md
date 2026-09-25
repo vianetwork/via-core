@@ -84,6 +84,8 @@ whose proof is absent. A proof that is present is still verified. Development ap
 - The first start permanently designates the database for development or strict mode on one Bitcoin chain, even if
   that start then fails. Later starts in the other mode, or against another chain, refuse to run.
 - Development mode requires regtest and a database without earlier verdicts. Use a fresh database for it.
+  The local `via_verifier` and `via_coordinator` environments enable it, because the local main node dispatches
+  proof-free packages. Reinitialize an existing local verifier database once.
 - A strict first start keeps verdicts written by earlier binaries and logs a warning. Rows with an id up to
   `via_verifier_store_mode.designated_after_votable_id` are unproven legacy results, whatever their `unverified_dev`
   value. Trusting them is a separate historical-evidence decision.
