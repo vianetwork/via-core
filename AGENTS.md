@@ -102,7 +102,7 @@ A comment that draws on an external algorithm, standard, RFC, BIP, project or ch
 
 ```rust
 // Writes nothing, so the next poll selects the same batch and progress stops there.
-// Citrea instead logs a failed proof and still advances its L1 scan cursor, which can drop that proof for good:
+// Citrea's full node instead advances its L1 scan cursor past a proof it fails to process or discards, and does not retry it:
 // https://github.com/chainwayxyz/citrea/blob/f11527f94344d5dc4576ccb9589d5713fb8f7238/crates/fullnode/src/da_block_handler.rs#L299-L351
 ```
 

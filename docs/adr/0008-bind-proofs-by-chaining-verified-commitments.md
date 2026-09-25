@@ -25,6 +25,14 @@ correct circuit/key correspondence, this binds the checked transition to that ro
 commitment. It does not by itself establish batch number, canonicality or consumed message contents.
 The accepted commitment is persisted with the verdict and becomes the next parent.
 
+The metadata hash covers the bootloader, default-account and EVM-emulator code hashes the batch executed with.
+A correct verification key does not authorize that code. The verifier must check these hashes against the code
+authorized for the batch's protocol version, not take them from the package. Blind equality with the previous
+batch would wrongly forbid upgrades. zkSync's settlement contract likewise reads them from authorized storage
+([`Executor.sol` L601-611](https://github.com/matter-labs/era-contracts/blob/df2c3baabd8bf1ea7b82fb6aafa5ae550c0f9b80/l1-contracts/contracts/state-transition/chain-deps/facets/Executor.sol#L601-L611)),
+while the scheduler circuit takes them as witnesses
+([`scheduler/mod.rs` L148-183](https://github.com/matter-labs/zksync-protocol/blob/33d3aa0a1dd9a73175a105b09a3fd54ef3191921/crates/zkevm_circuits/src/scheduler/mod.rs#L148-L183)).
+
 Pubdata consumed for deposits, upgrades and withdrawals must be opened against the same commitment.
 A root match alone does not authenticate those messages.
 
@@ -71,10 +79,15 @@ The following must be demonstrated offline before implementation or historical u
   against the retained parent root, or another demonstrated check establishes that relation;
 - every consumed pubdata item opens against the commitment;
 - restart, reorg and inscription-chain replacement rewind the retained commitment with the verdict.
-- verdict, commitment and effects persist atomically with the intended proof and batch source identity.
+- verdict, commitment and effects persist atomically with the intended proof and batch source identity;
+- the metadata witness's code hashes match the authorized code for each batch's protocol version;
+- a retained commitment is keyed by batch identity, because `via_votable_transactions.l1_batch_hash` is unique
+  and two batches sharing a state root could not both be recorded;
+- development approvals (`unverified_dev`) and rows from before the store designation are never eligible parents.
 
-Whether a failed opening proves the batch invalid or leaves it unverified remains a decision under
-ADR 0007. A mismatched package is not automatically conclusive evidence that the batch itself is invalid.
+A failed opening yields no verdict under ADR 0007 and must not reuse the descendant invalidation cascade.
+A mismatched package is not conclusive evidence that the batch itself is invalid. Whether a bound proof
+that fails can reject the batch is decided when this binding is implemented.
 
 The chain needs a trusted first commitment: a verified genesis or an explicitly approved checkpoint.
 That choice, the historical range and the activation order remain separate decisions.

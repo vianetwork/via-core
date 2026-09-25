@@ -12,6 +12,8 @@ implementations, their engineering detail and the obligations that remain before
 
 Research date: 2026-09-25. Via revision: `269b81cf056b2bb13294a042b93720b4f5500efe`. Discovery used Exa search;
 every conclusion rests on the pinned primary sources cited below. Nothing was built, tested or executed.
+The "Current Via path" below describes that revision. The ADR 0007 implementation later compares the package's
+batch number, roots and protocol version with the inscription, but still takes both commitments from the package.
 
 ## Current Via path
 
@@ -96,11 +98,15 @@ It does not by itself certify Via's installed verification key or wrapper chain.
 
 - **Identities.** `SequencerCommitment { merkle_root, index, l2_end_block_number }`, identified by SHA-256 of its
   Borsh bytes. The guest's output carries `sequencer_commitment_hashes`, state roots and the index range.
-- **Control flow.** `process_zk_proof` selects a method ID by fork height and verifies the receipt.
+- **Control flow.** `process_zk_proof` extracts the receipt's unverified journal, derives a fork from its height,
+  selects that fork's configured method ID and then verifies the receipt (`da_block_handler.rs` L634-662).
+  The configured key set does not itself authorize the height the journal chose.
   `process_tangerine_zk_proof` then compares each output commitment hash with the one recorded at that index
   (`verify_sequencer_commitment_hash_by_index`), checks the predecessor state root, and only then records the
   proof and sets `Proven`.
-- **Lifecycle.** Proofs are `Discarded`, `Pending` or `Proven`. A missing predecessor is `Pending`, not an error.
+- **Lifecycle.** Proofs are `Discarded`, `Pending` or `Proven`. A commitment already known as pending marks the
+  proof `Pending` (L1015-1029). An unknown commitment or a missing predecessor root is a skippable error instead
+  (L785-793), and the first-sight caller can then advance past it.
   Pending proofs retry in `(min, max)` index order and stop at the first still-pending one. The light client
   advances its head only along a contiguous, root-consistent chain.
 - **Do not copy.** On the first sighting, any non-halting proof error, including a database error, is logged
@@ -148,9 +154,9 @@ skip-and-advance on infrastructure errors, or split non-atomic verdict writes.
 
 ## Open questions and obligations
 
-- **Opening mismatch meaning.** Citrea treats a mismatch as a discarded proof and waits for another. Via ties one
-  proof inscription to each batch row. Whether a failed opening makes batch N invalid or leaves it unverified must be
-  decided under ADR 0007's distinction between invalid and permanently unusable evidence.
+- **Opening mismatch meaning.** Citrea discards a mismatched proof and does not retry it. Via ties one proof
+  inscription to each batch row. Under ADR 0007 a failed opening yields no verdict and never cascades.
+  Whether a bound proof that fails can reject the batch is decided with the binding implementation.
 - **Parent root inside the proof.** Upstream carries the previous batch hash as a system log hashed into the
   auxiliary output. An additional opening against the retained parent root may be possible; whether Via's circuit
   emits that log with the same meaning is not established.
