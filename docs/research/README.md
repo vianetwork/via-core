@@ -49,8 +49,9 @@ recommendations are not accepted architecture decisions.
 Use this workflow when choosing an approach or resolving an unfamiliar implementation detail, both
 before coding and as questions arise during implementation. Examples include data structures,
 function and type names, control flow, design patterns, lifecycles, and protocol or stored-data meaning.
-An initial research pass does not settle later choices. Mechanical edits that follow an established
-contract can reuse its evidence without a new survey.
+An initial research pass does not settle later choices. Mechanical edits (renames, formatting and
+equivalent moves) can reuse existing evidence without a new survey. Implementing an accepted ADR is not
+mechanical: open its pinned reference implementations as the AGENTS.md reference-implementations rule requires.
 
 1. Read the existing research and ADRs for the topic. Reuse evidence whose revisions and assumptions
    still fit. State the current question and accepted constraints, then identify the Via owner,
