@@ -94,7 +94,7 @@ Examples:
 
 Source comments explain durable runtime truth: contracts, invariants, non-obvious consequences, ordering or performance constraints, and why an obvious alternative is wrong. State cross-component coupling once on its governing type.
 
-Use declarative, plain language and one idea per comment. On public items and critical shared functions, explain the meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the next statement.
+Use declarative, plain language and one idea per comment. Write one sentence per line, with periods rather than semicolons between independent clauses. On public items and critical shared functions, explain the meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the next statement.
 
 Put debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon in the PR or issue rather than `.rs` comments. Retain useful external protocol references such as BIPs and RFCs.
 
