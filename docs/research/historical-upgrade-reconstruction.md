@@ -117,6 +117,22 @@ Future local proof should cover producer-built empty, one-pair, multi-pair, unma
 
 History scope, archive ownership, artifact-to-role mapping, sufficiency thresholds, discrepancy authority, and activation remain open human or operational decisions. A source-level fix alone supplies none of the missing historical records. Shared parser changes may need coordination with deposit work, but deposit census completion is not a governance prerequisite.
 
+## Candidate reconstruction boundary checked on 2026-09-25
+
+The candidate at `2d27424a4a7c3202d302895753eb64bc5b6eef75` has two relevant layers.
+Its [parser](https://github.com/vianetwork/via-core/blob/2d27424a4a7c3202d302895753eb64bc5b6eef75/core/lib/via_btc_client/src/indexer/parser.rs#L777-L825)
+checks fields, optionally removes terminal `OP_ENDIF`, and reads complete pairs without a version branch.
+Downstream, [`ViaProtocolUpgrade::get_calldata`](https://github.com/vianetwork/via-core/blob/2d27424a4a7c3202d302895753eb64bc5b6eef75/core/lib/types/src/via_protocol_upgrade.rs#L88-L101)
+does contain a historical branch: versions at or below `LAST_LEGACY_CONTRACT_DECODER_VERSION`
+(`0.28.0`) require at least three pairs and truncate the last three before encoding.
+Describing the whole candidate as having no version-based alternative is therefore incorrect.
+
+This is source evidence for candidate reuse, not acceptance of that threshold. Compatibility must
+compare parser output through final calldata and canonical hash in both consuming roles. A
+version-keyed branch needs historical justification just as an explicit proposal manifest would.
+No approved proposal-to-execution evidence or new historical interpretation is established here.
+
+
 No implementation, build, test, validation command, migration, or deployment was performed for this note.
 
 [flow]: https://github.com/vianetwork/via-core/blob/8a49f355bfe31720f21b8181db471243709194e5/docs/via_guides/gov/protocol-upgrade/1.upgrade-flow.md

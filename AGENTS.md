@@ -50,6 +50,7 @@ Before adding or changing production logic:
 Complete these ownership checks before implementation. Record the evidence required by `.github/pull_request_template.md` when preparing the PR.
 
 - **Research:** Before choosing an approach or resolving an unfamiliar implementation detail, read and apply the [research workflow](docs/research/README.md#research-before-and-during-design-and-implementation). Reuse fitting research and ADRs; inspect Via owners and siblings, pinned upstream, and comparable systems.
+- **Reference implementations:** Before writing non-mechanical production code, and again when a new implementation question arises, open the pinned reference implementations named in the governing research note or ADR. Compare data structures, abstractions and ownership, control flow, lifecycle and state, error handling and retry, concurrency, persistence and atomicity, resource use and performance, and naming. Record each mechanism adopted, adapted or rejected, with its reason, in the PR's reference-implementations section. Implementing an accepted ADR is non-mechanical; mechanical means renames, formatting and equivalent moves.
 - **Contracts:** Before changing withdrawal, coordinator authentication, signing, proof, deposit, upgrade, or monitoring behavior, read the relevant [design-record section](docs/design/via-correctness-and-monitoring/README.md). Accepted boundaries hold; pending recommendations are not implementation authority.
 - **Design:** Before presenting or consolidating design choices and research answers, read and apply the [design-and-rationale workflow](docs/research/README.md#design-and-rationale-records).
 - **Learning:** When evidence or a correction contradicts a fact or instruction used in the task, an instructed procedure cannot produce its required result, or retained records show independent tasks rebuilding the same procedure, read and apply the [gap checks](docs/research/README.md#learning-and-workflow-improvement).
@@ -93,9 +94,19 @@ Examples:
 
 Source comments explain durable runtime truth: contracts, invariants, non-obvious consequences, ordering or performance constraints, and why an obvious alternative is wrong. State cross-component coupling once on its governing type.
 
-Use declarative, plain language and one idea per comment. On public items and critical shared functions, explain the meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the next statement.
+Use declarative, plain language and one idea per comment. Write one sentence per line, with periods rather than semicolons between independent clauses. On public items and critical shared functions, explain the meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the next statement.
 
-Keep debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon out of `.rs` comments. Put relevant history in the PR or issue; retain useful external protocol references such as BIPs and RFCs.
+Put debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon in the PR or issue rather than `.rs` comments. Retain useful external protocol references such as BIPs and RFCs.
+
+A comment that draws on an external algorithm, standard, RFC, BIP, project or chain sits above the line it governs and reads in this order: Via's reason with its concrete consequence; what was adopted, adapted or rejected, and what was not; then the immutable permalink (repo@commit, path, line range) or standard section. It must read correctly without the link:
+
+```rust
+// Writes nothing, so the next poll selects the same batch and progress stops there.
+// Citrea's full node instead advances its L1 scan cursor past a proof it fails to process or discards, and does not retry it:
+// https://github.com/chainwayxyz/citrea/blob/f11527f94344d5dc4576ccb9589d5713fb8f7238/crates/fullnode/src/da_block_handler.rs#L299-L351
+```
+
+A multi-step function may open with a one-line purpose, numbered steps and the design reason that shapes them.
 
 In high-risk files, aim for at most 15% comment lines, with a 20% ceiling. Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
 

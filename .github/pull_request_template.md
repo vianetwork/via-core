@@ -102,6 +102,13 @@ Vague answers such as "searched the repo" or "no duplication found" are not acce
 
 > Self-check before submitting: Have you named a specific function? Have you listed sibling paths actually inspected (with backticks)? If any answer is no, revise this section.
 
+## Reference implementations
+
+<!--
+Pinned sources consulted (repo@commit, path, symbol), and what was adopted, adapted or
+rejected, and why. Otherwise: "Not applicable — <reason>".
+-->
+
 ## Performance, Complexity, and Resource Impact
 
 <!--
