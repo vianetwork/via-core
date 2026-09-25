@@ -96,7 +96,17 @@ Source comments explain durable runtime truth: contracts, invariants, non-obviou
 
 Use declarative, plain language and one idea per comment. On public items and critical shared functions, explain the meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the next statement.
 
-Put debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon in the PR or issue rather than `.rs` comments. Retain useful external protocol references such as BIPs and RFCs. When code adopts, adapts or deliberately rejects another project's mechanism, state the reason in the comment and cite its immutable permalink (repo@commit, path, line range); the comment must read correctly without the link.
+Put debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon in the PR or issue rather than `.rs` comments. Retain useful external protocol references such as BIPs and RFCs.
+
+A comment that draws on an external algorithm, standard, RFC, BIP, project or chain sits above the line it governs and reads in this order: Via's reason with its concrete consequence; what was adopted, adapted or rejected, and what was not; then the immutable permalink (repo@commit, path, line range) or standard section. It must read correctly without the link:
+
+```rust
+// Writes nothing, so the next poll selects the same batch and progress stops there.
+// Citrea instead logs a failed proof and still advances its L1 scan cursor, which can drop that proof for good:
+// https://github.com/chainwayxyz/citrea/blob/f11527f94344d5dc4576ccb9589d5713fb8f7238/crates/fullnode/src/da_block_handler.rs#L299-L351
+```
+
+A multi-step function may open with a one-line purpose, numbered steps and the design reason that shapes them.
 
 In high-risk files, aim for at most 15% comment lines, with a 20% ceiling. Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
 
