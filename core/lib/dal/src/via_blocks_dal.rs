@@ -499,32 +499,4 @@ impl ViaBlocksDal<'_, '_> {
 
         Ok(row.l1_batch_number.unwrap_or(0) as u32)
     }
-
-    pub async fn get_first_stuck_l1_batch_number_inscription_request(
-        &mut self,
-        delay_btc_blocks: u32,
-        current_btc_blocks: u64,
-    ) -> DalResult<u32> {
-        let record = sqlx::query_scalar!(
-            r#"
-            SELECT 
-                MIN(l1_batch_number) as l1_batch_number
-            FROM
-                via_btc_inscriptions_request
-            LEFT JOIN
-                via_btc_inscriptions_request_history
-            ON
-                via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
-            WHERE
-                sent_at_block + $1 < $2 
-            "#,
-            i64::from(delay_btc_blocks),
-            current_btc_blocks as i64
-        )
-        .instrument("get_first_stuck_l1_batch_number_inscription_request")
-        .fetch_one(self.storage)
-        .await?;
-
-        Ok(record.unwrap_or(0) as u32)
-    }
 }

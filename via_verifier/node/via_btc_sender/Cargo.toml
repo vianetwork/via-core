@@ -13,6 +13,7 @@ categories.workspace = true
 [dependencies]
 vise.workspace = true
 via_btc_client.workspace = true
+zksync_dal.workspace = true
 via_da_dispatcher.workspace = true
 via_verifier_dal.workspace = true
 zksync_config.workspace = true
