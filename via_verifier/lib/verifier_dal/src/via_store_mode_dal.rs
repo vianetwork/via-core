@@ -28,13 +28,20 @@ impl ViaStoreModeDal<'_, '_> {
     /// Geth refuses a database whose stored genesis differs from the configured one.
     /// Via adapts that: storage init matches the node's genesis to the configured network, and the designation stores its hash:
     /// https://github.com/ethereum/go-ethereum/blob/920c07774c65ebb3023536f85df642c44478b540/core/genesis.go#L384-L392
-    pub async fn ensure_proof_verification_mode(&mut self, mode: &StoreMode) -> anyhow::Result<()> {
+    ///
+    /// Returns true when a strict designation just adopted verdicts written before it, which stay unproven legacy results.
+    /// A strict store keeps them, because re-verifying history needs genuine historical proofs.
+    pub async fn ensure_proof_verification_mode(
+        &mut self,
+        mode: &StoreMode,
+    ) -> anyhow::Result<bool> {
         ensure!(
             !mode.proof_verification_dev_mode || mode.bitcoin_network == "regtest",
             "proof verification development mode requires regtest, got {}",
             mode.bitcoin_network
         );
         let mut tx = self.storage.start_transaction().await?;
+        let mut adopted_legacy = false;
         // The primary key serializes concurrent first starts, so only the process that inserts judges existing verdicts.
         let designated_now = sqlx::query(
             "INSERT INTO via_verifier_store_mode \
@@ -50,7 +57,7 @@ impl ViaStoreModeDal<'_, '_> {
         .await?
         .rows_affected()
             == 1;
-        if designated_now && mode.proof_verification_dev_mode {
+        if designated_now {
             let has_verdicts: bool = sqlx::query(
                 "SELECT EXISTS(SELECT 1 FROM via_votable_transactions WHERE l1_batch_status IS NOT NULL) AS found",
             )
@@ -62,9 +69,10 @@ impl ViaStoreModeDal<'_, '_> {
             // Existing verdicts may come from the old skip path, and a development store is disposable.
             // Returning early drops the transaction, which rolls the designation back.
             ensure!(
-                !has_verdicts,
+                !(has_verdicts && mode.proof_verification_dev_mode),
                 "refusing to designate a store that already holds verdicts for development mode; use a fresh store"
             );
+            adopted_legacy = has_verdicts;
         }
         let designated = Self::designation(&mut tx)
             .await?
@@ -73,7 +81,7 @@ impl ViaStoreModeDal<'_, '_> {
         if &designated != mode {
             bail!("verifier store is designated as {designated:?}; refusing to start as {mode:?}");
         }
-        Ok(())
+        Ok(adopted_legacy)
     }
 
     async fn designation(tx: &mut Connection<'_, Verifier>) -> anyhow::Result<Option<StoreMode>> {

@@ -36,7 +36,8 @@ impl ViaVerifierStorageInitializer {
             genesis_hash == expected_genesis,
             "Bitcoin node genesis {genesis_hash} does not match configured network {network} ({expected_genesis})"
         );
-        pool.connection()
+        if pool
+            .connection()
             .await?
             .via_store_mode_dal()
             .ensure_proof_verification_mode(&StoreMode {
@@ -44,7 +45,13 @@ impl ViaVerifierStorageInitializer {
                 bitcoin_network: network.to_string(),
                 bitcoin_genesis_hash: genesis_hash.to_string(),
             })
-            .await?;
+            .await?
+        {
+            tracing::warn!(
+                "Verifier store adopted verdicts written before proof verification was enforced. \
+                 Rows up to via_verifier_store_mode.designated_after_votable_id are unproven legacy results."
+            );
+        }
 
         // Check if already initialized
         if pool

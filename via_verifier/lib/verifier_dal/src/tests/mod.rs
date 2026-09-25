@@ -399,11 +399,11 @@ async fn development_designation_refuses_a_store_with_verdicts() {
         .to_string()
         .contains("already holds verdicts"));
     // The refusal rolled its designation back, so the store can still be designated strict.
-    storage
-        .via_store_mode_dal()
-        .ensure_proof_verification_mode(&store_mode(false, "regtest", "g"))
-        .await
-        .unwrap();
+    // That designation reports the adopted legacy verdict once, and a restart does not report it again.
+    let strict = store_mode(false, "regtest", "g");
+    let mut dal = storage.via_store_mode_dal();
+    assert!(dal.ensure_proof_verification_mode(&strict).await.unwrap());
+    assert!(!dal.ensure_proof_verification_mode(&strict).await.unwrap());
 }
 
 #[tokio::test]

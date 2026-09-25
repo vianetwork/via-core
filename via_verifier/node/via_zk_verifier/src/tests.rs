@@ -378,3 +378,31 @@ async fn a_reorg_before_commit_writes_nothing() {
     assert!(!committed);
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
 }
+
+#[tokio::test]
+async fn watermarks_come_from_the_database_and_follow_a_reorg() {
+    let (mut storage, tx_id, _, pubdata) = approval_fixture(false, false).await;
+    // A fresh process sees the pending batch without having processed anything.
+    assert_eq!(report_watermarks(&mut storage).await.unwrap(), (1, 0));
+
+    record_approval(
+        &mut storage,
+        BATCH,
+        tx_id,
+        Approval::Verified,
+        &pubdata,
+        None,
+        1,
+    )
+    .await
+    .unwrap();
+    assert_eq!(report_watermarks(&mut storage).await.unwrap(), (1, 1));
+
+    // A reorg removes the batch, and both watermarks fall back with it.
+    sqlx::query("DELETE FROM via_votable_transactions WHERE l1_batch_number = $1")
+        .bind(BATCH)
+        .execute(storage.conn())
+        .await
+        .unwrap();
+    assert_eq!(report_watermarks(&mut storage).await.unwrap(), (0, 0));
+}

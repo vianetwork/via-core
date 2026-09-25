@@ -111,6 +111,8 @@ impl ViaVerifier {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
+        report_watermarks(storage).await?;
+
         if self.state.is_reorg_in_progress().await? {
             return Ok(());
         }
@@ -224,7 +226,6 @@ impl ViaVerifier {
             )
             .await?;
             if committed {
-                METRICS.last_valid_l1_batch.set(l1_batch_number as usize);
                 if approval == Approval::DevAccepted {
                     METRICS.dev_accepted_batches.inc();
                 }
@@ -432,6 +433,21 @@ async fn verify_batch_proof(
         )),
         Err(err) => Err(no_verdict(NoVerdictReason::VerificationError, number, err)),
     }
+}
+
+/// Reports how far indexing and verification have reached, read from the database on every poll.
+/// Gauges set by the worker would reset on restart and stay ahead after a reorg, hiding a stall.
+/// zkSync's house keeper likewise reports stage watermarks from the database, not from the workers:
+/// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/house_keeper/src/blocks_state_reporter.rs#L34-L81
+async fn report_watermarks(storage: &mut Connection<'_, Verifier>) -> anyhow::Result<(u32, u32)> {
+    let mut votes = storage.via_votes_dal();
+    let (indexed, valid) = (
+        votes.get_last_votable_l1_batch().await?,
+        votes.get_last_voted_l1_batch().await?,
+    );
+    METRICS.last_indexed_l1_batch.set(indexed as usize);
+    METRICS.last_valid_l1_batch.set(valid as usize);
+    Ok((indexed, valid))
 }
 
 /// Records an approval with its deposit, vote and upgrade effects in one transaction.

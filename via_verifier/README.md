@@ -69,9 +69,9 @@ Development mode, below, is the only other approval.
 Anything else records nothing, so the verifier retries the same batch and progress stops there.
 It records no rejections until proofs are bound to the inscribed batch ([ADR 0007](../docs/adr/0007-record-only-completed-proof-verdicts.md)).
 
-- Progress has stopped when `via_verifier_btc_watch_inscriptions_processed{stage="indexed_l1_batch"}` stays ahead of
-  `via_verifier_zk_last_valid_l1_batch` and the latter stops advancing. The stuck batch is the next one after it.
-  This also catches a fetch that hangs without an error.
+- Progress has stopped when `via_verifier_zk_last_indexed_l1_batch` stays ahead of `via_verifier_zk_last_valid_l1_batch`
+  and the latter stops advancing. The stuck batch is the next one after it. Both are read from the database on every
+  poll, so they survive restarts and reorgs, and a fetch that hangs without an error keeps the gap visible.
 - `via_verifier_zk_non_verdicts{reason}` counts polls that ended without a verdict. `package_unavailable`,
   `proof_unavailable` and `deposit_index_incomplete` usually resolve once evidence arrives or the index catches up.
   `malformed_package`, `proof_store_error`, `proof_failed`, `deposit_mismatch` and `verification_error` need an
@@ -84,6 +84,9 @@ whose proof is absent. A proof that is present is still verified. Development ap
 - The first start permanently designates the database for development or strict mode on one Bitcoin chain, even if
   that start then fails. Later starts in the other mode, or against another chain, refuse to run.
 - Development mode requires regtest and a database without earlier verdicts. Use a fresh database for it.
+- A strict first start keeps verdicts written by earlier binaries and logs a warning. Rows with an id up to
+  `via_verifier_store_mode.designated_after_votable_id` are unproven legacy results, whatever their `unverified_dev`
+  value. Trusting them is a separate historical-evidence decision.
 - The designation migration refuses to roll back a development database. Discard that database instead.
 
 ### Withdrawal processing and coordinated cutover
