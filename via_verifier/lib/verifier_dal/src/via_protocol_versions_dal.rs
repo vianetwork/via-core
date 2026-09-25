@@ -113,6 +113,9 @@ impl ViaProtocolVersionsDal<'_, '_> {
     }
 
     /// All registered patches of one minor version, newest first.
+    /// Upstream zkSync lists a minor's patches the same way but keeps only those matching the L1-authorized key.
+    /// Via keeps one verification key per minor, so every patch is returned:
+    /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/dal/src/protocol_versions_dal.rs#L320-L347
     pub async fn semantic_versions_of_minor(
         &mut self,
         minor: ProtocolVersionId,

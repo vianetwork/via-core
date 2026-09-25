@@ -27,6 +27,8 @@ impl ViaVerifierStorageInitializer {
         // Runs on every start, before any verifier service can read or write verdicts.
         // The configured network name falls back to regtest when unparseable, so the node's block 0 must match it.
         // This separates Bitcoin networks, not two regtest deployments, which share one genesis.
+        // Bitcoin Core likewise refuses chain data whose genesis block is not the configured network's:
+        // https://github.com/bitcoin/bitcoin/blob/d82283950f5ff3b2116e705f931c6e89e5fdd0be/src/node/chainstate.cpp#L72-L74
         let network = client.get_network();
         let genesis_hash = client.fetch_block(0).await?.block_hash();
         let expected_genesis = genesis_block(network).block_hash();

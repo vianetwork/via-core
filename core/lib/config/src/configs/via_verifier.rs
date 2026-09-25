@@ -56,7 +56,10 @@ pub struct ViaVerifierConfig {
     #[serde(default)]
     pub withdrawal_fulfillment_confirmations: Option<u32>,
 
-    /// Accepts batches without a proof, as unverified development results. Regtest development stores only.
+    /// Approves a batch whose proof is absent, as an unverified development result, on regtest development stores only.
+    /// The switch is verifier config because serving nodes rewrite the proof package's own skip flag.
+    /// RISC Zero likewise enables fake receipts only through the verifier's own context, never through the receipt:
+    /// https://github.com/risc0/risc0/blob/218e3bc4a8ffcd203a9cd4e46f921bf60aa7e2bd/risc0/zkvm/src/receipt.rs#L784-L792
     #[serde(default)]
     pub proof_verification_dev_mode: bool,
 }

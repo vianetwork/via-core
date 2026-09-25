@@ -1,3 +1,6 @@
+//! Fixes a verifier database to one Bitcoin chain and one proof-verification mode.
+//! A strict process must never adopt a store holding unproven development approvals.
+
 use anyhow::{bail, ensure, Context};
 use sqlx::Row;
 use zksync_db_connection::{connection::Connection, instrument::InstrumentExt};

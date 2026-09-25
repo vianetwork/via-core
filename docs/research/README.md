@@ -16,7 +16,7 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
 - [Withdrawal authorization](withdrawal-authorization-and-refork.md): signer checks, exact proposals,
   expected obligations, and comparable bridge implementations.
 - [Proof verification and historical evidence](proof-verification-and-history.md): verification
-  inputs, result handling, and historical trust.
+  inputs, result handling, historical trust, and the pinned references behind the ADR 0007 implementation.
 - [Proof-statement binding](proof-statement-binding.md): binding a verified proof to the inscribed batch,
   inspected implementations and their engineering patterns.
 - [Coordinator request authentication](coordinator-request-authentication.md): signed content,

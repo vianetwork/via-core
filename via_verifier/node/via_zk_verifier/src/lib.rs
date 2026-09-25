@@ -505,6 +505,9 @@ async fn record_approval(
 
 /// Returns the deposit statuses the batch settles, in priority order.
 /// A mismatch with the first unprocessed deposits may be this node's indexing, so it records nothing.
+/// Bitcoin Core treats missing inputs as block invalidity only after asserting its view is the verified parent state.
+/// This node's deposit index is not such a state:
+/// https://github.com/bitcoin/bitcoin/blob/e8e7e91a1144c378dff4da2e2a562eb0f3f2e1d6/src/validation.cpp#L2330-L2332
 async fn verify_op_priority_id(
     storage: &mut Connection<'_, Verifier>,
     l1_batch_number: i64,
