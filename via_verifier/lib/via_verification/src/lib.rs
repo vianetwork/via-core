@@ -15,8 +15,9 @@ pub enum ProveBatchData {
 }
 
 impl ProveBatchData {
-    /// A usable package has exactly one batch and at most one proof.
-    /// A missing proof may be fetched separately.
+    /// A usable package has exactly one batch and at most one proof, because a missing proof may be fetched separately.
+    /// zkSync's Executor likewise verifies one batch per proof, but always receives the proof with the batch:
+    /// https://github.com/matter-labs/era-contracts/blob/df2c3baabd8bf1ea7b82fb6aafa5ae550c0f9b80/l1-contracts/contracts/state-transition/chain-deps/facets/Executor.sol#L517-L521
     pub fn check_shape(&self) -> anyhow::Result<()> {
         let (batches, proofs) = match self {
             Self::V27(data) => (data.l1_batches.len(), data.proofs.len()),

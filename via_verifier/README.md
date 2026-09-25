@@ -69,8 +69,9 @@ Development mode, below, is the only other approval.
 Anything else records nothing, so the verifier retries the same batch and progress stops there.
 It records no rejections until proofs are bound to the inscribed batch ([ADR 0007](../docs/adr/0007-record-only-completed-proof-verdicts.md)).
 
-- `via_verifier_zk_blocked_l1_batch` names the batch awaiting a verdict, and is 0 when none is pending. A nonzero value
-  unchanged across polls means progress has stopped at that batch, including when a fetch hangs without an error.
+- Progress has stopped when `via_verifier_btc_watch_inscriptions_processed{stage="indexed_l1_batch"}` stays ahead of
+  `via_verifier_zk_last_valid_l1_batch` and the latter stops advancing. The stuck batch is the next one after it.
+  This also catches a fetch that hangs without an error.
 - `via_verifier_zk_non_verdicts{reason}` counts polls that ended without a verdict. `package_unavailable`,
   `proof_unavailable` and `deposit_index_incomplete` usually resolve once evidence arrives or the index catches up.
   `malformed_package`, `proof_store_error`, `proof_failed`, `deposit_mismatch` and `verification_error` need an

@@ -3,7 +3,9 @@ use zksync_types::{protocol_version::ProtocolSemanticVersion, L1BatchNumber};
 
 /// Finds a wrapped proof stored under any allowed protocol version.
 /// `Ok(None)` means no allowed key holds the proof yet.
-/// Other store errors are returned so each caller can classify them.
+/// Other store errors are returned so each caller can classify them, where zkSync's eth sender panics on them.
+/// Its walk over the allowed versions in the caller's order is kept, and Via adds the pre-versioning key:
+/// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/eth_sender/src/aggregator.rs#L1030-L1050
 pub async fn find_wrapped_proof<P>(
     blob_store: &dyn ObjectStore,
     l1_batch_number: L1BatchNumber,

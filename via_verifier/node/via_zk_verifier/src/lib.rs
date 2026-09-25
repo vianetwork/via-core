@@ -126,8 +126,6 @@ impl ViaVerifier {
             .get_first_not_verified_l1_batch_in_canonical_inscription_chain()
             .await?
         {
-            // Set before any fetch, so a batch that errors or hangs stays visible.
-            METRICS.blocked_l1_batch.set(l1_batch_number as usize);
             let latency = METRICS.verification_time.start();
             let db_raw_tx_id = H256::from_slice(&raw_tx_id);
             tracing::info!("New non executed l1_batch {l1_batch_number}, ready to be processed");
@@ -230,12 +228,9 @@ impl ViaVerifier {
                 if approval == Approval::DevAccepted {
                     METRICS.dev_accepted_batches.inc();
                 }
-                METRICS.blocked_l1_batch.set(0);
                 latency.observe();
                 tracing::info!("Approved l1 batch {l1_batch_number}: {approval:?}");
             }
-        } else {
-            METRICS.blocked_l1_batch.set(0);
         }
 
         Ok(())
@@ -346,6 +341,9 @@ async fn verify_batch_proof(
         .map_err(|err| no_verdict(NoVerdictReason::MalformedPackage, number, err))?;
 
     // The package must name the inscribed batch under the local protocol version, because that version selects the proof lookup.
+    // zkSync's Executor matches the whole submitted batch records against stored hashes, commitments included.
+    // The inscription carries no commitment, so Via compares only these fields and the commitments stay unbound:
+    // https://github.com/matter-labs/era-contracts/blob/df2c3baabd8bf1ea7b82fb6aafa5ae550c0f9b80/l1-contracts/contracts/state-transition/chain-deps/facets/Executor.sol#L484-L500
     let claimed = (
         prove_batch_data.claimed_batch(),
         prove_batch_data.protocol_version_id(),
