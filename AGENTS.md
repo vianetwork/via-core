@@ -96,7 +96,7 @@ Source comments explain durable runtime truth: contracts, invariants, non-obviou
 
 Use declarative, plain language and one idea per comment. On public items and critical shared functions, explain the meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the next statement.
 
-Keep debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon out of `.rs` comments. Put relevant history in the PR or issue; retain useful external protocol references such as BIPs and RFCs.
+Put debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon in the PR or issue rather than `.rs` comments. Retain useful external protocol references such as BIPs and RFCs. When code adopts, adapts or deliberately rejects another project's mechanism, state the reason in the comment and cite its immutable permalink (repo@commit, path, line range); the comment must read correctly without the link.
 
 In high-risk files, aim for at most 15% comment lines, with a 20% ceiling. Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
 
