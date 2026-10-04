@@ -18,10 +18,7 @@ pub struct ViaVoteInscription {
 }
 
 impl ViaVoteInscription {
-    pub async fn new(
-        pool: ConnectionPool<Verifier>,
-        config: ViaBtcSenderConfig,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(pool: ConnectionPool<Verifier>, config: ViaBtcSenderConfig) -> anyhow::Result<Self> {
         Ok(Self { pool, config })
     }
 
@@ -35,9 +32,7 @@ impl ViaVoteInscription {
                 _ = stop_receiver.changed() => break,
             }
 
-            let mut storage = pool
-                .connection_tagged("via_btc_inscription_creator")
-                .await?;
+            let mut storage = pool.connection_tagged("via_btc_inscription_creator").await?;
 
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => {}
@@ -52,22 +47,12 @@ impl ViaVoteInscription {
         Ok(())
     }
 
-    pub async fn loop_iteration(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-    ) -> anyhow::Result<()> {
-        if storage
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some()
-        {
+    pub async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
+        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
 
-        if let Some((votable_transaction_id, vote, tx_id)) =
-            self.get_voting_operation(storage).await?
-        {
+        if let Some((votable_transaction_id, vote, tx_id)) = self.get_voting_operation(storage).await? {
             tracing::info!("New voting operation ready to be processed");
             let mut transaction = storage.start_transaction().await?;
             let inscription_message = self.construct_voting_inscription_message(vote, tx_id)?;
@@ -95,27 +80,19 @@ impl ViaVoteInscription {
     }
 
     pub async fn get_voting_operation(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
+        &mut self, storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<Option<(i64, bool, Vec<u8>)>> {
-        if let Some(votable_transaction_id) = storage
-            .via_votes_dal()
-            .get_first_non_finalized_l1_batch_in_canonical_inscription_chain()
-            .await?
+        if let Some(votable_transaction_id) =
+            storage.via_votes_dal().get_first_non_finalized_l1_batch_in_canonical_inscription_chain().await?
         {
             // Check if already created a voting inscription
-            if storage
-                .via_block_dal()
-                .check_vote_l1_batch_inscription_request_if_exists(votable_transaction_id)
-                .await?
+            if storage.via_block_dal().check_vote_l1_batch_inscription_request_if_exists(votable_transaction_id).await?
             {
                 return Ok(None);
             }
 
-            if let Some((vote, tx_id)) = storage
-                .via_votes_dal()
-                .get_verifier_vote_status(votable_transaction_id)
-                .await?
+            if let Some((vote, tx_id)) =
+                storage.via_votes_dal().get_verifier_vote_status(votable_transaction_id).await?
             {
                 return Ok(Some((votable_transaction_id, vote, tx_id)));
             }
@@ -124,19 +101,14 @@ impl ViaVoteInscription {
     }
 
     pub fn construct_voting_inscription_message(
-        &self,
-        vote: bool,
-        tx_id: Vec<u8>,
+        &self, vote: bool, tx_id: Vec<u8>,
     ) -> anyhow::Result<InscriptionMessage> {
         let attestation = if vote { Vote::Ok } else { Vote::NotOk };
 
         // Convert H256 bytes to Txid
         let txid = Self::h256_to_txid(&tx_id)?;
 
-        let input = ValidatorAttestationInput {
-            reference_txid: txid,
-            attestation,
-        };
+        let input = ValidatorAttestationInput { reference_txid: txid, attestation };
         Ok(InscriptionMessage::ValidatorAttestation(input))
     }
 
