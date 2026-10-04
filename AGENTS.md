@@ -109,6 +109,8 @@ Unjustified duplication or missing sibling checks are grounds for blocking merge
 
 ## Validation
 
+Test observable behavior rather than implementation details. Do not use helper-by-helper or mock-heavy tests as substitutes for exercising a user journey. Prefer representative E2E scenarios over matrices of incidental configurations, while retaining focused tests for protocol rules, boundary conditions and failures they expose more directly. Run the applicable existing checks.
+
 Before pushing, run `git diff --check` and checks relevant to the changed paths. For Rust changes, also run:
 
 ```bash
@@ -123,6 +125,8 @@ Documentation-only changes need content and reference checks rather than Rust su
 Run `just via-check-strict` and ensure it passes before pushing changes under any path in `.github/sibling-paths.yml`, `.github/lint/via-structural/ast-grep/rules/`, or `.github/scripts/check-via-structural-rules.sh`.
 
 The strict command includes the duplication ratchet and structural lint. `zkstack dev lint` and advisory pre-push hooks do not replace it. Document structural-rule false positives in the PR; do not silence rules without justification.
+
+Improve CI developer experience opportunistically within the current task. Favor fast, reliable user-journey feedback, actionable failure output, and easy reproduction locally. Remove redundant work and flaky setup, but do not hide failures, skip required checks, or trade away meaningful E2E coverage merely to make CI green. When changing CI, verify the resulting workflow run.
 
 ## GitHub issues and PRs
 
