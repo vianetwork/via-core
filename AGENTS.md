@@ -36,7 +36,7 @@ Before changing non-trivial runtime behavior, read the relevant Via guide and th
 - Keep local agent scratch directories (`.gitnexus/`, `.agents/`, etc.) out of commits.
 - Keep private findings out of public issues, PRs, and comments until disclosure is approved.
 
-Within an agreed implementation task, run relevant local checks and fix failures caused by the change without per-step approval when their targets are confirmed to be disposable and isolated from live systems. Do not assume all tests have that property. Continue through verification of the requested outcome.
+Complete the agreed deliverable and its verification without per-step approval, using confirmed disposable, isolated test targets. Fix failures caused by the change; report unrelated failures without expanding scope or waiving required gates. Ask only for a blocking decision or permission, and continue independent authorized work.
 
 ## Reuse and duplication discipline
 
@@ -112,8 +112,8 @@ Unjustified duplication or missing sibling checks are grounds for blocking merge
 Before pushing, run `git diff --check` and checks relevant to the changed paths. For Rust changes, also run:
 
 ```bash
-zkstack dev fmt
-zkstack dev lint
+zkstack dev fmt --check
+zkstack dev lint --check
 cargo test -p <crate>
 just via-check          # structural lint (ast-grep), advisory
 ```
