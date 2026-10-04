@@ -41,3 +41,6 @@ via_verifier_dal.workspace = true
 via_verifier_state.workspace = true
 
 [dev-dependencies]
+via_verifier_storage_init.workspace = true
+bitcoin.workspace = true
+serde_json.workspace = true
