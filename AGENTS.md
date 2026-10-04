@@ -97,13 +97,13 @@ Use declarative, plain language and one idea per comment. On public items and cr
 
 Keep debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon out of `.rs` comments. Put relevant history in the PR or issue; retain useful external protocol references such as BIPs and RFCs.
 
-In high-risk files, aim for at most 15% comment lines, with a 20% ceiling. Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
+Where an existing implementation, algorithm or standard materially informs the code, document that origin above the relevant code. This requirement is repo-wide, not agent-specific. State Via's reason and concrete consequence, what was adopted, adapted or rejected and relevant differences, then a pinned source permalink (repo@commit, path, line range) or standard section. Use one sentence per line and periods between independent clauses. The explanation must remain useful without the link.
+
+Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
 
 ## Review Expectations
 
 Review correctness and performance. For protocol-sensitive or hot paths, explain complexity and common-path work: allocations, copies, DB calls, RPCs, locks, serialization, background work, and cache behavior where relevant.
-
-Report approximate net production LOC as audit cost: additions minus removals, excluding comments, documentation, tests, and generated files. Do not shorten a diff at the expense of correctness or error context.
 
 Unjustified duplication or missing sibling checks are grounds for blocking merge.
 

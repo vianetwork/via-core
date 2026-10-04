@@ -128,12 +128,12 @@ correctness or error context.
 | Happy-path work per call         | Positional zip                  | Height-keyed HashMap lookup     | Correctly handles sparse windows |
 | Memory pressure                  | Grows with window size          | Bounded (~100 entries)          | - |
 | DB / I/O / RPCs                  | -                               | -                               | No change |
-| Net production LOC (approx.)     | -                               | +~65 lines                      | Excluding comments, docs & tests |
+| Net production LOC (optional, approx.) | -                          | +~65 lines                      | State exclusions and counting method |
 
 **Guidance:**
 - Include a complexity row when the shape of the work actually changed.
 - Prioritize allocations and real work done on the common (happy) path.
-- Treat production LOC as audit cost — disclose the approximate delta.
+- Production LOC is optional. If useful for review, prefer a tool-assisted estimate and state what it counts.
 - You may add, remove, or rename rows. A table is not required if it would not improve clarity.
 
 If the change has no meaningful performance or resource impact, state that clearly.
