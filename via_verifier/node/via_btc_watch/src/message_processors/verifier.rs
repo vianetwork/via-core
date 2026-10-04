@@ -109,16 +109,15 @@ impl MessageProcessor for VerifierMessageProcessor {
                             transaction.commit().await?;
 
                             METRICS.inscriptions_processed[&InscriptionStage::Reorg].set(from_l1_batch_number as usize);
-                        } else {
-                            if last_batch_in_canonical_chain.1 != l1_batch_da_ref_inscription.input.prev_l1_batch_hash.0
-                            {
-                                tracing::info!(
+                        } else if last_batch_in_canonical_chain.1
+                            != l1_batch_da_ref_inscription.input.prev_l1_batch_hash.0
+                        {
+                            tracing::info!(
                                 "Skipping ProofDAReference message with l1_batch_number: {:?}. Last batch in canonical chain: {:?}",
                                 l1_batch_da_ref_inscription.input.l1_batch_index,
                                 last_batch_in_canonical_chain
                             );
-                                continue;
-                            }
+                            continue;
                         }
                     }
 
@@ -155,7 +154,7 @@ impl MessageProcessor for VerifierMessageProcessor {
                         let is_ok = matches!(attestation_msg.input.attestation, via_btc_client::types::Vote::Ok);
 
                         if let Some(votable_transaction_id) =
-                            storage.via_votes_dal().get_votable_transaction_id(&reveal_proof_txid.as_bytes()).await?
+                            storage.via_votes_dal().get_votable_transaction_id(reveal_proof_txid.as_bytes()).await?
                         {
                             let p2wpkh_address = attestation_msg
                                 .common

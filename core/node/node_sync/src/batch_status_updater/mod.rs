@@ -327,13 +327,12 @@ impl BatchStatusUpdater {
                 published_health = (cursor, via_execution_blocked_at);
             }
 
-            if no_changes {
-                if tokio::time::timeout(self.sleep_interval, stop_receiver.changed())
+            if no_changes
+                && tokio::time::timeout(self.sleep_interval, stop_receiver.changed())
                     .await
                     .is_ok()
-                {
-                    break;
-                }
+            {
+                break;
             }
         }
 

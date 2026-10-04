@@ -98,7 +98,7 @@ impl ViaWalletDal<'_, '_> {
             l1_block_number
         )
         .instrument("delete_system_wallet")
-        .execute(&mut self.storage)
+        .execute(self.storage)
         .await?;
 
         Ok(())
