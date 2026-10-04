@@ -36,7 +36,7 @@ Before changing non-trivial runtime behavior, read the relevant Via guide and th
 - Keep local agent scratch directories (`.gitnexus/`, `.agents/`, etc.) out of commits.
 - Keep private findings out of public issues, PRs, and comments until disclosure is approved.
 
-Within an agreed implementation task, run relevant local checks and fix failures caused by the change without per-step approval when their targets are confirmed to be disposable and isolated from live systems. Do not assume all tests have that property. Continue through verification of the requested outcome.
+Complete the agreed deliverable and its verification without per-step approval, using confirmed disposable, isolated test targets. Fix failures caused by the change; report unrelated failures without expanding scope or waiving required gates. Ask only for a blocking decision or permission, and continue independent authorized work.
 
 ## Reuse and duplication discipline
 
@@ -108,23 +108,25 @@ A comment that draws on an external algorithm, standard, RFC, BIP, project or ch
 
 A multi-step function may open with a one-line purpose, numbered steps and the design reason that shapes them.
 
-In high-risk files, aim for at most 15% comment lines, with a 20% ceiling. Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
+Where an existing implementation, algorithm or standard materially informs the code, document that origin above the relevant code. This requirement is repo-wide, not agent-specific. State Via's reason and concrete consequence, what was adopted, adapted or rejected and relevant differences, then a pinned source permalink (repo@commit, path, line range) or standard section. Use one sentence per line and periods between independent clauses. The explanation must remain useful without the link.
+
+Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
 
 ## Review Expectations
 
 Review correctness and performance. For protocol-sensitive or hot paths, explain complexity and common-path work: allocations, copies, DB calls, RPCs, locks, serialization, background work, and cache behavior where relevant.
 
-Report approximate net production LOC as audit cost: additions minus removals, excluding comments, documentation, tests, and generated files. Do not shorten a diff at the expense of correctness or error context.
-
 Unjustified duplication or missing sibling checks are grounds for blocking merge.
 
 ## Validation
 
+Test observable behavior rather than implementation details. Do not use helper-by-helper or mock-heavy tests as substitutes for exercising a user journey. Prefer representative E2E scenarios over matrices of incidental configurations, while retaining focused tests for protocol rules, boundary conditions and failures they expose more directly. Run the applicable existing checks.
+
 Before pushing, run `git diff --check` and checks relevant to the changed paths. For Rust changes, also run:
 
 ```bash
-zkstack dev fmt
-zkstack dev lint
+zkstack dev fmt --check
+zkstack dev lint --check
 cargo test -p <crate>
 just via-check          # structural lint (ast-grep), advisory
 ```
@@ -134,6 +136,8 @@ Documentation-only changes need content and reference checks rather than Rust su
 Run `just via-check-strict` and ensure it passes before pushing changes under any path in `.github/sibling-paths.yml`, `.github/lint/via-structural/ast-grep/rules/`, or `.github/scripts/check-via-structural-rules.sh`.
 
 The strict command includes the duplication ratchet and structural lint. `zkstack dev lint` and advisory pre-push hooks do not replace it. Document structural-rule false positives in the PR; do not silence rules without justification.
+
+Improve CI developer experience opportunistically within the current task. Favor fast, reliable user-journey feedback, actionable failure output, and easy reproduction locally. Remove redundant work and flaky setup, but do not hide failures, skip required checks, or trade away meaningful E2E coverage merely to make CI green. When changing CI, verify the resulting workflow run.
 
 ## GitHub issues and PRs
 
