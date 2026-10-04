@@ -22,10 +22,26 @@ pub mod utils;
 pub mod verification;
 
 pub async fn verify_proof(proof_data: ProveBatches) -> anyhow::Result<bool> {
+    // `should_verify` stays decodable for old packages but never selects the outcome.
+    // The external-node DA path rewrites it from the serving node's current config.
+    // Upstream zkSync uses the flag only to encode a submission, one batch with one proof or an empty proof, and its verifier judges what arrives:
+    // https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/l1_contract_interface/src/i_executor/methods/prove_batches.rs#L46-L136
+    let [batch] = proof_data.l1_batches.as_slice() else {
+        anyhow::bail!(
+            "Expected exactly one L1 batch, got {}",
+            proof_data.l1_batches.len()
+        );
+    };
+    let [wrapped_proof] = proof_data.proofs.as_slice() else {
+        anyhow::bail!(
+            "Expected exactly one proof, got {}",
+            proof_data.proofs.len()
+        );
+    };
+
     let recursion_scheduler_level_vk_hash: H256 =
         H256::from_str("14f97b81e54b35fe673d8708cc1a19e1ea5b5e348e12d31e39824ed4f42bbca2")?;
-
-    let protocol_version_id = proof_data.l1_batches[0]
+    let protocol_version_id = batch
         .header
         .protocol_version
         .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
@@ -36,57 +52,20 @@ pub async fn verify_proof(proof_data: ProveBatches) -> anyhow::Result<bool> {
         protocol_version_id
     );
 
-    if proof_data.l1_batches.len() != 1 {
-        tracing::error!(
-            "Expected exactly one L1Batch and one proof, got {} and {}",
-            proof_data.l1_batches.len(),
-            proof_data.proofs.len()
-        );
-        return Ok(false);
-    }
-
     let vk_inner = load_verification_key_with_db_check(
         protocol_version_id.to_string(),
         recursion_scheduler_level_vk_hash,
     )
     .await?;
 
-    tracing::info!(
-        "Found valid recursion_scheduler_level_vk_hash {}",
-        recursion_scheduler_level_vk_hash,
+    let mut proof = wrapped_proof.scheduler_proof.clone();
+    proof.inputs = generate_inputs(
+        &proof_data.prev_l1_batch.metadata.commitment,
+        &batch.metadata.commitment,
     );
+    let is_valid = ViaZKProof { proof }.verify(vk_inner)?;
 
-    if !proof_data.should_verify {
-        tracing::info!(
-            "Proof verification is disabled for proof with batch number : {:?}",
-            proof_data.l1_batches[0].header.number
-        );
-        return Ok(true);
-    } else {
-        if proof_data.proofs.len() != 1 {
-            tracing::error!(
-                "Expected exactly one proof, got {}",
-                proof_data.proofs.len()
-            );
-            return Ok(false);
-        }
+    tracing::info!("Proof verification result: {}", is_valid);
 
-        let (prev_commitment, curr_commitment) = (
-            proof_data.prev_l1_batch.metadata.commitment,
-            proof_data.l1_batches[0].metadata.commitment,
-        );
-        let mut proof = proof_data.proofs[0].scheduler_proof.clone();
-
-        // Put correct inputs
-        proof.inputs = generate_inputs(&prev_commitment, &curr_commitment);
-
-        // Verify the proof
-        let via_proof = ViaZKProof { proof };
-
-        let is_valid = via_proof.verify(vk_inner)?;
-
-        tracing::info!("Proof verification result: {}", is_valid);
-
-        Ok(is_valid)
-    }
+    Ok(is_valid)
 }

@@ -15,8 +15,9 @@ pub use zksync_db_connection::{
 
 use crate::{
     via_blocks_dal::ViaBlocksDal, via_btc_sender_dal::ViaBtcSenderDal,
-    via_indexer_dal::ViaIndexerDal, via_l1_block_dal::ViaL1BlockDal, via_votes_dal::ViaVotesDal,
-    via_wallet_dal::ViaWalletDal, withdrawals_dal::ViaWithdrawalDal,
+    via_indexer_dal::ViaIndexerDal, via_l1_block_dal::ViaL1BlockDal,
+    via_store_mode_dal::ViaStoreModeDal, via_votes_dal::ViaVotesDal, via_wallet_dal::ViaWalletDal,
+    withdrawals_dal::ViaWithdrawalDal,
 };
 
 /// Postgres advisory lock key that lets only one verifier scan, header update, initialization or recovery run at a time.
@@ -32,6 +33,7 @@ pub mod via_btc_sender_dal;
 pub mod via_indexer_dal;
 pub mod via_l1_block_dal;
 pub mod via_protocol_versions_dal;
+pub mod via_store_mode_dal;
 pub mod via_transactions_dal;
 pub mod via_votes_dal;
 pub mod via_wallet_dal;
@@ -60,6 +62,7 @@ where
     fn via_wallet_dal(&mut self) -> ViaWalletDal<'_, 'a>;
     fn via_l1_block_dal(&mut self) -> ViaL1BlockDal<'_, 'a>;
     fn via_withdrawal_dal(&mut self) -> ViaWithdrawalDal<'_, 'a>;
+    fn via_store_mode_dal(&mut self) -> ViaStoreModeDal<'_, 'a>;
 }
 
 #[derive(Clone, Debug)]
@@ -105,5 +108,9 @@ impl<'a> VerifierDal<'a> for Connection<'a, Verifier> {
 
     fn via_withdrawal_dal(&mut self) -> ViaWithdrawalDal<'_, 'a> {
         ViaWithdrawalDal { storage: self }
+    }
+
+    fn via_store_mode_dal(&mut self) -> ViaStoreModeDal<'_, 'a> {
+        ViaStoreModeDal { storage: self }
     }
 }

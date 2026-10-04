@@ -6,6 +6,9 @@ role = "Coordinator"
 # The wallet used in musig2 sessions.
 private_key = "cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm"
 wallet_address = "bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv"
+# The local main node dispatches proof-free packages (`via_celestia.proof_sending_mode`), so absent proofs
+# are approved as development results. This needs regtest and a fresh verifier database.
+proof_verification_dev_mode = true
 
 [via_btc_sender]
 # The wallet used in the btc sender.
