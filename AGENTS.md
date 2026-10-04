@@ -126,7 +126,7 @@ Run `just via-check-strict` and ensure it passes before pushing changes under an
 
 The strict command includes the duplication ratchet and structural lint. `zkstack dev lint` and advisory pre-push hooks do not replace it. Document structural-rule false positives in the PR; do not silence rules without justification.
 
-Improve CI developer experience opportunistically within the current task. Favor fast, reliable user-journey feedback, actionable failure output, and easy reproduction locally. Remove redundant work and flaky setup, but do not hide failures, skip required checks, or trade away meaningful E2E coverage merely to make CI green. When changing CI, verify the resulting workflow run.
+Improve CI developer experience opportunistically within the current task. Favor fast, reliable feedback, actionable failures, and easy local reproduction. Remove redundant work and flaky setup without hiding failures, skipping required checks, or weakening meaningful existing coverage. When changing CI, verify the resulting workflow run.
 
 ## GitHub issues and PRs
 
