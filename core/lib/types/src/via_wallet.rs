@@ -136,7 +136,7 @@ impl TryFrom<&BootstrapState> for SystemWalletsDetails {
         let mut map = HashMap::new();
 
         let wallets = state.wallets.clone();
-        let txid = state.bootstrap_tx_id.clone();
+        let txid = state.bootstrap_tx_id;
 
         map.insert(
             WalletRole::Sequencer,

@@ -1,16 +1,17 @@
-use crate::{
-    auth::{Binding, Envelope, MAX_BODY},
-    coordinator::{api_decl::RestApi, error::ApiError},
-};
+use std::{str::FromStr, sync::Arc};
+
 use axum::{
     body::{self, Body},
     extract::{OriginalUri, Request, State},
     middleware::Next,
     response::Response,
 };
-use std::str::FromStr;
-use std::sync::Arc;
 use via_verifier_dal::VerifierDal;
+
+use crate::{
+    auth::{Binding, Envelope, MAX_BODY},
+    coordinator::{api_decl::RestApi, error::ApiError},
+};
 
 /// Carry the verified key's signer slot to handlers, never a caller-asserted slot.
 /// Matrix Synapse similarly propagates an authenticated origin; its server-name

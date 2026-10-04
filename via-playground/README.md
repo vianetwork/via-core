@@ -8,13 +8,13 @@ Try running some of the following tasks:
 
 1. Duplicate the `example.env` and create a `.env` file
 
-```
-⚠️⚠️⚠️
-If you want to deploy a contract on the deployed version of our devnet in GCP,
-please ask the Devs to provide the deployed version RPC URL
-and replace it in `hardhat.config.ts`.
-⚠️⚠️⚠️
-```
+   ```
+   ⚠️⚠️⚠️
+   If you want to deploy a contract on the deployed version of our devnet in GCP,
+   please ask the Devs to provide the deployed version RPC URL
+   and replace it in `hardhat.config.ts`.
+   ⚠️⚠️⚠️
+   ```
 
 2. Run `npx hardhat compile`
 

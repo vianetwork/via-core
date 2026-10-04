@@ -31,9 +31,7 @@ impl From<DalError> for MessageProcessorError {
 #[async_trait::async_trait]
 pub(super) trait MessageProcessor: 'static + std::fmt::Debug + Send + Sync {
     async fn process_messages(
-        &mut self,
-        storage: &mut Connection<'_, Core>,
-        msgs: Vec<FullInscriptionMessage>,
+        &mut self, storage: &mut Connection<'_, Core>, msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError>;
 }

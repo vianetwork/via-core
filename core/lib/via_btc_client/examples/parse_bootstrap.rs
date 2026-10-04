@@ -1,15 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use bitcoin::Txid;
+use bitcoin::{consensus::encode::deserialize, Transaction, Txid};
 use via_btc_client::{
     indexer::MessageParser,
     traits::BitcoinOps,
     types::{BitcoinNetwork, NodeAuth, TransactionWithMetadata},
 };
-
-use bitcoin::consensus::encode::deserialize;
-use bitcoin::Transaction;
 
 #[tokio::main]
 async fn main() -> Result<()> {

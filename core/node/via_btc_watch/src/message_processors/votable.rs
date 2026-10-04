@@ -11,9 +11,7 @@ pub struct VotableMessageProcessor {}
 #[async_trait::async_trait]
 impl MessageProcessor for VotableMessageProcessor {
     async fn process_messages(
-        &mut self,
-        storage: &mut Connection<'_, Core>,
-        msgs: Vec<FullInscriptionMessage>,
+        &mut self, storage: &mut Connection<'_, Core>, msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         for msg in msgs {
@@ -23,10 +21,7 @@ impl MessageProcessor for VotableMessageProcessor {
                         let proof_reveal_txid = attestation_msg.input.reference_txid[..].to_vec();
 
                         // Vote = true if attestation_msg.input.attestation == Vote::Ok
-                        let is_ok = matches!(
-                            attestation_msg.input.attestation,
-                            via_btc_client::types::Vote::Ok
-                        );
+                        let is_ok = matches!(attestation_msg.input.attestation, via_btc_client::types::Vote::Ok);
 
                         if !storage
                             .via_blocks_dal()
@@ -55,19 +50,13 @@ impl MessageProcessor for VotableMessageProcessor {
 
                         transaction
                             .via_votes_dal()
-                            .insert_vote(
-                                l1_batch_number.0,
-                                &proof_reveal_txid,
-                                &p2wpkh_address.to_string(),
-                                is_ok,
-                            )
+                            .insert_vote(l1_batch_number.0, &proof_reveal_txid, &p2wpkh_address.to_string(), is_ok)
                             .await
                             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
                         tracing::info!("New vote found for L1 batch {:?}", l1_batch_number);
 
-                        METRICS.inscriptions_processed[&InscriptionStage::Vote]
-                            .set(l1_batch_number.0 as usize);
+                        METRICS.inscriptions_processed[&InscriptionStage::Vote].set(l1_batch_number.0 as usize);
                         // Check finalization
                         if transaction
                             .via_votes_dal()
@@ -86,10 +75,7 @@ impl MessageProcessor for VotableMessageProcessor {
                             );
                         }
 
-                        transaction
-                            .commit()
-                            .await
-                            .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
+                        transaction.commit().await.map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
                     }
                 }
                 _ => (),

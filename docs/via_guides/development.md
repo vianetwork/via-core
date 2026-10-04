@@ -74,6 +74,11 @@ via clean --database --backups # Remove database *and* backups, but not configs.
    may try removing `$VIA_HOME/etc/env/target/dev.env` and running `via init` once again. This may help if the
    application configuration has changed.
 
+`via init` rejects `--run-observability`, `--skip-test-token-deployment`, and `--base-token-name` because these
+workflows are unsupported. `via up` also rejects `--run-observability`. Omit these options; previously they were
+accepted without effect. For verifier, coordinator, and indexer initialization, `--skip-env-setup` skips environment
+checks, not database initialization or cleanup.
+
 If you don’t need all of the `via init` functionality, but just need to start/stop containers, use the following
 commands:
 

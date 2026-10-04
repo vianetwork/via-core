@@ -14,9 +14,8 @@ mod tests {
     };
 
     use crate::tests::utils::{
-        create_l1_batch, default_l1_batch_metadata, get_btc_sender_config,
-        get_inscription_aggregator_mock, ViaAggregatorTest, BOOTLOADER_CODE_HASH_TEST,
-        DEFAULT_AA_CODE_HASH_TEST,
+        create_l1_batch, default_l1_batch_metadata, get_btc_sender_config, get_inscription_aggregator_mock,
+        ViaAggregatorTest, BOOTLOADER_CODE_HASH_TEST, DEFAULT_AA_CODE_HASH_TEST,
     };
 
     #[tokio::test]
@@ -83,16 +82,11 @@ mod tests {
 
         // The first batch pubdata inscription_request was created, so the next batch to create an inscription request is 2
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitL1BatchOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitL1BatchOnchain);
         assert_eq!(op.get_l1_batches_detail()[0].number.0, 2);
 
         // We confirm that the first inscription to commit batch pub data was processed.
-        aggregator_test
-            .confirme_inscription_request(inscription_request_list[0].id)
-            .await;
+        aggregator_test.confirme_inscription_request(inscription_request_list[0].id).await;
 
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 0);
@@ -100,10 +94,7 @@ mod tests {
         // ----------------------------------------- EXECTION 2 -----------------------------------------
         // The next operation should be 'CommitProofOnchain' of the block 1.
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitProofOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitProofOnchain);
         assert_eq!(op.get_l1_batches_detail()[0].number.0, 1);
 
         // Commit proof batch 1 and confirm the inscription
@@ -117,9 +108,7 @@ mod tests {
         );
 
         // We confirm that the proof inscription was processed.
-        aggregator_test
-            .confirme_inscription_request(inscription_request_list[0].id)
-            .await;
+        aggregator_test.confirme_inscription_request(inscription_request_list[0].id).await;
 
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 0);
@@ -127,10 +116,7 @@ mod tests {
         // ----------------------------------------- EXECTION 3 -----------------------------------------
         // The next operation should be 'CommitL1BatchOnchain' of the block 2.
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitL1BatchOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitL1BatchOnchain);
         assert_eq!(op.get_l1_batches_detail()[0].number.0, 2);
 
         // Commit pubdata batch 2 without confirm the inscription wa sent to btc chain
@@ -146,72 +132,52 @@ mod tests {
         assert_eq!(inscription_request_list.len(), 2);
 
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitL1BatchOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitL1BatchOnchain);
         assert_eq!(op.get_l1_batches_detail()[0].number.0, 4);
 
         // We confirm that the pubdata inscription was processed of batch 2.
-        aggregator_test
-            .confirme_inscription_request(inscription_request_list[0].id)
-            .await;
+        aggregator_test.confirme_inscription_request(inscription_request_list[0].id).await;
 
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 1);
 
         // We confirm that the pubdata inscription was processed of batch 3.
-        aggregator_test
-            .confirme_inscription_request(inscription_request_list[0].id)
-            .await;
+        aggregator_test.confirme_inscription_request(inscription_request_list[0].id).await;
 
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 0);
 
         // We confirm that the proof inscription was processed of batch 3.
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitProofOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitProofOnchain);
         assert_eq!(op.get_l1_batches_detail()[0].number.0, 2);
 
         // Commit proof batch 2 and confirm the inscription wa sent to btc chain
         run(pool.clone(), config.clone()).await;
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 1);
-        aggregator_test
-            .confirme_inscription_request(inscription_request_list[0].id)
-            .await;
+        aggregator_test.confirme_inscription_request(inscription_request_list[0].id).await;
 
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 0);
 
         // We confirm that the proof inscription was processed of batch 3.
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitProofOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitProofOnchain);
         assert_eq!(op.get_l1_batches_detail()[0].number.0, 3);
 
         // Commit proof batch 3 and confirm the inscription wa sent to btc chain
         run(pool.clone(), config.clone()).await;
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 1);
-        aggregator_test
-            .confirme_inscription_request(inscription_request_list[0].id)
-            .await;
+        aggregator_test.confirme_inscription_request(inscription_request_list[0].id).await;
 
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 0);
 
         // The next operation should be 'CommitL1BatchOnchain' batch 4.
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitL1BatchOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitL1BatchOnchain);
         assert_eq!(op.get_l1_batches_detail()[0].number.0, 4);
 
         // Commit pubdata batch 4 and confirm the inscription wa sent to btc chain
@@ -224,18 +190,13 @@ mod tests {
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 1);
 
-        aggregator_test
-            .confirme_inscription_request(inscription_request_list[0].id)
-            .await;
+        aggregator_test.confirme_inscription_request(inscription_request_list[0].id).await;
 
         let inscription_request_list = list_new_inscription_request(&mut aggregator_test, 10).await;
         assert_eq!(inscription_request_list.len(), 0);
 
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitProofOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitProofOnchain);
         assert_eq!(op.get_l1_batches_detail()[0].number.0, 4);
     }
 
@@ -254,8 +215,7 @@ mod tests {
     async fn run(pool: ConnectionPool<Core>, config: ViaBtcSenderConfig) {
         {
             // Create an async channel to break the while loop afer 3 seconds.
-            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) =
-                watch::channel(false);
+            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) = watch::channel(false);
 
             let toggle_handler = tokio::spawn(async move {
                 let mut toggle = false;
@@ -270,8 +230,7 @@ mod tests {
                 }
             });
 
-            let inscription_aggregator_mock =
-                get_inscription_aggregator_mock(pool.clone(), config.clone()).await;
+            let inscription_aggregator_mock = get_inscription_aggregator_mock(pool.clone(), config.clone()).await;
 
             inscription_aggregator_mock.run(receiver).await.unwrap();
             if let Err(e) = toggle_handler.await {
@@ -281,15 +240,9 @@ mod tests {
     }
 
     async fn list_new_inscription_request(
-        aggregator_test: &mut ViaAggregatorTest,
-        limit: i64,
+        aggregator_test: &mut ViaAggregatorTest, limit: i64,
     ) -> Vec<ViaBtcInscriptionRequest> {
         // check/Validate the execution
-        aggregator_test
-            .storage
-            .btc_sender_dal()
-            .list_new_inscription_request(limit)
-            .await
-            .unwrap()
+        aggregator_test.storage.btc_sender_dal().list_new_inscription_request(limit).await.unwrap()
     }
 }

@@ -4,21 +4,32 @@ use zksync_types::H256;
 use crate::Verifier;
 
 #[derive(Debug)]
+pub struct L1ToL2Transaction {
+    pub priority_id: i64,
+    pub l1_block_number: i64,
+    pub tx_id: H256,
+    pub receiver: String,
+    pub value: i64,
+    pub calldata: Vec<u8>,
+    pub canonical_tx_hash: H256,
+}
+
+#[derive(Debug)]
 pub struct ViaTransactionsDal<'a, 'c> {
     pub(crate) storage: &'a mut Connection<'c, Verifier>,
 }
 
 impl ViaTransactionsDal<'_, '_> {
-    pub async fn insert_transaction(
-        &mut self,
-        priority_id: i64,
-        tx_id: H256,
-        receiver: String,
-        value: i64,
-        calldata: Vec<u8>,
-        canonical_tx_hash: H256,
-        l1_block_number: i64,
-    ) -> DalResult<()> {
+    pub async fn insert_transaction(&mut self, tx: L1ToL2Transaction) -> DalResult<()> {
+        let L1ToL2Transaction {
+            priority_id,
+            tx_id,
+            receiver,
+            value,
+            calldata,
+            canonical_tx_hash,
+            l1_block_number,
+        } = tx;
         sqlx::query!(
             r#"
             INSERT INTO

@@ -1,4 +1,4 @@
-## VIA L1 indexer
+# VIA L1 indexer
 
 - Index the deposits and compute the L2 hash.
 

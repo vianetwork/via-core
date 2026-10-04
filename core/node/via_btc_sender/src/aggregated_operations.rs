@@ -1,8 +1,6 @@
 use std::fmt;
 
-use zksync_types::{
-    btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType,
-};
+use zksync_types::{btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType};
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]

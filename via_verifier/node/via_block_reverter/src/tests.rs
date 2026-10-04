@@ -1,4 +1,5 @@
 use bitcoin::{hashes::Hash, Address, Amount, Network, ScriptBuf, WPubkeyHash};
+use via_verifier_dal::via_transactions_dal::L1ToL2Transaction;
 use via_verifier_types::withdrawal::{CompleteWithdrawalBatch, WithdrawalRequest};
 use zksync_db_connection::instrument::InstrumentExt;
 use zksync_types::{Address as L2Address, H256};
@@ -106,15 +107,15 @@ async fn import_batch(
     if let Some(deposit_height) = deposit_height {
         storage
             .via_transactions_dal()
-            .insert_transaction(
-                i64::from(number),
-                hash,
-                "fixture".into(),
-                10_000,
-                vec![],
-                hash,
-                deposit_height,
-            )
+            .insert_transaction(L1ToL2Transaction {
+                priority_id: i64::from(number),
+                tx_id: hash,
+                receiver: "fixture".into(),
+                value: 10_000,
+                calldata: vec![],
+                canonical_tx_hash: hash,
+                l1_block_number: deposit_height,
+            })
             .await
             .unwrap();
         storage
