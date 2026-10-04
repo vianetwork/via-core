@@ -4,14 +4,14 @@ This module creates a **bridge address** that supports two spending methods:
 
 1. **Key Path Spend (Key Hash)**
 
-- Uses a MuSig2 aggregate public key.
-- Requires **N-of-N signers** to jointly produce a valid signature.
-- Primary purpose: **processing withdrawals**.
+   - Uses a MuSig2 aggregate public key.
+   - Requires **N-of-N signers** to jointly produce a valid signature.
+   - Primary purpose: **processing withdrawals**.
 
 2. **Script Path Spend (Script Hash)**
 
-- Uses an alternative script-based spending condition.
-- Intended for **governance control**, allowing governance participants to transfer or reassign UTXOs if necessary.
+   - Uses an alternative script-based spending condition.
+   - Intended for **governance control**, allowing governance participants to transfer or reassign UTXOs if necessary.
 
 This design provides both operational security (via MuSig2 key-path spending) and governance flexibility (via
 script-path spending).
