@@ -12007,7 +12007,9 @@ dependencies = [
 name = "via_da_dispatcher_lib"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "serde",
+ "tokio",
  "tracing",
  "zksync_object_store",
  "zksync_prover_interface",
@@ -12588,6 +12590,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
  "tokio",
  "tracing",
  "via_btc_client",
@@ -12645,8 +12648,10 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bincode",
+ "bitcoin",
  "circuit_sequencer_api",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
@@ -12658,6 +12663,7 @@ dependencies = [
  "via_verification",
  "via_verifier_dal",
  "via_verifier_state",
+ "via_verifier_storage_init",
  "via_verifier_types",
  "vise",
  "zksync_config",

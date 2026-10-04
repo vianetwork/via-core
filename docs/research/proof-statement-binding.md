@@ -12,8 +12,8 @@ their engineering detail and the obligations that remain before implementation.
 
 Research date: 2026-09-25. Via revision: `269b81cf056b2bb13294a042b93720b4f5500efe`. Discovery used Exa search; every
 conclusion rests on the pinned primary sources cited below. Nothing was built, tested or executed. The "Current Via
-path" below describes that revision. ADR 0007 accepts the verdict policy, not an implementation of identity checks.
-Those checks belong to the subsequent implementation change.
+path" below describes that revision. The subsequent ADR 0007 implementation compares package identity labels with the
+inscription; it still takes both commitments from the package.
 
 ## Current Via path
 

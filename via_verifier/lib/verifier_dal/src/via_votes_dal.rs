@@ -411,6 +411,27 @@ impl ViaVotesDal<'_, '_> {
         Ok(row.max_batch_number.unwrap_or(0) as u32)
     }
 
+    /// Reads canonical indexed and positively approved batch heights from one snapshot.
+    /// These maxima include development and historical approvals, not a cleared prefix.
+    pub async fn get_verification_watermarks(&mut self) -> DalResult<(u32, u32)> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                MAX(l1_batch_number) AS indexed,
+                MAX(l1_batch_number) FILTER (WHERE l1_batch_status = TRUE) AS approved
+            FROM via_votable_transactions
+            WHERE is_finalized IS DISTINCT FROM FALSE
+            "#
+        )
+        .instrument("get_verification_watermarks")
+        .fetch_one(self.storage)
+        .await?;
+        Ok((
+            row.indexed.unwrap_or(0) as u32,
+            row.approved.unwrap_or(0) as u32,
+        ))
+    }
+
     pub async fn verify_votable_transaction(
         &mut self,
         l1_batch_number: i64,
@@ -457,6 +478,27 @@ impl ViaVotesDal<'_, '_> {
         }
 
         Ok(record.id)
+    }
+
+    /// Records that development mode accepted this result without a proof.
+    /// It fails on a store not designated for development, which rolls back the enclosing verdict.
+    /// RISC Zero similarly re-checks dev mode where a fake receipt is accepted, not only at startup:
+    /// https://github.com/risc0/risc0/blob/218e3bc4a8ffcd203a9cd4e46f921bf60aa7e2bd/risc0/zkvm/src/receipt.rs#L443-L445
+    pub async fn mark_unverified_dev(&mut self, votable_transaction_id: i64) -> anyhow::Result<()> {
+        let updated = sqlx::query(
+            "UPDATE via_votable_transactions SET unverified_dev = TRUE WHERE id = $1 \
+             AND EXISTS (SELECT 1 FROM via_verifier_store_mode WHERE id = 1 AND proof_verification_dev_mode)",
+        )
+        .bind(votable_transaction_id)
+        .instrument("mark_unverified_dev")
+        .execute(self.storage)
+        .await?
+        .rows_affected();
+        anyhow::ensure!(
+            updated == 1,
+            "votable transaction {votable_transaction_id} is missing or the store is not designated for development"
+        );
+        Ok(())
     }
 
     pub async fn get_first_non_finalized_l1_batch_in_canonical_inscription_chain(

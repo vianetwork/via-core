@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                MAX(l1_batch_number) AS indexed,\n                MAX(l1_batch_number) FILTER (WHERE l1_batch_status = TRUE) AS approved\n            FROM via_votable_transactions\n            WHERE is_finalized IS DISTINCT FROM FALSE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "indexed",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "approved",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "377965e17fb5e53318348ffa51b7a2bdaff1cf20bc8de44b1a6bd4614d73b11f"
+}

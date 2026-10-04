@@ -15,6 +15,7 @@ use crate::{
 pub struct ViaVerifierInitLayer {
     pub via_genesis_config: ViaGenesisConfig,
     pub via_btc_watch_config: ViaBtcWatchConfig,
+    pub proof_verification_dev_mode: bool,
 }
 
 #[derive(Debug, FromContext)]
@@ -46,6 +47,7 @@ impl WiringLayer for ViaVerifierInitLayer {
             client,
             self.via_genesis_config,
             self.via_btc_watch_config,
+            self.proof_verification_dev_mode,
         )
         .await?;
 
