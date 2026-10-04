@@ -20,7 +20,7 @@ pub struct GenesisArgs {
     pub server_db_url: Option<Url>,
     #[clap(long, help = MSG_SERVER_DB_NAME_HELP)]
     pub server_db_name: Option<String>,
-    #[clap(long, short, help = MSG_USE_DEFAULT_DATABASES_HELP)]
+    #[clap(long, help = MSG_USE_DEFAULT_DATABASES_HELP)]
     pub dev: bool,
     #[clap(long, short, action)]
     pub dont_drop: bool,
@@ -89,4 +89,32 @@ impl GenesisArgs {
 pub struct GenesisArgsFinal {
     pub server_db: DatabaseConfig,
     pub dont_drop: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::{CommandFactory, Parser};
+
+    use super::GenesisArgs;
+
+    #[test]
+    fn genesis_flags_preserve_dont_drop_short_option() {
+        for (flags, expected) in [
+            (vec!["-d"], (false, true)),
+            (vec!["--dev"], (true, false)),
+            (vec!["--dont-drop"], (false, true)),
+            (vec!["--dev", "--dont-drop"], (true, true)),
+        ] {
+            let args =
+                GenesisArgs::try_parse_from(std::iter::once("genesis").chain(flags)).unwrap();
+            assert_eq!((args.dev, args.dont_drop), expected);
+        }
+    }
+
+    #[test]
+    fn genesis_help_and_command_tree_are_valid() {
+        crate::ZkStack::command().debug_assert();
+        let error = GenesisArgs::try_parse_from(["genesis", "--help"]).unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+    }
 }

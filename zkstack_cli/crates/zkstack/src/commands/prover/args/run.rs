@@ -21,7 +21,12 @@ use crate::{
     },
 };
 
+// The -h option sets the heavy WVG count, so this command exposes help only through --help.
 #[derive(Debug, Clone, Parser, Default)]
+#[command(
+    disable_help_flag = true,
+    arg(clap::Arg::new("help").long("help").action(clap::ArgAction::Help).help("Print help"))
+)]
 pub struct ProverRunArgs {
     #[clap(long)]
     pub component: Option<ProverComponent>,
@@ -29,8 +34,9 @@ pub struct ProverRunArgs {
     pub witness_generator_args: WitnessGeneratorArgs,
     #[clap(flatten)]
     pub witness_vector_generator_args: WitnessVectorGeneratorArgs,
-    #[clap(flatten)]
-    pub fri_prover_args: FriProverRunArgs,
+    /// Memory allocation limit in bytes for the prover or circuit-prover component.
+    #[clap(short = 'm', long)]
+    pub max_allocation: Option<usize>,
     #[clap(flatten)]
     pub circuit_prover_args: CircuitProverArgs,
     #[clap(long)]
@@ -137,6 +143,12 @@ impl ProverComponent {
             additional_args.push(format!("--secrets-path={}", secrets_config));
         }
 
+        if matches!(self, Self::Prover | Self::CircuitProver) {
+            if let Some(max_allocation) = args.max_allocation {
+                additional_args.push(format!("--max-allocation={max_allocation}"));
+            }
+        }
+
         match self {
             Self::WitnessGenerator => {
                 additional_args.push(
@@ -161,21 +173,7 @@ impl ProverComponent {
                     args.witness_vector_generator_args.threads.unwrap_or(1)
                 ));
             }
-            Self::Prover => {
-                if args.fri_prover_args.max_allocation.is_some() {
-                    additional_args.push(format!(
-                        "--max-allocation={}",
-                        args.fri_prover_args.max_allocation.unwrap()
-                    ));
-                };
-            }
             Self::CircuitProver => {
-                if args.circuit_prover_args.max_allocation.is_some() {
-                    additional_args.push(format!(
-                        "--max-allocation={}",
-                        args.fri_prover_args.max_allocation.unwrap()
-                    ));
-                };
                 if args.circuit_prover_args.light_wvg_count.is_some() {
                     additional_args.push(format!(
                         "--light-wvg-count={}",
@@ -246,8 +244,6 @@ pub struct CircuitProverArgs {
     pub light_wvg_count: Option<usize>,
     #[clap(short = 'h', long)]
     pub heavy_wvg_count: Option<usize>,
-    #[clap(short = 'm', long)]
-    pub max_allocation: Option<usize>,
 }
 
 impl CircuitProverArgs {
@@ -274,16 +270,8 @@ impl CircuitProverArgs {
         Ok(CircuitProverArgs {
             light_wvg_count: Some(light_wvg_count),
             heavy_wvg_count: Some(heavy_wvg_count),
-            max_allocation: self.max_allocation,
         })
     }
-}
-
-#[derive(Debug, Clone, Parser, Default)]
-pub struct FriProverRunArgs {
-    /// Memory allocation limit in bytes (for prover component)
-    #[clap(long)]
-    pub max_allocation: Option<usize>,
 }
 
 impl ProverRunArgs {
@@ -316,7 +304,7 @@ impl ProverRunArgs {
             component: Some(component),
             witness_generator_args,
             witness_vector_generator_args,
-            fri_prover_args: self.fri_prover_args,
+            max_allocation: self.max_allocation,
             circuit_prover_args,
             docker: Some(docker),
             tag: Some(tag),
@@ -338,5 +326,107 @@ impl WitnessGeneratorArgs {
         });
 
         Ok(WitnessGeneratorArgs { round: Some(round) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::{error::ErrorKind, Parser};
+    use types::{BaseToken, L1BatchCommitmentMode, L1Network, ProverMode, WalletCreation};
+
+    use super::{ChainConfig, Path, ProverComponent, ProverRunArgs};
+
+    fn chain_config() -> ChainConfig {
+        ChainConfig {
+            id: 0,
+            name: "fixture".to_string(),
+            chain_id: 270_u32.into(),
+            prover_version: ProverMode::Gpu,
+            l1_network: L1Network::Localhost,
+            link_to_code: "code".into(),
+            rocks_db_path: "rocksdb".into(),
+            artifacts: "artifacts".into(),
+            configs: "configs".into(),
+            external_node_config_path: None,
+            l1_batch_commit_data_generator_mode: L1BatchCommitmentMode::Rollup,
+            base_token: BaseToken::eth(),
+            wallet_creation: WalletCreation::Empty,
+            shell: Default::default(),
+            legacy_bridge: None,
+            evm_emulator: false,
+        }
+    }
+
+    #[test]
+    fn allocation_is_forwarded_to_the_selected_prover() {
+        let chain = chain_config();
+        for (component, expected_component) in [
+            ("prover", ProverComponent::Prover),
+            ("circuit-prover", ProverComponent::CircuitProver),
+        ] {
+            for (allocation, expected_allocation) in [
+                (vec![], vec![]),
+                (
+                    vec!["--max-allocation", "4096"],
+                    vec!["--max-allocation=4096"],
+                ),
+                (vec!["-m", "8192"], vec!["--max-allocation=8192"]),
+            ] {
+                let args = ProverRunArgs::try_parse_from(
+                    [
+                        "run",
+                        "--component",
+                        component,
+                        "--docker",
+                        "true",
+                        "--tag",
+                        "fixture",
+                        "-l",
+                        "3",
+                        "-h",
+                        "2",
+                    ]
+                    .into_iter()
+                    .chain(allocation),
+                )
+                .unwrap()
+                .fill_values_with_prompt()
+                .unwrap();
+                let selected = args.component.unwrap();
+                assert_eq!(selected, expected_component);
+
+                let actual = selected
+                    .get_additional_args(true, args, &chain, Path::new("/fixture"))
+                    .unwrap();
+                let mut expected = vec![
+                    "--config-path=/configs/general.yaml",
+                    "--secrets-path=/configs/secrets.yaml",
+                ];
+                expected.extend(expected_allocation);
+                if expected_component == ProverComponent::CircuitProver {
+                    expected.extend(["--light-wvg-count=3", "--heavy-wvg-count=2"]);
+                }
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn prover_run_long_help_preserves_heavy_count_short_option() {
+        let error =
+            crate::ZkStack::try_parse_from(["zkstack", "prover", "run", "--help"]).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::DisplayHelp);
+        let args = ProverRunArgs::try_parse_from([
+            "run",
+            "--component",
+            "circuit-prover",
+            "--heavy-wvg-count",
+            "5",
+            "--light-wvg-count",
+            "7",
+        ])
+        .unwrap();
+        assert_eq!(args.circuit_prover_args.heavy_wvg_count, Some(5));
+        assert_eq!(args.circuit_prover_args.light_wvg_count, Some(7));
     }
 }
