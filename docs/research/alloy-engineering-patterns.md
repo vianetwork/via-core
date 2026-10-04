@@ -54,7 +54,7 @@ A future probe may use such a watcher for convenience while preserving durable r
 
 ### Separate ABI acceptance from resource limits
 
-[`AbiDecoderConfig`][decoder] separates recursion, memory accounting, validation, strict layout and trailing-byte acceptance. At this pin the defaults are recursion depth 16, memory accounting limit 1 GiB, `validate = false`, and `strict = false`. Strict mode implies validation. Child decoders share accounting; reservation uses checked addition and element sizing uses checked multiplication.
+[`AbiDecoderConfig`][decoder] separates recursion, memory accounting, validation, strict layout and trailing-byte acceptance. At this pin the defaults are recursion depth 16, memory accounting limit 1 GiB, `validate = false`, and `strict = false`. Strict mode implies validation. [Child decoders share accounting][decoder-child]; [reservation uses checked addition and element sizing uses checked multiplication][decoder-reserve].
 
 These limits do not establish a whole-process memory bound. Their useful lesson is to expose resource policy separately from accepted wire grammar. Typed `sol!` codecs or dynamic ABI decoding may eventually help around [`L2CanonicalTransaction`][abi], but replacing a codec requires exact acceptance, byte and hash comparisons. Bitcoin deposit decoding is not Solidity ABI decoding; [ADR 0003][deposit] deliberately permits specific trailing data.
 
@@ -89,6 +89,8 @@ No evidence here selects new protocol acceptance rules, a fulfillment depth, a h
 [retry]: https://github.com/alloy-rs/alloy/blob/459b32ccba163e2a3f2df0c6c35e738142dab5c3/crates/transport/src/layers/retry.rs#L196-L365
 [heart]: https://github.com/alloy-rs/alloy/blob/459b32ccba163e2a3f2df0c6c35e738142dab5c3/crates/provider/src/heart.rs#L465-L742
 [decoder]: https://github.com/alloy-rs/core/blob/26c40597149f249f8425dc58227d2d4b7597ceb5/crates/sol-types/src/abi/decoder.rs#L20-L178
+[decoder-child]: https://github.com/alloy-rs/core/blob/26c40597149f249f8425dc58227d2d4b7597ceb5/crates/sol-types/src/abi/decoder.rs#L333-L351
+[decoder-reserve]: https://github.com/alloy-rs/core/blob/26c40597149f249f8425dc58227d2d4b7597ceb5/crates/sol-types/src/abi/decoder.rs#L437-L457
 [abi]: https://github.com/vianetwork/via-core/blob/269b81cf056b2bb13294a042b93720b4f5500efe/core/lib/types/src/abi.rs
 [traversal]: https://github.com/alloy-rs/core/commit/26c40597149f249f8425dc58227d2d4b7597ceb5
 [isolation]: ../adr/0001-isolate-btc-inscription-observability.md

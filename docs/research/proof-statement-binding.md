@@ -12,8 +12,8 @@ implementations, their engineering detail and the obligations that remain before
 
 Research date: 2026-09-25. Via revision: `269b81cf056b2bb13294a042b93720b4f5500efe`. Discovery used Exa search;
 every conclusion rests on the pinned primary sources cited below. Nothing was built, tested or executed.
-The "Current Via path" below describes that revision. The ADR 0007 implementation later compares the package's
-batch number, roots and protocol version with the inscription, but still takes both commitments from the package.
+The "Current Via path" below describes that revision. ADR 0007 accepts the verdict policy, not an
+implementation of identity checks. Those checks belong to the subsequent implementation change.
 
 ## Current Via path
 
@@ -46,6 +46,12 @@ as witnesses, and recompute `C`. Under the hash and proof-system assumptions and
 correspondence, the checked transition is bound to that root and the retained parent commitment. This does
 not establish batch number, canonicality or consumed message contents. It avoids reconstructing every
 auxiliary preimage for the root check; Via's published pubdata cannot supply all those preimages.
+
+Opening metadata is not authorization. Independently authorize the bootloader, default-account and
+version-dependent emulator hashes against the batch's authenticated activation history. Constrain
+`zkporter_is_available` to false for the supported scheduler; authenticate the protocol selector for the
+encoding and emulator fallback. The selector is not serialized as another metadata byte field.
+See [ADR 0008's complete metadata obligation](../adr/0008-bind-proofs-by-chaining-verified-commitments.md).
 
 The upstream scheduler circuit at `matter-labs/zksync-protocol`
 [`33d3aa0a`](https://github.com/matter-labs/zksync-protocol/blob/33d3aa0a1dd9a73175a105b09a3fd54ef3191921/crates/zkevm_circuits/src/scheduler/mod.rs#L1305-L1393),
@@ -109,9 +115,11 @@ It does not by itself certify Via's installed verification key or wrapper chain.
   (L785-793), and the first-sight caller can then advance past it.
   Pending proofs retry in `(min, max)` index order and stop at the first still-pending one. The light client
   advances its head only along a contiguous, root-consistent chain.
-- **Do not copy.** On the first sighting, any non-halting proof error, including a database error, is logged
-  as "skipping" and the scan cursor then advances, creating a proof-loss risk. Proof data, status and pending
-  removal are separate writes in the inspected path. Crash atomicity was not established or exercised.
+- **Do not copy.** A fresh, nonqueued processing error can be logged as "skipping" while the scan cursor
+  advances. Extraction and cryptographic failures instead return `Discarded` without that warning (L634-662).
+  Persisted pending proofs have a separate retry path: `Other` retains them, while skippable errors remove
+  them (L939-994). Thus cursor advancement does not universally lose pending proofs. Proof data, status
+  and pending removal are separate writes; crash atomicity was not established or exercised.
 
 ### Mina
 
@@ -194,3 +202,13 @@ untracked local research archive; this list preserves the primary sources they r
   [verify](https://github.com/o1-labs/mina-rust/blob/82480cd468f1963b73dc0b700161036411449e4c/crates/ledger/src/proofs/verification.rs#L750-L785), [input](https://github.com/o1-labs/mina-rust/blob/82480cd468f1963b73dc0b700161036411449e4c/crates/ledger/src/proofs/verification.rs#L430-L455), [hash](https://github.com/o1-labs/mina-rust/blob/82480cd468f1963b73dc0b700161036411449e4c/crates/ledger/src/scan_state/protocol_state.rs#L14-L53), [fields](https://github.com/o1-labs/mina-rust/blob/82480cd468f1963b73dc0b700161036411449e4c/crates/ledger/src/proofs/public_input/protocol_state.rs#L14-L238), [service](https://github.com/o1-labs/mina-rust/blob/82480cd468f1963b73dc0b700161036411449e4c/crates/node/common/src/service/snarks.rs#L36-L77), [consume](https://github.com/o1-labs/mina-rust/blob/82480cd468f1963b73dc0b700161036411449e4c/crates/node/src/transition_frontier/candidate/transition_frontier_candidate_reducer.rs#L73-L172)
 - **Zeth**:
   [guest](https://github.com/boundless-xyz/zeth/blob/3fe7de60ad08b47dde876bfc874e0f6069daff1f/guests/stateless-client/src/lib.rs#L21-L34), [core](https://github.com/boundless-xyz/zeth/blob/3fe7de60ad08b47dde876bfc874e0f6069daff1f/crates/core/src/lib.rs#L94-L116), [host](https://github.com/boundless-xyz/zeth/blob/3fe7de60ad08b47dde876bfc874e0f6069daff1f/crates/host/src/bin/cli.rs#L77-L107)
+
+### Complete mechanism anchors
+
+- Citrea's actual [contiguous root-consistent advancement](https://github.com/chainwayxyz/citrea/blob/f11527f94344d5dc4576ccb9589d5713fb8f7238/crates/light-client-prover/src/circuit/mod.rs#L589-L608),
+  not only the proof-processing entry point.
+- Mina's [still-Pending completion guard](https://github.com/o1-labs/mina-rust/blob/82480cd468f1963b73dc0b700161036411449e4c/crates/snark/src/block_verify/snark_block_verify_reducer.rs#L101-L117),
+  not only its worker channel.
+- Alpen's [complete restart derivation](https://github.com/alpenlabs/alpen/blob/882107abd8ec691f870dced0a680267124dd8294/bin/strata/src/checkpoint_reconcile.rs#L110-L145).
+- Alpen's [complete state advance](https://github.com/alpenlabs/asm/blob/afaf935727c34acf07967420fe3c4584428f5550/crates/subprotocols/checkpoint/verification/src/state.rs#L185-L206)
+  verifies before applying withdrawals, updating the tip and promoting the predicate transition.

@@ -1,6 +1,6 @@
 # Proof verification and historical evidence
 
-Status: research. Verdict and isolated development policies were accepted on 2026-09-25 in [ADR 0007](../adr/0007-record-only-completed-proof-verdicts.md); [ADR 0008](../adr/0008-bind-proofs-by-chaining-verified-commitments.md) subsequently accepted commitment chaining with root openings. Binding proof obligations, failed-opening policy, the trusted anchor, historical trust and rollout remain pending. Earlier alternatives below are historical where these ADRs supersede them. Evidence inspected on 2026-09-23 and 2026-09-24. This note is not a release approval or an operational collection procedure; restricted candidate details remain outside it.
+Status: research. Verdict and isolated development policies were accepted on 2026-09-25 in [ADR 0007](../adr/0007-record-only-completed-proof-verdicts.md); [ADR 0008](../adr/0008-bind-proofs-by-chaining-verified-commitments.md) subsequently accepted commitment chaining with root openings. Binding proof obligations, future rejection policy, the trusted anchor, historical trust and rollout remain pending. A failed opening gives no verdict under the accepted direction; no new failed-opening policy is selected here. Earlier alternatives below are historical where these ADRs supersede them. Evidence inspected on 2026-09-23 and 2026-09-24. This note is not a release approval or an operational collection procedure; restricted candidate details remain outside it.
 
 The question is what a successful proof result establishes, and what evidence makes previously accepted or still-pending history trustworthy. A change to the verifier cannot retroactively certify a stored status, a published vote, or a dependent withdrawal.
 
@@ -89,7 +89,7 @@ not an attestation that cryptographic verification ran. Missing inputs also have
 the spelling `INVALID` alone cannot determine Via's vote policy. The useful pattern is one explicit
 mapping from outcome and reason to consumer consequences.
 
-[`VerifyDBResult`](https://github.com/bitcoin/bitcoin/blob/d82283950f5ff3b2116e705f931c6e89e5fdd0be/src/validation.h)
+[`VerifyDBResult`](https://github.com/bitcoin/bitcoin/blob/d82283950f5ff3b2116e705f931c6e89e5fdd0be/src/validation.h#L388-L394)
 distinguishes `SUCCESS`, `CORRUPTED_BLOCK_DB`, `INTERRUPTED`, `SKIPPED_L3_CHECKS`, and
 `SKIPPED_MISSING_BLOCKS`. This supports reporting covered results separately from interrupted or
 incomplete historical checks. It does not justify treating a skipped Via proof as cleared. A private

@@ -33,6 +33,15 @@ batch would wrongly forbid upgrades. zkSync's settlement contract likewise reads
 while the scheduler circuit takes them as witnesses
 ([`scheduler/mod.rs` L148-183](https://github.com/matter-labs/zksync-protocol/blob/33d3aa0a1dd9a73175a105b09a3fd54ef3191921/crates/zkevm_circuits/src/scheduler/mod.rs#L148-L183)).
 
+Authorization covers the complete metadata encoding, not only the three code hashes:
+`zkporter_is_available` must be false for the supported scheduler (it constrains the witness to false
+at [L152-160](https://github.com/matter-labs/zksync-protocol/blob/33d3aa0a1dd9a73175a105b09a3fd54ef3191921/crates/zkevm_circuits/src/scheduler/mod.rs#L152-L160)).
+The authenticated protocol version selects the encoding, including whether the emulator hash is present
+and its default-account fallback; it is not another directly serialized metadata field.
+[`L1BatchMetaParameters::to_bytes`](https://github.com/vianetwork/via-core/blob/269b81cf056b2bb13294a042b93720b4f5500efe/core/lib/types/src/commitment/mod.rs#L547-L573)
+owns that version-specific serialization. Every witness field must be independently authorized or
+constrained to the supported fixed value.
+
 Pubdata consumed for deposits, upgrades and withdrawals must be opened against the same commitment.
 A root match alone does not authenticate those messages.
 
@@ -80,10 +89,12 @@ The following must be demonstrated offline before implementation or historical u
 - every consumed pubdata item opens against the commitment;
 - restart, reorg and inscription-chain replacement rewind the retained commitment with the verdict.
 - verdict, commitment and effects persist atomically with the intended proof and batch source identity;
-- the metadata witness's code hashes match the authorized code for each batch's protocol version;
+- all metadata fields follow the authorized version-specific encoding, including authorized code hashes
+  and the fixed-false zkPorter flag;
 - a retained commitment is keyed by batch identity, because `via_votable_transactions.l1_batch_hash` is unique
   and two batches sharing a state root could not both be recorded;
-- development approvals (`unverified_dev`) and rows from before the store designation are never eligible parents.
+- future parent eligibility excludes development approvals and establishes independently verified provenance
+  for historical rows; ADR 0007's planned origin marker and designation boundary alone cannot prove this.
 
 A failed opening yields no verdict under ADR 0007 and must not reuse the descendant invalidation cascade.
 A mismatched package is not conclusive evidence that the batch itself is invalid. Whether a bound proof

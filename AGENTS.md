@@ -94,21 +94,19 @@ Examples:
 
 Source comments explain durable runtime truth: contracts, invariants, non-obvious consequences, ordering or performance constraints, and why an obvious alternative is wrong. State cross-component coupling once on its governing type.
 
-Use declarative, plain language and one idea per comment. Write one sentence per line, with periods rather than semicolons between independent clauses. On public items and critical shared functions, explain the meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the next statement.
+Use declarative, plain language and one idea per comment. On public items and critical shared functions, explain the meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the next statement.
 
 Put debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon in the PR or issue rather than `.rs` comments. Retain useful external protocol references such as BIPs and RFCs.
 
-A comment that draws on an external algorithm, standard, RFC, BIP, project or chain sits above the line it governs and reads in this order: Via's reason with its concrete consequence; what was adopted, adapted or rejected, and what was not; then the immutable permalink (repo@commit, path, line range) or standard section. It must read correctly without the link:
+Where an existing implementation, algorithm or standard materially informs the code, document that origin above the relevant code. This requirement is repo-wide, not agent-specific. State Via's reason and concrete consequence, what was adopted, adapted or rejected and relevant differences, then a pinned source permalink (repo@commit, path, line range) or standard section. Use one sentence per line and periods between independent clauses. The explanation must remain useful without the link:
 
 ```rust
-// Writes nothing, so the next poll selects the same batch and progress stops there.
-// Citrea's full node instead advances its L1 scan cursor past a proof it fails to process or discards, and does not retry it:
-// https://github.com/chainwayxyz/citrea/blob/f11527f94344d5dc4576ccb9589d5713fb8f7238/crates/fullnode/src/da_block_handler.rs#L299-L351
+// Retries the complete transaction after a serialization failure so database-dependent decisions are recomputed.
+// Follows PostgreSQL's recovery guidance rather than retrying only the failed statement.
+// https://github.com/postgres/postgres/blob/c372fbbd8e911f2412b80a8c39d7079366565d67/doc/src/sgml/mvcc.sgml#L1810-L1816
 ```
 
 A multi-step function may open with a one-line purpose, numbered steps and the design reason that shapes them.
-
-Where an existing implementation, algorithm or standard materially informs the code, document that origin above the relevant code. This requirement is repo-wide, not agent-specific. State Via's reason and concrete consequence, what was adopted, adapted or rejected and relevant differences, then a pinned source permalink (repo@commit, path, line range) or standard section. Use one sentence per line and periods between independent clauses. The explanation must remain useful without the link.
 
 Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
 

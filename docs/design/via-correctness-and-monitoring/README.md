@@ -82,9 +82,9 @@ project demonstrates a mechanism, not that its trust assumptions or policy trans
 - **Proof statements must follow accepted commitments and open the inscribed root.**
   [ADR 0008](../../adr/0008-bind-proofs-by-chaining-verified-commitments.md) selects this direction;
   publishing commitments on Bitcoin is deferred as a possible later addition for new batches.
-  Consumed messages need their own authenticated openings. Failed-opening policy, the trusted first
-  commitment, batch identity and parent-root authentication remain decisions or proof obligations,
-  not implemented guarantees.
+  Consumed messages need their own authenticated openings. Under ADR 0007 a failed opening gives no verdict.
+  Future rejection policy, the trusted first commitment, batch identity and parent-root authentication
+  remain decisions or proof obligations, not implemented guarantees.
 
 These are accepted planning contracts, not assertions about current implementation. Preserve the
 existing withdrawal fee policy and the selected signing guarantee; ADR 0004 adds neither a mandatory
@@ -118,23 +118,24 @@ reconciliation and admission state, but avoids using a payment observation as th
 Reconstructing the transaction and directly checking every field are both viable; rerunning coin or
 request selection during authorization changes the proposal rather than verifies it.
 
-The [implementation-readiness recommendation](../../research/withdrawal-authorization-and-refork.md#implementation-readiness-recommendation)
-owns the integrated proposal, source evidence and finite policy inventory. Whole-workstream
-implementation with independent research/reviews is approved; material policies remain open.
-Live migration, publication, deployment and signing activation remain separately gated.
+The [implementation-readiness research](../../research/withdrawal-authorization-and-refork.md#implementation-readiness-recommendation)
+retains the alternatives and their evidence. The current contract is
+[withdrawal lifecycle](../withdrawal-lifecycle.md), with operational details in the
+[verifier guide](../../../via_verifier/README.md#withdrawal-processing-and-coordinated-cutover).
+The following status is accepted contract scope, not executed validation or activation permission.
 
-| Choice | Alternatives and recommendation; reason it remains open |
+| Choice | Accepted contract and remaining gate |
 | --- | --- |
-| W1 — Expected-fact authority | Retain checked request facts once, or reconstruct them at every signing attempt. Prefer a complete authoritative import with explicit completion evidence, including genuine empty batches. The source, supported history, and invalidation policy must be selected. |
-| W2 — Obligation and output identity | Reuse existing transaction ownership with an explicit output relation rather than overload one amount column. Preserve full request origin, exact wire reference, actual txid/vout, and separate inclusion evidence. Exact keys and conflict handling need agreement. |
-| W3 — Hold versus fulfillment | Reconcile independently observed payments, or retain session-owned settlement while making admission consult those observations. Prefer holds for credible unresolved payment evidence and fulfillment only for an unambiguous correct payout. Select provenance, fee context, and confirmation requirements. |
-| W4 — Safe retry after uncertainty | Retain holds until an explicit exclusion policy is satisfied, or authorize recovery with stated residual risk. Prefer retaining evidence; timeout, restart, or local mempool absence alone cannot release it. A deep reorg can invalidate exclusion evidence. |
-| W5 — Concurrent admission | A shared wallet-scoped admission transaction is simpler than fine-grained locking, which must also cover absent expected rows. Prefer the shared boundary for import, reconciliation, invalidation, and admission; persist possibly signed attempts before shares escape. Select locking and recovery ownership. |
-| W6 — Fixed transaction authorization | Deterministic reconstruction reuses fee and encoding code but constructs another bounded transaction. Direct field/equation checks avoid that construction but require complete accounting. Prefer reconstruction without reselection, dropped requests, or opportunistic reordering. |
-| W7 — Parent and fee evidence | Supplied prevouts, verified parent bytes, and live RPC retrieval have different early-detection and availability costs. Prefer verified content without requiring one retrieval source. Preserve fee-estimation policy; define unavailable outcomes rather than inventing a zero fee. |
-| W8 — History and cutover | Prefer coordinated cutover unless an actual availability requirement justifies a proven mixed-version contract. Reconstruct legacy expected facts from authorized sources or keep them ineligible. Storage migration alone does not establish signing readiness. |
+| W1 — Expected-fact authority | Complete authoritative import, explicit completion and source invalidation. Historical completeness and trust still require evidence. |
+| W2 — Obligation and output identity | Separate immutable expected facts and observations; full origin, exact wire reference, canonical txid/actual vout and separate inclusion. No schema choice is reopened here. |
+| W3 — Hold versus fulfillment | Credible unresolved observations hold requests; exact conforming payments may fulfill only under current source/inclusion evidence. Positive fulfillment depth remains unselected. |
+| W4 — Safe retry after uncertainty | Retain exposed/signed risk; timeout, restart and mempool absence do not release it. No automatic exclusion/replacement policy is selected. |
+| W5 — Concurrent admission | Shared transactional admission covers import, observation, invalidation and reservations, including absent expected rows. Concurrent-path evidence remains required. |
+| W6 — Fixed transaction authorization | Reconstruct one fixed proposal with existing fee/encoding owners; no reselection, dropped requests or repricing on recovery. |
+| W7 — Parent and fee evidence | Verify complete parent bytes by txid/vout independently of provider; preserve existing fee policy. No mandatory fresh `gettxout`; historical retrieval remains an availability gate. |
+| W8 — History and cutover | Coordinated writer cutover, legacy negative quarantine and complete-history reconciliation. Migration alone grants no signing authority. |
 
-**Proof needed before implementation is accepted:** both arrival orders, identical and conflicting
+**Required implementation and activation evidence:** both arrival orders, identical and conflicting
 replays, ambiguous references, repeated recipients at different output positions, txid byte order,
 underpayment, late confirmation, two competing attempts, interrupted signing, and reorg invalidation.
 Exercise exact recipient, fee, change, metadata, and input mutations against the same fixed proposal.
@@ -154,18 +155,18 @@ rejects a changed one; consuming an in-memory round is not persistence across a 
 CometBFT saves its signed result before returning it and distinguishes identical retries from conflicts.
 Its consensus-specific timestamp exception is not a safe default for Bitcoin signing messages.
 
-Prefer an explicit signed operation and durable round lifecycle using the existing client, middleware,
-handlers, and signer owners. A cryptographically valid HTTP request does not make a signing retry safe;
-a durable signing round does not authenticate the HTTP request.
+The accepted contract uses explicit authenticated operations and a durable round lifecycle through the
+existing client, middleware, handlers and signer owners. Request authenticity and signing history remain
+separate boundaries; neither substitutes for the other.
 
-| Choice | Alternatives and recommendation; reason it remains open |
+| Choice | Accepted contract and remaining gate |
 | --- | --- |
-| S1 — Signed request meaning | Choose an exact-byte versioned envelope, a complete RFC 9421 profile, or specified canonical encoding. Prefer an envelope binding operation, audience, network, round, and transmitted body, with the authenticated principal propagated to handlers. Proxy and encoding semantics still need selection. |
-| S2 — Durable round identity | Persist a wallet epoch and sequence, or an equivalently fenced random identifier. Prefer allocation by the existing coordinator with the fixed proposal and participant context. A proposal hash identifies content, not the attempt or authority after restoring an old database. |
-| S3 — Crash persistence | Prefer retaining public results before returning them and retiring an uncertain round rather than recreating its secret operation. Crash recovery, partial multi-input results, storage failure, and rollback protection must be specified; an in-memory consuming API is insufficient. |
-| S4 — Retransmission and retention | Return retained results for identical submissions, reject conflicts, and validate a complete batch before mutation. Cache expiry may discard a response but must not make a retired identifier reusable. Choose result retention separately from replay protection. |
-| S5 — Invalid contribution | Distinguish unauthenticated malformed traffic from an authenticated invalid contribution to the frozen round. Prefer aborting that exact round while preserving payment evidence; a delayed failure must not reset its successor. Select attribution and recovery rules. |
-| S6 — Coherent activation | Transport binding and durable signing are separate boundaries. Migrate each boundary's real consumers together and retire incompatible active rounds before activating the combined lifecycle. Select version, key-set, and recovery ownership rather than adding parallel APIs. |
+| S1 — Signed request meaning | Exact-byte authenticated envelopes bind principal, audience, method, target, challenge, round and proposal; responses bind to requests. |
+| S2 — Durable round identity | Coordinator-owned durable attempt identity binds proposal, participants and wallet/domain context. Restored state cannot create new authority merely from the same content hash. |
+| S3 — Crash persistence | Retain public nonce/signature batches before export; commit possible signing before nonce consumption. Retire incomplete restart state without recreating secrets. |
+| S4 — Retransmission and retention | Identical public submissions return retained results; conflicts fail. Validate complete batches before mutation; never reuse retired secret operations. |
+| S5 — Invalid contribution | Fail the exact affected attempt without releasing retained payment risk or resetting a successor. Nonce-loss liveness requires offline reconciliation, not automatic abandonment. |
+| S6 — Coherent activation | Coordinated authenticated-transport/signing cutover; no mixed-version route shim. History, participant mapping, recovery evidence and activation remain separate gates. |
 
 **Proof needed:** mutate request operation, audience, principal, body, round, and key order; retry
 identical and conflicting batches; fail the last element; interrupt before and after retaining shares;
@@ -192,9 +193,9 @@ normally only locally and retain their `unverified-dev` identity across restart;
 no bypass. Missing evidence does not create a vote or invalidation, and existing holds remain.
 The finalization rule is unchanged. [ADR 0008](../../adr/0008-bind-proofs-by-chaining-verified-commitments.md)
 accepts commitment chaining with root openings, but its sufficiency still requires offline proof.
-The [binding research](../../research/proof-statement-binding.md) separates failed-opening and anchor
-choices from parent-root, batch-identity, consumed-data and persistence obligations. Historical clearance
-and activation remain unresolved.
+The [binding research](../../research/proof-statement-binding.md) separates future rejection and anchor
+choices from parent-root, batch-identity, authorized metadata, consumed-data and persistence obligations.
+Historical clearance and activation remain unresolved.
 
 Prefer preserving these meanings through callers, persistence, votes, and restart. A richer enum is
 useful only if consumers retain its distinctions. A smaller `Result<bool>` can be adequate when a
@@ -202,7 +203,7 @@ successful boolean means a completed verdict and errors remain non-verdicts thro
 
 | Choice | Accepted boundary and remaining work |
 | --- | --- |
-| P1 — Durable verdict meaning | Accepted: no package-controlled approval; no verdict for missing proof, incomplete deposit indexing or malformed evidence unless invalidity is conclusive. Missing, permanently unusable and invalid remain distinct. Preserve holds and current finalization. Commitment chaining with root openings is selected; failed-opening policy and sufficient binding evidence remain open alongside representation and caller integration. |
+| P1 — Durable verdict meaning | Accepted: no package-controlled approval; no verdict for missing proof, incomplete deposit indexing or malformed evidence unless invalidity is conclusive. Missing, permanently unusable and invalid remain distinct. Preserve holds and current finalization. Commitment chaining with root openings is selected; future rejection policy and sufficient binding evidence remain open alongside representation and caller integration. |
 | P2 — Development execution | Accepted: local end-to-end runs without a prover use verifier-configured development mode, restricted to regtest/development networks and stores. Producer `SkipEveryProof` remains available locally. Development results vote normally locally and remain `unverified-dev` across restart; production has no bypass. Exact fencing and persistence need implementation and proof. |
 | P3 — Historical trust | Still open: select and justify bounded historical trust and any recovery. Sufficient proof-to-batch binding is a required follow-up before clearance. Missing objects and unsupported history remain unknown, not cleared; no checkpoint is selected. |
 | P4 — Recovery and activation | Still open: keep source correction, historical disposition and activation separately authorized. Binding is required before withdrawal activation. Re-verification, checkpointing, replay and republishing have different consequences; none is selected here. |

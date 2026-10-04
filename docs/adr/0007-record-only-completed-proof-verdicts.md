@@ -49,10 +49,10 @@ and a positive local result; the development exception does not authorize produc
   restriction without adding to the existing withdrawal predicate. This decision preserves the current rule.
 
 Comparable mechanisms informed these choices; they are not Via rules.
-The [Ethereum Engine API](https://github.com/ethereum/execution-apis/blob/5bcdc34a477b10af278c079525374e6a4046f291/src/engine/paris.md#L168-L184)
+The [Ethereum Engine API](https://github.com/ethereum/execution-apis/blob/5bcdc34a477b10af278c079525374e6a4046f291/src/engine/paris.md#L168-L185)
 returns `SYNCING` for missing requisite data and distinguishes an incompletely validated `ACCEPTED`
 payload from `VALID`; it can also classify specified malformed inputs as invalid.
-[Bitcoin Core's `VerifyDBResult`](https://github.com/bitcoin/bitcoin/blob/d82283950f5ff3b2116e705f931c6e89e5fdd0be/src/validation.h)
+[Bitcoin Core's `VerifyDBResult`](https://github.com/bitcoin/bitcoin/blob/d82283950f5ff3b2116e705f931c6e89e5fdd0be/src/validation.h#L388-L394)
 separates skipped checks from corruption.
 [RISC Zero](https://github.com/risc0/risc0/blob/218e3bc4a8ffcd203a9cd4e46f921bf60aa7e2bd/risc0/zkvm/src/receipt.rs)
 accepts fake receipts only under the verifier's development context;
