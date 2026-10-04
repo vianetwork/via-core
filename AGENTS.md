@@ -42,9 +42,9 @@ Before changing non-trivial runtime behavior, read the relevant Via guide and th
 - Keep local agent scratch directories (`.gitnexus/`, `.agents/`, etc.) out of commits.
 - Keep private findings out of public issues, PRs, and comments until disclosure is approved.
 
-Complete the agreed deliverable and its verification without per-step approval, using confirmed disposable, isolated test
-targets. Fix failures caused by the change; report unrelated failures without expanding scope or waiving required gates.
-Ask only for a blocking decision or permission, and continue independent authorized work.
+Complete the agreed deliverable and its verification without per-step approval, using confirmed disposable, isolated
+test targets. Fix failures caused by the change; report unrelated failures without expanding scope or waiving required
+gates. Ask only for a blocking decision or permission, and continue independent authorized work.
 
 ## Reuse and duplication discipline
 
@@ -131,8 +131,8 @@ Source comments explain durable runtime truth: contracts, invariants, non-obviou
 constraints, and why an obvious alternative is wrong. State cross-component coupling once on its governing type.
 
 Use declarative, plain language and one idea per comment. On public items and critical shared functions, explain the
-meaning and required operator action before internal terminology. Prefer clear names and structure over narration of
-the next statement.
+meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the
+next statement.
 
 Put debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR
 references, and strategy jargon in the PR or issue rather than `.rs` comments. Retain useful external protocol
