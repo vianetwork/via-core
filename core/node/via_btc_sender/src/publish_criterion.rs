@@ -13,8 +13,7 @@ pub trait ViaBtcL1BatchCommitCriterion: fmt::Debug + Send + Sync {
     /// Returns `None` if there is no need to publish any L1 batches.
     /// Otherwise, returns the number of the last L1 batch that needs to be committed.
     async fn last_l1_batch_to_publish(
-        &mut self,
-        consecutive_l1_batches: &[ViaBtcL1BlockDetails],
+        &mut self, consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber>;
 }
 
@@ -30,8 +29,7 @@ impl ViaBtcL1BatchCommitCriterion for ViaNumberCriterion {
     }
 
     async fn last_l1_batch_to_publish(
-        &mut self,
-        consecutive_l1_batches: &[ViaBtcL1BlockDetails],
+        &mut self, consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber> {
         let mut batch_numbers = consecutive_l1_batches.iter().map(|batch| batch.number.0);
 
@@ -60,8 +58,7 @@ impl ViaBtcL1BatchCommitCriterion for TimestampDeadlineCriterion {
     }
 
     async fn last_l1_batch_to_publish(
-        &mut self,
-        consecutive_l1_batches: &[ViaBtcL1BlockDetails],
+        &mut self, consecutive_l1_batches: &[ViaBtcL1BlockDetails],
     ) -> Option<L1BatchNumber> {
         let current_timestamp = Utc::now().timestamp() as u64;
         let mut block_number: Option<L1BatchNumber> = None;

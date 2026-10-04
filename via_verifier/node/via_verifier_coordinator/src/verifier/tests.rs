@@ -1,4 +1,3 @@
-use super::*;
 use bitcoin::{
     absolute, hashes::Hash, key::TweakedPublicKey, transaction, Address, Amount, Block, BlockHash,
     CompressedPublicKey, Network, OutPoint, PrivateKey, TxOut, Txid,
@@ -12,6 +11,8 @@ use via_btc_client::{
 use via_verifier_types::withdrawal::{CompleteWithdrawalBatch, WithdrawalRequest};
 use zksync_db_connection::instrument::InstrumentExt;
 use zksync_types::{via_wallet::SystemWalletsDetails, H256};
+
+use super::*;
 
 #[test]
 fn later_input_missing_share_never_completes_round() {

@@ -383,13 +383,31 @@ zkstack dev contracts
 
 ### Format
 
+Formatting and linting require the pinned `contracts` submodule and JavaScript dependencies. Use the Node version in
+`.nvmrc` and the Yarn version in the root `package.json`, then run:
+
+```bash
+git submodule update --init -- contracts
+yarn install --frozen-lockfile --ignore-scripts
+```
+
+The root Solidity formatter explicitly loads the compatible plugin from the contracts workspace. An uninitialized
+submodule or missing workspace dependencies is a setup failure, not a reason to skip the contracts or Solidity checks.
+
+The root manifest also pins `eslint-import-resolver-typescript` to the contracts workspaces' version. Contracts imports
+can resolve to dependencies hoisted into the root `node_modules`, so their ESLint resolver must be available there too.
+Keep this pin aligned with the contracts dependency when updating the submodule. Use the root workspace install rather
+than a second install inside `contracts`.
+
 Format code:
 
 ```bash
 zkstack dev fmt
 ```
 
-By default, this command runs all formatters. To run a specific fomatter use the following subcommands:
+Use `zkstack dev fmt --check` to validate without rewriting files.
+
+By default, this command runs all formatters. To run a specific formatter use the following subcommands:
 
 - `rustfmt`: Runs `cargo fmt`.
 - `prettier`: Runs `prettier`.
@@ -402,6 +420,12 @@ Lint code:
 ```bash
 zkstack dev lint
 ```
+
+Use `zkstack dev lint --check` for validation. Without `--check`, the command applies fixes, including Clippy fixes to
+dirty Rust working trees.
+
+Markdown lint rejects hard tabs in prose but permits them in fenced and indented code blocks. Code-block tabs are
+preserved by lint autofix so verbatim source excerpts and tab-sensitive examples remain intact.
 
 By default, this command runs the linter on all files. To target specific file types, use the `--target` option.
 Supported extensions include:

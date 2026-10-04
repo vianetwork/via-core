@@ -1574,7 +1574,7 @@ _zkstack() {
             return 0
             ;;
         zkstack__chain__genesis)
-            opts="-d -d -v -h --server-db-url --server-db-name --dev --dont-drop --verbose --chain --ignore-prerequisites --help init-database server help"
+            opts="-d -v -h --server-db-url --server-db-name --dev --dont-drop --verbose --chain --ignore-prerequisites --help init-database server help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1656,7 +1656,7 @@ _zkstack() {
             return 0
             ;;
         zkstack__chain__genesis__init__database)
-            opts="-d -d -v -h --server-db-url --server-db-name --dev --dont-drop --verbose --chain --ignore-prerequisites --help"
+            opts="-d -v -h --server-db-url --server-db-name --dev --dont-drop --verbose --chain --ignore-prerequisites --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2024,7 +2024,7 @@ _zkstack() {
             return 0
             ;;
         zkstack__chain__init__configs)
-            opts="-d -d -v -h --server-db-url --server-db-name --dev --dont-drop --l1-rpc-url --no-port-reallocation --verbose --chain --ignore-prerequisites --help"
+            opts="-d -v -h --server-db-url --server-db-name --dev --dont-drop --l1-rpc-url --no-port-reallocation --verbose --chain --ignore-prerequisites --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -7334,7 +7334,7 @@ _zkstack() {
             return 0
             ;;
         zkstack__prover__run)
-            opts="-l -h -m -v -h --component --round --threads --max-allocation --light-wvg-count --heavy-wvg-count --max-allocation --docker --tag --verbose --chain --ignore-prerequisites --help"
+            opts="-m -l -h -v --component --round --threads --max-allocation --light-wvg-count --heavy-wvg-count --docker --tag --help --verbose --chain --ignore-prerequisites"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -7356,6 +7356,10 @@ _zkstack() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                -m)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --light-wvg-count)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -7369,14 +7373,6 @@ _zkstack() {
                     return 0
                     ;;
                 -h)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --max-allocation)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -m)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

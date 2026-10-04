@@ -20,22 +20,15 @@ pub struct FallbackDaClient {
 
 impl FallbackDaClient {
     pub fn new(
-        primary: Box<dyn DataAvailabilityClient>,
-        fallback: Option<Box<dyn DataAvailabilityClient>>,
+        primary: Box<dyn DataAvailabilityClient>, fallback: Option<Box<dyn DataAvailabilityClient>>,
         verify_consistency: bool,
     ) -> Self {
-        Self {
-            primary,
-            fallback,
-            verify_consistency,
-        }
+        Self { primary, fallback, verify_consistency }
     }
 
     /// Verifies that the data from both sources matches
     fn verify_data_consistency(
-        &self,
-        primary_data: &InclusionData,
-        fallback_data: &InclusionData,
+        &self, primary_data: &InclusionData, fallback_data: &InclusionData,
     ) -> Result<(), DAError> {
         if primary_data.data != fallback_data.data {
             return Err(DAError {
@@ -54,11 +47,7 @@ impl FallbackDaClient {
 #[async_trait]
 impl DataAvailabilityClient for FallbackDaClient {
     /// Dispatches blob to the primary client only
-    async fn dispatch_blob(
-        &self,
-        batch_number: u32,
-        data: Vec<u8>,
-    ) -> Result<DispatchResponse, DAError> {
+    async fn dispatch_blob(&self, batch_number: u32, data: Vec<u8>) -> Result<DispatchResponse, DAError> {
         self.primary.dispatch_blob(batch_number, data).await
     }
 
@@ -69,18 +58,13 @@ impl DataAvailabilityClient for FallbackDaClient {
             Ok(Some(primary_data)) => {
                 // If verification is enabled, also fetch from fallback and verify consistency
                 if self.verify_consistency {
-                    tracing::info!(
-                        "Primary DA client returned data for blob_id: {}, verifying with fallback",
-                        blob_id
-                    );
+                    tracing::info!("Primary DA client returned data for blob_id: {}, verifying with fallback", blob_id);
 
                     // If fallback solution
                     if let Some(fallback) = self.fallback.clone() {
                         match fallback.get_inclusion_data(blob_id).await {
                             Ok(Some(fallback_data)) => {
-                                if let Err(e) =
-                                    self.verify_data_consistency(&primary_data, &fallback_data)
-                                {
+                                if let Err(e) = self.verify_data_consistency(&primary_data, &fallback_data) {
                                     tracing::error!(
                                         "Data consistency verification failed for blob_id {}: {}",
                                         blob_id,
@@ -88,10 +72,7 @@ impl DataAvailabilityClient for FallbackDaClient {
                                     );
                                     return Err(e);
                                 }
-                                tracing::info!(
-                                    "Data consistency verified successfully for blob_id: {}",
-                                    blob_id
-                                );
+                                tracing::info!("Data consistency verified successfully for blob_id: {}", blob_id);
                             }
                             Ok(None) => {
                                 tracing::warn!(
@@ -100,10 +81,7 @@ impl DataAvailabilityClient for FallbackDaClient {
                                 );
                             }
                             Err(e) => {
-                                tracing::warn!(
-                                    "Failed to fetch from fallback DA for verification: {}",
-                                    e.error
-                                );
+                                tracing::warn!("Failed to fetch from fallback DA for verification: {}", e.error);
                             }
                         }
                     }
@@ -116,24 +94,15 @@ impl DataAvailabilityClient for FallbackDaClient {
                 };
 
                 // Primary returned None, try fallback
-                tracing::info!(
-                    "Primary DA client returned no data for blob_id: {}, trying fallback",
-                    blob_id
-                );
+                tracing::info!("Primary DA client returned no data for blob_id: {}, trying fallback", blob_id);
 
                 match fallback.get_inclusion_data(blob_id).await {
                     Ok(Some(fallback_data)) => {
-                        tracing::info!(
-                            "Fallback DA client successfully retrieved data for blob_id: {}",
-                            blob_id
-                        );
+                        tracing::info!("Fallback DA client successfully retrieved data for blob_id: {}", blob_id);
                         Ok(Some(fallback_data))
                     }
                     Ok(None) => {
-                        tracing::warn!(
-                            "Neither primary nor fallback DA client has data for blob_id: {}",
-                            blob_id
-                        );
+                        tracing::warn!("Neither primary nor fallback DA client has data for blob_id: {}", blob_id);
                         Ok(None)
                     }
                     Err(e) => {

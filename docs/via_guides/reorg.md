@@ -1,4 +1,6 @@
-# Sequencer
+# Reorg handling
+
+## Sequencer
 
 When a user deposits BTC on Bitcoin, the indexer waits for **6 confirmations** before minting tokens on VIA. This is the
 recommended threshold to assume a block is final and safe from reorgs. However, in rare cases, the network can
@@ -9,7 +11,7 @@ of a reorg. When a reorg is detected, all components interacting with the Bitcoi
 posting data. At this point, a developer must manually execute a block revert using the
 [`via_block_reverter`](core/bin/via_block_reverter) CLI tool before the system can safely resume operation.
 
-## BtcWatch Re-indexing
+### BtcWatch Re-indexing
 
 **BtcWatch** is the entry point for transactions coming from Bitcoin (e.g., deposits and upgrades). If a reorg happens,
 it is essential to **reindex transactions** to prevent double deposits and to ensure the system state can be
@@ -34,7 +36,7 @@ The rollback process includes:
 
 This ensures that deposits are reindexed consistently and only minted once.
 
-## Handling L2 Transactions
+### Handling L2 Transactions
 
 For **L2 transactions**, the process is simpler:
 
@@ -42,7 +44,7 @@ For **L2 transactions**, the process is simpler:
 - The sequencer reprocesses them in upcoming batches. Some L2 transactions may fail during reprocessing. This typically
   happens if the transaction depends on a deposit that has not yet been reindexed (e.g., insufficient funds).
 
-# Verifier
+## Verifier
 
 The verifier has two main layers responsible for detecting and handling reorgs:
 
