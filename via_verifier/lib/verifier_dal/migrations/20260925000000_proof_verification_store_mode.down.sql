@@ -1,3 +1,6 @@
+-- SQLx holds this lock through the guard and DDL, excluding concurrent first designation.
+LOCK TABLE via_verifier_store_mode IN ACCESS EXCLUSIVE MODE;
+
 -- Dropping a development designation would let a strict verifier later read its unproven approvals as verified.
 DO $$
 BEGIN

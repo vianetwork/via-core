@@ -83,12 +83,18 @@ impl ViaVerifier {
                 _ = stop_receiver.changed() => break,
             }
 
-            let mut storage = pool.connection_tagged("via_zk_verifier").await?;
-            // A proof fetch can wait out every store retry, so stop must not wait for the iteration.
-            // Dropping it mid-way rolls back the verdict transaction, and the next start retries the batch.
-            let result = tokio::select! {
-                result = self.loop_iteration(&mut storage) => result,
+            let mut storage = tokio::select! {
+                biased;
                 _ = stop_receiver.changed() => break,
+                storage = pool.connection_tagged("via_zk_verifier") => storage?,
+            };
+            // Cancellation before commit rolls back the verdict transaction.
+            // An in-flight commit may still finish.
+            // The next start reads its durable result.
+            let result = tokio::select! {
+                biased;
+                _ = stop_receiver.changed() => break,
+                result = self.loop_iteration(&mut storage) => result,
             };
             match result {
                 Ok(()) => {}
@@ -440,11 +446,10 @@ async fn verify_batch_proof(
 /// zkSync's house keeper likewise reports stage watermarks from the database, not from the workers:
 /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/house_keeper/src/blocks_state_reporter.rs#L34-L81
 async fn report_watermarks(storage: &mut Connection<'_, Verifier>) -> anyhow::Result<(u32, u32)> {
-    let mut votes = storage.via_votes_dal();
-    let (indexed, valid) = (
-        votes.get_last_votable_l1_batch().await?,
-        votes.get_last_voted_l1_batch().await?,
-    );
+    let (indexed, valid) = storage
+        .via_votes_dal()
+        .get_verification_watermarks()
+        .await?;
     METRICS.last_indexed_l1_batch.set(indexed as usize);
     METRICS.last_valid_l1_batch.set(valid as usize);
     Ok((indexed, valid))
@@ -590,8 +595,9 @@ impl std::fmt::Display for NoVerdict {
 }
 
 /// Writes nothing, so the next poll selects the same first unverified batch and progress stops there.
-/// Citrea's full node instead advances its L1 scan cursor past a proof it fails to process or discards, and does not retry it:
-/// https://github.com/chainwayxyz/citrea/blob/f11527f94344d5dc4576ccb9589d5713fb8f7238/crates/fullnode/src/da_block_handler.rs#L299-L351
+/// Citrea separates its advancing scan cursor from pending proof processing.
+/// Via retries through the existing first-unverified selection without a separate queue:
+/// https://github.com/chainwayxyz/citrea/blob/f11527f94344d5dc4576ccb9589d5713fb8f7238/crates/fullnode/src/da_block_handler.rs#L941-L1000
 fn no_verdict(reason: NoVerdictReason, l1_batch_number: i64, err: anyhow::Error) -> anyhow::Error {
     err.context(NoVerdict {
         reason,

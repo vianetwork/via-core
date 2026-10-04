@@ -50,7 +50,7 @@ impl ValidateChainIdsTask {
                 Eth node chain ID: {network}. Local config value: {expected}"
             );
         tracing::info!("Checked that L1 chain ID {network} is returned by Bitcoin client");
-        return Ok(());
+        Ok(())
     }
 
     async fn check_l1_chain_using_main_node(

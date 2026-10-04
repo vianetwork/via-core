@@ -1,6 +1,7 @@
 # Formatting Changed Files (Experimental)
 
-This script formats only the files you changed. It is designed to support more compact formatting in `via_*` paths while still respecting the project's standard formatting for upstream code.
+This script formats only the files you changed. It is designed to support more compact formatting in `via_*` paths while
+still respecting the project's standard formatting for upstream code.
 
 **Status**: Experimental. Use for testing and feedback before wider adoption.
 
@@ -8,7 +9,8 @@ This script formats only the files you changed. It is designed to support more c
 
 - Auditors charge per line of production code in `via_*` areas.
 - The default rustfmt style (used by zkstack dev fmt) produces very vertical code, increasing billable LOC.
-- We want the ability to use more compact formatting in Via-specific code without fighting the formatter on every change.
+- We want the ability to use more compact formatting in Via-specific code without fighting the formatter on every
+  change.
 
 ## Usage
 
@@ -71,7 +73,8 @@ EOF
 chmod +x .git/hooks/pre-commit
 ```
 
-**Warning**: Do not enable this repo-wide until the script has been tested for a while. It is easy to accidentally reformat more than intended during the early phase.
+**Warning**: Do not enable this repo-wide until the script has been tested for a while. It is easy to accidentally
+reformat more than intended during the early phase.
 
 ## Current limitations
 

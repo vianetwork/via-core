@@ -2,14 +2,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::NaiveDateTime;
 use vise::{
-    Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Histogram, LabeledFamily,
-    Metrics, Unit,
+    Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Histogram, LabeledFamily, Metrics, Unit,
 };
 use zksync_dal::{Connection, Core, CoreDal};
 use zksync_shared_metrics::{BlockL1Stage, BlockStage, APP_METRICS};
 use zksync_types::{
-    aggregated_operations::AggregatedActionType,
-    btc_inscription_operations::ViaBtcInscriptionRequestType, L1BatchNumber,
+    aggregated_operations::AggregatedActionType, btc_inscription_operations::ViaBtcInscriptionRequestType,
+    L1BatchNumber,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EncodeLabelSet, EncodeLabelValue)]
@@ -69,11 +68,7 @@ impl ViaBtcSenderMetrics {
     pub async fn track_block_numbers(&self, connection: &mut Connection<'_, Core>) {
         let metrics_latency = self.metrics_latency.start();
 
-        let finalized_l1_batch_numnber = connection
-            .via_blocks_dal()
-            .get_last_finalized_l1_batch()
-            .await
-            .unwrap_or(0);
+        let finalized_l1_batch_numnber = connection.via_blocks_dal().get_last_finalized_l1_batch().await.unwrap_or(0);
         let last_l1_batch_numnber = connection
             .blocks_dal()
             .get_sealed_l1_batch_number()
@@ -82,24 +77,18 @@ impl ViaBtcSenderMetrics {
             .unwrap()
             .0;
         self.last_known_l1_block[&BlockNumberVariant::Latest].set(last_l1_batch_numnber as usize);
-        self.last_known_l1_block[&BlockNumberVariant::Finalized]
-            .set(finalized_l1_batch_numnber as usize);
+        self.last_known_l1_block[&BlockNumberVariant::Finalized].set(finalized_l1_batch_numnber as usize);
 
         metrics_latency.observe();
     }
 
     pub async fn track_btc_tx_metrics(
-        &self,
-        connection: &mut Connection<'_, Core>,
-        l1_stage: BlockL1Stage,
+        &self, connection: &mut Connection<'_, Core>, l1_stage: BlockL1Stage,
         inscriptions: Vec<(u32, ViaBtcInscriptionRequestType)>,
     ) {
         let metrics_latency = self.metrics_latency.start();
         for inscription in inscriptions {
-            let stage = BlockStage::L1 {
-                l1_stage,
-                tx_type: AggregatedActionType::from(inscription.1),
-            };
+            let stage = BlockStage::L1 { l1_stage, tx_type: AggregatedActionType::from(inscription.1) };
 
             let l1_batches_statistics = connection
                 .via_blocks_dal()
@@ -109,17 +98,13 @@ impl ViaBtcSenderMetrics {
 
             // This should be only the case when some blocks were reverted.
             if l1_batches_statistics.is_empty() {
-                tracing::warn!(
-                    "No L1 batches were found for btc_tx with id = {}",
-                    inscription.0
-                );
+                tracing::warn!("No L1 batches were found for btc_tx with id = {}", inscription.0);
                 return;
             }
 
             for statistics in l1_batches_statistics {
-                APP_METRICS.block_latency[&stage].observe(Duration::from_secs(
-                    seconds_since_epoch() - statistics.timestamp,
-                ));
+                APP_METRICS.block_latency[&stage]
+                    .observe(Duration::from_secs(seconds_since_epoch() - statistics.timestamp));
                 APP_METRICS.processed_txs[&stage.into()]
                     .inc_by(statistics.l2_tx_count as u64 + statistics.l1_tx_count as u64);
                 APP_METRICS.processed_l1_txs[&stage.into()].inc_by(statistics.l1_tx_count as u64);
@@ -131,8 +116,7 @@ impl ViaBtcSenderMetrics {
     pub fn track_inscription_confirmation(&self, created_at: NaiveDateTime) {
         let confirmation_delay = seconds_since_epoch() - created_at.and_utc().timestamp() as u64;
 
-        self.inscription_confirmation_time
-            .observe(Duration::from_secs(confirmation_delay));
+        self.inscription_confirmation_time.observe(Duration::from_secs(confirmation_delay));
     }
 }
 
@@ -140,8 +124,5 @@ impl ViaBtcSenderMetrics {
 pub static METRICS: vise::Global<ViaBtcSenderMetrics> = vise::Global::new();
 
 fn seconds_since_epoch() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Incorrect system time")
-        .as_secs()
+    SystemTime::now().duration_since(UNIX_EPOCH).expect("Incorrect system time").as_secs()
 }

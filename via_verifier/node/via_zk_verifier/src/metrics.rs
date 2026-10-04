@@ -25,10 +25,10 @@ pub struct ViaZKVerifierMetrics {
     #[metrics(buckets = Buckets::LATENCIES, unit = Unit::Seconds)]
     pub verification_time: Histogram<Duration>,
 
-    /// Highest indexed batch with a proof inscription.
+    /// Highest indexed batch with a proof inscription on the current canonical chain.
     pub last_indexed_l1_batch: Gauge<usize>,
 
-    /// Highest batch with a recorded verdict. A stall is this staying below `last_indexed_l1_batch`.
+    /// Highest canonical batch with a positive local result, including development approvals.
     pub last_valid_l1_batch: Gauge<usize>,
 
     /// Errors

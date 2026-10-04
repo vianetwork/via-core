@@ -411,6 +411,27 @@ impl ViaVotesDal<'_, '_> {
         Ok(row.max_batch_number.unwrap_or(0) as u32)
     }
 
+    /// Reads canonical indexed and positively approved batch heights from one snapshot.
+    /// These maxima include development and historical approvals, not a cleared prefix.
+    pub async fn get_verification_watermarks(&mut self) -> DalResult<(u32, u32)> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                MAX(l1_batch_number) AS indexed,
+                MAX(l1_batch_number) FILTER (WHERE l1_batch_status = TRUE) AS approved
+            FROM via_votable_transactions
+            WHERE is_finalized IS DISTINCT FROM FALSE
+            "#
+        )
+        .instrument("get_verification_watermarks")
+        .fetch_one(self.storage)
+        .await?;
+        Ok((
+            row.indexed.unwrap_or(0) as u32,
+            row.approved.unwrap_or(0) as u32,
+        ))
+    }
+
     pub async fn verify_votable_transaction(
         &mut self,
         l1_batch_number: i64,
@@ -588,7 +609,7 @@ impl ViaVotesDal<'_, '_> {
             "#,
         )
         .instrument("get_first_not_verified_l1_batch_in_canonical_inscription_chain")
-        .fetch_optional(&mut self.storage)
+        .fetch_optional(self.storage)
         .await?;
 
         let result = row.map(|r| {
@@ -687,7 +708,7 @@ impl ViaVotesDal<'_, '_> {
             "#
         )
         .instrument("get_last_batch_in_canonical_chain")
-        .fetch_optional(&mut self.storage)
+        .fetch_optional(self.storage)
         .await?;
 
         Ok(row.and_then(|r| Some((r.l1_batch_number? as u32, r.l1_batch_hash?))))
@@ -806,7 +827,7 @@ impl ViaVotesDal<'_, '_> {
             "#
         )
         .instrument("verify_canonical_chain")
-        .fetch_optional(&mut self.storage)
+        .fetch_optional(self.storage)
         .await?;
 
         match result {
@@ -861,10 +882,10 @@ impl ViaVotesDal<'_, '_> {
                 WHERE l1_batch_number = $1
             )
             "#,
-            l1_batch_number as i64
+            i64::from(l1_batch_number)
         )
         .instrument("batch_exists")
-        .fetch_one(&mut self.storage)
+        .fetch_one(self.storage)
         .await?;
 
         Ok(exists.unwrap_or(false))
@@ -882,7 +903,7 @@ impl ViaVotesDal<'_, '_> {
             proof_reveal_tx_id
         )
         .instrument("proof_reveal_tx_exists")
-        .fetch_one(&mut self.storage)
+        .fetch_one(self.storage)
         .await?;
 
         Ok(exists.unwrap_or(false))
@@ -897,7 +918,7 @@ impl ViaVotesDal<'_, '_> {
             l1_batch_number
         )
         .instrument("delete_votable_transactions")
-        .execute(&mut self.storage)
+        .execute(self.storage)
         .await?;
 
         Ok(())

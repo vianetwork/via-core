@@ -24,7 +24,7 @@ impl ViaVerifierStorageInitializer {
         btc_watch_config: ViaBtcWatchConfig,
         proof_verification_dev_mode: bool,
     ) -> anyhow::Result<Self> {
-        // Runs on every start, before any verifier service can read or write verdicts.
+        // Runs on every start, before the framework launches verifier tasks.
         // The configured network name falls back to regtest when unparseable, so the node's block 0 must match it.
         // This separates Bitcoin networks, not two regtest deployments, which share one genesis.
         // Bitcoin Core likewise refuses chain data whose genesis block is not the configured network's:

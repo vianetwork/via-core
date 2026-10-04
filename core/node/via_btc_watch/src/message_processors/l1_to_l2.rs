@@ -19,9 +19,7 @@ pub struct L1ToL2MessageProcessor {}
 #[async_trait::async_trait]
 impl MessageProcessor for L1ToL2MessageProcessor {
     async fn process_messages(
-        &mut self,
-        storage: &mut Connection<'_, Core>,
-        msgs: Vec<FullInscriptionMessage>,
+        &mut self, storage: &mut Connection<'_, Core>, msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         let mut priority_ops = Vec::new();
@@ -37,10 +35,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                     .await
                     .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                 {
-                    tracing::info!(
-                        "Transaction with tx_id {} already processed, skipping",
-                        tx_id
-                    );
+                    tracing::info!("Transaction with tx_id {} already processed, skipping", tx_id);
                     continue;
                 }
                 let Some(l1_tx) = self.create_l1_tx_from_message(&l1_to_l2_msg)? else {
@@ -71,21 +66,20 @@ impl MessageProcessor for L1ToL2MessageProcessor {
 }
 
 impl L1ToL2MessageProcessor {
-    fn create_l1_tx_from_message(
-        &self,
-        msg: &L1ToL2Message,
-    ) -> Result<Option<L1Tx>, MessageProcessorError> {
+    fn create_l1_tx_from_message(&self, msg: &L1ToL2Message) -> Result<Option<L1Tx>, MessageProcessorError> {
         let deposit = ViaL1Deposit {
             l2_receiver_address: msg.input.receiver_l2_address,
             amount: msg.amount.to_sat(),
             calldata: msg.input.call_data.clone(),
             l1_block_number: msg.common.block_height as u64,
-            tx_index: msg.common.tx_index.ok_or_else(|| {
-                MessageProcessorError::Internal(anyhow::anyhow!("deposit missing tx_index"))
-            })?,
-            output_vout: msg.common.output_vout.ok_or_else(|| {
-                MessageProcessorError::Internal(anyhow::anyhow!("deposit missing output_vout"))
-            })?,
+            tx_index: msg
+                .common
+                .tx_index
+                .ok_or_else(|| MessageProcessorError::Internal(anyhow::anyhow!("deposit missing tx_index")))?,
+            output_vout: msg
+                .common
+                .output_vout
+                .ok_or_else(|| MessageProcessorError::Internal(anyhow::anyhow!("deposit missing output_vout")))?,
         };
 
         if let Some(l1_tx) = deposit.l1_tx() {

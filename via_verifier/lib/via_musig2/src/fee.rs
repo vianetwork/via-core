@@ -48,6 +48,7 @@ pub trait FeeStrategy: Send + Sync {
     ) -> anyhow::Result<TransactionWithFee>;
 }
 
+#[derive(Default)]
 pub struct WithdrawalFeeStrategy {}
 
 impl WithdrawalFeeStrategy {
