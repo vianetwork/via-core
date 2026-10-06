@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use bincode::serialize;
 use tokio::sync::watch;
-use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
+use via_btc_client::{
+    inscriber::Inscriber, traits::Serializable, types::InscriptionMessage, InscriptionObserver,
+};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
 use zksync_types::via_btc_sender::ViaBtcInscriptionRequest;
@@ -13,6 +15,7 @@ pub struct ViaBtcInscriptionManager {
     inscriber: Inscriber,
     config: ViaBtcSenderConfig,
     pool: ConnectionPool<Verifier>,
+    observer: InscriptionObserver,
 }
 
 impl ViaBtcInscriptionManager {
@@ -25,10 +28,12 @@ impl ViaBtcInscriptionManager {
             inscriber,
             config,
             pool,
+            observer: InscriptionObserver::default(),
         })
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
+        self.observer.register();
         let mut timer = tokio::time::interval(self.config.poll_interval());
         let pool = self.pool.clone();
 
@@ -38,6 +43,7 @@ impl ViaBtcInscriptionManager {
                 _ = stop_receiver.changed() => break,
             }
 
+            self.observer.invalidate();
             let mut storage = pool.connection_tagged("via_btc_sender").await?;
 
             match self.loop_iteration(&mut storage).await {
@@ -67,6 +73,19 @@ impl ViaBtcInscriptionManager {
 
         self.update_inscription_status_or_resend(storage).await?;
         self.send_new_inscription_txs(storage).await?;
+        self.observer
+            .observe(
+                self.inscriber.get_client().await.fetch_block_height(),
+                async {
+                    Ok(storage
+                        .via_block_dal()
+                        .get_pending_inscription_attempts()
+                        .await?)
+                },
+                self.config.stuck_inscription_block_number(),
+                self.config.poll_interval(),
+            )
+            .await;
         Ok(())
     }
 
@@ -86,8 +105,6 @@ impl ViaBtcInscriptionManager {
             .set(inflight_inscriptions.len());
 
         METRICS.track_block_numbers(storage).await?;
-
-        let mut report_blocked_l1_batch_inscription: Option<u32> = None;
 
         for inscription in inflight_inscriptions {
             if let Some(last_inscription_history) = storage
@@ -116,41 +133,6 @@ impl ViaBtcInscriptionManager {
                     );
 
                     METRICS.track_inscription_confirmation(last_inscription_history.created_at);
-                } else {
-                    let current_block = self
-                        .inscriber
-                        .get_client()
-                        .await
-                        .fetch_block_height()
-                        .await?;
-
-                    if last_inscription_history.sent_at_block
-                        + self.config.stuck_inscription_block_number() as i64
-                        > current_block as i64
-                    {
-                        continue;
-                    }
-
-                    if report_blocked_l1_batch_inscription.is_none() {
-                        let l1_batch_number = storage
-                            .via_block_dal()
-                            .get_first_stuck_l1_batch_number_inscription_request(
-                                self.config.stuck_inscription_block_number(),
-                                current_block,
-                            )
-                            .await?;
-
-                        METRICS
-                            .report_blocked_l1_batch_inscription
-                            .set(l1_batch_number as usize);
-
-                        report_blocked_l1_batch_inscription = Some(l1_batch_number);
-                        tracing::warn!(
-                            "Inscription {} stuck for more than {} block.",
-                            last_inscription_history.reveal_tx_id,
-                            self.config.stuck_inscription_block_number()
-                        );
-                    }
                 }
             }
         }
