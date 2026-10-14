@@ -500,31 +500,70 @@ impl ViaBlocksDal<'_, '_> {
         Ok(row.l1_batch_number.unwrap_or(0) as u32)
     }
 
-    pub async fn get_first_stuck_l1_batch_number_inscription_request(
+    /// Returns (batch, latest sent height) once per unconfirmed request, including unsent requests.
+    /// Greatest history ID defines the latest attempt, as in the confirmation path.
+    pub async fn get_pending_inscription_attempts(
         &mut self,
-        delay_btc_blocks: u32,
-        current_btc_blocks: u64,
-    ) -> DalResult<u32> {
-        let record = sqlx::query_scalar!(
+    ) -> DalResult<Vec<(Option<i64>, Option<i64>)>> {
+        sqlx::query_as(
             r#"
-            SELECT 
-                MIN(l1_batch_number) as l1_batch_number
-            FROM
-                via_btc_inscriptions_request
-            LEFT JOIN
-                via_btc_inscriptions_request_history
-            ON
-                via_btc_inscriptions_request.id = via_btc_inscriptions_request_history.inscription_request_id
-            WHERE
-                sent_at_block + $1 < $2 
+            WITH pending AS (
+                SELECT r.id, r.l1_batch_number, MAX(h.id) AS history_id
+                FROM via_btc_inscriptions_request r
+                LEFT JOIN via_btc_inscriptions_request_history h ON h.inscription_request_id = r.id
+                WHERE r.confirmed_inscriptions_request_history_id IS NULL
+                GROUP BY r.id
+            )
+            SELECT pending.l1_batch_number, h.sent_at_block
+            FROM pending
+            LEFT JOIN via_btc_inscriptions_request_history h ON h.id = pending.history_id
             "#,
-            i64::from(delay_btc_blocks),
-            current_btc_blocks as i64
         )
-        .instrument("get_first_stuck_l1_batch_number_inscription_request")
-        .fetch_one(self.storage)
-        .await?;
+        .instrument("get_pending_inscription_attempts")
+        .report_latency()
+        .fetch_all(self.storage)
+        .await
+    }
+}
 
-        Ok(record.unwrap_or(0) as u32)
+#[cfg(test)]
+mod inscription_tests {
+    use crate::{ConnectionPool, Core, CoreDal};
+
+    #[tokio::test]
+    async fn pending_inscription_attempts() {
+        let pool = ConnectionPool::<Core>::test_pool().await;
+        let mut storage = pool.connection().await.unwrap();
+        sqlx::raw_sql(r#"
+            INSERT INTO l1_batches (number, timestamp, l1_tx_count, l2_tx_count, bloom, priority_ops_onchain_data,
+                created_at, updated_at, initial_bootloader_heap_content, used_contract_hashes)
+                SELECT n, 0, 0, 0, ''::bytea, '{}'::bytea[], NOW(), NOW(), '[]', '[]' FROM unnest(ARRAY[1,7,9]) n;
+            INSERT INTO via_btc_inscriptions_request (id, l1_batch_number, request_type, updated_at)
+                VALUES (1,1,'CommitL1BatchOnchain',NOW()), (2,7,'CommitL1BatchOnchain',NOW()), (3,9,'CommitProofOnchain',NOW());
+            INSERT INTO via_btc_inscriptions_request_history (id, inscription_request_id, sent_at_block,
+                commit_tx_id, reveal_tx_id, signed_commit_tx, signed_reveal_tx, actual_fees, updated_at)
+                SELECT n, r, h, decode(lpad(n::text,64,'0'),'hex'), decode(lpad(n::text,64,'0'),'hex'),
+                    ''::bytea, ''::bytea, 0, NOW() FROM (VALUES (1,1,0), (2,2,100), (3,2,111)) t(n,r,h);
+            UPDATE via_btc_inscriptions_request_history SET confirmed_at = NOW() WHERE id = 1;
+            UPDATE via_btc_inscriptions_request SET confirmed_inscriptions_request_history_id = 1 WHERE id = 1;
+            UPDATE via_btc_inscriptions_request_history SET created_at = NOW() + INTERVAL '1 day' WHERE id = 2;
+        "#).execute(storage.conn()).await.unwrap();
+        let mut attempts = storage
+            .via_blocks_dal()
+            .get_pending_inscription_attempts()
+            .await
+            .unwrap();
+        attempts.sort();
+        assert_eq!(attempts, vec![(Some(7), Some(111)), (Some(9), None)]);
+        sqlx::query("UPDATE via_btc_inscriptions_request SET confirmed_inscriptions_request_history_id = 3 WHERE id = 2")
+            .execute(storage.conn()).await.unwrap();
+        assert_eq!(
+            storage
+                .via_blocks_dal()
+                .get_pending_inscription_attempts()
+                .await
+                .unwrap(),
+            vec![(Some(9), None)]
+        );
     }
 }
