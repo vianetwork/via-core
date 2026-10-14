@@ -45,9 +45,6 @@ pub struct ViaBtcSenderMetrics {
     /// Number of inflight inscriptions (submitted but not confirmed)
     pub inflight_inscriptions: Gauge<usize>,
 
-    /// The first l1_batch number blocked inscription.
-    pub report_blocked_l1_batch_inscription: Gauge<usize>,
-
     /// Error when broadcast a transaction.
     pub l1_transient_errors: Counter,
 

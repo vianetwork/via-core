@@ -1,9 +1,12 @@
 use anyhow::{Context, Result};
 use bincode::serialize;
 use tokio::sync::watch;
-use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
+use via_btc_client::{
+    inscriber::Inscriber, traits::Serializable, types::InscriptionMessage, InscriptionObserver,
+};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
+use zksync_dal::via_btc_sender_dal::{inscription_status, InscriptionSender};
 use zksync_types::via_btc_sender::ViaBtcInscriptionRequest;
 
 use crate::metrics::METRICS;
@@ -31,12 +34,39 @@ impl ViaBtcInscriptionManager {
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
         let mut timer = tokio::time::interval(self.config.poll_interval());
         let pool = self.pool.clone();
+        let observer = InscriptionObserver::new("verifier");
 
         while !*stop_receiver.borrow_and_update() {
             tokio::select! {
                 _ = timer.tick() => { /* continue iterations */ }
                 _ = stop_receiver.changed() => break,
             }
+
+            observer
+                .refresh(
+                    async {
+                        let height = self
+                            .inscriber
+                            .get_client()
+                            .await
+                            .fetch_block_height()
+                            .await
+                            .context("Fetch Bitcoin height for inscription observation")?;
+                        let mut storage = pool
+                            .connection_tagged("inscription_observation")
+                            .await
+                            .context("Acquire inscription observation connection")?;
+                        inscription_status(
+                            &mut storage,
+                            InscriptionSender::Verifier,
+                            height,
+                            self.config.stuck_inscription_block_number(),
+                        )
+                        .await
+                    },
+                    self.config.poll_interval(),
+                )
+                .await;
 
             let mut storage = pool.connection_tagged("via_btc_sender").await?;
 
@@ -87,8 +117,6 @@ impl ViaBtcInscriptionManager {
 
         METRICS.track_block_numbers(storage).await?;
 
-        let mut report_blocked_l1_batch_inscription: Option<u32> = None;
-
         for inscription in inflight_inscriptions {
             if let Some(last_inscription_history) = storage
                 .via_btc_sender_dal()
@@ -116,41 +144,6 @@ impl ViaBtcInscriptionManager {
                     );
 
                     METRICS.track_inscription_confirmation(last_inscription_history.created_at);
-                } else {
-                    let current_block = self
-                        .inscriber
-                        .get_client()
-                        .await
-                        .fetch_block_height()
-                        .await?;
-
-                    if last_inscription_history.sent_at_block
-                        + self.config.stuck_inscription_block_number() as i64
-                        > current_block as i64
-                    {
-                        continue;
-                    }
-
-                    if report_blocked_l1_batch_inscription.is_none() {
-                        let l1_batch_number = storage
-                            .via_block_dal()
-                            .get_first_stuck_l1_batch_number_inscription_request(
-                                self.config.stuck_inscription_block_number(),
-                                current_block,
-                            )
-                            .await?;
-
-                        METRICS
-                            .report_blocked_l1_batch_inscription
-                            .set(l1_batch_number as usize);
-
-                        report_blocked_l1_batch_inscription = Some(l1_batch_number);
-                        tracing::warn!(
-                            "Inscription {} stuck for more than {} block.",
-                            last_inscription_history.reveal_tx_id,
-                            self.config.stuck_inscription_block_number()
-                        );
-                    }
                 }
             }
         }

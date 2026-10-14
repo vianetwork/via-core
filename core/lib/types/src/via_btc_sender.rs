@@ -1,6 +1,15 @@
 use bitcoin::Txid;
 use chrono::NaiveDateTime;
 
+/// Current unconfirmed requests. Treat a nonzero `unobserved` count as incomplete evidence.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ViaBtcInscriptionStatus {
+    pub pending: i64,
+    pub overdue: i64,
+    pub unobserved: i64,
+    pub first_overdue_batch: i64,
+}
+
 #[derive(Clone)]
 pub struct ViaBtcInscriptionRequest {
     pub id: i64,
