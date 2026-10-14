@@ -17,18 +17,11 @@ pub struct ViaBtcInscriptionAggregator {
 
 impl ViaBtcInscriptionAggregator {
     pub async fn new(
-        inscriber: Inscriber,
-        pool: ConnectionPool<Core>,
-        config: ViaBtcSenderConfig,
+        inscriber: Inscriber, pool: ConnectionPool<Core>, config: ViaBtcSenderConfig,
     ) -> anyhow::Result<Self> {
         let aggregator = ViaAggregator::new(config.clone());
 
-        Ok(Self {
-            inscriber,
-            aggregator,
-            pool,
-            config,
-        })
+        Ok(Self { inscriber, aggregator, pool, config })
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
@@ -41,9 +34,7 @@ impl ViaBtcInscriptionAggregator {
                 _ = stop_receiver.changed() => break,
             }
 
-            let mut storage = pool
-                .connection_tagged("via_btc_inscription_creator")
-                .await?;
+            let mut storage = pool.connection_tagged("via_btc_inscription_creator").await?;
 
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => {}
@@ -58,16 +49,8 @@ impl ViaBtcInscriptionAggregator {
         Ok(())
     }
 
-    async fn loop_iteration(
-        &mut self,
-        storage: &mut Connection<'_, Core>,
-    ) -> Result<(), anyhow::Error> {
-        if storage
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some()
-        {
+    async fn loop_iteration(&mut self, storage: &mut Connection<'_, Core>) -> Result<(), anyhow::Error> {
+        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
 
@@ -80,19 +63,14 @@ impl ViaBtcInscriptionAggregator {
             let mut transaction = storage.start_transaction().await?;
 
             for batch in operation.get_l1_batches_detail() {
-                let inscription_message = self.aggregator.construct_inscription_message(
-                    &operation.get_inscription_request_type(),
-                    batch,
-                )?;
+                let inscription_message =
+                    self.aggregator.construct_inscription_message(&operation.get_inscription_request_type(), batch)?;
 
                 // Estimate the tx fee to execute the inscription request.
-                let inscribe_info = self
-                    .inscriber
-                    .prepare_inscribe(&inscription_message, None)
-                    .await?;
+                let inscribe_info = self.inscriber.prepare_inscribe(&inscription_message, None).await?;
 
-                let prediction_fee = inscribe_info.reveal_tx_output_info._reveal_fee
-                    + inscribe_info.commit_tx_output_info.commit_tx_fee;
+                let prediction_fee =
+                    inscribe_info.reveal_tx_output_info._reveal_fee + inscribe_info.commit_tx_output_info.commit_tx_fee;
 
                 let inscription_request_id = transaction
                     .btc_sender_dal()
@@ -113,16 +91,11 @@ impl ViaBtcInscriptionAggregator {
                     )
                     .await?;
 
-                processed_inscriptions.push((
-                    inscription_request_id as u32,
-                    operation.get_inscription_request_type(),
-                ));
+                processed_inscriptions.push((inscription_request_id as u32, operation.get_inscription_request_type()));
             }
             transaction.commit().await?;
 
-            METRICS
-                .track_btc_tx_metrics(storage, BlockL1Stage::Mined, processed_inscriptions)
-                .await;
+            METRICS.track_btc_tx_metrics(storage, BlockL1Stage::Mined, processed_inscriptions).await;
             latency.observe();
             METRICS.pending_inscription_requests.inc_by(1);
         }

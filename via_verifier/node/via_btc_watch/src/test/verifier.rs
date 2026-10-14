@@ -86,7 +86,7 @@ mod tests {
             .await?;
         assert_eq!(found_batch, Some(expected_batch as i64));
 
-        assert_eq!(found_batch, Some(1 as i64));
+        assert_eq!(found_batch, Some(1_i64));
         Ok(())
     }
 
@@ -114,7 +114,7 @@ mod tests {
                 .via_votes_dal()
                 .get_first_non_finalized_l1_batch_in_canonical_inscription_chain()
                 .await?;
-            assert_eq!(found_batch, Some(1 as i64));
+            assert_eq!(found_batch, Some(1_i64));
         }
         verify_canonical_chain(pool, end as u32).await?;
 
@@ -146,7 +146,7 @@ mod tests {
         let expected_batch_len = 2;
         for i in 0..expected_batch_len {
             let expected_id = i + 1;
-            let inserted = pool.connection().await?.via_votes_dal().batch_exists(expected_id as u32).await?;
+            let inserted = pool.connection().await?.via_votes_dal().batch_exists(expected_id).await?;
             assert!(inserted);
 
             let found_batch = pool
@@ -155,7 +155,7 @@ mod tests {
                 .via_votes_dal()
                 .get_first_non_finalized_l1_batch_in_canonical_inscription_chain()
                 .await?;
-            assert_eq!(found_batch, Some(1 as i64));
+            assert_eq!(found_batch, Some(1_i64));
         }
 
         // The batch 3 should not be inserted
@@ -246,7 +246,7 @@ mod tests {
         // Check if the last finalized batch
         assert_eq!(
             pool.connection().await?.via_votes_dal().get_last_finalized_l1_batch().await?,
-            Some(expected_batch_len as u32)
+            Some(expected_batch_len)
         );
 
         //--------------------------------------------------------------------------------------------------
@@ -393,7 +393,7 @@ mod tests {
         assert!(chain_status.has_genesis);
         assert_eq!(chain_status.max_batch_number, Some(expected_batch_len));
         assert_eq!(chain_status.total_canonical_batches, expected_batch_len as i64);
-        assert_eq!(chain_status.min_batch_number, Some(1 as u32));
+        assert_eq!(chain_status.min_batch_number, Some(1_u32));
         assert!(chain_status.missing_batches.is_empty());
 
         Ok(())

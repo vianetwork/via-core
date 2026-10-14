@@ -10,14 +10,12 @@ mod tests {
     use zksync_dal::{ConnectionPool, Core, CoreDal};
     use zksync_node_test_utils::l1_batch_metadata_to_commitment_artifacts;
     use zksync_types::{
-        block::L1BatchHeader, btc_inscription_operations::ViaBtcInscriptionRequestType,
-        ProtocolVersionId, H256,
+        block::L1BatchHeader, btc_inscription_operations::ViaBtcInscriptionRequestType, ProtocolVersionId, H256,
     };
 
     use crate::tests::utils::{
-        create_l1_batch, default_l1_batch_metadata, get_btc_sender_config,
-        get_inscription_aggregator_mock, get_inscription_manager_mock, ViaAggregatorTest,
-        BOOTLOADER_CODE_HASH_TEST, DEFAULT_AA_CODE_HASH_TEST,
+        create_l1_batch, default_l1_batch_metadata, get_btc_sender_config, get_inscription_aggregator_mock,
+        get_inscription_manager_mock, ViaAggregatorTest, BOOTLOADER_CODE_HASH_TEST, DEFAULT_AA_CODE_HASH_TEST,
     };
 
     #[tokio::test]
@@ -87,23 +85,15 @@ mod tests {
 
         run_aggregator(pool.clone(), config.clone()).await;
 
-        let inflight_inscriptions = aggregator_test
-            .storage
-            .btc_sender_dal()
-            .list_inflight_inscription_ids()
-            .await
-            .unwrap();
+        let inflight_inscriptions =
+            aggregator_test.storage.btc_sender_dal().list_inflight_inscription_ids().await.unwrap();
 
         assert_eq!(inflight_inscriptions.len(), 0);
 
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
-        let inflight_inscription_ids = aggregator_test
-            .storage
-            .btc_sender_dal()
-            .list_inflight_inscription_ids()
-            .await
-            .unwrap();
+        let inflight_inscription_ids =
+            aggregator_test.storage.btc_sender_dal().list_inflight_inscription_ids().await.unwrap();
 
         assert_eq!(inflight_inscription_ids.len(), 1);
 
@@ -115,13 +105,8 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(inscription_request
-            .confirmed_inscriptions_request_history_id
-            .is_none());
-        assert_eq!(
-            inscription_request.request_type,
-            ViaBtcInscriptionRequestType::CommitL1BatchOnchain.to_string()
-        );
+        assert!(inscription_request.confirmed_inscriptions_request_history_id.is_none());
+        assert_eq!(inscription_request.request_type, ViaBtcInscriptionRequestType::CommitL1BatchOnchain.to_string());
 
         // Start the manager
 
@@ -131,12 +116,8 @@ mod tests {
 
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
-        let inflight_inscription_ids = aggregator_test
-            .storage
-            .btc_sender_dal()
-            .list_inflight_inscription_ids()
-            .await
-            .unwrap();
+        let inflight_inscription_ids =
+            aggregator_test.storage.btc_sender_dal().list_inflight_inscription_ids().await.unwrap();
         assert_eq!(inflight_inscription_ids.len(), 0);
 
         // Start the manager
@@ -149,12 +130,8 @@ mod tests {
 
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
-        let inflight_inscription_ids = aggregator_test
-            .storage
-            .btc_sender_dal()
-            .list_inflight_inscription_ids()
-            .await
-            .unwrap();
+        let inflight_inscription_ids =
+            aggregator_test.storage.btc_sender_dal().list_inflight_inscription_ids().await.unwrap();
 
         assert_eq!(inflight_inscription_ids.len(), 1);
 
@@ -166,20 +143,14 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(inscription_request
-            .confirmed_inscriptions_request_history_id
-            .is_none());
-        assert_eq!(
-            inscription_request.request_type,
-            ViaBtcInscriptionRequestType::CommitProofOnchain.to_string()
-        );
+        assert!(inscription_request.confirmed_inscriptions_request_history_id.is_none());
+        assert_eq!(inscription_request.request_type, ViaBtcInscriptionRequestType::CommitProofOnchain.to_string());
     }
 
     async fn run_aggregator(pool: ConnectionPool<Core>, config: ViaBtcSenderConfig) {
         {
             // Create an async channel to break the while loop afer 3 seconds.
-            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) =
-                watch::channel(false);
+            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) = watch::channel(false);
 
             let toggle_handler = tokio::spawn(async move {
                 let mut toggle = false;
@@ -194,8 +165,7 @@ mod tests {
                 }
             });
 
-            let inscription_aggregator_mock =
-                get_inscription_aggregator_mock(pool.clone(), config.clone()).await;
+            let inscription_aggregator_mock = get_inscription_aggregator_mock(pool.clone(), config.clone()).await;
 
             inscription_aggregator_mock.run(receiver).await.unwrap();
             if let Err(e) = toggle_handler.await {
@@ -205,14 +175,11 @@ mod tests {
     }
 
     async fn run_manager(
-        pool: ConnectionPool<Core>,
-        config: ViaBtcSenderConfig,
-        mock_btc_ops_config: MockBitcoinOpsConfig,
+        pool: ConnectionPool<Core>, config: ViaBtcSenderConfig, mock_btc_ops_config: MockBitcoinOpsConfig,
     ) {
         {
             // Create an async channel to break the while loop afer 3 seconds.
-            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) =
-                watch::channel(false);
+            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) = watch::channel(false);
 
             let toggle_handler = tokio::spawn(async move {
                 let mut toggle = false;
@@ -228,8 +195,7 @@ mod tests {
             });
 
             let inscription_manager_mock =
-                get_inscription_manager_mock(pool.clone(), config.clone(), mock_btc_ops_config)
-                    .await;
+                get_inscription_manager_mock(pool.clone(), config.clone(), mock_btc_ops_config).await;
 
             inscription_manager_mock.run(receiver).await.unwrap();
             if let Err(e) = toggle_handler.await {

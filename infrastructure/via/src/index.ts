@@ -3,10 +3,10 @@
 import { program, Command } from 'commander';
 import { spawnSync } from 'child_process';
 import { serverCommand as server, enCommand as en } from './server';
-import { command as up } from './up';
+import { command as up, validateUpOptions } from './up';
 import { command as down } from './down';
 import { command as completion } from './completion';
-import { initCommand } from './init';
+import { initCommand, validateInitOptions } from './init';
 import { command as run } from './run';
 import { command as docker } from './docker';
 import { command as config } from './config';
@@ -63,8 +63,6 @@ async function main() {
         process.chdir(VIA_HOME);
     }
 
-    env.load();
-
     program.version('0.1.0').name('via').description('via workflow tools');
 
     for (const command of COMMANDS) {
@@ -85,6 +83,23 @@ async function main() {
             process.exitCode = result.status || undefined;
         });
 
+    // These commands use scalar options without custom processors, so replaying option events preserves their values.
+    // Reject unsupported workflows before loading the environment, which can create and compile configuration files.
+    // Leave help and unknown options to Commander's normal parsing path.
+    const parsed = program.parseOptions(process.argv.slice(2));
+    if (parsed.operands[0] === initCommand.name()) {
+        const initOptions = initCommand.parseOptions(parsed.unknown);
+        if (initOptions.unknown.length === 0) {
+            validateInitOptions(initCommand.opts());
+        }
+    } else if (parsed.operands[0] === up.name()) {
+        const upOptions = up.parseOptions(parsed.unknown);
+        if (upOptions.unknown.length === 0) {
+            validateUpOptions(up.opts());
+        }
+    }
+
+    env.load();
     await program.parseAsync(process.argv);
 }
 

@@ -60,12 +60,8 @@ impl From<ViaStorageTransactionDetails> for TransactionDetails {
         let initiator_address = H160::from_slice(tx_details.initiator_address.as_slice());
         let received_at = DateTime::<Utc>::from_naive_utc_and_offset(tx_details.received_at, Utc);
 
-        let commit_tx_hash = tx_details
-            .commit_tx_hash
-            .map(|hash| reverse_vec_to_h256(hash));
-        let prove_tx_hash = tx_details
-            .prove_tx_hash
-            .map(|hash| reverse_vec_to_h256(hash));
+        let commit_tx_hash = tx_details.commit_tx_hash.map(reverse_vec_to_h256);
+        let prove_tx_hash = tx_details.prove_tx_hash.map(reverse_vec_to_h256);
         let execute_tx_hash = calculate_execution_hash(tx_details.is_finalized);
 
         TransactionDetails {

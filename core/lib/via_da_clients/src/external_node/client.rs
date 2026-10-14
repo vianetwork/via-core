@@ -29,11 +29,7 @@ impl ExternalNodeDaClient {
 #[async_trait]
 impl DataAvailabilityClient for ExternalNodeDaClient {
     /// External nodes don't dispatch blobs - this operation is not supported
-    async fn dispatch_blob(
-        &self,
-        _batch_number: u32,
-        _data: Vec<u8>,
-    ) -> Result<DispatchResponse, DAError> {
+    async fn dispatch_blob(&self, _batch_number: u32, _data: Vec<u8>) -> Result<DispatchResponse, DAError> {
         Err(DAError {
             error: anyhow::anyhow!("ExternalNodeDaClient does not support dispatching blobs"),
             is_retriable: false,
@@ -46,24 +42,17 @@ impl DataAvailabilityClient for ExternalNodeDaClient {
             .client
             .get_da_blob_data(blob_id.to_string())
             .await
-            .map_err(|e| DAError {
-                error: e.into(),
-                is_retriable: true,
-            })?;
+            .map_err(|e| DAError { error: e.into(), is_retriable: true })?;
 
         match result {
             Some(blob) => {
                 if blob.is_proof {
-                    let data = hex::decode(&blob.proof_data).map_err(|e| DAError {
-                        error: e.into(),
-                        is_retriable: false,
-                    })?;
+                    let data =
+                        hex::decode(&blob.proof_data).map_err(|e| DAError { error: e.into(), is_retriable: false })?;
                     Ok(Some(InclusionData { data }))
                 } else {
-                    let data = hex::decode(&blob.pub_data).map_err(|e| DAError {
-                        error: e.into(),
-                        is_retriable: false,
-                    })?;
+                    let data =
+                        hex::decode(&blob.pub_data).map_err(|e| DAError { error: e.into(), is_retriable: false })?;
                     Ok(Some(InclusionData { data }))
                 }
             }

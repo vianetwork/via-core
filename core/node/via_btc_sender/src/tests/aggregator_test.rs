@@ -6,13 +6,11 @@ mod tests {
     use zksync_dal::{ConnectionPool, Core, CoreDal};
     use zksync_node_test_utils::l1_batch_metadata_to_commitment_artifacts;
     use zksync_types::{
-        btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType,
-        ProtocolVersionId,
+        btc_block::ViaBtcL1BlockDetails, btc_inscription_operations::ViaBtcInscriptionRequestType, ProtocolVersionId,
     };
 
     use crate::tests::utils::{
-        create_l1_batch, default_l1_batch_metadata, generate_random_bytes, get_btc_sender_config,
-        ViaAggregatorTest,
+        create_l1_batch, default_l1_batch_metadata, generate_random_bytes, get_btc_sender_config, ViaAggregatorTest,
     };
 
     // Get the current operation (commitBatch or commitProof) to execute when there is no batches. Should return 'None'
@@ -20,13 +18,9 @@ mod tests {
     async fn test_get_next_ready_operation_when_no_l1_batch() {
         let pool = ConnectionPool::<Core>::test_pool().await;
         let header = create_l1_batch(1);
-        let mut aggregator_test = ViaAggregatorTest::new(
-            header.protocol_version.unwrap(),
-            header.base_system_contracts_hashes,
-            pool,
-            None,
-        )
-        .await;
+        let mut aggregator_test =
+            ViaAggregatorTest::new(header.protocol_version.unwrap(), header.base_system_contracts_hashes, pool, None)
+                .await;
         aggregator_test.create_genesis_l1_batch().await.unwrap();
         let op = aggregator_test.get_next_ready_operation().await;
         assert!(op.is_none());
@@ -46,23 +40,14 @@ mod tests {
         aggregator_test.create_genesis_l1_batch().await.unwrap();
 
         aggregator_test
-            .insert_l1_batch(
-                header.clone(),
-                l1_batch_metadata_to_commitment_artifacts(&default_l1_batch_metadata()),
-            )
+            .insert_l1_batch(header.clone(), l1_batch_metadata_to_commitment_artifacts(&default_l1_batch_metadata()))
             .await;
 
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
 
         assert_eq!(op.get_l1_batches_detail().len(), 1);
-        assert_eq!(
-            op.get_l1_batches_detail().first().unwrap().number,
-            header.number
-        );
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitL1BatchOnchain
-        );
+        assert_eq!(op.get_l1_batches_detail().first().unwrap().number, header.number);
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitL1BatchOnchain);
     }
 
     // Get the current operation (commitBatch or commitProof) to execute, when there are many batch ready to be 'commitBatch'.
@@ -108,29 +93,19 @@ mod tests {
         }
 
         // Get next operation to process
-        let op = aggregator_test
-            .get_next_ready_operation()
-            .await
-            .expect("Expected to receive one batch ready to commit");
+        let op =
+            aggregator_test.get_next_ready_operation().await.expect("Expected to receive one batch ready to commit");
 
         // Check if the operation is type ViaBtcInscriptionRequestType::CommitL1BatchOnchain
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitL1BatchOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitL1BatchOnchain);
 
         // Check if the number of blocks match the selected ones.
-        assert_eq!(
-            op.get_l1_batches_detail().len(),
-            max_aggregated_blocks_to_commit
-        );
+        assert_eq!(op.get_l1_batches_detail().len(), max_aggregated_blocks_to_commit);
     }
 
     // When the selected batches are not sequantial.
     #[tokio::test]
-    #[should_panic(
-        expected = "L1 batches prepared for commit or proof batch numbers are not sequential"
-    )]
+    #[should_panic(expected = "L1 batches prepared for commit or proof batch numbers are not sequential")]
     async fn test_get_next_ready_operation_when_many_batches_not_sequential() {
         // The number of batches we want to create for testing.
         let max_aggregated_blocks_to_commit: usize = 5;
@@ -193,15 +168,11 @@ mod tests {
 
         // Insert the batch
         aggregator_test
-            .insert_l1_batch(
-                header.clone(),
-                l1_batch_metadata_to_commitment_artifacts(&default_l1_batch_metadata()),
-            )
+            .insert_l1_batch(header.clone(), l1_batch_metadata_to_commitment_artifacts(&default_l1_batch_metadata()))
             .await;
 
-        let (inscription_request_id, inscription_request_history_id) = aggregator_test
-            .update_l1_block_for_ready_to_commit_proof(header.number)
-            .await;
+        let (inscription_request_id, inscription_request_history_id) =
+            aggregator_test.update_l1_block_for_ready_to_commit_proof(header.number).await;
 
         aggregator_test
             .storage
@@ -215,15 +186,9 @@ mod tests {
 
         // Check if the batch was selected and it's number match.
         assert_eq!(op.get_l1_batches_detail().len(), 1);
-        assert_eq!(
-            op.get_l1_batches_detail().first().unwrap().number,
-            header.number
-        );
+        assert_eq!(op.get_l1_batches_detail().first().unwrap().number, header.number);
         // Check if the inscription type match ViaBtcInscriptionRequestType::CommitProofOnchain
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitProofOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitProofOnchain);
     }
 
     // When some blocks are ready to be commit the pub data and others ready to commit proof.
@@ -274,9 +239,8 @@ mod tests {
                 continue;
             }
 
-            let (inscription_request_id, inscription_request_history_id) = aggregator_test
-                .update_l1_block_for_ready_to_commit_proof(header.number)
-                .await;
+            let (inscription_request_id, inscription_request_history_id) =
+                aggregator_test.update_l1_block_for_ready_to_commit_proof(header.number).await;
 
             aggregator_test
                 .storage
@@ -289,18 +253,11 @@ mod tests {
         let op = aggregator_test.get_next_ready_operation().await.unwrap();
 
         // Check if the inscription request is ViaBtcInscriptionRequestType::CommitProofOnchain
-        assert_eq!(
-            op.get_inscription_request_type(),
-            ViaBtcInscriptionRequestType::CommitProofOnchain
-        );
+        assert_eq!(op.get_inscription_request_type(), ViaBtcInscriptionRequestType::CommitProofOnchain);
         // Check if the number of batches returned match the expected len.
         assert_eq!(op.get_l1_batches_detail().len(), expected_batches);
-        let ready_proof_batches = aggregator_test
-            .storage
-            .via_blocks_dal()
-            .get_ready_for_commit_proof_l1_batches(5)
-            .await
-            .unwrap();
+        let ready_proof_batches =
+            aggregator_test.storage.via_blocks_dal().get_ready_for_commit_proof_l1_batches(5).await.unwrap();
         assert_eq!(ready_proof_batches.len(), expected_batches);
 
         // Check if the ready commit match the expect len.
@@ -309,22 +266,13 @@ mod tests {
             .via_blocks_dal()
             .get_ready_for_commit_l1_batches(
                 max_aggregated_blocks_to_commit,
-                &aggregator_test
-                    .protocol_version
-                    .base_system_contracts_hashes
-                    .bootloader,
-                &aggregator_test
-                    .protocol_version
-                    .base_system_contracts_hashes
-                    .default_aa,
+                &aggregator_test.protocol_version.base_system_contracts_hashes.bootloader,
+                &aggregator_test.protocol_version.base_system_contracts_hashes.default_aa,
                 protocol_version.unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(
-            ready_commit_batches.len(),
-            max_aggregated_blocks_to_commit - expected_batches
-        );
+        assert_eq!(ready_commit_batches.len(), max_aggregated_blocks_to_commit - expected_batches);
     }
 
     #[tokio::test]
@@ -354,10 +302,7 @@ mod tests {
 
         let message: via_btc_client::types::InscriptionMessage = aggregator_test
             .aggregator
-            .construct_inscription_message(
-                &ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
-                &batch,
-            )
+            .construct_inscription_message(&ViaBtcInscriptionRequestType::CommitL1BatchOnchain, &batch)
             .unwrap();
         let message_bytes = InscriptionMessage::to_bytes(&message);
         assert_eq!(InscriptionMessage::from_bytes(&message_bytes), message);

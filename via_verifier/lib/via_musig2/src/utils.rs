@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use anyhow::Context;
-
 use bitcoin::{TapNodeHash, TapTweakHash};
 use musig2::{
     aggregate_partial_signatures, verify_partial, verify_single, AggNonce, CompactSignature,
@@ -80,7 +79,6 @@ mod tests {
     use std::str::FromStr;
 
     use anyhow::Context;
-
     use bitcoin::{
         hashes::Hash,
         hex::DisplayHex,

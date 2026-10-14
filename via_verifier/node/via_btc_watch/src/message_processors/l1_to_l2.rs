@@ -2,24 +2,13 @@ use via_btc_client::{
     indexer::BitcoinInscriptionIndexer,
     types::{FullInscriptionMessage, L1ToL2Message},
 };
-use via_verifier_dal::{Connection, Verifier, VerifierDal};
-use zksync_types::{ethabi::Address, l1::via_l1::ViaL1Deposit, H256};
+use via_verifier_dal::{via_transactions_dal::L1ToL2Transaction, Connection, Verifier, VerifierDal};
+use zksync_types::{l1::via_l1::ViaL1Deposit, H256};
 
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
     metrics::METRICS,
 };
-
-#[derive(Debug)]
-pub struct L1ToL2Transaction {
-    priority_id: i64,
-    l1_block_number: i64,
-    tx_id: H256,
-    receiver: Address,
-    value: i64,
-    calldata: Vec<u8>,
-    canonical_tx_hash: H256,
-}
 
 #[derive(Default, Debug)]
 pub struct L1ToL2MessageProcessor {}
@@ -27,9 +16,7 @@ pub struct L1ToL2MessageProcessor {}
 #[async_trait::async_trait]
 impl MessageProcessor for L1ToL2MessageProcessor {
     async fn process_messages(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-        msgs: Vec<FullInscriptionMessage>,
+        &mut self, storage: &mut Connection<'_, Verifier>, msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         let mut priority_ops = Vec::new();
@@ -46,10 +33,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
                     .await
                     .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
                 {
-                    tracing::info!(
-                        "Transaction with tx_id {} already processed, skipping",
-                        tx_id
-                    );
+                    tracing::info!("Transaction with tx_id {} already processed, skipping", tx_id);
                     continue;
                 }
                 let Some(l1_tx) = self.create_l1_tx_from_message(tx_id, &l1_to_l2_msg)? else {
@@ -68,15 +52,7 @@ impl MessageProcessor for L1ToL2MessageProcessor {
         for new_op in priority_ops {
             storage
                 .via_transactions_dal()
-                .insert_transaction(
-                    new_op.priority_id,
-                    new_op.tx_id,
-                    new_op.receiver.to_string(),
-                    new_op.value,
-                    new_op.calldata,
-                    new_op.canonical_tx_hash,
-                    new_op.l1_block_number,
-                )
+                .insert_transaction(new_op)
                 .await
                 .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
         }
@@ -87,21 +63,21 @@ impl MessageProcessor for L1ToL2MessageProcessor {
 
 impl L1ToL2MessageProcessor {
     fn create_l1_tx_from_message(
-        &self,
-        tx_id: H256,
-        msg: &L1ToL2Message,
+        &self, tx_id: H256, msg: &L1ToL2Message,
     ) -> Result<Option<L1ToL2Transaction>, MessageProcessorError> {
         let deposit = ViaL1Deposit {
             l2_receiver_address: msg.input.receiver_l2_address,
             amount: msg.amount.to_sat(),
             calldata: msg.input.call_data.clone(),
             l1_block_number: msg.common.block_height as u64,
-            tx_index: msg.common.tx_index.ok_or_else(|| {
-                MessageProcessorError::Internal(anyhow::anyhow!("deposit missing tx_index"))
-            })?,
-            output_vout: msg.common.output_vout.ok_or_else(|| {
-                MessageProcessorError::Internal(anyhow::anyhow!("deposit missing output_vout"))
-            })?,
+            tx_index: msg
+                .common
+                .tx_index
+                .ok_or_else(|| MessageProcessorError::Internal(anyhow::anyhow!("deposit missing tx_index")))?,
+            output_vout: msg
+                .common
+                .output_vout
+                .ok_or_else(|| MessageProcessorError::Internal(anyhow::anyhow!("deposit missing output_vout")))?,
         };
 
         if let Some(l1_tx) = deposit.l1_tx() {
@@ -119,7 +95,7 @@ impl L1ToL2MessageProcessor {
                 priority_id: deposit.priority_id().0 as i64,
                 tx_id,
                 l1_block_number: msg.common.block_height as i64,
-                receiver: deposit.l2_receiver_address,
+                receiver: deposit.l2_receiver_address.to_string(),
                 value: deposit.amount as i64,
                 calldata: deposit.calldata,
                 canonical_tx_hash: l1_tx.common_data.canonical_tx_hash,

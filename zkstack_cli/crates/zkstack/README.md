@@ -578,8 +578,10 @@ Run prover
 
 - `--threads <THREADS>`
 
-- `--max-allocation <MAX_ALLOCATION_IN_BYTES>` - in case you are running prover component, the value limits maximum
-  memory allocation of it in bytes.
+- `--max-allocation <MAX_ALLOCATION_IN_BYTES>` or `-m` - Set the selected Prover or CircuitProver GPU allocation limit
+  in bytes.
+
+For `zkstack prover run`, `-h <COUNT>` sets the heavy WVG count. Use long-only `--help` for command help.
 
 ## `zk_inception prover init-bellman-cuda`
 

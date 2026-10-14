@@ -1,17 +1,11 @@
-use crate::{
-    auth::{digest, random_id, Binding, Envelope, MAX_BODY},
-    sessions::withdrawal::WithdrawalSession,
-    traits::ISession,
-    types::{NoncePair, PartialSignaturePair, SessionOperation, SigningSessionResponse},
-    utils::{decode_nonce, decode_signature, encode_nonce, encode_signature},
-};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc};
+
 use anyhow::Context;
 use bitcoin::{
     secp256k1::{PublicKey, Secp256k1, SecretKey},
     TapSighashType, Transaction, Witness,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 use tokio::sync::watch;
 use via_btc_client::traits::BitcoinOps;
 use via_musig2::{
@@ -33,6 +27,14 @@ use zksync_config::{
     ViaBtcWatchConfig,
 };
 use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets};
+
+use crate::{
+    auth::{digest, random_id, Binding, Envelope, MAX_BODY},
+    sessions::withdrawal::WithdrawalSession,
+    traits::ISession,
+    types::{NoncePair, PartialSignaturePair, SessionOperation, SigningSessionResponse},
+    utils::{decode_nonce, decode_signature, encode_nonce, encode_signature},
+};
 
 type PublicTranscript = BTreeMap<usize, BTreeMap<usize, String>>;
 #[derive(Serialize, Deserialize)]

@@ -29,37 +29,29 @@ pub struct GovernanceUpgradesEventProcessor {
 impl GovernanceUpgradesEventProcessor {
     pub fn new(btc_client: Arc<BitcoinClient>) -> Self {
         let message_parser = MessageParser::new(btc_client.get_network());
-        Self {
-            btc_client,
-            message_parser,
-            upgrade: ViaProtocolUpgrade::default(),
-        }
+        Self { btc_client, message_parser, upgrade: ViaProtocolUpgrade::default() }
     }
 }
 
 #[async_trait::async_trait]
 impl MessageProcessor for GovernanceUpgradesEventProcessor {
     async fn process_messages(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-        msgs: Vec<FullInscriptionMessage>,
+        &mut self, storage: &mut Connection<'_, Verifier>, msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         let mut upgrades = Vec::new();
         for msg in msgs {
-            if let FullInscriptionMessage::SystemContractUpgrade(system_contract_upgrade_msg) = &msg
-            {
-                let proposal_tx = self
-                    .btc_client
-                    .get_transaction(&system_contract_upgrade_msg.input.proposal_tx_id)
-                    .await
-                    .map_err(|err| {
-                        MessageProcessorError::Internal(anyhow::anyhow!(
-                            "Failed to fetch protocol upgrade transaction: {}, error {}",
-                            system_contract_upgrade_msg.input.proposal_tx_id,
-                            err
-                        ))
-                    })?;
+            if let FullInscriptionMessage::SystemContractUpgrade(system_contract_upgrade_msg) = &msg {
+                let proposal_tx =
+                    self.btc_client.get_transaction(&system_contract_upgrade_msg.input.proposal_tx_id).await.map_err(
+                        |err| {
+                            MessageProcessorError::Internal(anyhow::anyhow!(
+                                "Failed to fetch protocol upgrade transaction: {}, error {}",
+                                system_contract_upgrade_msg.input.proposal_tx_id,
+                                err
+                            ))
+                        },
+                    )?;
 
                 let messages = self.message_parser.parse_system_transaction(
                     &proposal_tx,
@@ -68,47 +60,36 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                 );
 
                 for message in messages {
-                    match message {
-                        FullInscriptionMessage::SystemContractUpgradeProposal(
-                            system_contract_upgrade_proposal_msg,
-                        ) => {
-                            if system_contract_upgrade_proposal_msg.input.version
-                                < get_sequencer_version()
-                            {
-                                tracing::info!(
-                                    "Upgrade transaction with version {} already processed, skipping",
-                                    system_contract_upgrade_proposal_msg.input.version
-                                );
-                                continue;
-                            }
-
+                    if let FullInscriptionMessage::SystemContractUpgradeProposal(system_contract_upgrade_proposal_msg) =
+                        message
+                    {
+                        if system_contract_upgrade_proposal_msg.input.version < get_sequencer_version() {
                             tracing::info!(
-                                "Received upgrades with versions: {:?}",
+                                "Upgrade transaction with version {} already processed, skipping",
                                 system_contract_upgrade_proposal_msg.input.version
                             );
-
-                            let hash = self.upgrade.get_canonical_tx_hash(
-                                system_contract_upgrade_proposal_msg.input.version,
-                                system_contract_upgrade_proposal_msg.input.system_contracts,
-                            )?;
-
-                            let upgrade = (
-                                system_contract_upgrade_proposal_msg.input.version,
-                                system_contract_upgrade_proposal_msg
-                                    .input
-                                    .bootloader_code_hash,
-                                system_contract_upgrade_proposal_msg
-                                    .input
-                                    .default_account_code_hash,
-                                hash,
-                                system_contract_upgrade_proposal_msg
-                                    .input
-                                    .recursion_scheduler_level_vk_hash,
-                            );
-
-                            upgrades.push(upgrade);
+                            continue;
                         }
-                        _ => (),
+
+                        tracing::info!(
+                            "Received upgrades with versions: {:?}",
+                            system_contract_upgrade_proposal_msg.input.version
+                        );
+
+                        let hash = self.upgrade.get_canonical_tx_hash(
+                            system_contract_upgrade_proposal_msg.input.version,
+                            system_contract_upgrade_proposal_msg.input.system_contracts,
+                        )?;
+
+                        let upgrade = (
+                            system_contract_upgrade_proposal_msg.input.version,
+                            system_contract_upgrade_proposal_msg.input.bootloader_code_hash,
+                            system_contract_upgrade_proposal_msg.input.default_account_code_hash,
+                            hash,
+                            system_contract_upgrade_proposal_msg.input.recursion_scheduler_level_vk_hash,
+                        );
+
+                        upgrades.push(upgrade);
                     }
                 }
             }

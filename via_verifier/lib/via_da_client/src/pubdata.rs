@@ -39,10 +39,7 @@ impl Pubdata {
         let mut l2_to_l1_messages = Vec::new();
 
         // Decode user L2->L1 logs
-        let num_user_logs = cursor
-            .read_u32::<BigEndian>()
-            .with_context(|| "Failed to decode num user logs")?
-            as usize;
+        let num_user_logs = cursor.read_u32::<BigEndian>().with_context(|| "Failed to decode num user logs")? as usize;
         for _ in 0..num_user_logs {
             let log = L1MessengerL2ToL1Log::decode_packed(&mut cursor)?;
             user_logs.push(log);
@@ -53,16 +50,11 @@ impl Pubdata {
         for _ in 0..num_messages {
             let message_len = cursor.read_u32::<BigEndian>()? as usize;
             let mut message = vec![0u8; message_len];
-            cursor
-                .read_exact(&mut message)
-                .with_context(|| "Error read l2 to l1 message")?;
+            cursor.read_exact(&mut message).with_context(|| "Error read l2 to l1 message")?;
             l2_to_l1_messages.push(message);
         }
 
-        Ok(Pubdata {
-            user_logs,
-            l2_to_l1_messages,
-        })
+        Ok(Pubdata { user_logs, l2_to_l1_messages })
     }
 }
 
@@ -125,10 +117,8 @@ mod tests {
             value: H256::random(),
         };
 
-        let pubdata = Pubdata {
-            user_logs: vec![message.clone()],
-            l2_to_l1_messages: vec![hex::decode("deadbeef").unwrap()],
-        };
+        let pubdata =
+            Pubdata { user_logs: vec![message.clone()], l2_to_l1_messages: vec![hex::decode("deadbeef").unwrap()] };
 
         let encoded_pubdata = pubdata.encode_pubdata();
         let pubdata_input = Pubdata::decode_pubdata(encoded_pubdata).unwrap();
@@ -137,10 +127,7 @@ mod tests {
         assert_eq!(pubdata_input.user_logs.len(), 1);
         assert_eq!(decoded_message.l2_shard_id, message.clone().l2_shard_id);
         assert_eq!(decoded_message.is_service, message.clone().is_service);
-        assert_eq!(
-            decoded_message.tx_number_in_block,
-            message.clone().tx_number_in_block
-        );
+        assert_eq!(decoded_message.tx_number_in_block, message.clone().tx_number_in_block);
         assert_eq!(decoded_message.sender, message.clone().sender);
         assert_eq!(decoded_message.key, message.clone().key);
         assert_eq!(decoded_message.value, message.clone().value);
@@ -164,10 +151,7 @@ mod tests {
             l2_to_l1_messages.push(hex::decode("deadbeef").unwrap());
         }
 
-        let pubdata = Pubdata {
-            user_logs: user_logs.clone(),
-            l2_to_l1_messages,
-        };
+        let pubdata = Pubdata { user_logs: user_logs.clone(), l2_to_l1_messages };
 
         let encoded_pubdata = pubdata.encode_pubdata();
         let pubdata_input = Pubdata::decode_pubdata(encoded_pubdata).unwrap();
@@ -182,10 +166,7 @@ mod tests {
 
             assert_eq!(decoded_log.l2_shard_id, msg_log.clone().l2_shard_id);
             assert_eq!(decoded_log.is_service, msg_log.clone().is_service);
-            assert_eq!(
-                decoded_log.tx_number_in_block,
-                msg_log.clone().tx_number_in_block
-            );
+            assert_eq!(decoded_log.tx_number_in_block, msg_log.clone().tx_number_in_block);
             assert_eq!(decoded_log.sender, msg_log.clone().sender);
             assert_eq!(decoded_log.key, msg_log.clone().key);
             assert_eq!(decoded_log.value, msg_log.clone().value);

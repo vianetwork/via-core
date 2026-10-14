@@ -567,7 +567,7 @@ impl ViaVotesDal<'_, '_> {
             "#,
         )
         .instrument("get_first_not_verified_l1_batch_in_canonical_inscription_chain")
-        .fetch_optional(&mut self.storage)
+        .fetch_optional(self.storage)
         .await?;
 
         let result = row.map(|r| {
@@ -666,7 +666,7 @@ impl ViaVotesDal<'_, '_> {
             "#
         )
         .instrument("get_last_batch_in_canonical_chain")
-        .fetch_optional(&mut self.storage)
+        .fetch_optional(self.storage)
         .await?;
 
         Ok(row.and_then(|r| Some((r.l1_batch_number? as u32, r.l1_batch_hash?))))
@@ -785,7 +785,7 @@ impl ViaVotesDal<'_, '_> {
             "#
         )
         .instrument("verify_canonical_chain")
-        .fetch_optional(&mut self.storage)
+        .fetch_optional(self.storage)
         .await?;
 
         match result {
@@ -840,10 +840,10 @@ impl ViaVotesDal<'_, '_> {
                 WHERE l1_batch_number = $1
             )
             "#,
-            l1_batch_number as i64
+            i64::from(l1_batch_number)
         )
         .instrument("batch_exists")
-        .fetch_one(&mut self.storage)
+        .fetch_one(self.storage)
         .await?;
 
         Ok(exists.unwrap_or(false))
@@ -861,7 +861,7 @@ impl ViaVotesDal<'_, '_> {
             proof_reveal_tx_id
         )
         .instrument("proof_reveal_tx_exists")
-        .fetch_one(&mut self.storage)
+        .fetch_one(self.storage)
         .await?;
 
         Ok(exists.unwrap_or(false))
@@ -876,7 +876,7 @@ impl ViaVotesDal<'_, '_> {
             l1_batch_number
         )
         .instrument("delete_votable_transactions")
-        .execute(&mut self.storage)
+        .execute(self.storage)
         .await?;
 
         Ok(())

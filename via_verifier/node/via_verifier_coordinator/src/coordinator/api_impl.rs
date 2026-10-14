@@ -1,14 +1,16 @@
+use std::{collections::BTreeMap, sync::Arc};
+
+use axum::{extract::State, response::Response, Extension, Json};
+use via_btc_client::traits::Serializable;
+use via_musig2::utils::verify_partial_signature;
+use via_verifier_dal::VerifierDal;
+
 use super::{api_decl::RestApi, auth_middleware::AuthenticatedRequest, error::ApiError};
 use crate::{
     auth::{digest, random_id},
     types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse},
     utils::{decode_nonce, decode_signature, encode_nonce, encode_signature, seconds_since_epoch},
 };
-use axum::{extract::State, response::Response, Extension, Json};
-use std::{collections::BTreeMap, sync::Arc};
-use via_btc_client::traits::Serializable;
-use via_musig2::utils::verify_partial_signature;
-use via_verifier_dal::VerifierDal;
 
 fn ok_json<T: serde::Serialize>(data: T) -> Result<Response<String>, ApiError> {
     Response::builder()

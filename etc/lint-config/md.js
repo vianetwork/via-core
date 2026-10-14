@@ -5,5 +5,6 @@ module.exports = {
     "no-inline-html": false,
     "line-length": false,
     "fenced-code-language": false,
+    "no-hard-tabs": { "code_blocks": false },
     "no-multiple-blanks": false
 };

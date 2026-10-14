@@ -3,9 +3,11 @@ mod verifier;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rotated_wallet_stops_reconciliation_before_bitcoin_rpc() -> anyhow::Result<()> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
     use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer, types::NodeAuth};
     use via_test_utils::utils::test_wallets;
     use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
@@ -26,14 +28,9 @@ async fn rotated_wallet_stops_reconciliation_before_bitcoin_rpc() -> anyhow::Res
         },
     )?);
     let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
         count.fetch_add(1, Ordering::SeqCst);
-        let mut buffer = [0; 4096];
-        stream.read(&mut buffer).await.unwrap();
-        stream
-            .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .await
-            .unwrap();
+        drop(stream);
     });
     for initialized in [false, true] {
         let pool = ConnectionPool::<Verifier>::test_pool().await;

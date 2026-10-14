@@ -5,7 +5,6 @@
 use std::str::FromStr;
 
 use anyhow::Context;
-
 use bitcoin::{
     hashes::Hash,
     hex::DisplayHex,
@@ -19,8 +18,7 @@ use bitcoin::{
 use musig2::{secp::Scalar, KeyAggContext, PartialSignature};
 use rand::Rng;
 use secp256k1_musig2::schnorr::Signature;
-use via_musig2::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
-use via_musig2::utils::verify_partial_signature;
+use via_musig2::{constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR, utils::verify_partial_signature};
 
 const NETWORK: Network = Network::Regtest;
 const SPEND_AMOUNT: Amount = Amount::from_sat(5_000_000);

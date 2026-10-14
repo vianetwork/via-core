@@ -15,25 +15,25 @@ ProtocolUpgradeProposal inscription.
    `yarn start upgrades create via-network --protocol-version <new-version>`.
 3. Publish the new system contract for <version>
 
-```sh
-yarn start system-contracts publish \
-    --private-key <l2-private-key> \
-    --l2rpc http://0.0.0.0:3050 \
-    --environment devnet-2 \
-    --new-protocol-version <version> \
-    --recursion-scheduler-level-vk-hash <hash> \
-    --bootloader \
-    --default-aa \
-    --system-contracts
-```
+   ```sh
+   yarn start system-contracts publish \
+       --private-key <l2-private-key> \
+       --l2rpc http://0.0.0.0:3050 \
+       --environment devnet-2 \
+       --new-protocol-version <version> \
+       --recursion-scheduler-level-vk-hash <hash> \
+       --bootloader \
+       --default-aa \
+       --system-contracts
+   ```
 
 4. The previous cmd created a new upgrade file at this location `etc/upgrades/1742370950-via-network` with the new
    system contracts we are going to deploy.
 5. When all the l1_batches are processed execute the next cmd to create an upgrade proposal.
 
-```sh
-yarn start l2-transaction upgrade-system-contracts --environment devnet-2 --private-key <l1-private-key>
-```
+   ```sh
+   yarn start l2-transaction upgrade-system-contracts --environment devnet-2 --private-key <l1-private-key>
+   ```
 
 ## How to execute an upgrade proposal
 
@@ -69,71 +69,71 @@ For this example we will use those wallets on regtest:
 
 1. Compute the multisig wallet with 2 signers as minimum.
 
-```sh,
-via multisig compute-multisig \
---pubkeys 025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf,03445c516584d751643442bea558be2c5d77a6c3377e86fe6e78e3b992dd68ac62 \
---minimumSigners 2
-```
+   ```sh,
+   via multisig compute-multisig \
+   --pubkeys 025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf,03445c516584d751643442bea558be2c5d77a6c3377e86fe6e78e3b992dd68ac62 \
+   --minimumSigners 2
+   ```
 
-A new file is created `upgrade_tx_exec.json`
+   A new file is created `upgrade_tx_exec.json`
 
 2. Create an unsigned upgrade transaction. Make sure to select the input you want to use and the `upgradeProposalTxId`.
    To fetch the UTXOs from regtest use this cmd
 
-```sh
-curl --user rpcuser:rpcpassword \
-  --data-binary '{
-    "jsonrpc": "1.0",
-    "id": "scan_utxo",
-    "method": "scantxoutset",
-    "params": [
-      "start",
-      [
-        { "desc": "addr(bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm)", "range": 1000 }
-      ]
-    ]
-  }' \
-  -H 'content-type: text/plain;' \
-  http://127.0.0.1:18443/
-```
+   ```sh
+   curl --user rpcuser:rpcpassword \
+     --data-binary '{
+       "jsonrpc": "1.0",
+       "id": "scan_utxo",
+       "method": "scantxoutset",
+       "params": [
+         "start",
+         [
+           { "desc": "addr(bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm)", "range": 1000 }
+         ]
+       ]
+     }' \
+     -H 'content-type: text/plain;' \
+     http://127.0.0.1:18443/
+   ```
 
-```sh
-via multisig create-upgrade-tx \
---inputTxId <tx_id> \
---inputVout <vout> \
---inputAmount <amount> \
---upgradeProposalTxId <upgradeProposalTxId> \
---fee 500
-```
+   ```sh
+   via multisig create-upgrade-tx \
+   --inputTxId <tx_id> \
+   --inputVout <vout> \
+   --inputAmount <amount> \
+   --upgradeProposalTxId <upgradeProposalTxId> \
+   --fee 500
+   ```
 
 3. Sign the transaction using the signer-1 `Privatekey`.
 
-```sh
-via multisig sign-tx --privateKey cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
-```
+   ```sh
+   via multisig sign-tx --privateKey cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+   ```
 
-After signing the tx send the `upgrade_tx_exec.json` to signer-2
+   After signing the tx send the `upgrade_tx_exec.json` to signer-2
 
 4. Sign the transaction using the signer-2 `Privatekey`.
 
-```sh
-via multisig sign-tx --privateKey cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
-```
+   ```sh
+   via multisig sign-tx --privateKey cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+   ```
 
 5. The signer-2 finalize the transaction
 
-```sh
-via multisig finalize-tx
-```
+   ```sh
+   via multisig finalize-tx
+   ```
 
 6. The signer-2 broadcast the transaction
 
-```sh
-via multisig broadcast-tx \
---rpcUrl http://0.0.0.0:18443 \
---rpcUser rpcuser \
---rpcPass rpcpassword
-```
+   ```sh
+   via multisig broadcast-tx \
+   --rpcUrl http://0.0.0.0:18443 \
+   --rpcUser rpcuser \
+   --rpcPass rpcpassword
+   ```
 
 ## Upgrade execution example
 
@@ -141,50 +141,51 @@ via multisig broadcast-tx \
 2. Deposit 1 BTC.
 3. cd via-playground exec the following cmd, you should see ETH. as token symbol.
 
-```sh
-cd via-playground && source .env.example && npx hardhat balance --address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 && cd ..
-```
+   ```sh
+   cd via-playground && source .env.example && npx hardhat balance --address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 && cd ..
+   ```
 
 4. Delete the submodule to `branch` key to use the `main` branch, this allows us to use the protocol version 26.
 5. Build git submodule using
 
-```sh
-git submodule update --remote --recursive
-```
+   ```sh
+   git submodule update --remote --recursive
+   ```
 
 6. Build the system contracts
 
-```sh
-cd contracts && yarn sc build && cd ..
-```
+   ```sh
+   cd contracts && yarn sc build && cd ..
+   ```
 
 7. Create a new upgrade config
 
-```sh
-cd infrastructure/via-protocol-upgrade && yarn start upgrades create via-network --protocol-version 0.26.0
-```
+   ```sh
+   cd infrastructure/via-protocol-upgrade && yarn start upgrades create via-network --protocol-version 0.26.0
+   ```
 
 8. Publish the new system contract for version
 
-```sh
-yarn start system-contracts publish \
-    --private-key 0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110 \
-    --l2rpc http://0.0.0.0:3050 \
-    --environment devnet-2 \
-    --new-protocol-version 0.26.0 \
-    --recursion-scheduler-level-vk-hash 0x14f97b81e54b35fe673d8708cc1a19e1ea5b5e348e12d31e39824ed4f42bbca2 \
-    --bootloader \
-    --default-aa \
-    --system-contracts
-```
+   ```sh
+   yarn start system-contracts publish \
+       --private-key 0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110 \
+       --l2rpc http://0.0.0.0:3050 \
+       --environment devnet-2 \
+       --new-protocol-version 0.26.0 \
+       --recursion-scheduler-level-vk-hash 0x14f97b81e54b35fe673d8708cc1a19e1ea5b5e348e12d31e39824ed4f42bbca2 \
+       --bootloader \
+       --default-aa \
+       --system-contracts
+   ```
 
-The above cmd created a new upgrade file at this location etc/upgrades/1742370950-via-network with the new system
-contracts we are going to deploy. Wait the transactions to be processed on L2 and included in L1 batches before execute
-the next steps. 10. When all the l1_batches are processed execute the next cmd to send an upgrade inscription to the L1.
+9. The above cmd created a new upgrade file at this location etc/upgrades/1742370950-via-network with the new system
+   contracts we are going to deploy. Wait the transactions to be processed on L2 and included in L1 batches before
+   execute the next steps.
+10. When all the l1_batches are processed execute the next cmd to send an upgrade inscription to the L1.
 
-```sh
-yarn start l2-transaction upgrade-system-contracts --environment devnet-2 --private-key cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R
-```
+    ```sh
+    yarn start l2-transaction upgrade-system-contracts --environment devnet-2 --private-key cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R
+    ```
 
 11. Copy the `tx_id` of the proposal created in the previous step and follow this doc to create a multisig
     [GOV transaction](#How-to-execute-an-upgrade-proposal).
@@ -195,13 +196,13 @@ yarn start l2-transaction upgrade-system-contracts --environment devnet-2 --priv
 14. Check the database, new protocol version should be 26, the last batch should be processed with the new bootloader
     hash and version 26.
 
-```sql
--- You should see that the last miniblocks where processed using the version 26
-select protocol_version from miniblocks order by number DESC
+    ```sql
+    -- You should see that the last miniblocks where processed using the version 26
+    select protocol_version from miniblocks order by number DESC
 
--- The last batches (check number), should have different bootloader_code_hash and default_aa_code_hash.
-select number, encode(bootloader_code_hash, 'hex'), encode(default_aa_code_hash, 'hex') from l1_batches order by number DESC
-```
+    -- The last batches (check number), should have different bootloader_code_hash and default_aa_code_hash.
+    select number, encode(bootloader_code_hash, 'hex'), encode(default_aa_code_hash, 'hex') from l1_batches order by number DESC
+    ```
 
 15. In another terminal starts the coordinator (by default version 26 ). You will notice that all the batches before the
     one includes the upgrade are processing with VK (verifying key version 25) and after upgrade VK-26
@@ -220,9 +221,9 @@ select number, encode(bootloader_code_hash, 'hex'), encode(default_aa_code_hash,
 1. Start the sequencer and the verifiers
 2. Deposit BTC and wait the sequencer process the batch.
 
-```sh
-via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq
-```
+   ```sh
+   via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq
+   ```
 
 3. withdraw 1 BTC.
 
@@ -231,31 +232,31 @@ via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA
 1. Create an update sequencer proposal. Follow the doc on how to sign a multisig tx (update just the 2 with the
    following cmd) [here](#How-to-execute-an-upgrade-proposal)
 
-```sh
-via multisig create-update-sequencer \
---inputTxId <txid> \
---inputVout <vout> \
---inputAmount <amount> \
---sequencerAddress bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv \
---fee 500
-```
+   ```sh
+   via multisig create-update-sequencer \
+   --inputTxId <txid> \
+   --inputVout <vout> \
+   --inputAmount <amount> \
+   --sequencerAddress bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv \
+   --fee 500
+   ```
 
 2. Withdraw 1 BTC, the sequencer (btc_sender) should throw and error
    `BTC sender inscriber wallets is not valid, expected...`, this error is because we did not yet update the sequencer
    Private key. Stop the sequencer and update this ENV in `via.env`:
 
-```sh
-VIA_BTC_SENDER_PRIVATE_KEY=cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm
-VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
-```
+   ```sh
+   VIA_BTC_SENDER_PRIVATE_KEY=cRaUbRSn8P8cXUcg6cMZ7oTZ1wbDjktYTsbdGw62tuqqD9ttQWMm
+   VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
+   ```
 
-4. Execute an other deposit and withdrawal, the sequencer and verifiers process the batches.
+3. Execute an other deposit and withdrawal, the sequencer and verifiers process the batches.
 
-```sh
-via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq
-```
+   ```sh
+   via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq
+   ```
 
-5. Done.
+4. Done.
 
 ---
 
@@ -264,78 +265,78 @@ via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA
 1. Create a new bridge address, follow this [doc](musig2.md). You should have a json file on your local `my_wallet.json`
 2. Create a proposal update bridge.
 
-```sh
-cargo run --example propose_new_bridge \
-    regtest \
-    http://0.0.0.0:18443 \
-    rpcuser \
-    rpcpassword \
-    cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
-    bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8 \
-    bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80,bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
-```
+   ```sh
+   cargo run --example propose_new_bridge \
+       regtest \
+       http://0.0.0.0:18443 \
+       rpcuser \
+       rpcpassword \
+       cVZduZu265sWeAqFYygoDEE1FZ7wV9rpW5qdqjRkUehjaUMWLT1R \
+       bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8 \
+       bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80,bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
+   ```
 
 3. Copy the txid of the upgrade proposal and create an upgrade using the governance wallet. Follow the doc on how to
    sign a multisig tx (update just the 2 with the following cmd) [here](#How-to-execute-an-upgrade-proposal)
 
-```sh
-via multisig create-update-bridge \
---inputTxId <txid> \
---inputVout <vout> \
---inputAmount <amount> \
---proposalTxid <proposalTxid> \
---fee 500
-```
+   ```sh
+   via multisig create-update-bridge \
+   --inputTxId <txid> \
+   --inputVout <vout> \
+   --inputAmount <amount> \
+   --proposalTxid <proposalTxid> \
+   --fee 500
+   ```
 
 4. The verifier should start throwing an Error because the current signer doesn't match the new bridge address.
 
-```error
-Failed to process verifier withdrawal task: Verifier address not found in the verifiers set, expected one of [bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80, bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v], found bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
-```
+   ```error
+   Failed to process verifier withdrawal task: Verifier address not found in the verifiers set, expected one of [bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80, bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v], found bcrt1qw2mvkvm6alfhe86yf328kgvr7mupdx4vln7kpv
+   ```
 
 5. Transfer some BTC to the new verifier addresses
 
-```sh
-curl --user rpcuser:rpcpassword \
-     --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v", 0.1]}' \
-     -H 'content-type: text/plain;' \
-     http://127.0.0.1:18443/wallet/Alice
+   ```sh
+   curl --user rpcuser:rpcpassword \
+        --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v", 0.1]}' \
+        -H 'content-type: text/plain;' \
+        http://127.0.0.1:18443/wallet/Alice
 
-curl --user rpcuser:rpcpassword \
-     --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80", 0.1]}' \
-     -H 'content-type: text/plain;' \
-     http://127.0.0.1:18443/wallet/Alice
-```
+   curl --user rpcuser:rpcpassword \
+        --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80", 0.1]}' \
+        -H 'content-type: text/plain;' \
+        http://127.0.0.1:18443/wallet/Alice
+   ```
 
 6. Update the ENVs for verifier and coordinator
 
-```sh
-VIA_BTC_SENDER_PRIVATE_KEY=cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
-VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80
-VIA_VERIFIER_PRIVATE_KEY=cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
-VIA_VERIFIER_WALLET_ADDRESS=bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80
-VIA_VERIFIER_BRIDGE_ADDRESS_MERKLE_ROOT=2aa187093ce1f9e55ad02aa804480cc01beb9c570781133b768d8cfb12177e25
-VIA_BRIDGE_VERIFIERS_PUB_KEYS=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf
-VIA_BRIDGE_BRIDGE_ADDRESS=bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
-```
+   ```sh
+   VIA_BTC_SENDER_PRIVATE_KEY=cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+   VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80
+   VIA_VERIFIER_PRIVATE_KEY=cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+   VIA_VERIFIER_WALLET_ADDRESS=bcrt1q08v0vm5w3rftefqutgtwlyslhy35ms8ftuay80
+   VIA_VERIFIER_BRIDGE_ADDRESS_MERKLE_ROOT=2aa187093ce1f9e55ad02aa804480cc01beb9c570781133b768d8cfb12177e25
+   VIA_BRIDGE_VERIFIERS_PUB_KEYS=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf
+   VIA_BRIDGE_BRIDGE_ADDRESS=bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
+   ```
 
-and coordinator:
+   and coordinator:
 
-```sh
-VIA_BTC_SENDER_PRIVATE_KEY=cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
-VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
-VIA_VERIFIER_PRIVATE_KEY=cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
-VIA_VERIFIER_WALLET_ADDRESS=bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
-VIA_VERIFIER_BRIDGE_ADDRESS_MERKLE_ROOT=2aa187093ce1f9e55ad02aa804480cc01beb9c570781133b768d8cfb12177e25
-VIA_BRIDGE_VERIFIERS_PUB_KEYS=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf
-VIA_BRIDGE_BRIDGE_ADDRESS=bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
-```
+   ```sh
+   VIA_BTC_SENDER_PRIVATE_KEY=cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+   VIA_BTC_SENDER_WALLET_ADDRESS=bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
+   VIA_VERIFIER_PRIVATE_KEY=cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+   VIA_VERIFIER_WALLET_ADDRESS=bcrt1q50xmdcwlmt8qhwczxptaq2h5cn3zchcrvqd35v
+   VIA_VERIFIER_BRIDGE_ADDRESS_MERKLE_ROOT=2aa187093ce1f9e55ad02aa804480cc01beb9c570781133b768d8cfb12177e25
+   VIA_BRIDGE_VERIFIERS_PUB_KEYS=025b3c069378f860cc4dae864a491e0cd33cc559b9f82fc856d4dcc74d3d763241,03c2871e18d4fb503ead90461da747b40df5e28da0fd3e067f3731f1a28da60ddf
+   VIA_BRIDGE_BRIDGE_ADDRESS=bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
+   ```
 
 7. Deposit BTC to the **new bridge address**
 
-```sh
-via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
-```
+   ```sh
+   via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA7C72883F5dc049 --bridge-address bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8
+   ```
 
 8. Withdraw 1 BTC.
 9. The verifier and coordinator process the batch and sequencer finalize the batch.
@@ -344,74 +345,74 @@ via token deposit --amount 10 --receiver-l2-address 0x36615Cf349d7F6344891B1e7CA
 
 1. Sent UTXO to the bridge wallet
 
-```sh
-curl --user rpcuser:rpcpassword \
-     --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8", 1]}' \
-     -H 'content-type: text/plain;' \
-     http://127.0.0.1:18443/wallet/Alice
-```
+   ```sh
+   curl --user rpcuser:rpcpassword \
+        --data-binary '{"jsonrpc":"1.0","id":"sendbtc","method":"sendtoaddress","params":["bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8", 1]}' \
+        -H 'content-type: text/plain;' \
+        http://127.0.0.1:18443/wallet/Alice
+   ```
 
 2. List the UTXOs you want to transfer, then create a file `utxos.json`. Each utxo should has a `txid`, `vout` and
    `value`
 
-```sh
-curl --user rpcuser:rpcpassword \
-  --data-binary '{
-    "jsonrpc": "1.0",
-    "id": "scan_utxo",
-    "method": "scantxoutset",
-    "params": [
-      "start",
-      [
-        { "desc": "addr(bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8)", "range": 1000 }
-      ]
-    ]
-  }' \
-  -H 'content-type: text/plain;' \
-  http://127.0.0.1:18443/
-```
+   ```sh
+   curl --user rpcuser:rpcpassword \
+     --data-binary '{
+       "jsonrpc": "1.0",
+       "id": "scan_utxo",
+       "method": "scantxoutset",
+       "params": [
+         "start",
+         [
+           { "desc": "addr(bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8)", "range": 1000 }
+         ]
+       ]
+     }' \
+     -H 'content-type: text/plain;' \
+     http://127.0.0.1:18443/
+   ```
 
-```json
-[
-  {
-    "txid": "<txid>",
-    "vout": 1,
-    "value": 100000000
-  }
-  ...
-]
-```
+   ```json
+   [
+     {
+       "txid": "<txid>",
+       "vout": 1,
+       "value": 100000000
+     }
+     ...
+   ]
+   ```
 
-2. Create a new tx
+3. Create a new tx
 
-```sh
-cargo run \
-    --example transfer_utxos_from_bridge -- \
-    --from-address bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8 \
-    --to-address bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm \
-    --action prepare
-```
+   ```sh
+   cargo run \
+       --example transfer_utxos_from_bridge -- \
+       --from-address bcrt1pfk264lnycy2v48h3we2jajyg7kyuvha9yfkd4qmxfrgywz3meyhqhdhmj8 \
+       --to-address bcrt1q92gkfme6k9dkpagrkwt76etkaq29hvf02w5m38f6shs4ddpw7hzqp347zm \
+       --action prepare
+   ```
 
-2. The signer 1 sign
+4. The signer 1 sign
 
-```sh
-cargo run --example transfer_utxos_from_bridge -- --action sign --private-key cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
-```
+   ```sh
+   cargo run --example transfer_utxos_from_bridge -- --action sign --private-key cQnW8oDqEME4gxJHC4MC9HvJECcF7Ju8oanWdjWLGxDbkfWo7vZa
+   ```
 
-3. The signer 2 sign
+5. The signer 2 sign
 
-```sh
-cargo run --example transfer_utxos_from_bridge -- --action sign --private-key cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
-```
+   ```sh
+   cargo run --example transfer_utxos_from_bridge -- --action sign --private-key cVJYEHTzmfdRPoX6fL3vRnZVmqy4D1sWaT5WL9U25oZhQktoeHgo
+   ```
 
-2. Finalise the tx
+6. Finalise the tx
 
-```sh
-cargo run --example transfer_utxos_from_bridge -- --action finalize
-```
+   ```sh
+   cargo run --example transfer_utxos_from_bridge -- --action finalize
+   ```
 
-2. Broadcast the transaction
+7. Broadcast the transaction
 
-```sh
-cargo run --example transfer_utxos_from_bridge -- --action broadcast
-```
+   ```sh
+   cargo run --example transfer_utxos_from_bridge -- --action broadcast
+   ```

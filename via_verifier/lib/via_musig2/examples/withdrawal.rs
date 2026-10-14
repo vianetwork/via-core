@@ -3,7 +3,6 @@
 use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
-
 use bitcoin::{
     hex::{Case, DisplayHex},
     key::Keypair,
@@ -14,8 +13,8 @@ use bitcoin::{
 };
 use musig2::KeyAggContext;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps, types::NodeAuth};
-use via_musig2::constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR;
 use via_musig2::{
+    constants::TAPROOT_TWEAK_SCALAR_RANGE_ERR,
     fee::WithdrawalFeeStrategy,
     get_signer,
     transaction_builder::TransactionBuilder,

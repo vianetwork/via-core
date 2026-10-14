@@ -149,11 +149,11 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
     let mut prev_l1_batch_hash_number_2 = H256::random();
 
     let mut votable_transaction_id: i64 = 0;
-    // Insert 4 votable transactions, the first 2 transactions are finalized.
+    let mut indexed = Vec::new();
+    // Index all 4 batches before any verdict, as the watcher runs ahead of the verifier.
     for i in 1..5 {
         let l1_batch_number = i;
         let proof_reveal_tx_id = H256::random();
-        let verifier_address = "0x1234567890123456789012345678901234567890".to_string();
         let l1_batch_hash = H256::random();
         votable_transaction_id += 1;
 
@@ -173,55 +173,34 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
             .await
             .unwrap();
 
-        let mut vote = true;
-
-        match i.cmp(&invalid_l1_batch_id) {
-            std::cmp::Ordering::Equal => {
-                vote = false;
-                prev_l1_batch_hash_number_2 = prev_l1_batch_hash;
-            }
-            std::cmp::Ordering::Greater => break,
-            _ => {}
+        if i == invalid_l1_batch_id {
+            prev_l1_batch_hash_number_2 = prev_l1_batch_hash;
         }
-
-        // if i == invalid_l1_batch_id {
-        //     vote = false;
-        //     prev_l1_batch_hash_number_2 = prev_l1_batch_hash;
-        // } else if i > invalid_l1_batch_id {
-        //     break;
-        // }
         prev_l1_batch_hash = l1_batch_hash;
+        indexed.push((votable_transaction_id, proof_reveal_tx_id));
+    }
+
+    // Finalize batches 1 and 2, then reject batch 3.
+    // The rejection also invalidates indexed batch 4, so a replacement batch 4 can be indexed.
+    for (l1_batch_number, (id, proof_reveal_tx_id)) in (1..=invalid_l1_batch_id).zip(indexed) {
+        let verifier_address = "0x1234567890123456789012345678901234567890".to_string();
+        let vote = l1_batch_number != invalid_l1_batch_id;
 
         storage
             .via_votes_dal()
-            .insert_vote(votable_transaction_id, &verifier_address, vote, None)
+            .insert_vote(id, &verifier_address, vote, None)
             .await
             .unwrap();
         storage
             .via_votes_dal()
-            .verify_votable_transaction(
-                i64::from(l1_batch_number),
-                proof_reveal_tx_id.clone(),
-                vote,
-            )
+            .verify_votable_transaction(i64::from(l1_batch_number), proof_reveal_tx_id, vote)
             .await
             .unwrap();
         storage
             .via_votes_dal()
-            .finalize_transaction_if_needed(votable_transaction_id, 1.0, 1)
+            .finalize_transaction_if_needed(id, 1.0, 1)
             .await
             .unwrap();
-        // if vote {
-        //     storage
-        //         .via_bridge_dal()
-        //         .update_bridge_tx(
-        //             &proof_reveal_tx_id.as_bytes().to_vec(),
-        //             0,
-        //             H256::zero().as_bytes(),
-        //         )
-        //         .await
-        //         .unwrap();
-        // }
     }
 
     let res = storage
@@ -238,6 +217,22 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
         .unwrap();
     assert!(rejected_l1_batch.is_some());
     assert_eq!(rejected_l1_batch.unwrap().0, i64::from(invalid_l1_batch_id));
+
+    // A reinserted child of a rejected batch remains ineligible while pending.
+    let mut reinserted = storage.start_transaction().await.unwrap();
+    sqlx::query(
+        "UPDATE via_votable_transactions SET l1_batch_status = NULL, is_finalized = NULL WHERE l1_batch_number = 4",
+    )
+    .execute(reinserted.conn())
+    .await
+    .unwrap();
+    assert!(reinserted
+        .via_votes_dal()
+        .get_first_not_verified_l1_batch_in_canonical_inscription_chain()
+        .await
+        .unwrap()
+        .is_none());
+    reinserted.rollback().await.unwrap();
 
     prev_l1_batch_hash = prev_l1_batch_hash_number_2;
     let expected_not_processed_l1_batch_votable_tx_id = 5;
@@ -279,11 +274,7 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
 
         storage
             .via_votes_dal()
-            .verify_votable_transaction(
-                i64::from(l1_batch_number),
-                proof_reveal_tx_id.clone(),
-                vote,
-            )
+            .verify_votable_transaction(i64::from(l1_batch_number), proof_reveal_tx_id, vote)
             .await
             .unwrap();
 

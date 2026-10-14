@@ -40,15 +40,9 @@ const submoduleUpdate = async (): Promise<void> => {
 type InitSetupOptions = {
     skipEnvSetup: boolean;
     skipSubmodulesCheckout: boolean;
-    runObservability: boolean;
     profile: string;
 };
-const initSetup = async ({
-    skipSubmodulesCheckout,
-    skipEnvSetup,
-    runObservability,
-    profile
-}: InitSetupOptions): Promise<void> => {
+const initSetup = async ({ skipSubmodulesCheckout, skipEnvSetup, profile }: InitSetupOptions): Promise<void> => {
     await announced(`Initializing in 'Roll-up mode`);
     if (!skipSubmodulesCheckout) {
         await announced('Checkout submodules', submoduleUpdate());
@@ -85,13 +79,17 @@ const initDatabase = async (
 
 const initVerifierSetup = async (skipEnvSetup: boolean): Promise<void> => {
     await announced(`Initializing the verifier'}`);
-    await announced('Checking environment', checkEnv());
+    if (!skipEnvSetup) {
+        await announced('Checking environment', checkEnv());
+    }
     await initDatabase(true, false, false, true);
 };
 
 const initIndexerSetup = async (skipEnvSetup: boolean): Promise<void> => {
     await announced(`Initializing the indexer'}`);
-    await announced('Checking environment', checkEnv());
+    if (!skipEnvSetup) {
+        await announced('Checking environment', checkEnv());
+    }
     await initDatabase(true, false, false, false, true);
 };
 
@@ -129,21 +127,17 @@ const makeEraAddressSameAsCurrent = async () => {
 
 // ########################### Command Actions ###########################
 type InitDevCmdActionOptions = InitSetupOptions & {
+    runObservability?: boolean;
     skipTestTokenDeployment?: boolean;
-    skipVerifier?: boolean;
     baseTokenName?: string;
     localLegacyBridgeTesting?: boolean;
     profile?: string;
     shouldCheckPostgres: boolean; // Whether to perform `cargo sqlx prepare --check`
     mode: Mode;
 };
-export const initDevCmdAction = async ({
+const initDevCmdAction = async ({
     skipEnvSetup,
     skipSubmodulesCheckout,
-    skipVerifier,
-    skipTestTokenDeployment,
-    baseTokenName,
-    runObservability,
     localLegacyBridgeTesting,
     profile,
     shouldCheckPostgres
@@ -154,7 +148,6 @@ export const initDevCmdAction = async ({
     await initSetup({
         skipEnvSetup,
         skipSubmodulesCheckout,
-        runObservability,
         profile
     });
 
@@ -169,15 +162,32 @@ export const initDevCmdAction = async ({
     }
 };
 
-export const initVerifierDevCmdAction = async ({ skipEnvSetup }: InitDevCmdActionOptions): Promise<void> => {
+const initVerifierDevCmdAction = async ({ skipEnvSetup }: InitDevCmdActionOptions): Promise<void> => {
     await initVerifierSetup(skipEnvSetup);
 };
 
-export const initIndexerDevCmdAction = async ({ skipEnvSetup }: InitDevCmdActionOptions): Promise<void> => {
+const initIndexerDevCmdAction = async ({ skipEnvSetup }: InitDevCmdActionOptions): Promise<void> => {
     await initIndexerSetup(skipEnvSetup);
 };
 
+export function validateInitOptions(
+    options: Pick<InitDevCmdActionOptions, 'runObservability' | 'skipTestTokenDeployment' | 'baseTokenName'>
+): void {
+    if (options.runObservability) {
+        throw new Error('--run-observability is unsupported by the Via initialization workflow.');
+    }
+    if (options.skipTestTokenDeployment) {
+        throw new Error(
+            '--skip-test-token-deployment is unsupported because Via initialization does not deploy test tokens.'
+        );
+    }
+    if (options.baseTokenName !== undefined) {
+        throw new Error('--base-token-name is unsupported because Via initialization does not register a base token.');
+    }
+}
+
 const init = async (options: InitDevCmdActionOptions) => {
+    validateInitOptions(options);
     switch (options.mode) {
         case Mode.SEQUENCER:
             return await initDevCmdAction(options);
@@ -195,10 +205,10 @@ const init = async (options: InitDevCmdActionOptions) => {
 export const initCommand = new Command('init')
     .option('--skip-submodules-checkout')
     .option('--skip-env-setup')
-    .option('--skip-test-token-deployment') // ?
-    .option('--base-token-name <base-token-name>', 'base token name') // ?
+    .option('--skip-test-token-deployment', 'unsupported by Via initialization; rejected when requested') // ?
+    .option('--base-token-name <base-token-name>', 'unsupported by Via initialization; rejected when supplied') // ?
     // .option('--validium-mode', 'deploy contracts in Validium mode')
-    .option('--run-observability', 'run observability suite')
+    .option('--run-observability', 'unsupported by Via initialization; rejected when requested')
     .option('--skip-submodules-checkout')
     .option('--profile <profile>', '') // docker compose profile [reorg]
     .option('--mode [type]', 'init mode', Mode.SEQUENCER)

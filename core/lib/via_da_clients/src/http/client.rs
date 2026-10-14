@@ -23,20 +23,13 @@ pub struct HttpDaClient {
 impl HttpDaClient {
     pub fn new(base_url: String) -> Self {
         let client = Client::new();
-        Self {
-            base_url,
-            client: Arc::new(client),
-        }
+        Self { base_url, client: Arc::new(client) }
     }
 }
 
 #[async_trait]
 impl DataAvailabilityClient for HttpDaClient {
-    async fn dispatch_blob(
-        &self,
-        batch_number: u32,
-        data: Vec<u8>,
-    ) -> Result<DispatchResponse, DAError> {
+    async fn dispatch_blob(&self, batch_number: u32, data: Vec<u8>) -> Result<DispatchResponse, DAError> {
         let url = format!("{}/da/dispatch", self.base_url);
         let body = json!({
             "batch_number": batch_number,
@@ -49,10 +42,7 @@ impl DataAvailabilityClient for HttpDaClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| DAError {
-                error: e.into(),
-                is_retriable: true,
-            })?;
+            .map_err(|e| DAError { error: e.into(), is_retriable: true })?;
 
         if !res.status().is_success() {
             return Err(DAError {
@@ -61,19 +51,13 @@ impl DataAvailabilityClient for HttpDaClient {
             });
         }
 
-        res.json::<DispatchResponse>().await.map_err(|e| DAError {
-            error: e.into(),
-            is_retriable: false,
-        })
+        res.json::<DispatchResponse>().await.map_err(|e| DAError { error: e.into(), is_retriable: false })
     }
 
     async fn get_inclusion_data(&self, blob_id: &str) -> Result<Option<InclusionData>, DAError> {
         let url = format!("{}/da/inclusion/{}", self.base_url, blob_id);
 
-        let res = self.client.get(&url).send().await.map_err(|e| DAError {
-            error: e.into(),
-            is_retriable: true,
-        })?;
+        let res = self.client.get(&url).send().await.map_err(|e| DAError { error: e.into(), is_retriable: true })?;
 
         if res.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
@@ -86,16 +70,11 @@ impl DataAvailabilityClient for HttpDaClient {
             });
         }
 
-        let inclusion_res = res.json::<InclusionResponse>().await.map_err(|e| DAError {
-            error: e.into(),
-            is_retriable: false,
-        })?;
+        let inclusion_res =
+            res.json::<InclusionResponse>().await.map_err(|e| DAError { error: e.into(), is_retriable: false })?;
 
         Ok(Some(InclusionData {
-            data: hex::decode(inclusion_res.data).map_err(|e| DAError {
-                error: e.into(),
-                is_retriable: false,
-            })?,
+            data: hex::decode(inclusion_res.data).map_err(|e| DAError { error: e.into(), is_retriable: false })?,
         }))
     }
 

@@ -311,7 +311,6 @@ _arguments "${_arguments_options[@]}" : \
 '--server-db-name=[Server database name]:SERVER_DB_NAME:_default' \
 '--l1-rpc-url=[L1 RPC URL]:L1_RPC_URL:_default' \
 '--chain=[Chain to use]:CHAIN:_default' \
-'-d[Use default database urls and names]' \
 '--dev[Use default database urls and names]' \
 '-d[]' \
 '--dont-drop[]' \
@@ -356,7 +355,6 @@ _arguments "${_arguments_options[@]}" : \
 '--server-db-url=[Server database url without database name]:SERVER_DB_URL:_default' \
 '--server-db-name=[Server database name]:SERVER_DB_NAME:_default' \
 '--chain=[Chain to use]:CHAIN:_default' \
-'-d[Use default database urls and names]' \
 '--dev[Use default database urls and names]' \
 '-d[]' \
 '--dont-drop[]' \
@@ -380,7 +378,6 @@ _arguments "${_arguments_options[@]}" : \
 '--server-db-url=[Server database url without database name]:SERVER_DB_URL:_default' \
 '--server-db-name=[Server database name]:SERVER_DB_NAME:_default' \
 '--chain=[Chain to use]:CHAIN:_default' \
-'-d[Use default database urls and names]' \
 '--dev[Use default database urls and names]' \
 '-d[]' \
 '--dont-drop[]' \
@@ -1920,21 +1917,19 @@ _arguments "${_arguments_options[@]}" : \
 '--component=[]:COMPONENT:(gateway witness-generator witness-vector-generator prover circuit-prover compressor prover-job-monitor)' \
 '--round=[]:ROUND:(all-rounds basic-circuits leaf-aggregation node-aggregation recursion-tip scheduler)' \
 '--threads=[]:THREADS:_default' \
-'--max-allocation=[Memory allocation limit in bytes (for prover component)]:MAX_ALLOCATION:_default' \
+'-m+[Memory allocation limit in bytes for the prover or circuit-prover component]:MAX_ALLOCATION:_default' \
+'--max-allocation=[Memory allocation limit in bytes for the prover or circuit-prover component]:MAX_ALLOCATION:_default' \
 '-l+[]:LIGHT_WVG_COUNT:_default' \
 '--light-wvg-count=[]:LIGHT_WVG_COUNT:_default' \
 '-h+[]:HEAVY_WVG_COUNT:_default' \
 '--heavy-wvg-count=[]:HEAVY_WVG_COUNT:_default' \
-'-m+[]:MAX_ALLOCATION:_default' \
-'--max-allocation=[]:MAX_ALLOCATION:_default' \
 '--docker=[]:DOCKER:(true false)' \
 '--tag=[]:TAG:_default' \
 '--chain=[Chain to use]:CHAIN:_default' \
+'--help[Print help]' \
 '-v[Verbose mode]' \
 '--verbose[Verbose mode]' \
 '--ignore-prerequisites[Ignores prerequisites checks]' \
-'-h[Print help]' \
-'--help[Print help]' \
 && ret=0
 ;;
 (init-bellman-cuda)

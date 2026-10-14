@@ -3,8 +3,7 @@ use std::time::Duration;
 use vise::{Buckets, Counter, Gauge, Histogram, Metrics, Unit};
 
 /// Buckets for `blob_dispatch_latency` (from 0.1 to 120 seconds).
-const DISPATCH_LATENCIES: Buckets =
-    Buckets::values(&[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0]);
+const DISPATCH_LATENCIES: Buckets = Buckets::values(&[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0]);
 
 #[derive(Debug, Metrics)]
 #[metrics(prefix = "via_server_da_dispatcher")]

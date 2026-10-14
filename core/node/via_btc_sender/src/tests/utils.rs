@@ -27,14 +27,11 @@ use zksync_types::{
 
 use crate::{
     aggregated_operations::ViaAggregatedOperation, aggregator::ViaAggregator,
-    btc_inscription_aggregator::ViaBtcInscriptionAggregator,
-    btc_inscription_manager::ViaBtcInscriptionManager,
+    btc_inscription_aggregator::ViaBtcInscriptionAggregator, btc_inscription_manager::ViaBtcInscriptionManager,
 };
 
-pub const BOOTLOADER_CODE_HASH_TEST: &str =
-    "010008e79c154523aa30981e598b73c4a33c304bef9c82bae7d2ca4d21daedc7";
-pub const DEFAULT_AA_CODE_HASH_TEST: &str =
-    "010005630848b5537f934eea6bd8c61c50648a162b90c82f316454f4109462b1";
+pub const BOOTLOADER_CODE_HASH_TEST: &str = "010008e79c154523aa30981e598b73c4a33c304bef9c82bae7d2ca4d21daedc7";
+pub const DEFAULT_AA_CODE_HASH_TEST: &str = "010005630848b5537f934eea6bd8c61c50648a162b90c82f316454f4109462b1";
 
 pub fn generate_random_bytes(length: usize) -> Vec<u8> {
     let mut bytes: Vec<u8> = vec![];
@@ -114,8 +111,7 @@ pub fn create_btc_l1_batch_details(number: L1BatchNumber, timestamp: i64) -> Via
 }
 
 pub fn get_btc_sender_config(
-    max_aggregated_blocks_to_commit: i32,
-    max_aggregated_proofs_to_commit: i32,
+    max_aggregated_blocks_to_commit: i32, max_aggregated_proofs_to_commit: i32,
 ) -> ViaBtcSenderConfig {
     let mut config = ViaBtcSenderConfig::for_tests();
     config.max_aggregated_blocks_to_commit = max_aggregated_blocks_to_commit;
@@ -124,17 +120,14 @@ pub fn get_btc_sender_config(
 }
 
 pub async fn get_inscription_aggregator_mock(
-    pool: ConnectionPool<Core>,
-    config: ViaBtcSenderConfig,
+    pool: ConnectionPool<Core>, config: ViaBtcSenderConfig,
 ) -> ViaBtcInscriptionAggregator {
     let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
     Result::unwrap(ViaBtcInscriptionAggregator::new(inscriber, pool, config).await)
 }
 
 pub async fn get_inscription_manager_mock(
-    pool: ConnectionPool<Core>,
-    config: ViaBtcSenderConfig,
-    mock_btc_ops_config: MockBitcoinOpsConfig,
+    pool: ConnectionPool<Core>, config: ViaBtcSenderConfig, mock_btc_ops_config: MockBitcoinOpsConfig,
 ) -> ViaBtcInscriptionManager {
     let inscriber = get_mock_inscriber_and_conditions(mock_btc_ops_config);
     Result::unwrap(ViaBtcInscriptionManager::new(inscriber, pool, config).await)
@@ -148,10 +141,8 @@ pub struct ViaAggregatorTest {
 
 impl ViaAggregatorTest {
     pub async fn new(
-        protocol_version: ProtocolVersionId,
-        base_system_contracts_hashes: BaseSystemContractsHashes,
-        pool: ConnectionPool<Core>,
-        mut config: Option<ViaBtcSenderConfig>,
+        protocol_version: ProtocolVersionId, base_system_contracts_hashes: BaseSystemContractsHashes,
+        pool: ConnectionPool<Core>, mut config: Option<ViaBtcSenderConfig>,
     ) -> Self {
         let mut storage = pool.connection().await.unwrap();
 
@@ -162,57 +153,32 @@ impl ViaAggregatorTest {
 
         let timestamp = Utc::now().timestamp() as u64;
         let protocol_version = zksync_types::ProtocolVersion {
-            l1_verifier_config: L1VerifierConfig {
-                snark_wrapper_vk_hash: H256::random(),
-            },
+            l1_verifier_config: L1VerifierConfig { snark_wrapper_vk_hash: H256::random() },
             base_system_contracts_hashes,
             timestamp,
             tx: None,
-            version: ProtocolSemanticVersion {
-                minor: protocol_version,
-                patch: 0.into(),
-            },
+            version: ProtocolSemanticVersion { minor: protocol_version, patch: 0.into() },
         };
 
-        storage
-            .protocol_versions_dal()
-            .save_protocol_version_with_tx(&protocol_version)
-            .await
-            .unwrap();
+        storage.protocol_versions_dal().save_protocol_version_with_tx(&protocol_version).await.unwrap();
 
-        Self {
-            aggregator,
-            storage,
-            protocol_version,
-        }
+        Self { aggregator, storage, protocol_version }
     }
 
     pub async fn get_next_ready_operation(&mut self) -> Option<ViaAggregatedOperation> {
-        self.aggregator
-            .get_next_ready_operation(&mut self.storage)
-            .await
-            .unwrap()
+        self.aggregator.get_next_ready_operation(&mut self.storage).await.unwrap()
     }
 
     pub async fn insert_l1_batch(
-        &mut self,
-        header: L1BatchHeader,
-        l1_commitment_artifacts: L1BatchCommitmentArtifacts,
+        &mut self, header: L1BatchHeader, l1_commitment_artifacts: L1BatchCommitmentArtifacts,
     ) {
-        self.storage
-            .blocks_dal()
-            .insert_mock_l1_batch(&header)
-            .await
-            .unwrap();
+        self.storage.blocks_dal().insert_mock_l1_batch(&header).await.unwrap();
 
         self.storage
             .blocks_dal()
             .save_l1_batch_tree_data(
                 header.number,
-                &L1BatchTreeData {
-                    hash: H256::random(),
-                    rollup_last_leaf_index: 1,
-                },
+                &L1BatchTreeData { hash: H256::random(), rollup_last_leaf_index: 1 },
             )
             .await
             .unwrap();
@@ -240,10 +206,7 @@ impl ViaAggregatorTest {
             .expect("save_l1_batch_inclusion_data");
     }
 
-    pub async fn update_l1_block_for_ready_to_commit_proof(
-        &mut self,
-        number: L1BatchNumber,
-    ) -> (i64, i64) {
+    pub async fn update_l1_block_for_ready_to_commit_proof(&mut self, number: L1BatchNumber) -> (i64, i64) {
         let batch: ViaBtcL1BlockDetails = ViaBtcL1BlockDetails {
             number,
             hash: Some(generate_random_bytes(32)),
@@ -255,10 +218,7 @@ impl ViaAggregatorTest {
         };
         let inscription_message = self
             .aggregator
-            .construct_inscription_message(
-                &ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
-                &batch,
-            )
+            .construct_inscription_message(&ViaBtcInscriptionRequestType::CommitL1BatchOnchain, &batch)
             .unwrap();
 
         let inscription_id = self
@@ -299,11 +259,7 @@ impl ViaAggregatorTest {
             .unwrap();
         let sent_at = Utc::now().naive_utc();
 
-        let _ = self
-            .storage
-            .via_data_availability_dal()
-            .insert_proof_da(batch.number, "blob_id", sent_at, 0)
-            .await;
+        let _ = self.storage.via_data_availability_dal().insert_proof_da(batch.number, "blob_id", sent_at, 0).await;
 
         (inscription_id, inscription_request_history_id as i64)
     }
@@ -313,10 +269,8 @@ impl ViaAggregatorTest {
             .storage
             .btc_sender_dal()
             .insert_inscription_request_history(
-                Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap())
-                    .as_byte_array(),
-                Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap())
-                    .as_byte_array(),
+                Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()).as_byte_array(),
+                Txid::from_byte_array(generate_random_bytes(32).try_into().unwrap()).as_byte_array(),
                 inscription_request_id,
                 &[],
                 &[],
@@ -328,10 +282,7 @@ impl ViaAggregatorTest {
 
         self.storage
             .btc_sender_dal()
-            .confirm_inscription(
-                inscription_request_id,
-                inscription_request_history_id as i64,
-            )
+            .confirm_inscription(inscription_request_id, inscription_request_history_id as i64)
             .await
             .unwrap();
     }
@@ -365,42 +316,23 @@ impl ViaAggregatorTest {
 
         let mut transaction = self.storage.start_transaction().await?;
 
-        transaction
-            .protocol_versions_dal()
-            .save_protocol_version_with_tx(&self.protocol_version)
-            .await?;
-        transaction
-            .blocks_dal()
-            .insert_l1_batch(genesis_l1_batch_header)
-            .await?;
-        transaction
-            .blocks_dal()
-            .insert_l2_block(&genesis_l2_block_header)
-            .await?;
-        transaction
-            .blocks_dal()
-            .mark_l2_blocks_as_executed_in_l1_batch(L1BatchNumber(0))
-            .await?;
+        transaction.protocol_versions_dal().save_protocol_version_with_tx(&self.protocol_version).await?;
+        transaction.blocks_dal().insert_l1_batch(genesis_l1_batch_header).await?;
+        transaction.blocks_dal().insert_l2_block(&genesis_l2_block_header).await?;
+        transaction.blocks_dal().mark_l2_blocks_as_executed_in_l1_batch(L1BatchNumber(0)).await?;
 
         let factory_deps = [BOOTLOADER_CODE_HASH_TEST, DEFAULT_AA_CODE_HASH_TEST]
             .iter()
             .map(|c| (H256::from_str(c).unwrap(), vec![]))
             .collect();
 
-        transaction
-            .factory_deps_dal()
-            .insert_factory_deps(L2BlockNumber(0), &factory_deps)
-            .await
-            .unwrap();
+        transaction.factory_deps_dal().insert_factory_deps(L2BlockNumber(0), &factory_deps).await.unwrap();
 
         transaction
             .blocks_dal()
             .save_l1_batch_tree_data(
                 L1BatchNumber::from(0),
-                &L1BatchTreeData {
-                    hash: H256::random(),
-                    rollup_last_leaf_index: 1,
-                },
+                &L1BatchTreeData { hash: H256::random(), rollup_last_leaf_index: 1 },
             )
             .await
             .unwrap();
