@@ -56,3 +56,27 @@ The verifier has two main layers responsible for detecting and handling reorgs:
   verification, and withdrawal handling.
 - If the reorg impacted already finalized transactions, the verifier can revert the finalized batches and process from
   the last valid batch.
+
+### Verifier progress and proof-gap pause
+
+The verifier serializes inscription scanning, accepted-header updates,
+checkpoint initialization, and recovery through one PostgreSQL transaction
+owner. Recovery caps `via_btc_watch` at its actual completed progress. Canonical
+deletion and withdrawal invalidation still use the real divergence height.
+Network fetching holds that owner and the withdrawal invalidation gate, so slow
+RPCs can delay recovery and withdrawal mutations.
+
+A missing proof prefix rolls back the scan and pauses the watcher. The error
+records expected and observed batch and parent identities, proof transaction,
+and scanned Bitcoin block. The gauge
+`via_verifier_btc_watch_proof_continuity_blocked` is 1 while paused. An alert
+route can use `via_verifier_btc_watch_proof_continuity_blocked == 1`. A
+responsive HTTP endpoint does not establish inscription progress.
+
+Investigate canonical proof and parent history before restarting. Preserve proof
+verdicts, votes, withdrawal obligations, and signing/payment risk. Restart
+clears the process-local pause, but unchanged history triggers it again.
+Historical replay needs a separately approved procedure and semantic rehearsal.
+Do not fabricate finalization or move a checkpoint forward to bypass the
+failure. [ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md)
+records the decision.

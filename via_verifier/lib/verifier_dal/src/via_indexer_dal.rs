@@ -8,6 +8,26 @@ pub struct ViaIndexerDal<'a, 'c> {
 }
 
 impl ViaIndexerDal<'_, '_> {
+    /// Serializes verifier scans, header updates, initialization, and recovery.
+    /// Call inside the outer transaction, before reading progress or fetching blocks.
+    /// Lock order is scan owner, exclusive withdrawal invalidation gate, then wallets.
+    /// Holding the gate first prevents fork handling from upgrading a shared gate after wallet locks.
+    // Adapts graphprotocol/graph-node@6838f4e3cf3607c5bc32ef705dd05aec1eb057ab,
+    // store/postgres/src/deployment_store.rs, rewind_or_truncate_with_conn.
+    // Via commits processor effects and progress together under a database owner.
+    // Unlike its serialized runner, Via also serializes fetching across separate tasks.
+    pub async fn lock_btc_watch(&mut self) -> DalResult<()> {
+        sqlx::query("SELECT pg_advisory_xact_lock(1464095562)")
+            .instrument("btc_watch_owner")
+            .execute(&mut *self.storage)
+            .await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(1464095559)")
+            .instrument("btc_watch_invalidation_gate")
+            .execute(&mut *self.storage)
+            .await?;
+        Ok(())
+    }
+
     pub async fn init_indexer_metadata(&mut self, module: &str, l1_block: u32) -> DalResult<()> {
         sqlx::query!(
             r#"

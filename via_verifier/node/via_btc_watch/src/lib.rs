@@ -3,6 +3,8 @@ mod metrics;
 
 use std::sync::Arc;
 
+use anyhow::Context;
+
 use message_processors::{GovernanceUpgradesEventProcessor, WithdrawalProcessor};
 use tokio::sync::watch;
 // re-export via_btc_client types
@@ -35,6 +37,7 @@ pub struct VerifierBtcWatch {
     message_processors: Vec<Box<dyn MessageProcessor>>,
     withdrawal_builder: TransactionBuilder,
     withdrawal_fulfillment: Option<WithdrawalFulfillment>,
+    proof_gap: Option<Box<message_processors::ProofContinuityGap>>,
 }
 
 struct WithdrawalFulfillment {
@@ -74,6 +77,7 @@ impl VerifierBtcWatch {
             message_processors,
             withdrawal_builder,
             withdrawal_fulfillment: None,
+            proof_gap: None,
         })
     }
 
@@ -152,6 +156,27 @@ impl VerifierBtcWatch {
     }
 
     async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), MessageProcessorError> {
+        if self.proof_gap.is_some() {
+            return Ok(());
+        }
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        match self.process_scan(&mut transaction).await {
+            Ok(()) => {
+                transaction.commit().await?;
+                Ok(())
+            }
+            Err(MessageProcessorError::ProofContinuityGap(gap)) => {
+                METRICS.proof_continuity_blocked.set(1);
+                self.proof_gap = Some(gap.clone());
+                transaction.rollback().await.with_context(|| format!("Rolling back scan blocked by {gap}"))?;
+                Err(MessageProcessorError::ProofContinuityGap(gap))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn process_scan(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), MessageProcessorError> {
         if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
@@ -242,11 +267,8 @@ impl VerifierBtcWatch {
 
         // Re-process blocks if system wallets were updated, since the new wallet state
         // may change how subsequent messages are interpreted.
-        let updated_at = self
-            .system_wallet_processor
-            .process_messages(storage, messages.clone(), &mut self.indexer)
-            .await
-            .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+        let updated_at =
+            self.system_wallet_processor.process_messages(storage, messages.clone(), &mut self.indexer).await?;
         // The active withdrawal wallet is an immutable activation boundary. Stop before
         // rescanning or advancing under a rotated wallet; old holds remain authoritative.
         storage.via_withdrawal_dal().verify_withdrawal_wallet(self.indexer.bridge_script_pubkey().as_bytes()).await?;
@@ -262,21 +284,7 @@ impl VerifierBtcWatch {
         }
 
         for processor in self.message_processors.iter_mut() {
-            processor
-                .process_messages(storage, messages.clone(), &mut self.indexer)
-                .await
-                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
-        }
-
-        // Check if the last processed block was updated by another thread. This could happen when a reorg is detected.
-        let current_last_processed_bitcoin_block =
-            storage.via_indexer_dal().get_last_processed_l1_block(VerifierBtcWatch::module_name()).await? as u32;
-
-        if current_last_processed_bitcoin_block != last_processed_bitcoin_block {
-            tracing::info!(
-                "The btc_watch last processed block was updated by another thread, skipping the block processing"
-            );
-            return Ok(());
+            processor.process_messages(storage, messages.clone(), &mut self.indexer).await?;
         }
 
         storage.via_withdrawal_dal().verify_withdrawal_wallet(self.indexer.bridge_script_pubkey().as_bytes()).await?;
