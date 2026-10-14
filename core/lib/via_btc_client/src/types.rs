@@ -76,6 +76,8 @@ pub struct CommonFields {
     pub schnorr_signature: TaprootSignature,
     pub encoded_public_key: PushBytesBuf,
     pub block_height: u32,
+    /// Bitcoin inclusion observed by the scanner. Standalone parsing has no inclusion context.
+    pub block_hash: Option<bitcoin::BlockHash>,
     pub tx_id: Txid,
     pub tx_index: Option<usize>,
     pub output_vout: Option<usize>,

@@ -16,8 +16,22 @@ mod system_wallet;
 mod verifier;
 mod withdrawal;
 
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("proof continuity gap: expected batch {expected_batch} after {canonical_parent:?}, observed batch {observed_batch} with parent {observed_parent:?}, proof {proof_txid:?} at Bitcoin {source_height}/{source_hash}; ingestion paused, reconcile canonical history before restarting")]
+pub(super) struct ProofContinuityGap {
+    pub expected_batch: u32,
+    pub canonical_parent: Option<H256>,
+    pub observed_batch: u32,
+    pub observed_parent: H256,
+    pub proof_txid: H256,
+    pub source_height: u32,
+    pub source_hash: bitcoin::BlockHash,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub(super) enum MessageProcessorError {
+    #[error(transparent)]
+    ProofContinuityGap(Box<ProofContinuityGap>),
     #[error("internal processing error: {0:?}")]
     Internal(#[from] anyhow::Error),
     #[error("database error: {0}")]
@@ -39,9 +53,7 @@ impl From<DalError> for MessageProcessorError {
 #[async_trait::async_trait]
 pub(super) trait MessageProcessor: 'static + std::fmt::Debug + Send + Sync {
     async fn process_messages(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-        msgs: Vec<FullInscriptionMessage>,
+        &mut self, storage: &mut Connection<'_, Verifier>, msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError>;
 }

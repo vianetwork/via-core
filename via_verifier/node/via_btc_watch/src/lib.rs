@@ -3,6 +3,8 @@ mod metrics;
 
 use std::sync::Arc;
 
+use anyhow::Context;
+
 use message_processors::{GovernanceUpgradesEventProcessor, WithdrawalProcessor};
 use tokio::sync::watch;
 // re-export via_btc_client types
@@ -29,13 +31,12 @@ pub struct VerifierBtcWatch {
     pool: ConnectionPool<Verifier>,
     system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
+    proof_gap: Option<Box<message_processors::ProofContinuityGap>>,
 }
 
 impl VerifierBtcWatch {
     pub async fn new(
-        config: ViaBtcWatchConfig,
-        indexer: BitcoinInscriptionIndexer,
-        btc_client: Arc<BitcoinClient>,
+        config: ViaBtcWatchConfig, indexer: BitcoinInscriptionIndexer, btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Verifier>,
     ) -> anyhow::Result<Self> {
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
@@ -47,13 +48,7 @@ impl VerifierBtcWatch {
             Box::new(WithdrawalProcessor::default()),
         ];
 
-        Ok(Self {
-            config,
-            indexer,
-            pool,
-            system_wallet_processor,
-            message_processors,
-        })
+        Ok(Self { config, indexer, pool, system_wallet_processor, message_processors, proof_gap: None })
     }
 
     pub async fn run(mut self, mut stop_receiver: watch::Receiver<bool>) -> anyhow::Result<()> {
@@ -66,9 +61,7 @@ impl VerifierBtcWatch {
                 _ = stop_receiver.changed() => break,
             }
 
-            let mut storage = pool
-                .connection_tagged(VerifierBtcWatch::module_name())
-                .await?;
+            let mut storage = pool.connection_tagged(VerifierBtcWatch::module_name()).await?;
             match self.loop_iteration(&mut storage).await {
                 Ok(()) => { /* everything went fine */ }
                 Err(err) => {
@@ -82,28 +75,39 @@ impl VerifierBtcWatch {
         Ok(())
     }
 
-    async fn loop_iteration(
-        &mut self,
-        storage: &mut Connection<'_, Verifier>,
-    ) -> Result<(), MessageProcessorError> {
-        if storage
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some()
-        {
+    async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), MessageProcessorError> {
+        if self.proof_gap.is_some() {
+            return Ok(());
+        }
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        match self.process_scan(&mut transaction).await {
+            Ok(()) => {
+                transaction.commit().await?;
+                Ok(())
+            }
+            Err(MessageProcessorError::ProofContinuityGap(gap)) => {
+                METRICS.proof_continuity_blocked.set(1);
+                self.proof_gap = Some(gap.clone());
+                transaction.rollback().await.with_context(|| format!("Rolling back scan blocked by {gap}"))?;
+                Err(MessageProcessorError::ProofContinuityGap(gap))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn process_scan(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), MessageProcessorError> {
+        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
 
-        let last_processed_bitcoin_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block(VerifierBtcWatch::module_name())
-            .await? as u32;
+        let last_processed_bitcoin_block =
+            storage.via_indexer_dal().get_last_processed_l1_block(VerifierBtcWatch::module_name()).await? as u32;
 
         if last_processed_bitcoin_block == 0 {
-            return Err(MessageProcessorError::Internal(anyhow::anyhow!(
-                "The indexer was not initialized".to_string()
-            )));
+            return Err(MessageProcessorError::Internal(
+                anyhow::anyhow!("The indexer was not initialized".to_string()),
+            ));
         }
 
         if let Some(last_protocol_version) = storage
@@ -116,19 +120,17 @@ impl VerifierBtcWatch {
                 .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?;
         }
 
-        let current_l1_block_number =
-            self.indexer
-                .fetch_block_height()
-                .await
-                .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
-                .saturating_sub(self.config.block_confirmations) as u32;
+        let current_l1_block_number = self
+            .indexer
+            .fetch_block_height()
+            .await
+            .map_err(|e| MessageProcessorError::Internal(anyhow::anyhow!(e.to_string())))?
+            .saturating_sub(self.config.block_confirmations) as u32;
         if current_l1_block_number <= last_processed_bitcoin_block {
             return Ok(());
         }
 
-        let Some((last_l1_block_number, _)) =
-            storage.via_l1_block_dal().get_last_l1_block().await?
-        else {
+        let Some((last_l1_block_number, _)) = storage.via_l1_block_dal().get_last_l1_block().await? else {
             tracing::warn!("Reorg did not start yet");
             return Ok(());
         };
@@ -149,17 +151,14 @@ impl VerifierBtcWatch {
             return Ok(());
         }
 
-        let system_wallets_map = match storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_bitcoin_block as i64)
-            .await?
-        {
-            Some(map) => map,
-            None => {
-                tracing::info!("Wait for storage init, block number {}", from_block);
-                return Ok(());
-            }
-        };
+        let system_wallets_map =
+            match storage.via_wallet_dal().get_system_wallets_raw(last_processed_bitcoin_block as i64).await? {
+                Some(map) => map,
+                None => {
+                    tracing::info!("Wait for storage init, block number {}", from_block);
+                    return Ok(());
+                }
+            };
 
         let system_wallets = SystemWallets::try_from(system_wallets_map)?;
 
@@ -178,11 +177,8 @@ impl VerifierBtcWatch {
 
         // Re-process blocks if system wallets were updated, since the new wallet state
         // may change how subsequent messages are interpreted.
-        if let Some(block_number) = self
-            .system_wallet_processor
-            .process_messages(storage, messages.clone(), &mut self.indexer)
-            .await
-            .map_err(|e| MessageProcessorError::Internal(e.into()))?
+        if let Some(block_number) =
+            self.system_wallet_processor.process_messages(storage, messages.clone(), &mut self.indexer).await?
         {
             // Process the blocks until where the update wallets block.
             to_block = block_number;
@@ -195,23 +191,7 @@ impl VerifierBtcWatch {
         }
 
         for processor in self.message_processors.iter_mut() {
-            processor
-                .process_messages(storage, messages.clone(), &mut self.indexer)
-                .await
-                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
-        }
-
-        // Check if the last processed block was updated by another thread. This could happen when a reorg is detected.
-        let current_last_processed_bitcoin_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block(VerifierBtcWatch::module_name())
-            .await? as u32;
-
-        if current_last_processed_bitcoin_block != last_processed_bitcoin_block {
-            tracing::info!(
-                "The btc_watch last processed block was updated by another thread, skipping the block processing"
-            );
-            return Ok(());
+            processor.process_messages(storage, messages.clone(), &mut self.indexer).await?;
         }
 
         storage
@@ -220,11 +200,7 @@ impl VerifierBtcWatch {
             .await
             .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
 
-        tracing::info!(
-            "The btc_watch processed blocks, from {} to {}",
-            from_block,
-            to_block,
-        );
+        tracing::info!("The btc_watch processed blocks, from {} to {}", from_block, to_block,);
 
         Ok(())
     }

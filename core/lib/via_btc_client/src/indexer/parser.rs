@@ -204,6 +204,7 @@ impl MessageParser {
 
         let public_key = control_block.internal_key;
         let common_fields = CommonFields {
+            block_hash: None,
             schnorr_signature: signature,
             encoded_public_key: PushBytesBuf::from(public_key.serialize()),
             block_height,
@@ -756,6 +757,7 @@ impl MessageParser {
             let p2wpkh_address = self.parse_p2wpkh(witness);
 
             let common_fields = CommonFields {
+                block_hash: None,
                 schnorr_signature: signature,
                 encoded_public_key: PushBytesBuf::from(control_block.internal_key.serialize()),
                 block_height,
@@ -820,6 +822,7 @@ impl MessageParser {
 
             // Create common fields with empty signature for OP_RETURN
             let common_fields = CommonFields {
+                block_hash: None,
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
@@ -923,6 +926,7 @@ impl MessageParser {
 
             // Create common fields with empty signature for OP_RETURN
             let common_fields = CommonFields {
+                block_hash: None,
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
@@ -975,6 +979,7 @@ impl MessageParser {
 
             // Create common fields with empty signature for OP_RETURN
             let common_fields = CommonFields {
+                block_hash: None,
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
@@ -1029,6 +1034,7 @@ impl MessageParser {
 
             // Create common fields with empty signature for OP_RETURN
             let common = CommonFields {
+                block_hash: None,
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
@@ -1079,6 +1085,7 @@ impl MessageParser {
 
             // Create common fields with empty signature for OP_RETURN
             let common = CommonFields {
+                block_hash: None,
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,
@@ -1129,6 +1136,7 @@ impl MessageParser {
 
             // Create common fields with empty signature for OP_RETURN
             let common = CommonFields {
+                block_hash: None,
                 schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
                 encoded_public_key: PushBytesBuf::new(),
                 block_height,

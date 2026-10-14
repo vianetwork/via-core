@@ -27,6 +27,9 @@ pub struct ViaVerifierBtcWatcherMetrics {
 
     /// Errors
     pub errors: Counter,
+
+    /// Ingestion is paused on a proof gap and requires operator reconciliation.
+    pub proof_continuity_blocked: Gauge,
 }
 
 #[vise::register]

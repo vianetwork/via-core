@@ -137,6 +137,7 @@ pub fn bootstrap_state_mock() -> BootstrapState {
 pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
     FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
         common: CommonFields {
+            block_hash: None,
             schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
                 .ok()
                 .unwrap(),
@@ -158,6 +159,7 @@ pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscr
 pub fn create_update_governance_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
     FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
         common: CommonFields {
+            block_hash: None,
             schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
                 .ok()
                 .unwrap(),
@@ -198,6 +200,7 @@ pub async fn create_update_bridge_inscription(
 
     Ok(FullInscriptionMessage::UpdateBridge(UpdateBridge {
         common: CommonFields {
+            block_hash: None,
             schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
             encoded_public_key: PushBytesBuf::new(),
             block_height: 0,

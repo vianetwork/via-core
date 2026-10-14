@@ -1,5 +1,7 @@
 use std::ops::Mul;
 
+use anyhow::Context;
+
 use via_verifier_dal::{Verifier, VerifierDal};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
 use zksync_dal::{Connection, ConnectionPool};
@@ -54,27 +56,43 @@ impl ViaVerifierBlockReverter {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
-        let Some((l1_block_number, l1_batch_number)) =
-            storage.via_l1_block_dal().has_reorg_in_progress().await?
+        if storage
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
+            .is_none()
+        {
+            return Ok(());
+        }
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let Some((l1_block_number, l1_batch_number)) = transaction
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await?
         else {
             return Ok(());
         };
 
-        self.reorg(l1_block_number, l1_batch_number).await
-    }
-
-    pub(crate) async fn reorg(
-        &self,
-        l1_block_number: i64,
-        l1_batch_number: i64,
-    ) -> anyhow::Result<()> {
         tracing::info!("Reorg found for l1_block_number {}, l1_batch_number {}, verifier network reverting process started...", l1_block_number, l1_batch_number);
 
-        let mut storage = self.pool.connection().await?;
+        let l1_block_number_to_keep = l1_block_number
+            .checked_sub(1)
+            .filter(|height| *height >= 0)
+            .context("Reorg must retain a nonnegative Bitcoin height")?;
+        let consumer_progress = transaction
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await
+            .context("Reading completed inscription progress under the recovery owner")?;
+        // Adapts bitcoin/bitcoin@f13ae519de94394314cd63a27924b0998ac65d45,
+        // src/wallet/wallet.cpp, CWallet::blockDisconnected.
+        // Via's header scanner can be ahead of its inscription consumer.
+        // Recovery retains only completed work, including uninitialized zero progress.
+        let retained_height = u32::try_from(l1_block_number_to_keep)
+            .context("Reorg retained Bitcoin height is outside the supported range")?;
+        let checkpoint_to_keep = consumer_progress.min(u64::from(retained_height)) as u32;
 
-        let mut transaction = storage.start_transaction().await?;
-
-        let l1_block_number_to_keep = l1_block_number - 1;
         transaction
             .via_l1_block_dal()
             .delete_l1_blocks(l1_block_number_to_keep)
@@ -85,7 +103,7 @@ impl ViaVerifierBlockReverter {
             .await?;
         transaction
             .via_indexer_dal()
-            .update_last_processed_l1_block("via_btc_watch", l1_block_number_to_keep as u32)
+            .update_last_processed_l1_block("via_btc_watch", checkpoint_to_keep)
             .await?;
 
         if l1_batch_number != 0 {

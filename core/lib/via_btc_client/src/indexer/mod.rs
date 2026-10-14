@@ -97,6 +97,7 @@ impl BitcoinInscriptionIndexer {
         debug!("Processing block at height {}", block_height);
 
         let block = self.client.fetch_block(block_height as u128).await?;
+        let block_hash = block.block_hash();
         // TODO: check block header is belong to a valid chain of blocks (reorg detection and management)
         // TODO: deal with malicious sequencer, verifiers from being able to make trouble by sending invalid messages / valid messages with invalid data
 
@@ -138,6 +139,22 @@ impl BitcoinInscriptionIndexer {
             let messages: Vec<_> = parsed_messages
                 .into_iter()
                 .filter(|message| self.is_valid_system_message(message))
+                // Backports vianetwork/via-core@2d955dd0c2f777b4bffcd02d89564c37be04f94c,
+                // core/lib/via_btc_client/src/indexer/mod.rs, BitcoinInscriptionIndexer::process_block.
+                // The release retains scanned block identity for gap errors in memory.
+                // Main's persisted source provenance and withdrawal lifecycle remain separate.
+                .map(|mut message| {
+                    match &mut message {
+                        FullInscriptionMessage::ProofDAReference(proof) => {
+                            proof.common.block_hash = Some(block_hash)
+                        }
+                        FullInscriptionMessage::ValidatorAttestation(vote) => {
+                            vote.common.block_hash = Some(block_hash)
+                        }
+                        _ => {}
+                    }
+                    message
+                })
                 .collect();
 
             valid_messages.extend(messages);
@@ -481,6 +498,7 @@ mod tests {
 
     fn get_test_common_fields() -> CommonFields {
         CommonFields {
+            block_hash: None,
             schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
             encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
             block_height: 0,
@@ -631,6 +649,7 @@ mod tests {
         let l1_batch_da_reference =
             FullInscriptionMessage::L1BatchDAReference(types::L1BatchDAReference {
                 common: CommonFields {
+                    block_hash: None,
                     schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
                     encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
                     block_height: 0,

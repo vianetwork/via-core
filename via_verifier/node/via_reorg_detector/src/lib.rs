@@ -52,6 +52,14 @@ impl ViaVerifierReorgDetector {
     }
 
     async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        self.process_chain(&mut transaction).await?;
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn process_chain(&mut self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
         if self.check_if_reorg_in_progress(storage).await? {
             return Ok(());
         }
@@ -68,6 +76,9 @@ impl ViaVerifierReorgDetector {
     async fn init(&mut self) -> anyhow::Result<()> {
         let mut storage = self.pool.connection_tagged("via_verifier_reorg_detector").await?;
 
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let storage = &mut transaction;
         match storage.via_l1_block_dal().get_last_l1_block().await? {
             Some(_) => {}
             None => {
@@ -89,6 +100,7 @@ impl ViaVerifierReorgDetector {
             }
         };
 
+        transaction.commit().await?;
         METRICS.reorg_data[&ReorgInfo::StartBlock].set(0);
         METRICS.reorg_data[&ReorgInfo::EndBlock].set(0);
         METRICS.soft_reorg.inc_by(0);

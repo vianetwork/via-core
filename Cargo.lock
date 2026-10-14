@@ -12456,6 +12456,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bitcoin",
+ "serde_json",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
@@ -12463,6 +12465,7 @@ dependencies = [
  "via_btc_client",
  "via_consensus",
  "via_test_utils",
+ "via_verifier_block_reverter",
  "via_verifier_dal",
  "via_verifier_types",
  "vise",
