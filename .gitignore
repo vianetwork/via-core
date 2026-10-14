@@ -139,3 +139,5 @@ transactions/
 # foundry-zksync
 install
 .claude/*
+/.scratch/
+/target-install/
