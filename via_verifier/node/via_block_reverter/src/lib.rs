@@ -56,6 +56,7 @@ impl ViaVerifierBlockReverter {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
+        // Check without locks first: without reorg, loop never waits for scan.
         if storage
             .via_l1_block_dal()
             .has_reorg_in_progress()
@@ -70,6 +71,8 @@ impl ViaVerifierBlockReverter {
             .via_indexer_dal()
             .lock_withdrawal_invalidation()
             .await?;
+
+        // Check again under locks, because another task may have handled reorg meanwhile.
         let Some((l1_block_number, l1_batch_number)) = transaction
             .via_l1_block_dal()
             .has_reorg_in_progress()
@@ -91,8 +94,9 @@ impl ViaVerifierBlockReverter {
             .context("Reading completed inscription progress under the recovery owner")?;
         let retained_height = u32::try_from(l1_block_number_to_keep)
             .context("Reorg retained Bitcoin height is outside the supported range")?;
-        // Via adapts Bitcoin Core's `CWallet::blockDisconnected` consumer-owned processed position.
-        // Via caps recovery at completed inscription work because its header scanner can be ahead.
+
+        // Like Bitcoin Core's `CWallet::blockDisconnected`, recovery rewinds from reader's last finished block.
+        // Header scanner may run ahead of reader, and its reorg height alone would skip unread blocks:
         // https://github.com/bitcoin/bitcoin/blob/f13ae519de94394314cd63a27924b0998ac65d45/src/wallet/wallet.cpp
         let checkpoint_to_keep = consumer_progress.min(u64::from(retained_height)) as u32;
 

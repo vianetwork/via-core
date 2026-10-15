@@ -84,8 +84,8 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 .get_parent_batch_exists_for_l1_batch(new_l1_batch_number as i64, &parent_hash)
                                 .await?;
                             if !exists {
-                                // Via adapts ZKsync Era's `PriorityOpsEventProcessor::process_events` serial-gap failure.
-                                // Via pauses with a typed error and rollback instead of panicking on missing history.
+                                // ZKsync Era's `PriorityOpsEventProcessor::process_events` panics when priority operation is missing.
+                                // Here proof with missing parent rolls back scan and pauses it with typed error instead:
                                 // https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/eth_watch/src/event_processors/priority_ops.rs
                                 return Err(MessageProcessorError::ProofContinuityGap(Box::new(ProofContinuityGap {
                                     expected_batch: last_batch_in_canonical_chain.0 + 1,

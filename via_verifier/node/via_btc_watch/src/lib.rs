@@ -76,6 +76,7 @@ impl VerifierBtcWatch {
     }
 
     async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), MessageProcessorError> {
+        // After proof gap, stay paused until restart, because next scan would hit same gap.
         if self.proof_gap.is_some() {
             return Ok(());
         }
@@ -175,7 +176,9 @@ impl VerifierBtcWatch {
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?;
 
+        // Take invalidation lock after fetching, before processors write withdrawal or vote state.
         storage.via_indexer_dal().lock_withdrawal_invalidation().await?;
+
         // Re-process blocks if system wallets were updated, since the new wallet state
         // may change how subsequent messages are interpreted.
         if let Some(block_number) =
