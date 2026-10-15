@@ -15,7 +15,7 @@ use via_musig2::{transaction_builder::TransactionBuilder, types::TransactionBuil
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{configs::via_btc_watch::L1_BLOCKS_CHUNK, ViaBtcWatchConfig};
-use zksync_types::via_wallet::SystemWallets;
+use zksync_types::{helpers::unix_timestamp_ms, via_wallet::SystemWallets};
 
 use self::message_processors::{MessageProcessor, MessageProcessorError};
 use crate::{
@@ -56,6 +56,7 @@ impl VerifierBtcWatch {
         config: ViaBtcWatchConfig, indexer: BitcoinInscriptionIndexer, btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Verifier>,
     ) -> anyhow::Result<Self> {
+        METRICS.initialize();
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
         let withdrawal_builder = TransactionBuilder::new(btc_client.clone())?;
 
@@ -139,7 +140,9 @@ impl VerifierBtcWatch {
 
             let mut storage = pool.connection_tagged(VerifierBtcWatch::module_name()).await?;
             match self.loop_iteration(&mut storage).await {
-                Ok(()) => { /* everything went fine */ }
+                Ok(()) => {
+                    METRICS.last_iteration_timestamp.set(unix_timestamp_ms() / 1_000);
+                }
                 Err(err) => {
                     METRICS.errors.inc();
                     tracing::error!("Error processing new blocks: {err:?}");
