@@ -49,4 +49,25 @@ mappings:
   - path: "core/lib/via_reorg/**"
     area: reorg
 
+  - path: ".github/workflows/via-format.yml"
+    area: fmt
+
+  - path: "scripts/format-changed.sh"
+    area: fmt
+
+  - path: "scripts/tests/format-changed.sh"
+    area: fmt
+
+  - path: "docs/formatting.md"
+    area: fmt
+
+  - path: "core/**/via_*/rustfmt.toml"
+    area: fmt
+
+  - path: "via_verifier/rustfmt.toml"
+    area: fmt
+
+  - path: "via_indexer/rustfmt.toml"
+    area: fmt
+
   # Add more mappings as needed
