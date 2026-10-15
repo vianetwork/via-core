@@ -11,10 +11,11 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
 ## Notes
 
 - [Verifier checkpoints and proof
-  continuity](verifier-checkpoint-and-proof-continuity.md): consumer progress,
-  serialized   recovery, visible proof gaps, and deferred replay. [ADR
-  0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md)   accepts the
-  immediate checkpoint and gap repair.
+  continuity](verifier-checkpoint-and-proof-continuity.md): why a reorg made
+  the verifier skip the proof for batch 265, what established software does
+  instead, and why a missing proof must stop the reader.
+  [ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) accepts
+  the fix. Replaying already skipped history remains open.
 - [Via contracts and a future re-fork](via-contracts-and-a-future-refork.md): the shared context for
   the nine current research questions, inspected zkSync integration interfaces, and evidence that
   remains useful when implementation files move. This is not a complete Via feature inventory.

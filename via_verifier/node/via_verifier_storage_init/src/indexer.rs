@@ -36,9 +36,9 @@ impl ViaIndexerInitializer {
         Ok(last_processed_bitcoin_block != 0)
     }
 
-    /// Initializes progress or applies the explicitly configured restart checkpoint.
-    /// Selecting a starting height does not establish that earlier blocks were scanned.
-    /// The serialization contract and origin are documented on
+    /// Initializes progress, or applies the explicitly configured restart checkpoint.
+    /// A starting height does not mean the blocks before it were scanned.
+    /// Takes the same lock as scans and recovery. Its ordering rule and origin are documented on
     /// [`ViaIndexerDal::lock_btc_watch`](via_verifier_dal::via_indexer_dal::ViaIndexerDal::lock_btc_watch).
     pub async fn initialize_storage(&self) -> anyhow::Result<()> {
         let mut storage = self.pool.connection().await?;

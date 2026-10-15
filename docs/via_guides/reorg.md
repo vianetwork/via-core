@@ -59,28 +59,32 @@ The verifier has two main layers responsible for detecting and handling reorgs:
 
 ### Verifier progress and proof-gap pause
 
-The verifier serializes inscription scanning, accepted-header updates,
-checkpoint initialization, and recovery through one PostgreSQL transaction
-owner. Recovery caps `via_btc_watch` at its actual completed progress. Canonical
-deletion and withdrawal invalidation still use the real divergence height.
-Network fetching holds that owner, so slow RPCs can delay recovery. Main scans
-also hold the exclusive withdrawal invalidation gate before wallet validation.
-Detector and initializer work holds only the owner. There is no finite
-end-to-end hold-time bound until RPC execution is separately bounded.
+The verifier stores how far it has read Bitcoin in the `via_btc_watch` row of
+`via_indexer_metadata`. After a reorg, recovery only ever moves that position
+back, to where the reader really is or to the block before the reorg, whichever
+is lower. The reorg height itself still decides which data is deleted and which
+withdrawals are invalidated.
 
-A missing proof prefix rolls back the scan and pauses the watcher. Only proof
-publications accepted from the configured sequencer address can trigger this
-pause. The error records expected and observed batch and parent identities,
-proof transaction, and scanned Bitcoin block. The gauge
-`via_verifier_btc_watch_proof_continuity_blocked` is 1 while paused. An alert
-rule should use `via_verifier_btc_watch_proof_continuity_blocked == 1`.
-Configuring and verifying its effective alert route is an infrastructure
-follow-up. A responsive HTTP endpoint does not establish inscription progress.
+The reader, the reorg detector, the startup code and recovery take one
+PostgreSQL advisory lock before they read the position or fetch blocks, so only
+one of them changes it at a time. The reader holds that lock while it fetches
+blocks, so slow Bitcoin calls can delay recovery. On the main branch, scans also
+take the withdrawal invalidation lock before checking the withdrawal wallet, so
+withdrawal and vote writes wait during a scan.
 
-Investigate canonical proof and parent history before restarting. Preserve proof
-verdicts, votes, withdrawal obligations, and signing/payment risk. Restart
-clears the process-local pause, but unchanged history triggers it again.
-Historical replay needs a separately approved procedure and semantic rehearsal.
-Do not fabricate finalization or move a checkpoint forward to bypass the
-failure. [ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md)
-records the decision.
+If the reader finds a proof whose parent batch is missing, it rolls back the
+scan and pauses. The gauge `via_verifier_btc_watch_proof_continuity_blocked` is
+1 while paused. Alert on `via_verifier_btc_watch_proof_continuity_blocked == 1`.
+Setting up that alert and its delivery is an infrastructure task. A verifier
+that answers HTTP requests can still be paused, so check this gauge, not only
+the health endpoint. Only proofs from the configured sequencer address can
+trigger the pause.
+
+Before restarting a paused verifier, find out which proof is missing and why.
+Keep proof verdicts, votes, withdrawal obligations and signing risk as they are.
+A restart clears the pause, but if the history is still missing, the reader
+pauses again. Re-reading old history needs a separately approved procedure and a
+rehearsal on a copy of the database. Never mark batches final by hand, and never
+move the position forward to get past the pause.
+[ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) explains
+the decision.

@@ -156,6 +156,7 @@ impl VerifierBtcWatch {
     }
 
     async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), MessageProcessorError> {
+        // After proof gap, stay paused until restart, because next scan would hit same gap.
         if self.proof_gap.is_some() {
             return Ok(());
         }
@@ -220,6 +221,8 @@ impl VerifierBtcWatch {
                 "Withdrawal fulfillment wallet differs from the current bridge wallet"
             )));
         }
+
+        // Take invalidation lock before wallet check below takes wallet lock.
         storage.via_indexer_dal().lock_withdrawal_invalidation().await?;
         storage.via_withdrawal_dal().verify_withdrawal_wallet(system_wallets.bridge.script_pubkey().as_bytes()).await?;
         self.reconcile_withdrawals(storage).await?;

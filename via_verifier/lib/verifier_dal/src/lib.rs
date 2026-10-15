@@ -19,9 +19,11 @@ use crate::{
     via_wallet_dal::ViaWalletDal, withdrawals_dal::ViaWithdrawalDal,
 };
 
-// Serializes verifier scan progress, accepted headers, initialization, and recovery.
+/// Postgres advisory lock key that lets only one verifier scan, header update, initialization or recovery run at a time.
 pub const BTC_WATCH_OWNER_LOCK_KEY: i64 = 1464095562;
-// Excludes withdrawal admission and source writes while authority is invalidated.
+
+/// Postgres advisory lock key held while a reorg marks withdrawals from removed blocks or batches as invalid or uncertain.
+/// Withdrawal work and proof or vote writes wait for it, so none of them acts on a withdrawal during that change.
 pub const WITHDRAWAL_INVALIDATION_LOCK_KEY: i64 = 1464095559;
 
 pub mod models;
