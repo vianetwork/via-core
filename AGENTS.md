@@ -97,7 +97,7 @@ Use declarative, plain language and one idea per comment. On public items and cr
 
 Keep debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon out of `.rs` comments. Put relevant history in the PR or issue; retain useful external protocol references such as BIPs and RFCs.
 
-Where an existing implementation, algorithm or standard materially informs the code, document that origin above the relevant code. This requirement is repo-wide, not agent-specific. State Via's reason and concrete consequence, what was adopted, adapted or rejected and relevant differences, then a pinned source permalink (repo@commit, path, line range) or standard section. Use one sentence per line and periods between independent clauses. The explanation must remain useful without the link.
+Where an existing implementation, algorithm or standard materially informs the code, document that origin above the relevant code. This requirement is repo-wide, not agent-specific. State Via's reason and concrete consequence, what was adopted, adapted or rejected and relevant differences, then a pinned source permalink (repo@commit and path; a line range is optional) or standard section. Use one sentence per line and periods between independent clauses. The explanation must remain useful without the link.
 
 Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
 

@@ -120,8 +120,8 @@ replace them with a fresh implementation summary that loses why the design was s
    components and relevant symbols. Preserve important conditions, state changes, and failure
    transitions; a recommendation must not replace the observation that motivated it.
 4. Explain how comparable software handles the same problem. Where code helps, include a short,
-   verbatim excerpt from inspected primary source with repository, pinned revision, path, line range,
-   and applicable attribution. Explain what the code does and which assumptions do not transfer.
+   verbatim excerpt from inspected primary source with repository, pinned revision, path, and applicable
+   attribution. A line range is optional. Explain what the code does and which assumptions do not transfer.
    Keep each excerpt contiguous and mark omissions outside the code fence. Identify specification
    text, illustrative examples, or pseudocode as such; never present them as implementation source.
    If useful code cannot be verified or reproduced, state the limit and link the available evidence.

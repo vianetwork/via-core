@@ -571,10 +571,10 @@ selection and repeated full-source reconstruction are not.
 ### Source-linked implementation rationale
 
 At governing types and critical shared functions, document the local invariant first, then the specific external
-mechanism that informed it and any important difference. Use a commit-pinned GitHub URL with the source file, symbol or
-line range; use a BIP/RFC section for protocol requirements. A repository homepage alone is not evidence. One concise
-citation at the owner is preferable to repeating it across callers. Keep the complete comparison here, linked from the
-owner when useful.
+mechanism that informed it and any important difference. Use a commit-pinned GitHub URL with the source file path.
+A symbol or line range is optional. Use a BIP/RFC section for protocol requirements. A repository homepage alone is not
+evidence. One concise citation at the owner is preferable to repeating it across callers. Keep the complete comparison
+here, linked from the owner when useful.
 
 For example, the observed-output relation can explain that payments may arrive before expected requests, cite [sBTC's
 output schema][sbtc-output-schema], and state that recording an output grants neither signing authority nor fulfillment.
