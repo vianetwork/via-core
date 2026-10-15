@@ -1,0 +1,38 @@
+name: Via Formatting
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  via-format:
+    name: Via Formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install pinned rustfmt
+        run: |
+          TOOLCHAIN=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain)
+          test -n "$TOOLCHAIN"
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt
+
+      - name: Check Via profile coverage
+        run: scripts/format-changed.sh --check-config
+
+      - name: Test changed-line formatting
+        run: bash scripts/tests/format-changed.sh
+
+      - name: Check changed Via lines
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: scripts/format-changed.sh --check --base "origin/$BASE_REF"

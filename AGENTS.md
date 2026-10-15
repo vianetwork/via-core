@@ -111,10 +111,17 @@ Unjustified duplication or missing sibling checks are grounds for blocking merge
 
 Test observable behavior rather than implementation details. Do not use helper-by-helper or mock-heavy tests as substitutes for exercising a user journey. Prefer representative E2E scenarios over matrices of incidental configurations, while retaining focused tests for protocol rules, boundary conditions and failures they expose more directly. Run the applicable existing checks.
 
-Before pushing, run `git diff --check` and checks relevant to the changed paths. For Rust changes, also run:
+Before pushing, run `git diff --check` and checks relevant to the changed paths. For Rust formatting, follow [docs/formatting.md](docs/formatting.md):
+
+- Via-owned paths: `scripts/format-changed.sh --check-config` and
+  `scripts/format-changed.sh --check --base origin/<PR-base-branch>`.
+- Do not run whole-file formatters on Via paths: `cargo fmt`, `zkstack dev fmt` without `--check`, and editor formatting
+  rewrite existing 120-column code under the new 100-column profiles.
+- Upstream-owned paths: `zkstack dev fmt --check`; findings on existing untouched Via files are expected.
+
+For Rust changes, also run:
 
 ```bash
-zkstack dev fmt --check
 zkstack dev lint --check
 cargo test -p <crate>
 just via-check          # structural lint (ast-grep), advisory
