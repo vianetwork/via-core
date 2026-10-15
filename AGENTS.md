@@ -115,7 +115,9 @@ Before pushing, run `git diff --check` and checks relevant to the changed paths.
 
 - Via-owned paths: `scripts/format-changed.sh --check-config` and
   `scripts/format-changed.sh --check --base origin/<PR-base-branch>`.
-- Upstream-owned paths: `zkstack dev fmt --check`; record unrelated untouched Via findings separately.
+- Do not run whole-file formatters on Via paths: `cargo fmt`, `zkstack dev fmt` without `--check`, and editor formatting
+  rewrite existing 120-column code under the new 100-column profiles.
+- Upstream-owned paths: `zkstack dev fmt --check`; findings on existing untouched Via files are expected.
 
 For Rust changes, also run:
 

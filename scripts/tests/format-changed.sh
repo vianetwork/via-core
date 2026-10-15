@@ -240,6 +240,39 @@ scripts/format-changed.sh --check --base target
 cmp "$tmp/expected" via_verifier/src/lib.rs
 printf 'PASS: diverged target uses merge base, excluding target-only changes.\n'
 
+fixture imports
+{ printf 'use std::fmt;\nuse external::old;\nuse crate::old;\n\n'; cat "$tmp/old"; } > via_verifier/src/lib.rs
+git add -- via_verifier/src/lib.rs
+commit
+{ printf 'use std::fmt;\nuse std :: io;\nuse external::old;\nuse crate::old;\n\n'; cat "$tmp/old"; } > via_verifier/src/lib.rs
+cp via_verifier/src/lib.rs "$tmp/before"
+cp via_verifier/src/lib.rs "$tmp/upstream-imports.rs"
+range=$(jq -cn --arg file "$tmp/upstream-imports.rs" '[{file: $file, range: [2, 2]}]')
+toolchain=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain)
+rustup run "$toolchain" rustfmt --edition 2021 --unstable-features --skip-children \
+  --file-lines "$range" --config imports_granularity=Crate --config group_imports=StdExternalCrate \
+  "$tmp/upstream-imports.rs"
+{ printf 'use std::{fmt, io};\n\nuse external::old;\n\nuse crate::old;\n\n'; cat "$tmp/old"; } > "$tmp/expected"
+cmp "$tmp/expected" "$tmp/upstream-imports.rs"
+fail_check
+cmp "$tmp/before" via_verifier/src/lib.rs
+scripts/format-changed.sh
+{ printf 'use std::fmt;\nuse std::io;\nuse external::old;\nuse crate::old;\n\n'; cat "$tmp/old"; } > "$tmp/expected"
+cmp "$tmp/expected" via_verifier/src/lib.rs
+scripts/format-changed.sh --check
+printf 'PASS: added use line formatted alone; workspace import settings demonstrably rewrite old imports.\n'
+
+fixture new_imports
+printf 'use crate::old;\nuse std::io;\nuse external::old;\nuse std::fmt;\n\nfn fresh() {}\n' > via_indexer/new.rs
+fail_check
+scripts/format-changed.sh
+printf 'use std::{fmt, io};\n\nuse external::old;\n\nuse crate::old;\n\nfn fresh() {}\n' > "$tmp/expected"
+cmp "$tmp/expected" via_indexer/new.rs
+scripts/format-changed.sh --check
+git add -- via_indexer/new.rs
+scripts/format-changed.sh staged --check
+printf 'PASS: new-file imports use workspace grouping and merging in write and check modes.\n'
+
 fixture errors
 if scripts/format-changed.sh --check --base absent-ref > "$tmp/error.log" 2>&1; then
   echo 'Expected missing base failure.' >&2

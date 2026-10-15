@@ -49,9 +49,14 @@ to rustfmt's `--file-lines`. Old tall code outside the ranges stays as it is. De
 format. New files, including untracked files, are formatted whole. Git-detected renames retain their old-line history;
 a rename alone does not reformat the destination. Non-Via files are ignored, including files inherited from zkSync Era.
 
-There is no repository-wide reformat. Keeping untouched lines preserves blame and avoids formatting conflicts in
-unrelated PRs and upstream rebases. Formatting a file manually with an editor or a whole-file formatter can change
-more than this script; inspect the resulting diff before committing.
+Do not run whole-file formatters on Via paths. `cargo fmt`, `zkstack dev fmt` without `--check`, and editor formatting
+rewrite existing 120-column code under the new 100-column profiles. Use the changed-line script to preserve untouched
+lines, blame, and unrelated PR diffs.
+
+New files use the workspace import settings: `imports_granularity=Crate` and `group_imports=StdExternalCrate`.
+Existing files preserve import grouping and order. With the pinned rustfmt, selecting one added `use` line can merge
+and reorder untouched imports in the same group, even with `--file-lines`; default import sorting also crosses that
+boundary. Both check and write modes therefore disable import merging, regrouping, and sorting for existing files.
 
 `--file-lines` is unstable and needs `--unstable-features`. The script also disables child-module traversal. A
 statement only partly covered by the diff may stay unchanged; rustfmt determines which syntax can be formatted
@@ -69,7 +74,6 @@ coverage, runs the temporary-repository tests, and checks changed lines against 
 build is needed. Missing or divergent core profiles and nested overrides fail coverage, so new Via crates cannot
 silently use defaults. Copy the three-line profile from `via_verifier/rustfmt.toml` into a new core Via crate.
 
-For Via formatting, use the commands above instead of the whole-workspace `zkstack dev fmt --check`, which can
-report existing untouched Via formatting. For upstream-owned paths, keep the upstream `zkstack dev fmt --check`
-requirement; record unrelated Via findings separately. This script does not change that formatter or replace Rust
-lint, crate tests, or structural checks.
+For Via formatting, use the changed-line commands above. For upstream-owned paths, keep `zkstack dev fmt --check`;
+its findings on existing untouched Via files are expected because their old layout differs from the new profiles.
+This script does not replace Rust lint, crate tests, or structural checks.

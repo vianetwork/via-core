@@ -149,6 +149,14 @@ while IFS= read -r -d '' status && IFS= read -r -d '' file; do
   [[ -s "$tmp/ranges" ]] || continue
   ranges=$(jq -cs --arg file "$file" 'map({file: $file, range: .})' "$tmp/ranges")
   args=(--edition 2021 --unstable-features --skip-children --file-lines "$ranges")
+  if [[ "$status" == A || "$status" == '?' ]]; then
+    args+=(--config imports_granularity=Crate --config group_imports=StdExternalCrate)
+  else
+    # Rustfmt reorders whole import groups when any member intersects file-lines.
+    # Via preserves existing groups; workspace import rules apply only to new files.
+    # https://github.com/rust-lang/rustfmt/blob/c69af7786cdfef5da968f53eebd6c9b1af242b5f/src/reorder.rs#L305-L310
+    args+=(--config 'imports_granularity=Preserve,group_imports=Preserve,reorder_imports=false')
+  fi
   $check && args+=(--check)
   count=$((count + 1))
   if ! rustup run "$toolchain" rustfmt "${args[@]}" -- "$file"; then
