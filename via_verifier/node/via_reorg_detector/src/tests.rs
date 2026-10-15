@@ -123,7 +123,9 @@ impl Drop for BitcoinFixture {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         let _ = TcpStream::connect(self.address);
-        self.server.take().unwrap().join().unwrap();
+        if let Some(server) = self.server.take() {
+            let _ = server.join();
+        }
     }
 }
 
