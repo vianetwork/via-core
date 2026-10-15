@@ -175,6 +175,7 @@ impl VerifierBtcWatch {
             .await
             .map_err(|e| MessageProcessorError::Internal(e.into()))?;
 
+        storage.via_indexer_dal().lock_withdrawal_invalidation().await?;
         // Re-process blocks if system wallets were updated, since the new wallet state
         // may change how subsequent messages are interpreted.
         if let Some(block_number) =

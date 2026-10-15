@@ -17,11 +17,6 @@ impl MessageProcessor for VerifierMessageProcessor {
         for msg in msgs {
             match msg {
                 FullInscriptionMessage::ProofDAReference(ref proof_msg) => {
-                    let source_hash = proof_msg.common.block_hash.ok_or_else(|| {
-                        MessageProcessorError::Internal(anyhow::anyhow!(
-                            "ProofDAReference is missing its scanned Bitcoin block hash"
-                        ))
-                    })?;
                     let proof_reveal_tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
 
                     if storage.via_votes_dal().proof_reveal_tx_exists(proof_reveal_tx_id.as_bytes()).await? {
@@ -73,7 +68,6 @@ impl MessageProcessor for VerifierMessageProcessor {
                                             observed_parent: l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
                                             proof_txid: proof_reveal_tx_id,
                                             source_height: proof_msg.common.block_height,
-                                            source_hash,
                                         },
                                     )))
                                 }
@@ -90,10 +84,9 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 .get_parent_batch_exists_for_l1_batch(new_l1_batch_number as i64, &parent_hash)
                                 .await?;
                             if !exists {
-                                // Adapts matter-labs/zksync-era@ff5f519b11cff863edcfa0f75af10fea113806b0,
-                                // core/node/eth_watch/src/event_processors/priority_ops.rs, PriorityOpsEventProcessor::process_events.
-                                // Via blocks completed progress on missing accepted proof history.
-                                // A typed pause replaces the upstream panic and requires operator reconciliation.
+                                // Via adapts ZKsync Era's `PriorityOpsEventProcessor::process_events` serial-gap failure.
+                                // Via pauses with a typed error and rollback instead of panicking on missing history.
+                                // https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/eth_watch/src/event_processors/priority_ops.rs
                                 return Err(MessageProcessorError::ProofContinuityGap(Box::new(ProofContinuityGap {
                                     expected_batch: last_batch_in_canonical_chain.0 + 1,
                                     canonical_parent: Some(zksync_types::H256::from_slice(
@@ -103,7 +96,6 @@ impl MessageProcessor for VerifierMessageProcessor {
                                     observed_parent: l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
                                     proof_txid: proof_reveal_tx_id,
                                     source_height: proof_msg.common.block_height,
-                                    source_hash,
                                 })));
                             }
 

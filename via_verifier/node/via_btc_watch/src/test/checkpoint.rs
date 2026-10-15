@@ -26,7 +26,7 @@ use via_btc_client::{
     types::{InscriptionMessage, L1BatchDAReferenceInput, NodeAuth, ProofDAReferenceInput},
 };
 use via_verifier_block_reverter::ViaVerifierBlockReverter;
-use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
+use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal, BTC_WATCH_OWNER_LOCK_KEY};
 use zksync_config::{
     configs::{via_btc_client::ViaBtcClientConfig, via_reorg_detector::ViaReorgDetectorConfig},
     ViaBtcWatchConfig,
@@ -331,7 +331,7 @@ async fn gap_rolls_back_all_effects_and_pauses_retries() -> anyhow::Result<()> {
     let mut proof_txid = fixture.blocks.lock().unwrap()[&3].txdata[0].compute_txid().to_byte_array();
     proof_txid.reverse();
     assert_eq!(gap.proof_txid, H256(proof_txid));
-    assert_eq!((gap.source_height, gap.source_hash), (3, fixture.blocks.lock().unwrap()[&3].block_hash()));
+    assert_eq!(gap.source_height, 3);
     assert_eq!(METRICS.proof_continuity_blocked.get(), 1);
     assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 1);
     assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, None);
@@ -461,8 +461,8 @@ async fn valid_fork_still_replaces_the_canonical_suffix() -> anyhow::Result<()> 
 async fn wait_for_owner_waiters(storage: &mut Connection<'_, Verifier>, count: i64) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=1464095562::oid AND NOT granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database())")
-                .fetch_one(storage.conn()).await?;
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=$1::bigint::oid AND NOT granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database())")
+                .bind(BTC_WATCH_OWNER_LOCK_KEY).fetch_one(storage.conn()).await?;
             if waiting == count { break; }
             tokio::task::yield_now().await;
         }

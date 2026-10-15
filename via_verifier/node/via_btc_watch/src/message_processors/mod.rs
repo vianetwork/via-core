@@ -17,7 +17,7 @@ mod verifier;
 mod withdrawal;
 
 #[derive(Debug, Clone, thiserror::Error)]
-#[error("proof continuity gap: expected batch {expected_batch} after {canonical_parent:?}, observed batch {observed_batch} with parent {observed_parent:?}, proof {proof_txid:?} at Bitcoin {source_height}/{source_hash}; ingestion paused, reconcile canonical history before restarting")]
+#[error("proof continuity gap: expected batch {expected_batch} after {canonical_parent:?}, observed batch {observed_batch} with parent {observed_parent:?}, proof {proof_txid:?} at Bitcoin height {source_height}; ingestion paused, reconcile canonical history before restarting")]
 pub(super) struct ProofContinuityGap {
     pub expected_batch: u32,
     pub canonical_parent: Option<H256>,
@@ -25,7 +25,6 @@ pub(super) struct ProofContinuityGap {
     pub observed_parent: H256,
     pub proof_txid: H256,
     pub source_height: u32,
-    pub source_hash: bitcoin::BlockHash,
 }
 
 #[derive(Debug, thiserror::Error)]

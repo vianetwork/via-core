@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use bitcoin::{hashes::Hash, BlockHash};
     use via_btc_client::types::FullInscriptionMessage;
     use via_test_utils::utils::{
         create_chained_inscriptions, test_create_indexer, test_verifier_add_1, test_verifier_add_2,
@@ -9,26 +8,6 @@ mod tests {
     use zksync_types::H256;
 
     use crate::{message_processors::VerifierMessageProcessor, MessageProcessor};
-
-    async fn attach_scanned_sources(
-        pool: &ConnectionPool<Verifier>, mut messages: Vec<FullInscriptionMessage>,
-    ) -> anyhow::Result<Vec<FullInscriptionMessage>> {
-        let mut storage = pool.connection().await?;
-        for message in &mut messages {
-            let common = match message {
-                FullInscriptionMessage::ProofDAReference(message) => &mut message.common,
-                FullInscriptionMessage::ValidatorAttestation(message) => &mut message.common,
-                _ => continue,
-            };
-            // Standalone parser fixtures have no scan context; supply a fixed
-            // accepted local block explicitly, just as the scanner would.
-            common.block_height = 100;
-            let hash = BlockHash::from_byte_array([100; 32]);
-            common.block_hash = Some(hash);
-            storage.via_l1_block_dal().insert_l1_block(100, hash.to_string()).await?;
-        }
-        Ok(messages)
-    }
 
     #[tokio::test]
     async fn test_insert_first_batch() -> anyhow::Result<()> {
@@ -40,7 +19,6 @@ mod tests {
         let mut processor = VerifierMessageProcessor::default();
         let (msgs, _) = create_chained_inscriptions(start, end, None).await?;
 
-        let msgs = attach_scanned_sources(&pool, msgs).await?;
         processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await?;
 
         let expected_batch = 1;
@@ -71,7 +49,6 @@ mod tests {
         // duplicate the first batch message
         msgs.extend(msgs.clone());
 
-        let msgs = attach_scanned_sources(&pool, msgs).await?;
         processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await?;
 
         let expected_batch = 1;
@@ -100,7 +77,6 @@ mod tests {
         let end = 3;
         let (msgs, _) = create_chained_inscriptions(start, end, None).await?;
 
-        let msgs = attach_scanned_sources(&pool, msgs).await?;
         processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await?;
 
         for i in 0..end {
@@ -139,7 +115,6 @@ mod tests {
         let (msgs2, _) = create_chained_inscriptions(start, end, None).await?;
         msgs.extend(msgs2);
 
-        let msgs = attach_scanned_sources(&pool, msgs).await?;
         let error = processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await.unwrap_err();
         assert!(matches!(error, crate::message_processors::MessageProcessorError::ProofContinuityGap(_)));
 
@@ -171,7 +146,6 @@ mod tests {
         // Create a valid batch 3 using the batch 2 hash.
         let (msgs, _) = create_chained_inscriptions(start, end, Some(prev_l1_batch_hash)).await?;
 
-        let msgs = attach_scanned_sources(&pool, msgs).await?;
         processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await?;
 
         for i in start..end {
@@ -257,7 +231,6 @@ mod tests {
         let end = 7;
         let (msgs3, _) = create_chained_inscriptions(start, end, None).await?;
 
-        let msgs3 = attach_scanned_sources(&pool, msgs3).await?;
         let error = processor.process_messages(&mut pool.connection().await?, msgs3, &mut indexer).await.unwrap_err();
         assert!(matches!(error, crate::message_processors::MessageProcessorError::ProofContinuityGap(_)));
 
@@ -280,7 +253,6 @@ mod tests {
         let mut processor = VerifierMessageProcessor::default();
         let (msgs, _) = create_chained_inscriptions(start, end, None).await?;
 
-        let msgs = attach_scanned_sources(&pool, msgs).await?;
         processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await?;
 
         let expected_batch = 0;
@@ -306,7 +278,6 @@ mod tests {
         let (msgs2, batch_3_hash) = create_chained_inscriptions(start, end, Some(batch_2_hash)).await?;
         msgs.extend(msgs2);
 
-        let msgs = attach_scanned_sources(&pool, msgs).await?;
         processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await?;
 
         verify_canonical_chain(pool.clone(), end as u32).await?;
@@ -370,7 +341,7 @@ mod tests {
         let start = 4;
         let end = 4;
         let (msgs, _) = create_chained_inscriptions(start, end, Some(batch_3_hash)).await?;
-        let msgs = attach_scanned_sources(&pool, msgs).await?;
+
         processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await?;
 
         verify_canonical_chain(pool.clone(), 2).await?;
@@ -379,7 +350,7 @@ mod tests {
         let start = 3;
         let end = 4;
         let (msgs, _) = create_chained_inscriptions(start, end, Some(batch_2_hash)).await?;
-        let msgs = attach_scanned_sources(&pool, msgs).await?;
+
         processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await?;
 
         verify_canonical_chain(pool.clone(), end as u32).await?;
