@@ -6,7 +6,7 @@ use via_verifier_types::withdrawal_observation::ObservedWithdrawal;
 use zksync_types::{Address as L2Address, H256};
 
 use super::*;
-use crate::{ConnectionPool, VerifierDal};
+use crate::{ConnectionPool, VerifierDal, WITHDRAWAL_INVALIDATION_LOCK_KEY};
 
 fn wallet() -> ScriptBuf {
     ScriptBuf::new_p2wpkh(&WPubkeyHash::from_byte_array([7; 20]))
@@ -2213,7 +2213,8 @@ async fn proof_at(
 
 async fn prune_votes_at(storage: &mut Connection<'_, Verifier>, cut: i64) {
     let mut reorg = storage.start_transaction().await.unwrap();
-    sqlx::query("SELECT pg_advisory_xact_lock(1464095559)")
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(WITHDRAWAL_INVALIDATION_LOCK_KEY)
         .instrument("withdrawal_test_vote_reorg_gate")
         .execute(&mut reorg)
         .await

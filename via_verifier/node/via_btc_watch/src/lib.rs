@@ -220,6 +220,7 @@ impl VerifierBtcWatch {
                 "Withdrawal fulfillment wallet differs from the current bridge wallet"
             )));
         }
+        storage.via_indexer_dal().lock_withdrawal_invalidation().await?;
         storage.via_withdrawal_dal().verify_withdrawal_wallet(system_wallets.bridge.script_pubkey().as_bytes()).await?;
         self.reconcile_withdrawals(storage).await?;
 

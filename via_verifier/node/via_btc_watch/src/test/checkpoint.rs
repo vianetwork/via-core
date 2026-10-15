@@ -26,7 +26,7 @@ use via_btc_client::{
     types::{InscriptionMessage, L1BatchDAReferenceInput, NodeAuth, ProofDAReferenceInput},
 };
 use via_verifier_block_reverter::ViaVerifierBlockReverter;
-use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
+use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal, BTC_WATCH_OWNER_LOCK_KEY};
 use zksync_config::{
     configs::{via_btc_client::ViaBtcClientConfig, via_reorg_detector::ViaReorgDetectorConfig},
     ViaBtcWatchConfig,
@@ -461,8 +461,8 @@ async fn valid_fork_still_replaces_the_canonical_suffix() -> anyhow::Result<()> 
 async fn wait_for_owner_waiters(storage: &mut Connection<'_, Verifier>, count: i64) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=1464095562::oid AND NOT granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database())")
-                .fetch_one(storage.conn()).await?;
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=$1::bigint::oid AND NOT granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database())")
+                .bind(BTC_WATCH_OWNER_LOCK_KEY).fetch_one(storage.conn()).await?;
             if waiting == count { break; }
             tokio::task::yield_now().await;
         }
@@ -524,5 +524,28 @@ async fn missing_genesis_pauses_but_wrong_sequential_parent_is_rejected() -> any
     assert!(reconstructed.proof_gap.is_none());
     assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 3);
     assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, Some((1, vec![1; 32])));
+    Ok(())
+}
+
+#[tokio::test]
+async fn header_owner_allows_wallet_checks_but_invalidation_gate_excludes_them() -> anyhow::Result<()> {
+    let fixture = BitcoinFixture::new()?;
+    let pool = ConnectionPool::<Verifier>::test_pool().await;
+    let mut storage = pool.connection().await?;
+    fixture.seed(&mut storage, Some(1)).await?;
+    let wallets = storage.via_wallet_dal().get_system_wallets_raw(1).await?.unwrap();
+    let wallet = SystemWallets::try_from(wallets)?.bridge.script_pubkey();
+    let mut owner_connection = pool.connection().await?;
+    let mut owner = owner_connection.start_transaction().await?;
+    owner.via_indexer_dal().lock_btc_watch().await?;
+    storage.via_withdrawal_dal().verify_withdrawal_wallet(wallet.as_bytes()).await?;
+    owner.via_indexer_dal().lock_withdrawal_invalidation().await?;
+    let mut competing = storage.start_transaction().await?;
+    sqlx::query("SET LOCAL lock_timeout = '100ms'").execute(competing.conn()).await?;
+    let error = competing.via_withdrawal_dal().verify_withdrawal_wallet(wallet.as_bytes()).await.unwrap_err();
+    assert!(format!("{error:#}").contains("lock timeout"), "{error:#}");
+    competing.rollback().await?;
+    owner.commit().await?;
+    storage.via_withdrawal_dal().verify_withdrawal_wallet(wallet.as_bytes()).await?;
     Ok(())
 }

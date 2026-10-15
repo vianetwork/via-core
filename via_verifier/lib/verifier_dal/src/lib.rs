@@ -19,6 +19,11 @@ use crate::{
     via_wallet_dal::ViaWalletDal, withdrawals_dal::ViaWithdrawalDal,
 };
 
+// Serializes verifier scan progress, accepted headers, initialization, and recovery.
+pub const BTC_WATCH_OWNER_LOCK_KEY: i64 = 1464095562;
+// Excludes withdrawal admission and source writes while authority is invalidated.
+pub const WITHDRAWAL_INVALIDATION_LOCK_KEY: i64 = 1464095559;
+
 pub mod models;
 pub mod via_blocks_dal;
 pub mod via_btc_sender_dal;

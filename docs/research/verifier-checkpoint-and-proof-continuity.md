@@ -72,8 +72,8 @@ implementation body is copied.
   relevant tests and hosted-check histories. Inspected donor tests were not
   executed locally, and successful hosted jobs do not establish that every test
   passed at each pin. Graph-node's forward pointer SQL checks direction, not an
-  expected old hash or recovery generation. Recording a hash without checking the
-  relevant work identity does not fence stale completion.
+  expected old hash or recovery generation. Recording a hash without checking
+  the relevant work identity does not fence stale completion.
 
 The accepted schema-compatible adaptation holds a database owner through
 fetching and application. Fetching outside that interval would need a checked
@@ -147,9 +147,25 @@ succeeds.
 
   The immediate gap failure preserves expected and observed batch and parent
   identities, proof transaction, and scanned Bitcoin location. It rolls back the
-  scan's earlier writes and pauses polling rather than repeatedly applying partial
-  upserts. It does not grant a missing-parent claim authority to delete state or
-  rewind history automatically.
+  scan's earlier writes and pauses polling rather than repeatedly applying
+  partial upserts. It does not grant a missing-parent claim authority to delete
+  state or rewind history automatically.
+
+The shared owner does not require the exclusive withdrawal gate for every
+participant. Detector header inserts keep existing hashes on conflict and only
+record pending divergence. The reverter performs deletion and invalidation.
+Initialization writes only the progress checkpoint. Both can retain the scan
+owner without excluding withdrawal and vote writers. Main scans acquire the
+exclusive gate before their first wallet check so valid-fork handling never
+upgrades after a wallet lock. The old release scan acquires it after fetching,
+before processor effects. Recovery keeps owner, gate, then wallet order.
+
+Only a proof accepted from the configured sequencer address reaches the gap
+path. The shared client filters `ProofDAReference` by that address. Main already
+retains the scanned hash for persisted provenance. The release gap instead
+reports the proof transaction and height without changing the shared client.
+Those identify the publication to investigate, but do not establish its exact
+historical inclusion hash or canonical ancestry.
 
 ## Open questions and limits
 

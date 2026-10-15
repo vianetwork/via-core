@@ -70,6 +70,10 @@ impl ViaVerifierBlockReverter {
         }
         let mut transaction = storage.start_transaction().await?;
         transaction.via_indexer_dal().lock_btc_watch().await?;
+        transaction
+            .via_indexer_dal()
+            .lock_withdrawal_invalidation()
+            .await?;
         let Some((l1_block_number, l1_batch_number)) = transaction
             .via_l1_block_dal()
             .has_reorg_in_progress()
@@ -91,10 +95,9 @@ impl ViaVerifierBlockReverter {
             .get_last_processed_l1_block("via_btc_watch")
             .await
             .context("Reading completed inscription progress under the recovery owner")?;
-        // Adapts bitcoin/bitcoin@f13ae519de94394314cd63a27924b0998ac65d45,
-        // src/wallet/wallet.cpp, CWallet::blockDisconnected.
-        // Via's header scanner can be ahead of its inscription consumer.
-        // Recovery retains only completed work, including uninitialized zero progress.
+        // Via adapts Bitcoin Core's `CWallet::blockDisconnected` consumer-owned processed position.
+        // Via caps recovery at completed inscription work because its header scanner can be ahead.
+        // https://github.com/bitcoin/bitcoin/blob/f13ae519de94394314cd63a27924b0998ac65d45/src/wallet/wallet.cpp
         let checkpoint_to_keep = consumer_progress.min(l1_block_number_to_keep as u64) as u32;
         transaction
             .via_withdrawal_dal()

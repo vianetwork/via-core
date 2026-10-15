@@ -63,15 +63,19 @@ The verifier serializes inscription scanning, accepted-header updates,
 checkpoint initialization, and recovery through one PostgreSQL transaction
 owner. Recovery caps `via_btc_watch` at its actual completed progress. Canonical
 deletion and withdrawal invalidation still use the real divergence height.
-Network fetching holds that owner and the withdrawal invalidation gate, so slow
-RPCs can delay recovery and withdrawal mutations.
+Network fetching holds that owner, so slow RPCs can delay recovery. Main scans
+also hold the exclusive withdrawal invalidation gate before wallet validation.
+Detector and initializer work holds only the owner. There is no finite
+end-to-end hold-time bound until RPC execution is separately bounded.
 
-A missing proof prefix rolls back the scan and pauses the watcher. The error
-records expected and observed batch and parent identities, proof transaction,
-and scanned Bitcoin block. The gauge
+A missing proof prefix rolls back the scan and pauses the watcher. Only proof
+publications accepted from the configured sequencer address can trigger this
+pause. The error records expected and observed batch and parent identities,
+proof transaction, and scanned Bitcoin block. The gauge
 `via_verifier_btc_watch_proof_continuity_blocked` is 1 while paused. An alert
-route can use `via_verifier_btc_watch_proof_continuity_blocked == 1`. A
-responsive HTTP endpoint does not establish inscription progress.
+rule should use `via_verifier_btc_watch_proof_continuity_blocked == 1`.
+Configuring and verifying its effective alert route is an infrastructure
+follow-up. A responsive HTTP endpoint does not establish inscription progress.
 
 Investigate canonical proof and parent history before restarting. Preserve proof
 verdicts, votes, withdrawal obligations, and signing/payment risk. Restart

@@ -30,11 +30,14 @@ order, including the existing withdrawal invalidation gate and wallet locks.
 
 For the schema-compatible implementation, ownership spans fetching as well as
 application. The scan owner precedes the exclusive withdrawal invalidation gate,
-which precedes wallet locks. Acquiring the exclusive gate before processor work
-prevents a valid-fork path from upgrading a shared gate after taking a wallet
-lock. This blocks other withdrawal mutations during scans and detector fetches.
-Fetching outside ownership would require checked recovery generation and chain
-identity before effects commit.
+which precedes wallet locks when authority can be invalidated. Main scans take
+that gate before their initial withdrawal-wallet check, including polls without
+new messages. Acquiring it first prevents a valid-fork path from upgrading a
+shared gate after taking a wallet lock. Recovery takes the same exclusive gate.
+The detector and initializer take only the scan owner because they do not
+invalidate authority or take withdrawal wallet locks. Detector inserts preserve
+existing accepted hashes on conflict. Fetching outside the scan owner would
+require checked recovery generation and chain identity before effects commit.
 
 A nonsequential accepted proof whose retained parent cannot be found raises a
 typed continuity error. The error preserves expected and observed batch numbers,
@@ -56,9 +59,9 @@ supplying Via's SQL and message contracts.
 
 The chosen owner works across processes using the existing schema. Holding it
 through network fetches can delay recovery and withdrawal mutations. It does not
-guarantee a bounded RPC duration, prompt cancellation, or canonical Bitcoin
-state at signing. Bitcoin can change while a scan runs. This decision orders
-local database mutations rather than eliminating chain changes.
+guarantee a finite end-to-end lock hold time, prompt cancellation, or canonical
+Bitcoin state at signing. Bitcoin can change while a scan runs. This decision
+orders local database mutations rather than eliminating chain changes.
 
 The in-memory gap pause survives polling but resets when the process is
 reconstructed. If history is unchanged, the same gap pauses again without
@@ -70,12 +73,16 @@ live alert configuration is established here.
 
 This decision accepts source implementation and disposable verification only. It
 authorizes no live recovery, deployment, database migration, vote publication,
-or withdrawal signing. Previously skipped history needs a separate semantic
-rehearsal and approved recovery procedure. Automatic re-derivation,
-detector-horizon changes, signing-response repairs, RPC execution isolation,
-archived-client replacement, and fresh UTXO validation remain separate work.
+or withdrawal signing. Only proof publications accepted from the configured
+sequencer address can trigger the continuity pause. Previously skipped history
+needs a separate semantic rehearsal and approved recovery procedure. Automatic
+re-derivation, detector-horizon changes, signing-response repairs, RPC execution
+isolation, archived-client replacement, and fresh UTXO validation remain separate
+work.
 
 The release backport preserves its existing schema and withdrawal model. Main's
 later withdrawal lifecycle and source provenance storage must not be imported
-merely to repair the checkpoint. Ephemeral scanned-block identity can support
-the gap error without changing persisted data or inscription bytes.
+merely to repair the checkpoint. Its gap error keeps the proof transaction and
+Bitcoin height, with expected and observed batch and parent identities. It omits
+the scanned block hash to avoid changing the shared client. Reconciliation must
+independently establish historical inclusion and canonical ancestry.
