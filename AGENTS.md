@@ -1,146 +1,136 @@
 # AGENTS.md
 
-## Scope
-
-Applies to this repository and all descendants unless a nested `AGENTS.md` adds more specific instructions.
-
 ## Purpose
 
-This repository owns Via source and runtime behavior. It does not own live or desired-state deployment.
+This repository owns Via source and runtime behavior. Deployment belongs to the
+deployment repositories. Source changes do not prove rollout.
 
-Via is a fork of zkSync Era. Keep Via-specific features cohesive and minimize unnecessary divergence so they remain maintainable through upstream updates or a future re-fork.
+Via is a zkSync Era fork. Keep Via features cohesive and minimize divergence so
+upstream updates and a future re-fork remain manageable.
 
-## Read first
+## Authority
 
-Before changing non-trivial runtime behavior, read the relevant Via guide and the nearest crate README or config.
+An implementation request covers its local edits, local disposable tests and
+fixes for failures it caused. Finish the work and its checks without asking
+again. Report unrelated failures without expanding scope or waiving required
+gates.
 
-## Important paths
+Ask only before deploying, changing live or shared systems, spending funds, or
+using real keys, wallets or nodes, unless the user already approved that action.
+One approval covers the steps it names. If one part is blocked, continue with
+the rest.
 
-- Runtime: `core/`
-- Verifier: `via_verifier/`
-- Prover / Indexer: `prover/`, `via_indexer/`
-- Bitcoin: `core/lib/via_btc_client/`, `core/node/via_btc_*`, and verifier BTC paths
-- DA / Reorg: `core/lib/via_da_clients/`, `core/node/via_main_node_reorg_detector/`, and `via_verifier/node/via_reorg_detector/`. (When touching one, check the other — see *Reuse and duplication discipline*.)
-
-## Source-of-truth rules
-
-- Source code describes behavior; it does not prove deployment.
-- Prefer existing `via_` modules and extension interfaces over editing inherited upstream code. Reuse existing Via implementations before creating another copy, following the fork customization convention in `docs/via_guides/architecture.md`.
-- Explain why an existing Via extension is insufficient before modifying inherited upstream code.
-- For Bitcoin work, remember that txids are byte-reversed.
-
-## Safety rules
-
-- Never commit secrets or live credentials.
-- Obtain explicit approval for deployments, live or shared-state changes, and migrations outside disposable local test fixtures.
-- Keep local agent scratch directories (`.gitnexus/`, `.agents/`, etc.) out of commits.
-- Keep private findings out of public issues, PRs, and comments until disclosure is approved.
-
-Complete the agreed deliverable and its verification without per-step approval, using confirmed disposable, isolated test targets. Fix failures caused by the change; report unrelated failures without expanding scope or waiving required gates. Ask only for a blocking decision or permission, and continue independent authorized work.
+This repository is public. Keep secrets and live credentials out of commits.
+Publish private findings only with disclosure approval. Exclude local agent
+scratch files from commits.
 
 ## Reuse and duplication discipline
 
-Before adding or changing production logic:
+Before changing production logic, identify the existing owner and follow its
+callers and callees beyond `via_*`. Inspect related main-node and verifier
+implementations using `.github/sibling-paths.yml`.
 
-- Identify the closest existing function, module, or crate that could own the behavior.
-- **Do not tunnel on `via_*`.** The prefix identifies ownership, not a hard code boundary or a compatibility guarantee. Follow callers and callees into upstream and non-`via_*` modules. Always inspect sibling implementations across main-node and verifier, including `core/` and `via_verifier/`. `.github/sibling-paths.yml` is the canonical pair list; reorg work includes both main-node and verifier detectors.
-- Extend the existing owner or extract genuinely shared behavior into `core/lib/` or the appropriate shared crate. Do not create shared abstractions solely for hypothetical reuse.
-- Keep node-specific execution concerns in the node layer. If similar logic remains separate, explain the invariant, ownership boundary, or execution-context difference.
+DA siblings have different names, so search `core/lib/via_da_clients` and
+`via_verifier/lib/via_da_client`.
 
-Complete these ownership checks before implementation. Record the evidence required by `.github/pull_request_template.md` when preparing the PR.
+Prefer existing Via extensions before modifying inherited upstream code.
+Explain why they cannot serve the change. See `docs/via_guides/architecture.md`.
 
-- **Research:** Before choosing an approach or resolving an unfamiliar implementation detail, read and apply the [research workflow](docs/research/README.md#research-before-and-during-design-and-implementation). Reuse fitting research and ADRs; inspect Via owners and siblings, pinned upstream, and comparable systems.
-- **Contracts:** Before changing withdrawal, coordinator authentication, signing, proof, deposit, upgrade, or monitoring behavior, read the relevant [design-record section](docs/design/via-correctness-and-monitoring/README.md). Accepted boundaries hold; pending recommendations are not implementation authority.
-- **Design:** Before presenting or consolidating design choices and research answers, read and apply the [design-and-rationale workflow](docs/research/README.md#design-and-rationale-records).
-- **Learning:** When evidence or a correction contradicts a fact or instruction used in the task, an instructed procedure cannot produce its required result, or retained records show independent tasks rebuilding the same procedure, read and apply the [gap checks](docs/research/README.md#learning-and-workflow-improvement).
+Shared behavior belongs in `core/lib/` or its established shared crate. Keep
+node-specific scheduling, state and shutdown in the node layer. Explain
+deliberate duplication in the PR template.
 
-### Anti-pattern and preferred pattern
+Update `.github/sibling-paths.yml`, `.github/via-scopes.yml` and
+`.github/via-areas.yml` when their relationships or paths change.
 
-- **Anti-pattern:** Copy detector, poller, or fetch/compare logic into main-node and verifier paths with only minor differences.
-- **Preferred:** Keep the shared fetch/compare behavior in one implementation in the appropriate shared crate. Node-specific adapters retain their own state, scheduling, and shutdown ownership.
+## Read when relevant
 
-### Maintaining supporting files
+- Runtime behavior: read the relevant `docs/via_guides/` guide and nearest crate
+  README or config.
+- Unfamiliar design or implementation questions: use the research workflow in
+  `docs/research/README.md#research-before-and-during-design-and-implementation`.
+  Reuse evidence for mechanical changes.
+- Withdrawal, coordinator authentication, signing, proof, deposit, upgrade or
+  monitoring changes: read the relevant section of
+  `docs/design/via-correctness-and-monitoring/README.md` and its accepted ADRs.
+- Lasting design rationale or an evidenced workflow gap: use the matching
+  section of `docs/research/README.md`.
 
-- Update `.github/sibling-paths.yml` when sibling relationships change.
-- Add recurring scopes to `.github/via-scopes.yml` and map new paths in `.github/via-areas.yml`.
+## Principle skills
 
-## Commit Message Convention
+Use these skills for the matching task, if installed:
 
-For Via-specific changes, use Conventional Commits: `<type>(via-<area>): <imperative subject>`.
+- API replacement: `principle-migrate-callers-then-delete-legacy-apis`.
+- Retries and restarts: `principle-make-operations-idempotent`.
+- Concurrent writes: `principle-separate-before-serializing-shared-state`.
+- Debugging: `principle-fix-root-causes`.
+- Tests: `principle-test-behavior-not-implementation`.
 
-Allowed types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `chore`, `build`, `ci`, `revert`.
-
-Use the scopes in `.github/via-scopes.yml`. For upstream-integration commits without Via-specific changes, use `<type>(upstream-sync): <imperative subject>`. Preserve the original messages of imported upstream commits.
-
-Examples:
-
-- `feat(via-reorg): detect deep reorgs from the DA layer`
-- `fix(via-btc): correct txid byte reversal in the mempool watcher`
-- `refactor(via-da): extract shared inclusion proof parsing`
-- `perf(via-verifier): batch L1 batch metadata loads`
-- `chore(upstream-sync): merge ZKsync vX.Y.Z`
+For other situational principles, use the conditional index in
+`docs/research/README.md#principle-skills-for-concrete-implementation-questions`.
 
 ## Change discipline
 
-- Include a regression test for bug fixes when practical.
-- Preserve rich error context (`anyhow::Context`, `with_context`, `?`) in production paths. Never strip it to shorten a diff.
-- When changing async fetch/compare code, preserve or explicitly document ordering assumptions.
-- Protocol-sensitive areas (Bitcoin, DA, reorg, verifier/prover, serialization, hashes, signatures, inscriptions) require extra care. Search call sites and downstream consumers before changing them.
-- Changes to accepted messages, serialized bytes, hash inputs, or persisted-data meaning are behavior changes, not behavior-preserving refactors. State the compatibility impact and provide focused tests or replay evidence for affected producers and consumers.
-- When replacing an internal API or implementation, migrate all consumers and remove the obsolete path in the same change. Retain compatibility layers only for an identified external or rolling-upgrade requirement, with an explicit removal condition. Include dashboards and alerts when changing metric contracts.
+Preserve production error context. Preserve or document async fetch/compare
+ordering assumptions.
+
+Bitcoin, DA, reorg, verifier/prover, serialization, hashes, signatures and
+inscriptions are protocol-sensitive. Inspect producers and consumers before
+changing behavior. Changes to accepted messages, serialized bytes, hash inputs
+or persisted meaning are behavior changes. State the compatibility impact and
+add focused tests or replay evidence for affected producers and consumers.
+Verify txid byte order at Bitcoin boundaries.
+
+Preserve necessary external and rolling-upgrade compatibility, with a removal
+condition for temporary paths. For bug fixes, add focused observable regression
+coverage where practical. When metric contracts change, update affected
+dashboards and alerts.
 
 ## Source comment discipline
 
-Source comments explain durable runtime truth: contracts, invariants, non-obvious consequences, ordering or performance constraints, and why an obvious alternative is wrong. State cross-component coupling once on its governing type.
+Comments explain durable invariants, consequences and operator actions. State
+cross-component coupling once on its governing type. Put task history in the PR
+or issue. For adopted or adapted designs, explain the concrete consequence
+beside the code and cite a pinned origin.
 
-Use declarative, plain language and one idea per comment. On public items and critical shared functions, explain the meaning and required operator action before internal terminology. Prefer clear names and structure over narration of the next statement.
+## Code Review Rules
 
-Keep debugging history, incident-specific details, private environment names, agent instructions, lint filenames, PR references, and strategy jargon out of `.rs` comments. Put relevant history in the PR or issue; retain useful external protocol references such as BIPs and RFCs.
-
-Where an existing implementation, algorithm or standard materially informs the code, document that origin above the relevant code. This requirement is repo-wide, not agent-specific. State Via's reason and concrete consequence, what was adopted, adapted or rejected and relevant differences, then a pinned source permalink (repo@commit and path; a line range is optional) or standard section. Use one sentence per line and periods between independent clauses. The explanation must remain useful without the link.
-
-Before pushing BTC, DA, reorg, verifier, prover, or sibling-paired changes, review added comments against this policy.
-
-## Review Expectations
-
-Review correctness and performance. For protocol-sensitive or hot paths, explain complexity and common-path work: allocations, copies, DB calls, RPCs, locks, serialization, background work, and cache behavior where relevant.
-
-Unjustified duplication or missing sibling checks are grounds for blocking merge.
+Review correctness and common-path complexity, allocations, copies, DB calls,
+RPCs, locks, serialization and cache behavior for protocol-sensitive or hot
+paths. Flag unjustified duplication and missing sibling checks. Verify reviewer
+suggestions against source and tests.
 
 ## Validation
 
-Test observable behavior rather than implementation details. Do not use helper-by-helper or mock-heavy tests as substitutes for exercising a user journey. Prefer representative E2E scenarios over matrices of incidental configurations, while retaining focused tests for protocol rules, boundary conditions and failures they expose more directly. Run the applicable existing checks.
-
-Before pushing, run `git diff --check` and checks relevant to the changed paths. For Rust changes, also run:
+Before pushing, run `git diff --check` and relevant existing checks. For Rust
+changes, run:
 
 ```bash
 zkstack dev fmt --check
 zkstack dev lint --check
 cargo test -p <crate>
-just via-check          # structural lint (ast-grep), advisory
+just via-check
 ```
 
-Documentation-only changes need content and reference checks rather than Rust suites. Record checks not applicable to the change with a reason in the PR. The strict path-based gate below still applies.
+Also run `just via-check-strict` for paths covered by
+`.github/sibling-paths.yml`, `.github/lint/via-structural/ast-grep/rules/` or
+`.github/scripts/check-via-structural-rules.sh`. Its duplication and structural
+gates must pass. Advisory checks do not replace it. Explain false positives
+rather than suppressing rules without justification.
 
-Run `just via-check-strict` and ensure it passes before pushing changes under any path in `.github/sibling-paths.yml`, `.github/lint/via-structural/ast-grep/rules/`, or `.github/scripts/check-via-structural-rules.sh`.
+Documentation-only changes need content and reference checks. The strict path
+gate still applies. Report checks not run and why. Reuse successful checks until
+relevant inputs change or a failure raises a new concern. For CI changes, verify
+the resulting workflow run.
 
-The strict command includes the duplication ratchet and structural lint. `zkstack dev lint` and advisory pre-push hooks do not replace it. Document structural-rule false positives in the PR; do not silence rules without justification.
+## Delivery
 
-Improve CI developer experience opportunistically within the current task. Favor fast, reliable feedback, actionable failures, and easy local reproduction. Remove redundant work and flaky setup without hiding failures, skipping required checks, or weakening meaningful existing coverage. When changing CI, verify the resulting workflow run.
+Use the appropriate issue template and `.github/pull_request_template.md` for
+reuse, performance and validation evidence.
 
-## GitHub issues and PRs
+For requested commits, use `<type>(via-<area>): <imperative subject>`.
+Choose scopes from `.github/via-scopes.yml`. Use `upstream-sync` for upstream
+integration and preserve imported commit messages.
 
-Use the appropriate issue template. For runtime, protocol, L1/BTC/reorg, verifier, or external-node issues, do not use free-form issues.
-
-Follow `.github/pull_request_template.md`, including its reuse evidence, performance, and validation requirements where applicable. Write for reviewers and operators: explain why, behavior changes, risks, boundaries, and checks actually run. Use impersonal wording that names the affected component or contract rather than an agent/tool activity log.
-
-## Tooling and cross-repo notes
-
-- Choose source inspection, LSP, or graph tools according to the question. GitNexus is useful for non-trivial cross-repo analysis; verify graph results against checked-out source. Missing or stale graph data does not prevent source-based analysis.
-- Use symbol-aware tooling for cross-file renames rather than textual replacement.
-- Treat `kube-state` and `helm-charts` as deployment context, not runtime proof.
-- CodeRabbit reviews are advisory. Verify suggestions against source and tests.
-
-## Directory-level guidance
-
-Keep nested `AGENTS.md` files focused on local ownership and constraints. Refer to these root rules and `.github/sibling-paths.yml` rather than repeating general workflows.
+Nested AGENTS.md files contain local ownership and constraints. Point to these
+root rules and the sibling map rather than repeating workflows.
