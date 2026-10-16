@@ -26,3 +26,8 @@ async-trait.workspace = true
 tracing.workspace = true
 futures.workspace = true
 bitcoin.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+sqlx.workspace = true
+via_verifier_block_reverter.workspace = true

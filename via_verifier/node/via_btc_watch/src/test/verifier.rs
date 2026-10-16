@@ -140,7 +140,8 @@ mod tests {
         msgs.extend(msgs2);
 
         let msgs = attach_scanned_sources(&pool, msgs).await?;
-        processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await?;
+        let error = processor.process_messages(&mut pool.connection().await?, msgs, &mut indexer).await.unwrap_err();
+        assert!(matches!(error, crate::message_processors::MessageProcessorError::ProofContinuityGap(_)));
 
         // Expect that only the batch {1, 2} are inserted.
         let expected_batch_len = 2;
@@ -257,7 +258,8 @@ mod tests {
         let (msgs3, _) = create_chained_inscriptions(start, end, None).await?;
 
         let msgs3 = attach_scanned_sources(&pool, msgs3).await?;
-        processor.process_messages(&mut pool.connection().await?, msgs3, &mut indexer).await?;
+        let error = processor.process_messages(&mut pool.connection().await?, msgs3, &mut indexer).await.unwrap_err();
+        assert!(matches!(error, crate::message_processors::MessageProcessorError::ProofContinuityGap(_)));
 
         // No batch should be inserted.
         for i in start..end {

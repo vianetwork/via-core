@@ -10,7 +10,7 @@ use via_verifier_types::{
 };
 use zksync_db_connection::{connection::Connection, instrument::InstrumentExt};
 
-use crate::Verifier;
+use crate::{Verifier, WITHDRAWAL_INVALIDATION_LOCK_KEY};
 
 pub struct ViaWithdrawalDal<'c, 'a> {
     pub(crate) storage: &'c mut Connection<'a, Verifier>,
@@ -57,7 +57,8 @@ async fn lock_wallet(storage: &mut Connection<'_, Verifier>, wallet: &[u8]) -> a
         isolation.try_get::<&str, _>("isolation")? == "read committed",
         "withdrawal admission requires READ COMMITTED"
     );
-    sqlx::query("SELECT pg_advisory_xact_lock_shared(1464095559)")
+    sqlx::query("SELECT pg_advisory_xact_lock_shared($1)")
+        .bind(WITHDRAWAL_INVALIDATION_LOCK_KEY)
         .instrument("withdrawal_invalidation_gate")
         .execute(&mut *storage)
         .await?;
@@ -772,7 +773,8 @@ impl ViaWithdrawalDal<'_, '_> {
 
     async fn invalidate(&mut self, height: Option<u32>, batch: Option<u32>) -> anyhow::Result<()> {
         let mut tx = self.storage.start_transaction().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(1464095559)")
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(WITHDRAWAL_INVALIDATION_LOCK_KEY)
             .instrument("withdrawal_exclusive_invalidation")
             .execute(&mut tx)
             .await?;

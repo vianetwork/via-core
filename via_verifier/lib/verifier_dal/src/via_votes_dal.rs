@@ -7,7 +7,9 @@ use zksync_db_connection::{
 };
 use zksync_types::H256;
 
-use crate::{models::storage_vote::CanonicalChainStatus, Verifier};
+use crate::{
+    models::storage_vote::CanonicalChainStatus, Verifier, WITHDRAWAL_INVALIDATION_LOCK_KEY,
+};
 
 pub struct ViaVotesDal<'c, 'a> {
     pub(crate) storage: &'c mut Connection<'a, Verifier>,
@@ -29,11 +31,12 @@ async fn lock_source(
             .constraint_error(anyhow::anyhow!("source writes require READ COMMITTED")));
     }
     sqlx::query(if inclusion.is_some() {
-        "SELECT pg_advisory_xact_lock_shared(1464095559)"
+        "SELECT pg_advisory_xact_lock_shared($1)"
     } else {
         // Losing provenance invalidates authority and must exclude signing.
-        "SELECT pg_advisory_xact_lock(1464095559)"
+        "SELECT pg_advisory_xact_lock($1)"
     })
+    .bind(WITHDRAWAL_INVALIDATION_LOCK_KEY)
     .instrument("source_invalidation_gate")
     .execute(&mut *storage)
     .await?;

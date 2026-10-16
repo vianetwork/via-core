@@ -1,8 +1,7 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Context;
 use bitcoin::Block;
-use tokio::time::sleep;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use via_reorg::{reorg_window_start, scan_for_reorg, ReorgScan};
 use via_verifier_dal::{Verifier, VerifierDal};
@@ -12,6 +11,26 @@ use zksync_dal::{Connection, ConnectionPool};
 use crate::metrics::{ReorgInfo, METRICS};
 
 mod metrics;
+
+#[cfg(test)]
+mod tests;
+
+#[derive(Debug)]
+enum ReorgKind {
+    Soft,
+    Hard,
+}
+
+// Adapt Graph Node's early reorg outcome and Chainlink's metrics-after-success ordering.
+// Via defers reorg metrics until the outer commit because the transaction can still roll back.
+// https://github.com/graphprotocol/graph-node/blob/6838f4e3cf3607c5bc32ef705dd05aec1eb057ab/chain/ethereum/src/polling_block_stream.rs#L181-L186
+// https://github.com/smartcontractkit/chainlink-evm/blob/ea52d84d2f7aecf8b3dfb9cc88db1ab6e6cd6ba2/pkg/logpoller/observability.go#L60-L66
+#[derive(Debug)]
+struct DetectedReorg {
+    kind: ReorgKind,
+    start_block: i64,
+    end_block: i64,
+}
 
 #[derive(Debug)]
 pub struct ViaVerifierReorgDetector {
@@ -52,22 +71,40 @@ impl ViaVerifierReorgDetector {
     }
 
     async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
-        if self.check_if_reorg_in_progress(storage).await? {
-            return Ok(());
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let reorg = self.process_chain(&mut transaction).await?;
+        transaction.commit().await?;
+        if let Some(reorg) = reorg {
+            METRICS.reorg_data[&ReorgInfo::StartBlock].set(reorg.start_block as usize);
+            METRICS.reorg_data[&ReorgInfo::EndBlock].set(reorg.end_block as usize);
+            match reorg.kind {
+                ReorgKind::Soft => METRICS.soft_reorg.inc(),
+                ReorgKind::Hard => METRICS.hard_reorg.inc(),
+            };
         }
-
-        let reorg_detected = self.detect_reorg(storage).await?;
-
-        if !reorg_detected {
-            self.sync_l1_blocks(storage).await?;
-        }
-
         Ok(())
+    }
+
+    async fn process_chain(&mut self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<Option<DetectedReorg>> {
+        if self.check_if_reorg_in_progress(storage).await? {
+            return Ok(None);
+        }
+
+        if let Some(reorg) = self.detect_reorg(storage).await? {
+            return Ok(Some(reorg));
+        }
+
+        self.sync_l1_blocks(storage).await?;
+        Ok(None)
     }
 
     async fn init(&mut self) -> anyhow::Result<()> {
         let mut storage = self.pool.connection_tagged("via_verifier_reorg_detector").await?;
 
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let storage = &mut transaction;
         match storage.via_l1_block_dal().get_last_l1_block().await? {
             Some(_) => {}
             None => {
@@ -89,6 +126,7 @@ impl ViaVerifierReorgDetector {
             }
         };
 
+        transaction.commit().await?;
         METRICS.reorg_data[&ReorgInfo::StartBlock].set(0);
         METRICS.reorg_data[&ReorgInfo::EndBlock].set(0);
         METRICS.soft_reorg.inc_by(0);
@@ -187,11 +225,11 @@ impl ViaVerifierReorgDetector {
         Ok(())
     }
 
-    async fn detect_reorg(&self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<bool> {
+    async fn detect_reorg(&self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<Option<DetectedReorg>> {
         let Some((block_height, _)) = storage.via_l1_block_dal().get_last_l1_block().await? else {
             // Nothing to compare until `via_l1_blocks` is bootstrapped.
             tracing::debug!("Skipping reorg check: via_l1_blocks not yet bootstrapped");
-            return Ok(false);
+            return Ok(None);
         };
 
         let window = self.config.reorg_window().max(1);
@@ -210,19 +248,19 @@ impl ViaVerifierReorgDetector {
                     "Skipping reorg check ({start_height}..={block_height}): \
                      failed to fetch canonical L1 window: {err:#}",
                 );
-                return Ok(false);
+                return Ok(None);
             }
         };
 
         if chain_blocks.is_empty() {
-            return Ok(false);
+            return Ok(None);
         }
 
         let canonical_by_height: HashMap<i64, String> =
             chain_blocks.into_iter().map(|(height, block)| (height, block.block_hash().to_string())).collect();
 
         let reorg_start_block_height = match scan_for_reorg(&db_blocks, &canonical_by_height) {
-            ReorgScan::NoReorg => return Ok(false),
+            ReorgScan::NoReorg => return Ok(None),
             ReorgScan::ReorgAt(height) => {
                 tracing::warn!("Reorg detected at block {}", height);
                 height
@@ -233,7 +271,7 @@ impl ViaVerifierReorgDetector {
                     "Skipping reorg check: canonical chain fetch is missing block {height} \
                      for height-keyed comparison ({start_height}..={block_height} window)"
                 );
-                return Ok(false);
+                return Ok(None);
             }
         };
 
@@ -258,21 +296,12 @@ impl ViaVerifierReorgDetector {
 
         let transactions_count = storage.via_transactions_dal().get_not_finalized_transactions(l1_block_number_to_keep).await?;
 
-        METRICS.reorg_data[&ReorgInfo::StartBlock].set(reorg_start_block_height as usize);
-        METRICS.reorg_data[&ReorgInfo::EndBlock].set(block_height as usize);
-
         if l1_batch_number_opt.is_none() && transactions_count == 0 {
             tracing::info!("Soft reorg detected: no transactions affected");
 
             storage.via_l1_block_dal().insert_reorg_metadata(reorg_start_block_height, 0).await?;
 
-            sleep(Duration::from_secs(30)).await;
-
-            METRICS.soft_reorg.inc();
-
-            tracing::info!("Soft reorg handled successfully");
-
-            return Ok(false);
+            return Ok(Some(DetectedReorg { kind: ReorgKind::Soft, start_block: reorg_start_block_height, end_block: block_height }));
         };
 
         let l1_batch_number = l1_batch_number_opt.unwrap_or_default();
@@ -281,9 +310,7 @@ impl ViaVerifierReorgDetector {
 
         storage.via_l1_block_dal().insert_reorg_metadata(reorg_start_block_height, l1_batch_number).await?;
 
-        METRICS.hard_reorg.inc();
-
-        Ok(true)
+        Ok(Some(DetectedReorg { kind: ReorgKind::Hard, start_block: reorg_start_block_height, end_block: block_height }))
     }
 
     async fn check_if_reorg_in_progress(&self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<bool> {
