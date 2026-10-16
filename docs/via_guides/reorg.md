@@ -26,6 +26,17 @@ reconstructed correctly. A double deposit scenario could look like this:
 
 To avoid this, BtcWatch reindexes the Bitcoin chain starting from the **last valid block**.
 
+The main-node reader, detector, reverter, and storage initializers share a PostgreSQL transaction
+advisory lock. A scan commits its database effects and progress together. Recovery cannot move
+progress beyond the reader's stored position, and it preserves zero or missing progress.
+Hard recovery retains its existing extra replay block before the last canonical height.
+
+For a soft reorg, the detector first commits pending metadata. It then acquires ownership again
+and completes the rewind in a fresh transaction. A restarted detector resumes pending soft recovery.
+The reader waits while recovery is pending, without relying on a timed pause. This lock coordinates
+Bitcoin ingestion and recovery. Other node components still require the existing stopped-node
+procedure for a manual hard reversion.
+
 The sequencer maintains an internal mapping of L1 blocks in a table `<number, hash>`. During recovery, the last valid
 block is compared against the Bitcoin client, and all data is rolled back in the database to this valid state.
 
