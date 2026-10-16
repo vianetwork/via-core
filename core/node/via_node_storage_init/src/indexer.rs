@@ -24,34 +24,25 @@ impl ViaIndexerInitializer {
 }
 
 impl ViaIndexerInitializer {
-    pub async fn is_initialized(&self) -> anyhow::Result<bool> {
-        let last_processed_bitcoin_block = self
-            .pool
-            .connection()
-            .await?
+    pub async fn initialize_storage(&self) -> anyhow::Result<()> {
+        let mut storage = self.pool.connection().await?;
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let is_initialized = transaction
             .via_indexer_dal()
             .get_last_processed_l1_block("via_btc_watch")
-            .await? as u32;
-
-        Ok(last_processed_bitcoin_block != 0)
-    }
-
-    pub async fn initialize_storage(&self) -> anyhow::Result<()> {
-        let is_initialized = self.is_initialized().await?;
+            .await?
+            != 0;
 
         if !is_initialized {
             let state = self.bootstrap.process_bootstrap_messages().await?;
-            self.pool
-                .connection()
-                .await?
+            transaction
                 .via_indexer_dal()
                 .init_indexer_metadata("via_btc_watch", state.starting_block_number)
                 .await?;
             tracing::info!("Indexer storage initialized");
         } else if is_initialized && self.btc_watch_config.restart_indexing {
-            self.pool
-                .connection()
-                .await?
+            transaction
                 .via_indexer_dal()
                 .update_last_processed_l1_block(
                     "via_btc_watch",
@@ -64,6 +55,7 @@ impl ViaIndexerInitializer {
             );
         }
 
+        transaction.commit().await?;
         Ok(())
     }
 }

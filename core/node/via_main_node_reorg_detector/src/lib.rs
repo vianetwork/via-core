@@ -1,8 +1,7 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Context;
 use bitcoin::Block;
-use tokio::time::sleep;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use via_reorg::{reorg_window_start, scan_for_reorg, ReorgScan};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
@@ -52,13 +51,22 @@ impl ViaMainNodeReorgDetector {
     }
 
     async fn loop_iteration(&mut self, storage: &mut Connection<'_, Core>) -> anyhow::Result<()> {
-        if self.check_if_reorg_in_progress(storage).await? {
-            return Ok(());
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let reorg = match transaction.via_l1_block_dal().has_reorg_in_progress().await? {
+            Some(reorg) => Some(reorg),
+            None => self.detect_reorg(&mut transaction).await?,
+        };
+        if reorg.is_none() {
+            self.sync_l1_blocks(&mut transaction).await?;
         }
+        transaction.commit().await?;
 
-        self.detect_reorg(storage).await?;
-        self.sync_l1_blocks(storage).await?;
-
+        // Committed detection remains visible if soft recovery is interrupted.
+        // A fresh transaction rereads pending work under the owner, including after restart.
+        if matches!(reorg, Some((_, 0))) {
+            self.complete_soft_reorg(storage).await?;
+        }
         Ok(())
     }
 
@@ -90,6 +98,9 @@ impl ViaMainNodeReorgDetector {
 
     async fn init(&mut self) -> anyhow::Result<()> {
         let mut storage = self.pool.connection_tagged("via_main_node_reorg_detector").await?;
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let storage = &mut transaction;
 
         match storage.via_l1_block_dal().get_last_l1_block().await? {
             Some(_) => {}
@@ -112,6 +123,7 @@ impl ViaMainNodeReorgDetector {
             }
         };
 
+        transaction.commit().await?;
         METRICS.errors.inc_by(0);
         METRICS.reorg_type[&ReorgType::Hard].inc_by(0);
         METRICS.reorg_type[&ReorgType::Soft].inc_by(0);
@@ -183,11 +195,11 @@ impl ViaMainNodeReorgDetector {
         Ok(())
     }
 
-    async fn detect_reorg(&self, storage: &mut Connection<'_, Core>) -> anyhow::Result<()> {
+    async fn detect_reorg(&self, storage: &mut Connection<'_, Core>) -> anyhow::Result<Option<(i64, i64)>> {
         let Some((block_height, _)) = storage.via_l1_block_dal().get_last_l1_block().await? else {
             // Nothing to compare until `via_l1_blocks` is bootstrapped.
             tracing::debug!("Skipping reorg check: via_l1_blocks not yet bootstrapped");
-            return Ok(());
+            return Ok(None);
         };
 
         let window = self.config.reorg_window().max(1);
@@ -206,19 +218,19 @@ impl ViaMainNodeReorgDetector {
                     "Skipping reorg check ({start_height}..={block_height}): \
                      failed to fetch canonical L1 window: {err:#}",
                 );
-                return Ok(());
+                return Ok(None);
             }
         };
 
         if chain_blocks.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
 
         let canonical_by_height: HashMap<i64, String> =
             chain_blocks.into_iter().map(|(height, block)| (height, block.block_hash().to_string())).collect();
 
         let reorg_start_block_height = match scan_for_reorg(&db_blocks, &canonical_by_height) {
-            ReorgScan::NoReorg => return Ok(()),
+            ReorgScan::NoReorg => return Ok(None),
             ReorgScan::ReorgAt(height) => {
                 tracing::warn!("Reorg detected at block {}", height);
                 height
@@ -229,15 +241,9 @@ impl ViaMainNodeReorgDetector {
                     "Skipping reorg check: canonical chain fetch is missing block {height} \
                      for height-keyed comparison ({start_height}..={block_height} window)"
                 );
-                return Ok(());
+                return Ok(None);
             }
         };
-
-        // `reorg_start_block_height` is the canonical divergence point and drives
-        // metrics, reorg metadata, and the affected-batches query. The
-        // `via_btc_watch` cursor is only used to bound the rewind target so we
-        // never move the cursor forward.
-        let last_processed_l1_block = storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await? as i64;
 
         let l1_batch_number_opt = storage.via_l1_block_dal().list_l1_batches_with_priority_txs(reorg_start_block_height as i32).await?;
 
@@ -246,32 +252,7 @@ impl ViaMainNodeReorgDetector {
 
             storage.via_l1_block_dal().insert_reorg_metadata(reorg_start_block_height, 0).await?;
 
-            sleep(Duration::from_secs(30)).await;
-
-            let mut transaction = storage.start_transaction().await?;
-
-            // Cursor 0 means `via_btc_watch` is uninitialized; fall back to the
-            // pre-divergence height. Otherwise cap the keep-target at the cursor
-            // so a reorg above the cursor never demotes it forward.
-            let l1_block_number_to_keep = if last_processed_l1_block > 0 {
-                (reorg_start_block_height - 1).min(last_processed_l1_block)
-            } else {
-                reorg_start_block_height - 1
-            };
-
-            transaction.via_indexer_dal().update_last_processed_l1_block("via_btc_watch", l1_block_number_to_keep as u32).await?;
-
-            transaction.via_l1_block_dal().delete_l1_reorg(l1_block_number_to_keep).await?;
-
-            transaction.via_l1_block_dal().delete_l1_blocks(l1_block_number_to_keep).await?;
-
-            transaction.commit().await?;
-
-            METRICS.reorg_type[&ReorgType::Soft].set(reorg_start_block_height as usize);
-
-            tracing::info!("Soft reorg handled successfully");
-
-            return Ok(());
+            return Ok(Some((reorg_start_block_height, 0)));
         };
 
         if self.is_main_node {
@@ -281,21 +262,38 @@ impl ViaMainNodeReorgDetector {
             storage.via_l1_block_dal().insert_reorg_metadata(reorg_start_block_height, l1_batch_number).await?;
 
             METRICS.reorg_type[&ReorgType::Hard].set(reorg_start_block_height as usize);
+            return Ok(Some((reorg_start_block_height, l1_batch_number)));
         }
 
-        Ok(())
+        Ok(None)
     }
 
-    async fn check_if_reorg_in_progress(&self, storage: &mut Connection<'_, Core>) -> anyhow::Result<bool> {
-        if let Some((l1_block_number, l1_batch_number)) = storage.via_l1_block_dal().has_reorg_in_progress().await? {
-            tracing::debug!(
-                "Reorg in progress at l1 block number: {} and l1 batch number: {} (waiting for external recovery service)",
-                l1_block_number,
-                l1_batch_number
-            );
-            return Ok(true);
+    async fn complete_soft_reorg(&self, storage: &mut Connection<'_, Core>) -> anyhow::Result<()> {
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let Some((first_removed_height, 0)) = transaction.via_l1_block_dal().has_reorg_in_progress().await? else {
+            return Ok(());
+        };
+        let reader_progress = transaction.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?;
+        let canonical_boundary = first_removed_height
+            .checked_sub(1)
+            .filter(|height| *height >= 0)
+            .context("Soft reorg must retain a nonnegative Bitcoin height")?;
+        let keep_height = reader_progress.min(canonical_boundary as u64);
+        if reader_progress != 0 {
+            transaction
+                .via_indexer_dal()
+                .update_last_processed_l1_block(
+                    "via_btc_watch",
+                    u32::try_from(keep_height).context("Soft recovery checkpoint exceeds the supported height range")?,
+                )
+                .await?;
         }
-
-        Ok(false)
+        transaction.via_l1_block_dal().delete_l1_reorg(canonical_boundary).await?;
+        transaction.via_l1_block_dal().delete_l1_blocks(canonical_boundary).await?;
+        transaction.commit().await?;
+        METRICS.reorg_type[&ReorgType::Soft].set(first_removed_height as usize);
+        tracing::info!("Soft reorg handled successfully");
+        Ok(())
     }
 }
