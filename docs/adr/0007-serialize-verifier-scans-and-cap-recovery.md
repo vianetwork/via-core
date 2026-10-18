@@ -76,6 +76,16 @@ its result on top of a recovery that had just moved the bookmark back.
    `via_verifier_btc_watch_proof_continuity_blocked` becomes 1, so an alert can
    page an operator within minutes.
 
+## The main node
+
+The main node had the same two flaws in its own reader, detector, reverter and
+startup code. A skipped block there can hold a deposit that never reaches L2.
+Since PR #404 it follows points 1 and 2 with its own lock, `BTC_WATCH_OWNER` in
+the main-node DAL. That lock uses the two-integer key `(1464095563, 0)`.
+PostgreSQL keeps two-integer and bigint advisory keys apart, so it never blocks
+a verifier lock even on a shared database. Point 3 is verifier only, because
+the main node's reader does not import proofs.
+
 ## Why this design
 
 Point 1 follows Bitcoin Core's wallet, which rewinds from the last block it

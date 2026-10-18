@@ -1,8 +1,10 @@
 # Via
 
-Via is a Bitcoin layer 2 built from zkSync Era. This glossary covers its Bitcoin deposit flow.
+Via is a Bitcoin layer 2 built from zkSync Era. This glossary covers its Bitcoin deposit flow and how it reads Bitcoin.
 
 ## Language
+
+### Deposits
 
 **Bridge payment**: A Bitcoin transaction with at least one output to Via's configured bridge address. _Avoid_: deposit
 when the message and payment have not passed the deposit checks.
@@ -21,3 +23,8 @@ without execution evidence.
 
 **Rejected bridge payment**: A bridge payment that produces no accepted deposit after Via completes its deposit checks.
 _Avoid_: rejected transaction, which could imply that Bitcoin rejected the payment.
+
+### Reading Bitcoin
+
+**Scan position**: The height of the last Bitcoin block whose inscriptions a Via node has fully processed. The main node
+and each verifier keep their own. _Avoid_: cursor, checkpoint.
