@@ -110,11 +110,20 @@ suggestions against source and tests.
 
 ## Validation
 
-Before pushing, run `git diff --check` and relevant existing checks. For Rust
-changes, run:
+Before pushing, run `git diff --check` and relevant existing checks. Format Rust
+as [docs/formatting.md](docs/formatting.md) describes:
+
+- Via-owned paths: `scripts/format-changed.sh --check-config` and
+  `scripts/format-changed.sh --check --base origin/<PR-base-branch>`.
+- Do not run `cargo fmt`, `zkstack dev fmt` without `--check`, or editor
+  formatting on Via paths. They rewrite existing 120-column code to the
+  100-column profiles.
+- Upstream-owned paths: `zkstack dev fmt --check`. Findings on untouched Via
+  files are expected.
+
+For Rust changes, also run:
 
 ```bash
-zkstack dev fmt --check
 zkstack dev lint --check
 cargo test -p <crate>
 just via-check

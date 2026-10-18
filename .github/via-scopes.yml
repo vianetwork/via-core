@@ -15,5 +15,6 @@ scopes:
   via-indexer:   Indexer-specific logic
   via-prover:    Prover-specific logic
   via-structural: Structural rules and linting (ast-grep)
+  via-fmt:       Via formatting profiles and changed-line checks
   via:           Cross-cutting Via-only changes (use sparingly)
   upstream-sync: Merging upstream ZKsync changes (not Via-specific)
