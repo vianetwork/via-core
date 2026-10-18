@@ -1,5 +1,6 @@
 //! Common utils for data access layer (DAL) implementations.
 
+pub mod advisory_lock;
 pub mod connection;
 pub mod connection_pool;
 pub mod error;

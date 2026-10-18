@@ -49,4 +49,13 @@ mappings:
   - path: "core/lib/via_reorg/**"
     area: reorg
 
+  - path: "core/lib/db_connection/src/advisory_lock.rs"
+    area: reorg
+
+  - path: "core/lib/via_btc_client/**"
+    area: btc
+
+  - path: "core/lib/via_test_utils/**"
+    area: btc
+
   # Add more mappings as needed

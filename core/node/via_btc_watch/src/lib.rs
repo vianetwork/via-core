@@ -47,15 +47,14 @@ impl BtcWatch {
         if is_main_node {
             let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
 
-            let protocol_semantic_version = storage
+            storage
                 .protocol_versions_dal()
                 .latest_semantic_version()
                 .await
                 .expect("Failed to load the latest protocol semantic version")
                 .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
 
-            message_processors
-                .push(Box::new(GovernanceUpgradesEventProcessor::new(btc_client, protocol_semantic_version)));
+            message_processors.push(Box::new(GovernanceUpgradesEventProcessor::new(btc_client)));
         }
 
         Ok(Self {
@@ -92,6 +91,14 @@ impl BtcWatch {
     }
 
     async fn loop_iteration(&mut self, storage: &mut Connection<'_, Core>) -> Result<(), MessageProcessorError> {
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        self.process_scan(&mut transaction).await?;
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn process_scan(&mut self, storage: &mut Connection<'_, Core>) -> Result<(), MessageProcessorError> {
         if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }

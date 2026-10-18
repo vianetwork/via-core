@@ -2,7 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Context as _;
 use tokio::{fs, sync::Semaphore};
-use zksync_dal::{ConnectionPool, Core, CoreDal};
+use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 // Public re-export to simplify the API use.
 use zksync_merkle_tree::domain::ZkSyncTree;
 use zksync_object_store::{ObjectStore, ObjectStoreError};
@@ -104,13 +104,16 @@ impl ViaBlockReverter {
 
     /// Rolls back previously enabled DBs (Postgres + RocksDB) and the snapshot object store to a previous state.
     pub async fn roll_back(&self, last_l1_batch_to_keep: L1BatchNumber) -> anyhow::Result<()> {
+        let mut storage = self.connection_pool.connection().await?;
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
         let mut l1_block_number_to_keep = None;
 
         if !self.allow_rolling_back_executed_batches {
-            let mut storage = self.connection_pool.connection().await?;
-
-            if let Some((l1_block_number, l1_batch_number)) =
-                storage.via_l1_block_dal().has_reorg_in_progress().await?
+            if let Some((l1_block_number, l1_batch_number)) = transaction
+                .via_l1_block_dal()
+                .has_reorg_in_progress()
+                .await?
             {
                 tracing::warn!(
                     "Found reorg in progress at l1 block number: {} and l1 batch number: {}",
@@ -131,7 +134,7 @@ impl ViaBlockReverter {
 
             // If there is no reorg we should not revert the verified batches.
             if l1_block_number_to_keep.is_none() {
-                if let Some(first_l1_batch_can_be_reverted) = storage
+                if let Some(first_l1_batch_can_be_reverted) = transaction
                     .via_blocks_dal()
                     .get_first_l1_batch_can_be_reverted()
                     .await?
@@ -147,14 +150,19 @@ impl ViaBlockReverter {
         }
 
         // Tree needs to be rolled back first to keep the state recoverable
-        self.roll_back_rocksdb_instances(last_l1_batch_to_keep)
+        self.roll_back_rocksdb_instances(&mut transaction, last_l1_batch_to_keep)
             .await?;
         let deleted_snapshots = if self.should_roll_back_postgres {
-            self.roll_back_postgres(last_l1_batch_to_keep, l1_block_number_to_keep)
-                .await?
+            self.roll_back_postgres(
+                &mut transaction,
+                last_l1_batch_to_keep,
+                l1_block_number_to_keep,
+            )
+            .await?
         } else {
             vec![]
         };
+        transaction.commit().await?;
 
         if let Some(object_store) = self.snapshots_object_store.as_deref() {
             Self::delete_snapshot_files(object_store, &deleted_snapshots).await?;
@@ -170,13 +178,11 @@ impl ViaBlockReverter {
 
     async fn roll_back_rocksdb_instances(
         &self,
+        storage: &mut Connection<'_, Core>,
         last_l1_batch_to_keep: L1BatchNumber,
     ) -> anyhow::Result<()> {
         if let Some(merkle_tree_path) = &self.merkle_tree_path {
-            let storage_root_hash = self
-                .connection_pool
-                .connection()
-                .await?
+            let storage_root_hash = storage
                 .blocks_dal()
                 .get_l1_batch_state_root(last_l1_batch_to_keep)
                 .await?
@@ -220,7 +226,7 @@ impl ViaBlockReverter {
                 sk_cache_exists,
                 "Path with storage cache DB doesn't exist at `{storage_cache_path}`"
             );
-            self.roll_back_storage_cache(last_l1_batch_to_keep, storage_cache_path)
+            self.roll_back_storage_cache(storage, last_l1_batch_to_keep, storage_cache_path)
                 .await?;
         }
         Ok(())
@@ -256,6 +262,7 @@ impl ViaBlockReverter {
     /// Rolls back changes in the storage cache.
     async fn roll_back_storage_cache(
         &self,
+        storage: &mut Connection<'_, Core>,
         last_l1_batch_to_keep: L1BatchNumber,
         storage_cache_path: &str,
     ) -> anyhow::Result<()> {
@@ -265,10 +272,9 @@ impl ViaBlockReverter {
             .context("failed initializing storage cache")?;
 
         if sk_cache.l1_batch_number().await > Some(last_l1_batch_to_keep + 1) {
-            let mut storage = self.connection_pool.connection().await?;
             tracing::info!("Rolling back storage cache");
             sk_cache
-                .roll_back(&mut storage, last_l1_batch_to_keep)
+                .roll_back(storage, last_l1_batch_to_keep)
                 .await
                 .context("failed rolling back storage cache")?;
         } else {
@@ -281,12 +287,11 @@ impl ViaBlockReverter {
     /// If `node_role` is `Main` a consensus hard-fork is performed.
     async fn roll_back_postgres(
         &self,
+        transaction: &mut Connection<'_, Core>,
         last_l1_batch_to_keep: L1BatchNumber,
         l1_block_number_to_keep: Option<i64>,
     ) -> anyhow::Result<Vec<SnapshotMetadata>> {
         tracing::info!("Rolling back Postgres data");
-        let mut storage = self.connection_pool.connection().await?;
-        let mut transaction = storage.start_transaction().await?;
         let (_, last_l2_block_to_keep) = transaction
             .blocks_dal()
             .get_l2_block_range_of_l1_batch(last_l1_batch_to_keep)
@@ -374,14 +379,27 @@ impl ViaBlockReverter {
                 .delete_l1_reorg(l1_block_number)
                 .await?;
 
-            // Restart indexing from the last canonical l1 block number.
-            transaction
+            // Bitcoin Core's `CWallet::blockDisconnected` rewinds the wallet's completed position when a block disconnects.
+            // Via headers can lead the reader, so recovery caps its existing replay target at reader progress.
+            // https://github.com/bitcoin/bitcoin/blob/f13ae519de94394314cd63a27924b0998ac65d45/src/wallet/wallet.cpp
+            let reader_progress = transaction
                 .via_indexer_dal()
-                .update_last_processed_l1_block(
-                    "via_btc_watch",
-                    std::cmp::max(0, l1_block_number - 1) as u32,
-                )
-                .await?;
+                .get_last_processed_l1_block("via_btc_watch")
+                .await
+                .context("Reading completed Bitcoin progress under the recovery owner")?;
+            let checkpoint_to_keep =
+                reader_progress.min(std::cmp::max(0, l1_block_number - 1) as u64);
+            if reader_progress != 0 {
+                transaction
+                    .via_indexer_dal()
+                    .update_last_processed_l1_block(
+                        "via_btc_watch",
+                        u32::try_from(checkpoint_to_keep).context(
+                            "Bitcoin recovery checkpoint exceeds the supported height range",
+                        )?,
+                    )
+                    .await?;
+            }
 
             transaction
                 .via_wallet_dal()
@@ -394,7 +412,6 @@ impl ViaBlockReverter {
             transaction.consensus_dal().fork().await?;
         }
 
-        transaction.commit().await?;
         Ok(deleted_snapshots)
     }
 

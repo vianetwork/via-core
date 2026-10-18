@@ -8,32 +8,22 @@ use via_btc_client::{
     types::FullInscriptionMessage,
 };
 use zksync_dal::{Connection, Core, CoreDal, DalError};
-use zksync_types::{
-    protocol_version::ProtocolSemanticVersion, via_protocol_upgrade::ViaProtocolUpgrade, ProtocolUpgrade,
-};
+use zksync_types::{via_protocol_upgrade::ViaProtocolUpgrade, ProtocolUpgrade};
 
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
     metrics::{InscriptionStage, METRICS},
 };
 
-/// Listens to operation events coming from the governance contract and saves new protocol upgrade proposals to the database.
+/// Reads system contract upgrade inscriptions from Bitcoin and saves new protocol upgrade proposals to the database.
 #[derive(Debug)]
 pub struct GovernanceUpgradesEventProcessor {
-    /// Last protocol version seen. Used to skip events for already known upgrade proposals.
-    last_seen_protocol_version: ProtocolSemanticVersion,
-    /// BTC client
     btc_client: Arc<BitcoinClient>,
-    /// Message parser
-    message_parser: MessageParser,
-    /// upgrade proposal
-    upgrade: ViaProtocolUpgrade,
 }
 
 impl GovernanceUpgradesEventProcessor {
-    pub fn new(btc_client: Arc<BitcoinClient>, last_seen_protocol_version: ProtocolSemanticVersion) -> Self {
-        let message_parser = MessageParser::new(btc_client.get_network());
-        Self { last_seen_protocol_version, btc_client, message_parser, upgrade: ViaProtocolUpgrade::default() }
+    pub fn new(btc_client: Arc<BitcoinClient>) -> Self {
+        Self { btc_client }
     }
 }
 #[async_trait::async_trait]
@@ -42,6 +32,16 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
         &mut self, storage: &mut Connection<'_, Core>, msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
+        if !msgs.iter().any(|message| matches!(message, FullInscriptionMessage::SystemContractUpgrade(_))) {
+            return Ok(None);
+        }
+        let latest_committed_version = storage
+            .protocol_versions_dal()
+            .latest_semantic_version()
+            .await
+            .map_err(DalError::generalize)?
+            .context("expected some version to be present in DB")?;
+        let mut message_parser = MessageParser::new(self.btc_client.get_network());
         let mut upgrades = Vec::new();
         for msg in msgs {
             if let FullInscriptionMessage::SystemContractUpgrade(system_contract_upgrade_msg) = &msg {
@@ -56,7 +56,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                         },
                     )?;
 
-                let messages = self.message_parser.parse_system_transaction(
+                let messages = message_parser.parse_system_transaction(
                     &proposal_tx,
                     system_contract_upgrade_msg.common.block_height,
                     None,
@@ -65,20 +65,18 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                 for message in messages {
                     match message {
                         FullInscriptionMessage::SystemContractUpgradeProposal(system_contract_upgrade_proposal_msg) => {
-                            // Ignore if old version
-                            if system_contract_upgrade_proposal_msg.input.version <= self.last_seen_protocol_version {
+                            if system_contract_upgrade_proposal_msg.input.version <= latest_committed_version {
                                 tracing::info!(
                                     "Upgrade transaction with version {} already processed, skipping",
                                     system_contract_upgrade_proposal_msg.input.version
                                 );
                                 continue;
                             }
-
                             tracing::info!(
                                 "Received upgrades with versions: {:?}",
                                 system_contract_upgrade_proposal_msg.input.version
                             );
-                            let tx = self.upgrade.create_protocol_upgrade_tx(
+                            let tx = ViaProtocolUpgrade::default().create_protocol_upgrade_tx(
                                 system_contract_upgrade_proposal_msg.input.version,
                                 system_contract_upgrade_proposal_msg.input.system_contracts,
                             )?;
@@ -110,11 +108,6 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
             }
         }
 
-        let Some(last_upgrade) = upgrades.last() else {
-            return Ok(None);
-        };
-
-        let last_version = last_upgrade.0.version;
         for (upgrade, recursion_scheduler_level_vk_hash) in upgrades {
             let latest_semantic_version = storage
                 .protocol_versions_dal()
@@ -144,8 +137,6 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                 METRICS.inscriptions_processed[&InscriptionStage::Upgrade].set(new_version.version.minor as usize);
             }
         }
-        self.last_seen_protocol_version = last_version;
-
         Ok(None)
     }
 }

@@ -1,18 +1,10 @@
-use std::{
-    io::{BufRead, BufReader, Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Mutex,
-    },
-    thread,
-    time::Duration,
-};
+use std::{sync::Mutex, time::Duration};
 
-use bitcoin::{consensus::encode::serialize_hex, hashes::Hash, BlockHash, Network};
+use bitcoin::{consensus::encode::serialize_hex, hashes::Hash, Block, BlockHash, Network};
 use serde_json::{json, Value};
 use tokio::sync::watch;
 use via_btc_client::types::NodeAuth;
+use via_test_utils::bitcoin_rpc::BitcoinRpcServer;
 use via_verifier_block_reverter::ViaVerifierBlockReverter;
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
 
@@ -24,21 +16,11 @@ struct BitcoinFixture {
     client: Arc<BitcoinClient>,
     blocks: Vec<Block>,
     requests: Arc<Mutex<Vec<Value>>>,
-    stop: Arc<AtomicBool>,
-    address: SocketAddr,
-    server: Option<thread::JoinHandle<()>>,
+    _server: BitcoinRpcServer,
 }
 
 impl BitcoinFixture {
     fn new() -> anyhow::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
-        let address = listener.local_addr()?;
-        let client = Arc::new(BitcoinClient::new(&format!("http://{}", listener.local_addr()?), NodeAuth::None, ViaBtcClientConfig {
-            network: "regtest".into(),
-            external_apis: vec![],
-            fee_strategies: vec![],
-            use_rpc_for_fee_rate: Some(true),
-        })?);
         let mut blocks: Vec<Block> = Vec::new();
         for height in 1..=3 {
             let mut block = bitcoin::blockdata::constants::genesis_block(Network::Regtest);
@@ -49,35 +31,12 @@ impl BitcoinFixture {
             blocks.push(block);
         }
         let requests = Arc::new(Mutex::new(Vec::new()));
-        let stop = Arc::new(AtomicBool::new(false));
         let server = {
             let blocks = blocks.clone();
             let requests = requests.clone();
-            let stop = stop.clone();
-            thread::spawn(move || loop {
-                let (stream, _) = listener.accept().unwrap();
-                if stop.load(Ordering::SeqCst) {
-                    break;
-                }
-                let mut reader = BufReader::new(stream);
-                let mut length = 0;
-                loop {
-                    let mut line = String::new();
-                    if reader.read_line(&mut line).unwrap() == 0 {
-                        return;
-                    }
-                    if line == "\r\n" {
-                        break;
-                    }
-                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                        length = value.trim().parse::<usize>().unwrap();
-                    }
-                }
-                let mut body = vec![0; length];
-                reader.read_exact(&mut body).unwrap();
-                let request: Value = serde_json::from_slice(&body).unwrap();
+            BitcoinRpcServer::new(None, false, move |_, request| {
                 requests.lock().unwrap().push(request.clone());
-                let result = match request["method"].as_str().unwrap() {
+                match request["method"].as_str().unwrap() {
                     "getblockhash" => json!(blocks[request["params"][0].as_u64().unwrap() as usize - 1].block_hash()),
                     "getblock" => {
                         let block =
@@ -86,16 +45,16 @@ impl BitcoinFixture {
                     }
                     "getblockcount" => json!(blocks.len()),
                     method => panic!("unexpected detector RPC: {method}"),
-                };
-                let body = json!({"result": result, "error": null, "id": request["id"]}).to_string();
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
-                    body.len()
-                );
-                reader.get_mut().write_all(response.as_bytes()).unwrap();
-            })
+                }
+            })?
         };
-        Ok(Self { client, blocks, requests, stop, address, server: Some(server) })
+        let client = Arc::new(BitcoinClient::new(&server.url(""), NodeAuth::None, ViaBtcClientConfig {
+            network: "regtest".into(),
+            external_apis: vec![],
+            fee_strategies: vec![],
+            use_rpc_for_fee_rate: Some(true),
+        })?);
+        Ok(Self { client, blocks, requests, _server: server })
     }
 
     fn assert_hits(&self, hashes: usize, blocks: usize, heights: usize) {
@@ -116,16 +75,6 @@ impl BitcoinFixture {
                 .bind(vec![1_u8; 32]).execute(storage.conn()).await?;
         }
         Ok(())
-    }
-}
-
-impl Drop for BitcoinFixture {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        let _ = TcpStream::connect(self.address);
-        if let Some(server) = self.server.take() {
-            let _ = server.join();
-        }
     }
 }
 

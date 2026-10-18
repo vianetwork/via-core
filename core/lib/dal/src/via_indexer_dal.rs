@@ -1,6 +1,22 @@
-use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
+use zksync_db_connection::{
+    advisory_lock::{AdvisoryLockKey, TransactionAdvisoryLock},
+    connection::Connection,
+    error::DalResult,
+    instrument::InstrumentExt,
+};
 
 use crate::Core;
+
+pub const BTC_WATCH_OWNER_LOCK_NAMESPACE: i32 = 1464095563;
+const BTC_WATCH_OWNER_LOCK_RESOURCE: i32 = 0;
+pub const BTC_WATCH_OWNER: TransactionAdvisoryLock = TransactionAdvisoryLock::new(
+    AdvisoryLockKey::Pair(
+        BTC_WATCH_OWNER_LOCK_NAMESPACE,
+        BTC_WATCH_OWNER_LOCK_RESOURCE,
+    ),
+    "btc_watch_owner",
+)
+.report_latency();
 
 #[derive(Debug)]
 pub struct ViaIndexerDal<'a, 'c> {
@@ -8,6 +24,24 @@ pub struct ViaIndexerDal<'a, 'c> {
 }
 
 impl ViaIndexerDal<'_, '_> {
+    /// Lets only one main-node Bitcoin scan, header update, initialization or recovery run at a time.
+    /// Call it inside the transaction that commits the work, before reading progress, fetching blocks or taking other locks.
+    /// The key is a two-integer pair with its own first number, so it collides neither with the verifier's
+    /// bigint keys nor with its two-integer wallet-session keys.
+    // Graph Node's `DeploymentStore::rewind_or_truncate_with_conn` saves indexed data and block pointer under one owner.
+    // Via retains separate tasks, so they share this transaction owner through Bitcoin fetches.
+    // https://github.com/graphprotocol/graph-node/blob/6838f4e3cf3607c5bc32ef705dd05aec1eb057ab/store/postgres/src/deployment_store.rs
+    pub async fn lock_btc_watch(&mut self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.storage.in_transaction(),
+            "Bitcoin watch ownership requires a transaction"
+        );
+        BTC_WATCH_OWNER
+            .acquire(self.storage)
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn init_indexer_metadata(&mut self, module: &str, l1_block: u32) -> DalResult<()> {
         sqlx::query!(
             r#"

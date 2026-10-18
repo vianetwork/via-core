@@ -147,6 +147,7 @@ async fn setup_storage(storage: &mut Connection<'_, Core>, storage_logs: &[Stora
             virtual_blocks: 1,
             gas_limit: 0,
             logs_bloom: Default::default(),
+            pubdata_params: Default::default(),
         };
         storage
             .blocks_dal()
@@ -167,6 +168,7 @@ async fn setup_storage(storage: &mut Connection<'_, Core>, storage_logs: &[Stora
             system_logs: vec![],
             protocol_version: Some(ProtocolVersionId::latest()),
             pubdata_input: None,
+            fee_address: Default::default(),
         };
         storage
             .blocks_dal()
@@ -290,6 +292,163 @@ async fn block_reverter_basics(sync_merkle_tree: bool) {
         let expected_value = if i <= 5 { log.value } else { H256::zero() };
         assert_eq!(sk_cache.read_value(&log.key), expected_value);
     }
+}
+
+#[test_casing(4, [(Some(5), Some(5)), (Some(12), Some(8)), (Some(0), Some(0)), (None, None)])]
+#[tokio::test]
+async fn bitcoin_recovery_caps_completed_progress_with_one_connection(
+    progress: Option<u32>,
+    expected: Option<i64>,
+) {
+    let pool = ConnectionPool::<Core>::constrained_test_pool(1).await;
+    let mut storage = pool.connection().await.unwrap();
+    setup_storage(&mut storage, &gen_storage_logs()).await;
+    if let Some(progress) = progress {
+        storage
+            .via_indexer_dal()
+            .init_indexer_metadata("via_btc_watch", progress)
+            .await
+            .unwrap();
+    }
+    for height in 8..=11 {
+        storage
+            .via_l1_block_dal()
+            .insert_l1_block(height, format!("{height:064x}"))
+            .await
+            .unwrap();
+    }
+    for height in [8, 10] {
+        let deposit = zksync_types::l1::via_l1::ViaL1Deposit {
+            l2_receiver_address: Address::repeat_byte(7),
+            amount: 50_000,
+            calldata: vec![],
+            l1_block_number: height,
+            tx_index: 0,
+            output_vout: 0,
+        }
+        .l1_tx()
+        .unwrap();
+        storage
+            .via_transactions_dal()
+            .insert_transaction_l1(&deposit, deposit.eth_block(), H256::from_low_u64_be(height))
+            .await
+            .unwrap();
+    }
+    storage
+        .via_l1_block_dal()
+        .insert_reorg_metadata(10, 6)
+        .await
+        .unwrap();
+    drop(storage);
+    ViaBlockReverter::new(NodeRole::Main, pool.clone())
+        .enable_rolling_back_postgres()
+        .roll_back(L1BatchNumber(5))
+        .await
+        .unwrap();
+    let mut storage = pool.connection().await.unwrap();
+    let progress: Option<i64> = sqlx::query_scalar(
+        "SELECT last_indexer_l1_block FROM via_indexer_metadata WHERE module='via_btc_watch'",
+    )
+    .fetch_optional(storage.conn())
+    .await
+    .unwrap();
+    assert_eq!(progress, expected);
+    assert_eq!(
+        storage
+            .via_l1_block_dal()
+            .get_last_l1_block()
+            .await
+            .unwrap(),
+        Some((9, format!("{:064x}", 9)))
+    );
+    assert_eq!(
+        storage
+            .via_l1_block_dal()
+            .has_reorg_in_progress()
+            .await
+            .unwrap(),
+        None
+    );
+    let deposits: Vec<i32> = sqlx::query_scalar(
+        "SELECT l1_block_number FROM transactions WHERE is_priority ORDER BY l1_block_number",
+    )
+    .fetch_all(storage.conn())
+    .await
+    .unwrap();
+    assert_eq!(deposits, vec![8]);
+    assert_eq!(
+        storage
+            .blocks_dal()
+            .get_sealed_l1_batch_number()
+            .await
+            .unwrap(),
+        Some(L1BatchNumber(5))
+    );
+}
+
+#[tokio::test]
+async fn bitcoin_recovery_waits_for_owner_and_reads_committed_progress() {
+    let pool = ConnectionPool::<Core>::test_pool().await;
+    let mut storage = pool.connection().await.unwrap();
+    setup_storage(&mut storage, &gen_storage_logs()).await;
+    storage
+        .via_indexer_dal()
+        .init_indexer_metadata("via_btc_watch", 5)
+        .await
+        .unwrap();
+    storage
+        .via_l1_block_dal()
+        .insert_reorg_metadata(10, 6)
+        .await
+        .unwrap();
+    let mut owner = storage.start_transaction().await.unwrap();
+    owner.via_indexer_dal().lock_btc_watch().await.unwrap();
+    owner
+        .via_indexer_dal()
+        .update_last_processed_l1_block("via_btc_watch", 12)
+        .await
+        .unwrap();
+    let reverter_pool = pool.clone();
+    let recovery = tokio::spawn(async move {
+        ViaBlockReverter::new(NodeRole::Main, reverter_pool)
+            .enable_rolling_back_postgres()
+            .roll_back(L1BatchNumber(5))
+            .await
+    });
+    let mut observer = pool.connection().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=1464095563::oid AND objid=0 AND objsubid=2 AND NOT granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database()))")
+            .fetch_one(observer.conn()).await.unwrap()
+        {
+            tokio::task::yield_now().await;
+        }
+    }).await.unwrap();
+    assert_eq!(
+        observer
+            .blocks_dal()
+            .get_sealed_l1_batch_number()
+            .await
+            .unwrap(),
+        Some(L1BatchNumber(9))
+    );
+    owner.commit().await.unwrap();
+    recovery.await.unwrap().unwrap();
+    assert_eq!(
+        observer
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await
+            .unwrap(),
+        8
+    );
+    assert_eq!(
+        observer
+            .blocks_dal()
+            .get_sealed_l1_batch_number()
+            .await
+            .unwrap(),
+        Some(L1BatchNumber(5))
+    );
 }
 
 async fn create_mock_snapshot(

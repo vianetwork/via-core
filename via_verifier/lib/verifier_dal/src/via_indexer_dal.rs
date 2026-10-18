@@ -1,6 +1,16 @@
-use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
+use zksync_db_connection::{
+    advisory_lock::{AdvisoryLockKey, TransactionAdvisoryLock},
+    connection::Connection,
+    error::DalResult,
+    instrument::InstrumentExt,
+};
 
 use crate::{Verifier, BTC_WATCH_OWNER_LOCK_KEY, WITHDRAWAL_INVALIDATION_LOCK_KEY};
+
+pub const BTC_WATCH_OWNER: TransactionAdvisoryLock = TransactionAdvisoryLock::new(
+    AdvisoryLockKey::BigInt(BTC_WATCH_OWNER_LOCK_KEY),
+    "btc_watch_owner",
+);
 
 #[derive(Debug)]
 pub struct ViaIndexerDal<'a, 'c> {
@@ -15,12 +25,7 @@ impl ViaIndexerDal<'_, '_> {
     // Via does same and holds lock while fetching too, because several tasks share one checkpoint:
     // https://github.com/graphprotocol/graph-node/blob/6838f4e3cf3607c5bc32ef705dd05aec1eb057ab/store/postgres/src/deployment_store.rs
     pub async fn lock_btc_watch(&mut self) -> DalResult<()> {
-        sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(BTC_WATCH_OWNER_LOCK_KEY)
-            .instrument("btc_watch_owner")
-            .execute(&mut *self.storage)
-            .await?;
-        Ok(())
+        BTC_WATCH_OWNER.acquire(self.storage).await
     }
 
     /// Blocks withdrawal work and proof or vote writes while this transaction may invalidate withdrawals.
