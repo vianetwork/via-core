@@ -24,10 +24,10 @@ anyhow.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
-futures.workspace = true
 bitcoin.workspace = true
 
 [dev-dependencies]
+via_test_utils.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 via_verifier_block_reverter.workspace = true

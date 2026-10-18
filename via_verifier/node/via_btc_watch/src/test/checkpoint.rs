@@ -1,12 +1,9 @@
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Read, Write},
-    net::{TcpListener, TcpStream},
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
     },
-    thread,
     time::Duration,
 };
 
@@ -19,12 +16,13 @@ use bitcoin::{
     taproot::LeafVersion,
     transaction, Address, Block, BlockHash, CompressedPublicKey, Network, Transaction, TxIn, TxMerkleNode, Witness,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use via_btc_client::{
     client::BitcoinClient,
     indexer::BitcoinInscriptionIndexer,
     types::{InscriptionMessage, L1BatchDAReferenceInput, NodeAuth, ProofDAReferenceInput},
 };
+use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, inscription::inscription_script};
 use via_verifier_block_reverter::ViaVerifierBlockReverter;
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal, BTC_WATCH_OWNER_LOCK_KEY};
 use zksync_config::{
@@ -46,9 +44,7 @@ struct BitcoinFixture {
     transactions: Arc<Mutex<HashMap<String, Transaction>>>,
     requests: Arc<AtomicUsize>,
     fetch_barrier: Arc<Mutex<Option<FetchBarrier>>>,
-    stop: Arc<AtomicBool>,
-    server: Option<thread::JoinHandle<()>>,
-    address: std::net::SocketAddr,
+    _server: BitcoinRpcServer,
     wallets: SystemWallets,
 }
 
@@ -59,30 +55,28 @@ fn keypair() -> Keypair {
 fn inscription(message: InscriptionMessage, nonce: u32) -> Transaction {
     let key = keypair();
     let (internal, _) = key.x_only_public_key();
-    let push = |bytes: &[u8]| bitcoin::script::PushBytesBuf::try_from(bytes.to_vec()).unwrap();
-    let script = bitcoin::script::Builder::new()
-        .push_slice(internal.serialize())
-        .push_opcode(bitcoin::opcodes::all::OP_CHECKSIG)
-        .push_opcode(bitcoin::opcodes::OP_FALSE)
-        .push_opcode(bitcoin::opcodes::all::OP_IF)
-        .push_slice(b"via_inscription_protocol");
-    let script = match message {
-        InscriptionMessage::L1BatchDAReference(batch) => script
-            .push_slice(push(via_btc_client::types::L1_BATCH_DA_REFERENCE_MSG.as_bytes()))
-            .push_slice(push(batch.l1_batch_hash.as_bytes()))
-            .push_slice(batch.l1_batch_index.0.to_be_bytes())
-            .push_slice(push(batch.da_identifier.as_bytes()))
-            .push_slice(push(batch.blob_id.as_bytes()))
-            .push_slice(push(batch.prev_l1_batch_hash.as_bytes())),
-        InscriptionMessage::ProofDAReference(proof) => script
-            .push_slice(push(via_btc_client::types::PROOF_DA_REFERENCE_MSG.as_bytes()))
-            .push_slice(proof.l1_batch_reveal_txid.to_byte_array())
-            .push_slice(push(proof.da_identifier.as_bytes()))
-            .push_slice(push(proof.blob_id.as_bytes())),
+    let (kind, fields) = match message {
+        InscriptionMessage::L1BatchDAReference(batch) => (
+            via_btc_client::types::L1_BATCH_DA_REFERENCE_MSG.as_bytes(),
+            vec![
+                batch.l1_batch_hash.as_bytes().to_vec(),
+                batch.l1_batch_index.0.to_be_bytes().to_vec(),
+                batch.da_identifier.as_bytes().to_vec(),
+                batch.blob_id.as_bytes().to_vec(),
+                batch.prev_l1_batch_hash.as_bytes().to_vec(),
+            ],
+        ),
+        InscriptionMessage::ProofDAReference(proof) => (
+            via_btc_client::types::PROOF_DA_REFERENCE_MSG.as_bytes(),
+            vec![
+                proof.l1_batch_reveal_txid.to_byte_array().to_vec(),
+                proof.da_identifier.as_bytes().to_vec(),
+                proof.blob_id.as_bytes().to_vec(),
+            ],
+        ),
         _ => unreachable!("checkpoint fixture only produces batch and proof messages"),
-    }
-    .push_opcode(bitcoin::opcodes::all::OP_ENDIF)
-    .into_script();
+    };
+    let script = inscription_script(internal, kind, &fields);
     let mut control = vec![LeafVersion::TapScript.to_consensus()];
     control.extend(internal.serialize());
     Transaction {
@@ -101,10 +95,44 @@ fn inscription(message: InscriptionMessage, nonce: u32) -> Transaction {
 
 impl BitcoinFixture {
     fn new() -> anyhow::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
-        let address = listener.local_addr()?;
+        let blocks = Arc::new(Mutex::new(HashMap::<u32, Block>::new()));
+        let transactions = Arc::new(Mutex::new(HashMap::<String, Transaction>::new()));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let fetch_barrier = Arc::new(Mutex::new(None::<FetchBarrier>));
+        let server = {
+            let blocks = blocks.clone();
+            let transactions = transactions.clone();
+            let requests = requests.clone();
+            let fetch_barrier = fetch_barrier.clone();
+            BitcoinRpcServer::new(Some(Duration::from_secs(5)), false, move |_, request| {
+                requests.fetch_add(1, Ordering::SeqCst);
+                match request["method"].as_str().unwrap() {
+                    "getblockcount" => json!(blocks.lock().unwrap().keys().max().copied().unwrap()),
+                    "getblockhash" => json!(blocks.lock().unwrap()[&(request["params"][0].as_u64().unwrap() as u32)]
+                        .block_hash()
+                        .to_string()),
+                    "getblock" => {
+                        let barrier = fetch_barrier.lock().unwrap().take();
+                        if let Some((entered, release)) = barrier {
+                            entered.send(()).unwrap();
+                            release.recv().unwrap();
+                        }
+                        let blocks = blocks.lock().unwrap();
+                        let block = blocks
+                            .values()
+                            .find(|block| block.block_hash().to_string() == request["params"][0].as_str().unwrap())
+                            .unwrap();
+                        json!(serialize_hex(block))
+                    }
+                    "getrawtransaction" => {
+                        json!(serialize_hex(&transactions.lock().unwrap()[request["params"][0].as_str().unwrap()]))
+                    }
+                    method => panic!("unexpected Bitcoin fixture method {method}"),
+                }
+            })?
+        };
         let client = Arc::new(BitcoinClient::new(
-            &format!("http://{address}"),
+            &server.url(""),
             NodeAuth::None,
             ViaBtcClientConfig {
                 network: "regtest".into(),
@@ -113,71 +141,6 @@ impl BitcoinFixture {
                 use_rpc_for_fee_rate: Some(true),
             },
         )?);
-        let blocks = Arc::new(Mutex::new(HashMap::<u32, Block>::new()));
-        let transactions = Arc::new(Mutex::new(HashMap::<String, Transaction>::new()));
-        let requests = Arc::new(AtomicUsize::new(0));
-        let fetch_barrier = Arc::new(Mutex::new(None::<FetchBarrier>));
-        let stop = Arc::new(AtomicBool::new(false));
-        let server = {
-            let blocks = blocks.clone();
-            let transactions = transactions.clone();
-            let requests = requests.clone();
-            let fetch_barrier = fetch_barrier.clone();
-            let stop = stop.clone();
-            thread::spawn(move || {
-                'connections: for stream in listener.incoming() {
-                    if stop.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    let stream = stream.unwrap();
-                    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-                    let mut reader = BufReader::new(stream);
-                    let mut length = 0;
-                    loop {
-                        let mut line = String::new();
-                        if reader.read_line(&mut line).unwrap() == 0 {
-                            continue 'connections;
-                        }
-                        if line == "\r\n" {
-                            break;
-                        }
-                        if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                            length = value.trim().parse::<usize>().unwrap();
-                        }
-                    }
-                    let mut body = vec![0; length];
-                    reader.read_exact(&mut body).unwrap();
-                    let request: Value = serde_json::from_slice(&body).unwrap();
-                    requests.fetch_add(1, Ordering::SeqCst);
-                    let result = match request["method"].as_str().unwrap() {
-                        "getblockcount" => json!(blocks.lock().unwrap().keys().max().copied().unwrap()),
-                        "getblockhash" => json!(blocks.lock().unwrap()
-                            [&(request["params"][0].as_u64().unwrap() as u32)]
-                            .block_hash()
-                            .to_string()),
-                        "getblock" => {
-                            let barrier = fetch_barrier.lock().unwrap().take();
-                            if let Some((entered, release)) = barrier {
-                                entered.send(()).unwrap();
-                                release.recv().unwrap();
-                            }
-                            let blocks = blocks.lock().unwrap();
-                            let block = blocks
-                                .values()
-                                .find(|block| block.block_hash().to_string() == request["params"][0].as_str().unwrap())
-                                .unwrap();
-                            json!(serialize_hex(block))
-                        }
-                        "getrawtransaction" => {
-                            json!(serialize_hex(&transactions.lock().unwrap()[request["params"][0].as_str().unwrap()]))
-                        }
-                        method => panic!("unexpected Bitcoin fixture method {method}"),
-                    };
-                    let response = json!({"result": result, "error": null, "id": request["id"]}).to_string();
-                    write!(reader.get_mut(), "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}", response.len(), response).unwrap();
-                }
-            })
-        };
         let sender = Address::p2wpkh(&CompressedPublicKey(keypair().public_key()), Network::Regtest);
         let wallets = SystemWallets {
             sequencer: sender.clone(),
@@ -185,7 +148,7 @@ impl BitcoinFixture {
             governance: sender.clone(),
             verifiers: vec![sender],
         };
-        Ok(Self { client, blocks, transactions, requests, fetch_barrier, stop, server: Some(server), address, wallets })
+        Ok(Self { client, blocks, transactions, requests, fetch_barrier, _server: server, wallets })
     }
 
     fn add_block(&self, height: u32, proof: Option<(u32, H256, H256)>) -> BlockHash {
@@ -250,14 +213,6 @@ impl BitcoinFixture {
             storage.via_l1_block_dal().insert_l1_block(i64::from(height), hash.to_string()).await?;
         }
         Ok(())
-    }
-}
-
-impl Drop for BitcoinFixture {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        let _ = TcpStream::connect(self.address);
-        self.server.take().unwrap().join().unwrap();
     }
 }
 

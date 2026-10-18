@@ -1,12 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex,
-    },
-    thread,
+    sync::{mpsc, Arc, Mutex},
     time::Duration,
 };
 
@@ -23,6 +17,7 @@ use serde_json::{json, Value};
 use tokio::sync::{oneshot, watch};
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer, types::NodeAuth};
 use via_main_node_reorg_detector::ViaMainNodeReorgDetector;
+use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, inscription::inscription_script};
 use zksync_config::{
     configs::{via_btc_client::ViaBtcClientConfig, via_reorg_detector::ViaReorgDetectorConfig},
     ViaBtcWatchConfig,
@@ -59,10 +54,8 @@ impl Drop for FetchPause {
 }
 
 struct BitcoinFixture {
-    address: SocketAddr,
     chain: Arc<Mutex<Chain>>,
-    stop: Arc<AtomicBool>,
-    server: Option<thread::JoinHandle<()>>,
+    server: BitcoinRpcServer,
     wallets: SystemWallets,
 }
 
@@ -86,17 +79,7 @@ fn push(bytes: &[u8]) -> bitcoin::script::PushBytesBuf {
 fn inscription(kind: &[u8], fields: Vec<Vec<u8>>) -> Transaction {
     let key = keypair();
     let (internal, _) = key.x_only_public_key();
-    let mut script = bitcoin::script::Builder::new()
-        .push_slice(internal.serialize())
-        .push_opcode(bitcoin::opcodes::all::OP_CHECKSIG)
-        .push_opcode(bitcoin::opcodes::OP_FALSE)
-        .push_opcode(bitcoin::opcodes::all::OP_IF)
-        .push_slice(b"via_inscription_protocol")
-        .push_slice(push(kind));
-    for field in fields {
-        script = script.push_slice(push(&field));
-    }
-    let script = script.push_opcode(bitcoin::opcodes::all::OP_ENDIF).into_script();
+    let script = inscription_script(internal, kind, &fields);
     let mut control = vec![LeafVersion::TapScript.to_consensus()];
     control.extend(internal.serialize());
     let mut tx = transaction(vec![]);
@@ -117,74 +100,38 @@ fn packed_version(minor: ProtocolVersionId) -> Vec<u8> {
 
 impl BitcoinFixture {
     fn new() -> anyhow::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
-        let address = listener.local_addr()?;
         let chain = Arc::new(Mutex::new(Chain::default()));
-        let stop = Arc::new(AtomicBool::new(false));
         let server = {
             let chain = chain.clone();
-            let stop = stop.clone();
-            thread::spawn(move || {
-                let mut handlers = Vec::new();
-                for stream in listener.incoming() {
-                    if stop.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    let chain = chain.clone();
-                    handlers.push(thread::spawn(move || {
-                        let mut reader = BufReader::new(stream.unwrap());
-                        reader.get_mut().set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-                        let mut request_line = String::new();
-                        reader.read_line(&mut request_line).unwrap();
-                        let actor = request_line.split_whitespace().nth(1).unwrap().to_owned();
-                        let mut length = 0;
-                        loop {
-                            let mut line = String::new();
-                            if reader.read_line(&mut line).unwrap() == 0 {
-                                return;
-                            }
-                            if line == "\r\n" {
-                                break;
-                            }
-                            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                                length = value.trim().parse::<usize>().unwrap();
-                            }
+            BitcoinRpcServer::new(Some(Duration::from_secs(10)), true, move |actor, mut request| {
+                request["actor"] = json!(actor);
+                let (result, barrier) = {
+                    let mut chain = chain.lock().unwrap();
+                    chain.requests.push(request.clone());
+                    let result = match request["method"].as_str().unwrap() {
+                        "getblockcount" => json!(chain.canonical.keys().max().unwrap()),
+                        "getblockhash" => json!(chain.canonical[&(request["params"][0].as_u64().unwrap() as u32)]),
+                        "getblock" => json!(serialize_hex(&chain.blocks[request["params"][0].as_str().unwrap()])),
+                        "getrawtransaction" => {
+                            json!(serialize_hex(&chain.transactions[request["params"][0].as_str().unwrap()]))
                         }
-                        let mut body = vec![0; length];
-                        reader.read_exact(&mut body).unwrap();
-                        let mut request: Value = serde_json::from_slice(&body).unwrap();
-                        request["actor"] = json!(actor);
-                        let (result, barrier) = {
-                            let mut chain = chain.lock().unwrap();
-                            chain.requests.push(request.clone());
-                            let result = match request["method"].as_str().unwrap() {
-                                "getblockcount" => json!(chain.canonical.keys().max().unwrap()),
-                                "getblockhash" => json!(chain.canonical[&(request["params"][0].as_u64().unwrap() as u32)]),
-                                "getblock" => json!(serialize_hex(&chain.blocks[request["params"][0].as_str().unwrap()])),
-                                "getrawtransaction" => json!(serialize_hex(&chain.transactions[request["params"][0].as_str().unwrap()])),
-                                method => panic!("unexpected Bitcoin RPC {method}"),
-                            };
-                            let barrier = if request["method"] == "getblock"
-                                && chain.barrier.as_ref().is_some_and(|(hash, _, _)| request["params"][0] == *hash)
-                            {
-                                chain.barrier.take()
-                            } else {
-                                None
-                            };
-                            (result, barrier)
-                        };
-                        if let Some((_, entered, release)) = barrier {
-                            let _ = entered.send(());
-                            release.recv_timeout(Duration::from_secs(45)).unwrap();
-                        }
-                        let body = json!({"result": result, "error": null, "id": request["id"]}).to_string();
-                        let _ = write!(reader.get_mut(), "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len());
-                    }));
+                        method => panic!("unexpected Bitcoin RPC {method}"),
+                    };
+                    let barrier = if request["method"] == "getblock"
+                        && chain.barrier.as_ref().is_some_and(|(hash, _, _)| request["params"][0] == *hash)
+                    {
+                        chain.barrier.take()
+                    } else {
+                        None
+                    };
+                    (result, barrier)
+                };
+                if let Some((_, entered, release)) = barrier {
+                    let _ = entered.send(());
+                    release.recv_timeout(Duration::from_secs(45)).unwrap();
                 }
-                for handler in handlers {
-                    handler.join().unwrap();
-                }
-            })
+                result
+            })?
         };
         let key = keypair();
         let sender = Address::p2wpkh(&CompressedPublicKey(key.public_key()), Network::Regtest);
@@ -195,13 +142,13 @@ impl BitcoinFixture {
             verifiers: vec![sender],
             bridge: Address::p2tr(&Secp256k1::new(), internal, None, Network::Regtest),
         };
-        Ok(Self { address, chain, stop, server: Some(server), wallets })
+        Ok(Self { chain, server, wallets })
     }
 
     fn client(&self, actor: &str) -> Arc<BitcoinClient> {
         Arc::new(
             BitcoinClient::new(
-                &format!("http://{}/{actor}", self.address),
+                &self.server.url(actor),
                 NodeAuth::None,
                 ViaBtcClientConfig {
                     network: "regtest".into(),
@@ -360,16 +307,6 @@ impl BitcoinFixture {
         let hash = self.chain.lock().unwrap().canonical[&3];
         self.detect_until(pool, &format!("SELECT EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=3 AND hash='{hash}')"))
             .await
-    }
-}
-
-impl Drop for BitcoinFixture {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        let _ = TcpStream::connect(self.address);
-        if let Some(server) = self.server.take() {
-            server.join().unwrap();
-        }
     }
 }
 

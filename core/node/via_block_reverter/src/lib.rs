@@ -379,9 +379,9 @@ impl ViaBlockReverter {
                 .delete_l1_reorg(l1_block_number)
                 .await?;
 
-            // Bitcoin Core rewinds its wallet's completed position when a block disconnects.
+            // Bitcoin Core's `CWallet::blockDisconnected` rewinds the wallet's completed position when a block disconnects.
             // Via headers can lead the reader, so recovery caps its existing replay target at reader progress.
-            // https://github.com/bitcoin/bitcoin/blob/f13ae519de94394314cd63a27924b0998ac65d45/src/wallet/wallet.cpp#L1583-L1626
+            // https://github.com/bitcoin/bitcoin/blob/f13ae519de94394314cd63a27924b0998ac65d45/src/wallet/wallet.cpp
             let reader_progress = transaction
                 .via_indexer_dal()
                 .get_last_processed_l1_block("via_btc_watch")

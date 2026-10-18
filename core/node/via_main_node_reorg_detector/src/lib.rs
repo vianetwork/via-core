@@ -1,11 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Context;
-use bitcoin::Block;
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
 use via_reorg::{reorg_window_start, scan_for_reorg, ReorgScan};
 use zksync_config::configs::via_reorg_detector::ViaReorgDetectorConfig;
-use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
+use zksync_dal::{via_indexer_dal::BTC_WATCH_OWNER, Connection, ConnectionPool, Core, CoreDal};
 
 use crate::metrics::{ReorgType, METRICS};
 
@@ -51,8 +50,7 @@ impl ViaMainNodeReorgDetector {
     }
 
     async fn loop_iteration(&mut self, storage: &mut Connection<'_, Core>) -> anyhow::Result<()> {
-        let mut transaction = storage.start_transaction().await?;
-        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let mut transaction = BTC_WATCH_OWNER.begin(storage).await?;
         let reorg = match transaction.via_l1_block_dal().has_reorg_in_progress().await? {
             Some(reorg) => Some(reorg),
             None => self.detect_reorg(&mut transaction).await?,
@@ -70,36 +68,9 @@ impl ViaMainNodeReorgDetector {
         Ok(())
     }
 
-    /// Fetches canonical Bitcoin blocks and preserves each requested height with its block.
-    /// Order is preserved via `buffered` (not `buffer_unordered`), so callers can safely
-    /// compare blocks by explicit height instead of Vec position.
-    async fn fetch_blocks(&self, from_block_height: i64, to_block_height: i64) -> anyhow::Result<Vec<(i64, Block)>> {
-        use futures::stream::{self, StreamExt};
-
-        let heights: Vec<i64> = (from_block_height..=to_block_height).collect();
-
-        let results = stream::iter(heights)
-            .map(|height| async move {
-                self.btc_client
-                    .fetch_block(height as u128)
-                    .await
-                    .with_context(|| format!("Failed to fetch canonical block at height {height}"))
-                    .map(|block| (height, block))
-            })
-            .buffered(self.config.max_concurrent_fetches())
-            .collect::<Vec<_>>()
-            .await;
-
-        results
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("Failed to fetch canonical L1 block window {from_block_height}..={to_block_height}"))
-    }
-
     async fn init(&mut self) -> anyhow::Result<()> {
         let mut storage = self.pool.connection_tagged("via_main_node_reorg_detector").await?;
-        let mut transaction = storage.start_transaction().await?;
-        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let mut transaction = BTC_WATCH_OWNER.begin(&mut storage).await?;
         let storage = &mut transaction;
 
         match storage.via_l1_block_dal().get_last_l1_block().await? {
@@ -132,7 +103,7 @@ impl ViaMainNodeReorgDetector {
     }
 
     async fn is_canonical_chain(&self, block_height: i64, hash: String) -> anyhow::Result<bool> {
-        let blocks = self.fetch_blocks(block_height, block_height).await?;
+        let blocks = self.btc_client.fetch_block_window(block_height, block_height, self.config.max_concurrent_fetches()).await?;
 
         let Some((_, block)) = blocks.first() else {
             anyhow::bail!("Cannot fetch the block {}", block_height);
@@ -180,7 +151,7 @@ impl ViaMainNodeReorgDetector {
             return Ok(());
         }
 
-        let blocks = self.fetch_blocks(from_block_height, to_block_height).await?;
+        let blocks = self.btc_client.fetch_block_window(from_block_height, to_block_height, self.config.max_concurrent_fetches()).await?;
 
         let mut transaction = storage.start_transaction().await?;
 
@@ -211,7 +182,8 @@ impl ViaMainNodeReorgDetector {
 
         // A failed canonical fetch is inconclusive; it must not trigger reorg
         // handling.
-        let chain_blocks = match self.fetch_blocks(start_height, block_height).await {
+        let chain_blocks = match self.btc_client.fetch_block_window(start_height, block_height, self.config.max_concurrent_fetches()).await
+        {
             Ok(blocks) => blocks,
             Err(err) => {
                 tracing::warn!(
@@ -269,8 +241,7 @@ impl ViaMainNodeReorgDetector {
     }
 
     async fn complete_soft_reorg(&self, storage: &mut Connection<'_, Core>) -> anyhow::Result<()> {
-        let mut transaction = storage.start_transaction().await?;
-        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let mut transaction = BTC_WATCH_OWNER.begin(storage).await?;
         let Some((first_removed_height, 0)) = transaction.via_l1_block_dal().has_reorg_in_progress().await? else {
             return Ok(());
         };

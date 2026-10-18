@@ -15,10 +15,9 @@ use crate::{
     metrics::{InscriptionStage, METRICS},
 };
 
-/// Listens to operation events coming from the governance contract and saves new protocol upgrade proposals to the database.
+/// Reads system contract upgrade inscriptions from Bitcoin and saves new protocol upgrade proposals to the database.
 #[derive(Debug)]
 pub struct GovernanceUpgradesEventProcessor {
-    /// BTC client
     btc_client: Arc<BitcoinClient>,
 }
 
