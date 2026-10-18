@@ -74,7 +74,7 @@ Write integration tests in the `examples` directory.
 
 ## Deposit decoding
 
-The [domain glossary](../../../CONTEXT.md) defines bridge payments, deposit messages, accepted deposits, and rejected
+The [domain glossary](../../../GLOSSARY.md) defines bridge payments, deposit messages, accepted deposits, and rejected
 bridge payments.
 
 The shared [`MessageParser`](src/indexer/parser.rs) supports two deposit encodings:

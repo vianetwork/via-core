@@ -9,7 +9,7 @@ sequencer executes the transaction in the VM. The payment also funds execution f
 determine the receiver's final balance increase.
 
 The [deposit encoding reference](../../core/lib/via_btc_client/DEV.md#deposit-decoding) describes the accepted message
-fields. The [domain glossary](../../CONTEXT.md) distinguishes a bridge payment, a deposit message, an accepted deposit,
+fields. The [domain glossary](../../GLOSSARY.md) distinguishes a bridge payment, a deposit message, an accepted deposit,
 and a rejected bridge payment. [L2 contract calls through Bitcoin](bridging-proposals.md) explains the earlier proposals
 for contract calls and forced withdrawals.
 
