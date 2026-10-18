@@ -217,7 +217,7 @@ If a skill is unavailable, use its stated purpose without claiming to have read 
 | Cross-topic design explanation, alternatives, recommendations, and current decision status | `docs/design/`, linking research and accepted ADRs |
 | Primary-source findings, alternatives, limitations, and open design questions | `docs/research/` |
 | Accepted, consequential architectural decisions and their rationale | `docs/adr/` |
-| Established domain vocabulary | `CONTEXT.md` |
+| Established domain vocabulary | `GLOSSARY.md` |
 | Implemented behavior and operator/developer instructions | `docs/via_guides/` |
 | Work sequencing, ownership, and unresolved decision tracking | The planning tracker |
 | Restricted findings and required supporting evidence | An approved private version-controlled store with a remote copy |

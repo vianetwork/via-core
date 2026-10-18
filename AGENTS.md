@@ -69,6 +69,14 @@ Use these skills for the matching task, if installed:
 For other situational principles, use the conditional index in
 `docs/research/README.md#principle-skills-for-concrete-implementation-questions`.
 
+## Agent skills
+
+- Issue tracker: GitHub issues, with local `.scratch/issues/` files for
+  private detail. See `docs/agents/issue-tracker.md`.
+- Domain docs: single context, `GLOSSARY.md` and `docs/adr/`. See
+  `docs/agents/domain.md`.
+- New glossary terms and ADRs: use the `domain-modeling` skill.
+
 ## Change discipline
 
 Preserve production error context. Preserve or document async fetch/compare

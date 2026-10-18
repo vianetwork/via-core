@@ -24,7 +24,7 @@ decision about historical replay and any protocol transition.
 
 ## Consequences
 
-A [rejected bridge payment](../../CONTEXT.md) receives no L2 credit. Rejection does not reverse the Bitcoin payment or
+A [rejected bridge payment](../../GLOSSARY.md) receives no L2 credit. Rejection does not reverse the Bitcoin payment or
 trigger a refund.
 
 This decision covers deposit address-length failures. It does not establish that every malformed Bitcoin message is safe
