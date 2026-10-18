@@ -2,7 +2,7 @@ use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionM
 use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
 
-use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError};
+use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError, ProofContinuityGap};
 use crate::metrics::{InscriptionStage, METRICS};
 
 #[derive(Default, Debug)]
@@ -65,8 +65,16 @@ impl MessageProcessor for VerifierMessageProcessor {
                             match storage.via_votes_dal().get_last_batch_in_canonical_chain().await? {
                                 Some(last_batch_in_canonical_chain) => last_batch_in_canonical_chain,
                                 None => {
-                                    return Err(MessageProcessorError::Internal(anyhow::Error::msg(
-                                        "Last batch in canonical chain not found",
+                                    return Err(MessageProcessorError::ProofContinuityGap(Box::new(
+                                        ProofContinuityGap {
+                                            expected_batch: 1,
+                                            canonical_parent: None,
+                                            observed_batch: new_l1_batch_number,
+                                            observed_parent: l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
+                                            proof_txid: proof_reveal_tx_id,
+                                            source_height: proof_msg.common.block_height,
+                                            source_hash,
+                                        },
                                     )))
                                 }
                             };
@@ -82,11 +90,20 @@ impl MessageProcessor for VerifierMessageProcessor {
                                 .get_parent_batch_exists_for_l1_batch(new_l1_batch_number as i64, &parent_hash)
                                 .await?;
                             if !exists {
-                                tracing::info!(
-                                    "Skipping ProofDAReference, no valid parent found for the new l1_batch_number: {:?}",
-                                    new_l1_batch_number,
-                                );
-                                continue;
+                                // ZKsync Era's `PriorityOpsEventProcessor::process_events` panics when priority operation is missing.
+                                // Here proof with missing parent rolls back scan and pauses it with typed error instead:
+                                // https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/eth_watch/src/event_processors/priority_ops.rs
+                                return Err(MessageProcessorError::ProofContinuityGap(Box::new(ProofContinuityGap {
+                                    expected_batch: last_batch_in_canonical_chain.0 + 1,
+                                    canonical_parent: Some(zksync_types::H256::from_slice(
+                                        &last_batch_in_canonical_chain.1,
+                                    )),
+                                    observed_batch: new_l1_batch_number,
+                                    observed_parent: l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
+                                    proof_txid: proof_reveal_tx_id,
+                                    source_height: proof_msg.common.block_height,
+                                    source_hash,
+                                })));
                             }
 
                             tracing::info!(

@@ -36,20 +36,27 @@ impl ViaIndexerInitializer {
         Ok(last_processed_bitcoin_block != 0)
     }
 
+    /// Initializes progress, or applies the explicitly configured restart checkpoint.
+    /// A starting height does not mean the blocks before it were scanned.
+    /// Takes the same lock as scans and recovery. Its ordering rule and origin are documented on
+    /// [`ViaIndexerDal::lock_btc_watch`](via_verifier_dal::via_indexer_dal::ViaIndexerDal::lock_btc_watch).
     pub async fn initialize_storage(&self) -> anyhow::Result<()> {
-        let is_initialized = self.is_initialized().await?;
+        let mut storage = self.pool.connection().await?;
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        let is_initialized = transaction
+            .via_indexer_dal()
+            .get_last_processed_l1_block("via_btc_watch")
+            .await?
+            != 0;
 
         if !is_initialized {
-            self.pool
-                .connection()
-                .await?
+            transaction
                 .via_indexer_dal()
                 .init_indexer_metadata("via_btc_watch", self.bootstrap_state.starting_block_number)
                 .await?;
         } else if is_initialized && self.btc_watch_config.restart_indexing {
-            self.pool
-                .connection()
-                .await?
+            transaction
                 .via_indexer_dal()
                 .update_last_processed_l1_block(
                     "via_btc_watch",
@@ -60,6 +67,7 @@ impl ViaIndexerInitializer {
             tracing::info!("Indexer storage initialized");
         }
 
+        transaction.commit().await?;
         Ok(())
     }
 }

@@ -1,9 +1,5 @@
-# AGENTS.md — via_reorg
+# AGENTS.md
 
-This crate hosts the **single source of truth** for L1 reorg comparison logic used by both the main-node detector and
-the verifier detector.
-
-Keep reorg comparison helpers pure, dependency-free, and testable in isolation. Changes affect both sibling detectors;
-keep their call sites thin.
-
-See root `AGENTS.md` → _Reuse and duplication discipline_ and _Source comment discipline_.
+This crate owns L1 reorg comparison logic shared by the main-node and verifier
+detectors. Keep comparison helpers pure, dependency-free and testable in
+isolation. Keep both detectors' call sites thin.

@@ -26,6 +26,17 @@ reconstructed correctly. A double deposit scenario could look like this:
 
 To avoid this, BtcWatch reindexes the Bitcoin chain starting from the **last valid block**.
 
+The main-node reader, detector, reverter, and storage initializers share a PostgreSQL transaction
+advisory lock. A scan commits its database effects and progress together. Recovery cannot move
+progress beyond the reader's stored position, and it preserves zero or missing progress.
+Hard recovery retains its existing extra replay block before the last canonical height.
+
+For a soft reorg, the detector first commits pending metadata. It then acquires ownership again
+and completes the rewind in a fresh transaction. A restarted detector resumes pending soft recovery.
+The reader waits while recovery is pending, without relying on a timed pause. This lock coordinates
+Bitcoin ingestion and recovery. Other node components still require the existing stopped-node
+procedure for a manual hard reversion.
+
 The sequencer maintains an internal mapping of L1 blocks in a table `<number, hash>`. During recovery, the last valid
 block is compared against the Bitcoin client, and all data is rolled back in the database to this valid state.
 
@@ -56,3 +67,35 @@ The verifier has two main layers responsible for detecting and handling reorgs:
   verification, and withdrawal handling.
 - If the reorg impacted already finalized transactions, the verifier can revert the finalized batches and process from
   the last valid batch.
+
+### Verifier progress and proof-gap pause
+
+The verifier stores how far it has read Bitcoin in the `via_btc_watch` row of
+`via_indexer_metadata`. After a reorg, recovery only ever moves that position
+back, to where the reader really is or to the block before the reorg, whichever
+is lower. The reorg height itself still decides which data is deleted and which
+withdrawals are invalidated.
+
+The reader, the reorg detector, the startup code and recovery take one
+PostgreSQL advisory lock before they read the position or fetch blocks, so only
+one of them changes it at a time. The reader holds that lock while it fetches
+blocks, so slow Bitcoin calls can delay recovery. On the main branch, scans also
+take the withdrawal invalidation lock before checking the withdrawal wallet, so
+withdrawal and vote writes wait during a scan.
+
+If the reader finds a proof whose parent batch is missing, it rolls back the
+scan and pauses. The gauge `via_verifier_btc_watch_proof_continuity_blocked` is
+1 while paused. Alert on `via_verifier_btc_watch_proof_continuity_blocked == 1`.
+Setting up that alert and its delivery is an infrastructure task. A verifier
+that answers HTTP requests can still be paused, so check this gauge, not only
+the health endpoint. Only proofs from the configured sequencer address can
+trigger the pause.
+
+Before restarting a paused verifier, find out which proof is missing and why.
+Keep proof verdicts, votes, withdrawal obligations and signing risk as they are.
+A restart clears the pause, but if the history is still missing, the reader
+pauses again. Re-reading old history needs a separately approved procedure and a
+rehearsal on a copy of the database. Never mark batches final by hand, and never
+move the position forward to get past the pause.
+[ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) explains
+the decision.

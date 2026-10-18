@@ -10,6 +10,12 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
 
 ## Notes
 
+- [Verifier checkpoints and proof
+  continuity](verifier-checkpoint-and-proof-continuity.md): why a reorg made
+  the verifier skip the proof for batch 265, what established software does
+  instead, and why a missing proof must stop the reader.
+  [ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) accepts
+  the fix. Replaying already skipped history remains open.
 - [Via contracts and a future re-fork](via-contracts-and-a-future-refork.md): the shared context for
   the nine current research questions, inspected zkSync integration interfaces, and evidence that
   remains useful when implementation files move. This is not a complete Via feature inventory.
@@ -35,9 +41,6 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
   storage models, observation-first ingestion, identity and replay rules, and candidate Via ownership.
   [ADR 0004](../adr/0004-separate-expected-withdrawals-from-observed-payments.md) accepts the storage
   separation. Schema, signing, hold, and recovery choices remain open.
-
-These studies retain research status. Linked ADRs identify accepted subdecisions; the remaining
-recommendations are not accepted architecture decisions.
 
 ## Research before and during design and implementation
 
@@ -73,7 +76,6 @@ The research is sufficient for the current question when a reviewer can trace th
 primary evidence, understand why the closest alternatives fit or fail, and identify what remains unproven.
 An unsuccessful search is a bounded finding, not proof that no precedent exists. If a relevant
 source is inaccessible, state the gap instead of filling it with a model-generated claim.
-Research does not accept a decision or prove a Via implementation correct.
 
 When independent consultations are requested, complete the initial source investigation first.
 Give each researcher the same open questions, accepted constraints, source revisions, findings,
@@ -90,8 +92,7 @@ Use the placement and disclosure rules below.
 
 Use this step to turn investigated questions into a lasting design-and-rationale document. Inputs
 include the original questions, factual answers from completed research tickets, comparable software
-and its real code, recommendations, and accepted choices. A resolved research ticket answers an
-evidence question; it does not necessarily accept an architectural choice. The document explains
+and its real code, recommendations, and accepted choices. The document explains
 what we learned, what we propose, what we chose and why, and what remains to be decided.
 Reuse the research already gathered; investigate further only where an important claim or
 alternative lacks evidence.
@@ -114,8 +115,8 @@ replace them with a fresh implementation summary that loses why the design was s
    components and relevant symbols. Preserve important conditions, state changes, and failure
    transitions; a recommendation must not replace the observation that motivated it.
 4. Explain how comparable software handles the same problem. Where code helps, include a short,
-   verbatim excerpt from inspected primary source with repository, pinned revision, path, line range,
-   and applicable attribution. Explain what the code does and which assumptions do not transfer.
+   verbatim excerpt from inspected primary source with repository, pinned revision, path, and applicable
+   attribution. A line range is optional. Explain what the code does and which assumptions do not transfer.
    Keep each excerpt contiguous and mark omissions outside the code fence. Identify specification
    text, illustrative examples, or pseudocode as such; never present them as implementation source.
    If useful code cannot be verified or reproduced, state the limit and link the available evidence.
@@ -126,8 +127,7 @@ replace them with a fresh implementation summary that loses why the design was s
    and its reason, including rejected alternatives worth remembering. Link consequential architectural
    tradeoffs to an ADR; several related questions may support one ADR. Keep implementation intent,
    implemented behavior, and verified rollout distinct. Update the record as those states change,
-   while keeping task ownership and execution in the tracker. A recommendation is not a commitment
-   to implement it, and completed research is not proof of implementation.
+   while keeping task ownership and execution in the tracker.
 7. Check that every original question is covered, excerpts match their pinned source, and references
    resolve. Read each explanation without the conversation: the situation, choice, tradeoffs, and
    reason for the recommendation must be understandable without a private shorthand vocabulary.
@@ -135,8 +135,7 @@ replace them with a fresh implementation summary that loses why the design was s
 Use scenario-first prose as the main explanation; use question IDs only for traceability. A record
 is ready for discussion when the reader can explain what each option changes and why another project
 is relevant, not merely recognize its names. Work through one coherent decision at a time after that
-explanation. Neither writing the record nor recommending an order accepts its architectural choices
-or authorizes implementation.
+explanation.
 
 ### Learning and workflow improvement
 
@@ -155,7 +154,7 @@ attempts. Before adding a rule, establish whether the relevant instruction was r
 | Correct instruction was not reached | Sharpen its conditional pointer or move essential context up a level. |
 | Instruction was reached but reasonably misread | Clarify that wording and exercise the ambiguous case. |
 | Tool, procedure, or runtime cannot deliver the required result | Address the mechanism under normal change discipline, not another warning. Record an out-of-scope capability gap in the tracker. |
-| Independent tasks repeatedly reconstruct an unsupported procedure | Check existing skills first; propose a reusable procedure with an owner and observable trigger. Repetition alone does not authorize building it. |
+| Independent tasks repeatedly reconstruct an unsupported procedure | Check existing skills first; propose a reusable procedure with an owner and observable trigger. |
 | Human decision, permission, or required evidence is missing | Keep the dependent choice pending; this is not automatically a workflow defect. Continue independent authorized work and ask when the missing decision blocks required work. |
 
 Keep actionable proposals and failed or abandoned attempts on the existing tracker item: evidence,
@@ -171,7 +170,7 @@ fresh paraphrases, including misleading vocabulary or missing prerequisites wher
 cases for distinct failure modes, not a fixed count. Link checks do not prove an agent followed a
 pointer; interpretation probes are bounded evidence. If a claim cannot yet be tested, retain the
 evidence gap and lower confidence. The next task encountering the scenario should record whether
-the change held. Proposing an improvement does not expand the current task's authorization.
+the change held.
 
 Source comparison, not an instruction to invoke another workflow: Centaur's
 [learning synthesis](https://github.com/paradigmxyz/centaur/blob/adb8d2d14c512be368c95418b6e6f9e18b41c10f/.agents/skills/learning-synthesis/SKILL.md),
@@ -218,7 +217,7 @@ If a skill is unavailable, use its stated purpose without claiming to have read 
 | Cross-topic design explanation, alternatives, recommendations, and current decision status | `docs/design/`, linking research and accepted ADRs |
 | Primary-source findings, alternatives, limitations, and open design questions | `docs/research/` |
 | Accepted, consequential architectural decisions and their rationale | `docs/adr/` |
-| Established domain vocabulary | `CONTEXT.md` |
+| Established domain vocabulary | `GLOSSARY.md` |
 | Implemented behavior and operator/developer instructions | `docs/via_guides/` |
 | Work sequencing, ownership, and unresolved decision tracking | The planning tracker |
 | Restricted findings and required supporting evidence | An approved private version-controlled store with a remote copy |
@@ -239,7 +238,7 @@ Keep the handoff explicitly pending until the ownership notices agree; a new poi
 not retire the old authority.
 
 [Proposed ADR 0005](../adr/0005-preserve-documentation-ownership-and-provenance.md) examines documentation
-ownership and upstream provenance across a future re-fork. It does not change the policy above.
+ownership and upstream provenance across a future re-fork.
 
 Before committing or publishing a note, check it for credentials, private tracker content, and findings
-that require disclosure approval. Adding a local document does not authorize publication.
+that require disclosure approval.

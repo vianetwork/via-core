@@ -30,3 +30,7 @@ sqlx.workspace = true
 
 [dev-dependencies]
 via_test_utils.workspace = true
+via_main_node_reorg_detector.workspace = true
+via_node_storage_init.workspace = true
+bitcoin.workspace = true
+serde_json.workspace = true

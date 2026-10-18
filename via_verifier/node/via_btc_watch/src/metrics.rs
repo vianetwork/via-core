@@ -27,6 +27,10 @@ pub struct ViaVerifierBtcWatcherMetrics {
 
     /// Errors
     pub errors: Counter,
+
+    /// 1 while the verifier has stopped reading Bitcoin because a proof's parent batch is missing, otherwise 0.
+    /// A restart does not help until an operator restores the missing proof history.
+    pub proof_continuity_blocked: Gauge,
 }
 
 #[vise::register]
