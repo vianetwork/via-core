@@ -3,6 +3,10 @@
 Status: research. No re-fork, implementation, or new architecture decision is approved by this note. Evidence date:
 2026-09-23 UTC.
 
+Upstream status, 2026-10-20: the newer zkSync comparisons in this note use zksync-era `ff5f519b1`. That revision is
+the current Era `main`, but Era `main` is no longer the re-fork target. See [Refork target and upstream
+direction](refork-target-and-upstream-direction.md). The Era-specific evidence below remains historical evidence.
+
 ## Why research the behavior before choosing the code
 
 A future re-fork needs a record of what Via must continue to do, not just a list of patches to replay. The important
@@ -25,8 +29,9 @@ publication system.
 ## The source revisions define the comparison
 
 The comparison uses Via commit `8a49f355bfe31720f21b8181db471243709194e5` and the local newer zkSync checkout at
-`ff5f519b11cff863edcfa0f75af10fea113806b0`. The latter is not a verified claim about the latest remote branch. Topic
-notes pin external sources separately and identify moving references where a pin is unavailable.
+`ff5f519b11cff863edcfa0f75af10fea113806b0`. On 2026-10-20 that revision was verified as the tip of the remote
+zksync-era `main`. Topic notes pin external sources separately and identify moving references where a pin is
+unavailable.
 
 The repository's [architecture guide](../via_guides/architecture.md) describes Via's Bitcoin settlement, Celestia data
 availability, and separate verifier. Those responsibilities differ from zkSync's Ethereum settlement. A matching Rust
