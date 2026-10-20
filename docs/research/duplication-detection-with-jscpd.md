@@ -223,21 +223,21 @@ op-geth measures its divergence from go-ethereum as a per-topic diff against a p
 [forkdiff](https://github.com/protolambda/forkdiff)). Clone detection answers a different question:
 which Via code is a modified copy of upstream code. Neither proves behavioral equivalence.
 
-## Proposals and recorded answers
+## Decisions and open proposals
 
-Gate model, [issue #412](https://github.com/vianetwork/via-core/issues/412), open at the time of
-writing:
+The gate model was decided on 2026-10-20 in [issue #412](https://github.com/vianetwork/via-core/issues/412):
+touch it, fix it. A pull request fails when it adds a new copy, or when its changed lines overlap an
+existing copy that still exists afterwards. Copies in untouched code are never checked. Intentional
+copies carry an ignore marker with a reason; urgent fixes use a `duplication-deferred` label. Every
+pull request gets a comment listing old copies in the files it touched. The issue's resolution
+comment holds the full decision, the options considered, and the technical defaults.
 
-- Recorded maintainer answer (2026-10-20): a pull request fails only when two files that shared no
-  duplication now do. Growth of an existing pair is reported with exact numbers and never blocks.
-- Proposed: scan the candidate merge and its first parent in one job with the same jscpd binary;
-  delete the committed `baseline.tsv`; map renamed paths through Git one-to-one; treat a failed or
-  missing base scan as an error, never as an empty baseline; allow deliberate copies through
-  `jscpd:ignore` markers with a reason comment. `boundaries` shipped in v5.4.2 after this research;
-  whether it belongs in the gate needs an evaluation of the released implementation.
-- Proposed: report every clone that touches a file the pull request changes, old ones included, so
-  the author can choose to pay it down while working there. Whether this is a pull request comment or
-  a job summary, and whether the gate becomes a required check, belongs to
+Open proposals for later tickets:
+
+- `boundaries` shipped in v5.4.2 after this research. It cannot be grandfathered natively, so it
+  stays out of the blocking gate; advisory rules that protect already-shared crates are evaluated in
+  [issue #413](https://github.com/vianetwork/via-core/issues/413).
+- How the comment is posted, and whether the gate becomes a required check, belongs to
   [issue #418](https://github.com/vianetwork/via-core/issues/418).
 
 ## Limits
