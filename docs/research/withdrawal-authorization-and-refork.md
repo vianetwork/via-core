@@ -4,6 +4,10 @@ Status: research complete; whole-workstream implementation with independent rese
 material policies are recommendations, not accepted decisions. No live migration, deployment, publication, or signing
 resumption is authorized. Evidence inspected on 2026-09-23 and 2026-09-24.
 
+Upstream status, 2026-10-20: the newer zkSync comparisons in this note use zksync-era `ff5f519b1`. That revision is
+the current Era `main`, but Era `main` is no longer the re-fork target. See [Refork target and upstream
+direction](refork-target-and-upstream-direction.md). The Era-specific evidence below remains historical evidence.
+
 The selected guarantee is full value conservation against preserved expected withdrawal facts, bound to one signing
 round. It is not a guarantee that those facts remain canonical at signing. A fresh Bitcoin `gettxout` admission check is
 not mandatory under that choice. Historical-row trust and ongoing invalidation remain deployment prerequisites.
@@ -23,8 +27,9 @@ withholding its share can therefore stop the normal withdrawal path. This note d
 governance scheme.
 
 Additional inspected revisions: Via era-contracts `a14df38896f6e7eafc45e65eefdb63bf3cacebe4`, local newer zkSync
-`ff5f519b11cff863edcfa0f75af10fea113806b0`, and installed Bitcoin library `0.32.7`. The newer zkSync checkout is not
-asserted to be latest upstream; contract source is not proof of the deployed contract version.
+`ff5f519b11cff863edcfa0f75af10fea113806b0`, and installed Bitcoin library `0.32.7`. On 2026-10-20 the newer zkSync
+revision was verified as the tip of the remote zksync-era `main`. Contract source is not proof of the deployed contract
+version.
 
 The expected-fact path starts at `WithdrawalSession::prepare_withdrawal_session`. It selects finalized batches, obtains
 withdrawals through `WithdrawalClient::get_withdrawals`, and writes them with `insert_withdrawals`. The observed-payment
@@ -148,7 +153,7 @@ exception or consensus height keys without proving equivalence for Bitcoin signi
 
 ## What newer local zkSync contributes
 
-The inspected newer local zkSync is `ff5f519b11cff863edcfa0f75af10fea113806b0`, not verified latest upstream.
+The inspected newer local zkSync is `ff5f519b11cff863edcfa0f75af10fea113806b0`, verified on 2026-10-20 as Era `main`.
 `EthSenderDal::save_eth_tx` stores a logical transaction, while `insert_tx_history` stores attempts.
 `insert_pending_received_eth_tx` explicitly permits receipt before validation but requires validation before an executed
 status. That distinction supports retaining observations without granting authority. [Newer sender DAL][zk-sender].

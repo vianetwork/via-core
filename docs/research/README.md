@@ -16,6 +16,10 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
   instead, and why a missing proof must stop the reader.
   [ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) accepts
   the fix. Replaying already skipped history remains open.
+- [Refork target and upstream direction](refork-target-and-upstream-direction.md):
+  EraVM retirement, why zksync-era `main` is no longer the refork target, ZKsync OS
+  as the likely eventual target, and the exit conditions that the deferred refork
+  waits for.
 - [Via contracts and a future re-fork](via-contracts-and-a-future-refork.md): the shared context for
   the nine current research questions, inspected zkSync integration interfaces, and evidence that
   remains useful when implementation files move. This is not a complete Via feature inventory.

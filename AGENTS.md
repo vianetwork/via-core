@@ -6,7 +6,9 @@ This repository owns Via source and runtime behavior. Deployment belongs to the
 deployment repositories. Source changes do not prove rollout.
 
 Via is a zkSync Era fork. Keep Via features cohesive and minimize divergence so
-upstream updates and a future re-fork remain manageable.
+upstream updates and a future re-fork remain manageable. The re-fork target is
+no longer zksync-era `main`. For re-fork planning, read
+`docs/research/refork-target-and-upstream-direction.md`.
 
 ## Authority
 
