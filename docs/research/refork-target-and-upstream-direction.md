@@ -5,6 +5,9 @@ Status: research with one recorded maintainer decision, made on 2026-10-20. The 
 started and waits for the exit conditions below. No implementation, migration, regenesis, or
 deployment is approved by this note. Evidence accessed 2026-10-20.
 
+Last verified: 2026-10-20. Before acting on a fact bound to a revision or date, re-check it as
+[How to re-check this note](#how-to-re-check-this-note) describes.
+
 ## Question
 
 Via was forked from `matter-labs/zksync-era`. Is zksync-era still the upstream that a future Via
@@ -28,24 +31,30 @@ Sources for the refork-method findings are pinned in their own section.
 
 ## Findings
 
-### Via forked Era at core-v24.22.0
+### Via forked Era shortly after core-v24.22.0
 
-Via was forked from zksync-era at `core-v24.22.0`. The merge-base, `f37b84ac75`, is five commits
-after the `core-v24.22.0` release commit. That history stays true whatever the next target is.
+Via's recorded fork point is `f37b84ac75de8606382943bb10b8d064c475b5a0` (2024-08-28). It is five
+upstream commits after the `core-v24.22.0` release commit `a6b6e829550a8f84dc4b96748028caee07624dec`
+([comparison](https://github.com/matter-labs/zksync-era/compare/core-v24.22.0...f37b84ac75de8606382943bb10b8d064c475b5a0)).
+That history stays true whatever the next target is.
 
 ### Matter Labs is retiring EraVM
 
 Matter Labs announced on 2026-09-04 that EraVM will be retired. The
 [EraVM security update](https://www.zksync.io/blog/eravm-security-update) says that within six
 months "EraVM chains will begin a transition". It also lists five security measures for EraVM
-chains, including publication of Era protocol code three months after each upgrade ships. The
-transition does not apply to chains running
-[Atlas](https://www.zksync.io/blog/introducing-the-zk-stacks-atlas-upgrade), the ZK Stack upgrade
-with a new sequencer and Airbender proving.
+chains, including publication of covered Era protocol code three months after each upgrade ships.
+The transition does not apply to chains running
+[Atlas](https://www.zksync.io/blog/introducing-the-zk-stacks-atlas-upgrade). Atlas is Matter Labs'
+name for the ZKsync OS stack: a new server, ZKsync OS, and the Airbender prover.
+
+Via runs neither Atlas nor Matter Labs' EraVM network. Via runs its own fork of v24-era code. The
+transition therefore describes chains on Matter Labs' network and puts no obligation on Via. Via is
+affected because its upstream code line is retiring.
 
 The [Matter Labs Q3 2026 deliverables report](https://forum.zknation.io/t/matter-labs-q3-2026-deliverables-report/1172),
-posted on 2026-10-12, confirms the direction. EraVM chains "keep receiving security work", and ZKsync
-OS is where "all new ZKsync protocol development happens". The
+posted on 2026-10-12, confirms the direction. EraVM chains "keep receiving security work", and
+ZKsync OS is where "all new ZKsync protocol development happens". The
 [October 14 review-call summary](https://forum.zknation.io/t/next-proposal-review-call-wednesday-october-14th-2026/1160)
 calls ZIP-18 "likely to be the final feature upgrade for EraVM". The checked official sources give
 no general procedure for moving an existing Era chain, with its contracts, state, and history, onto
@@ -66,8 +75,10 @@ The README names several execution environments as a design goal. The
 [ZKsync OS FAQ](https://github.com/matter-labs/zksync-docs/blob/14de8d0a8a5470f6d7210f3e7d5f6bc2844b0948/content/00.zksync-network/65.zksync-os/10.faqs.md)
 is narrower. It says ZKsync OS "will replace EraVM", that EVM is "the first and only execution
 environment for the initial version", and that "EraVM and native EraVM account abstraction are not
-supported". The FAQ also says there is no public mainnet. The Q3 report supersedes that line. ZKsync
-OS 0.5.0, in protocol version v33, reached the mainnets Matter Labs operates in September 2026.
+supported". The FAQ keeps preview-era wording that there is no public mainnet. Separately, Matter
+Labs reports in the Q3 report that v33, which contains ZKsync OS 0.5.0, reached "the mainnets Matter
+Labs operates" in September 2026. That is reported production use. It does not establish whether
+those mainnets are public or which source revisions they run.
 
 ZKsync OS ships with a separate server, `zksync-os-server`. It is a new node with its own pipeline,
 not the Era server with a different VM. The public source has three limits that matter for an
@@ -78,8 +89,8 @@ independent chain:
   takes prover crates from `matter-labs/zksync-airbender-private`, which the GitHub API does not
   return. The default branch still uses the public `zksync-airbender` tag `v0.5.2`.
 - The server is quiet in public. `zksync-os-server` `main` is from 2026-08-24, no pull request in
-  the repository has merged since 2026-09-01, and the newest public branch, `di/1m-tps-dvp`, is a demonstration
-  branch. Which source produced the v33 production server is not established.
+  the repository has merged since 2026-09-01, and the newest public branch, `di/1m-tps-dvp`, is a
+  demonstration branch. Which source produced the v33 production server is not established.
 - Development is visible elsewhere. For example, `zksync-airbender` merged 72 pull requests since
   2026-09-01, mostly into non-default branches. A quiet default branch is not a quiet project.
 
@@ -92,21 +103,30 @@ Bitcoin adapter.
 
 ### What stays Via-owned on any target
 
-Bitcoin settlement and Celestia data availability were never upstream features. Via built them on
-top of Era, and Era also assumes Ethereum. Its
+Bitcoin settlement was never an upstream feature. Era assumes Ethereum. Its
 [`SettlementLayer`](https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/basic_types/src/settlement.rs)
-is `L1` or `Gateway`, and both load EVM contracts through Ethereum clients. ZKsync OS lacking
-Bitcoin and Celestia support is therefore not a difference between the targets. Via owns those
-parts on either one.
+is `L1` or `Gateway`, and both load EVM contracts through Ethereum clients. The ZKsync OS server is
+Ethereum-shaped as well. Via owns Bitcoin settlement on either target.
+
+Via built its own Celestia client because Era had none at the fork point. Upstream added one on
+2024-10-29 ([PR #2983](https://github.com/matter-labs/zksync-era/pull/2983)), and current Era `main`
+has it in [`core/node/da_clients/src/celestia/client.rs`](https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/da_clients/src/celestia/client.rs#L48-L102).
+It is not a drop-in replacement. It encodes the blob ID as hex of a bincode
+`BlobId { commitment, height }` and returns empty inclusion data.
+[Via's client](https://github.com/vianetwork/via-core/blob/eec4bb8f59fff0c23ddc9cdfa21910882ca36be6/core/lib/via_da_clients/src/celestia/client.rs#L94-L159)
+encodes eight big-endian height bytes followed by the commitment. Its inclusion data is the blob
+content, reassembled from chunks, which the Via verifier and withdrawal client read. Via's Celestia
+wire format and retrieval semantics therefore stay Via-owned on either target. The searched ZKsync
+OS server source has no Celestia client.
 
 The targets differ in four places:
 
 | Area | zksync-era | ZKsync OS |
 | --- | --- | --- |
 | VM | EraVM, with native account abstraction | EVM only in the initial version |
-| Proofs | Boojum, EraVM proof statement | Airbender proofs of the RISC-V program |
+| Proofs | Boojum, EraVM proof statement. Matter Labs is rolling out EraBender, a second EraVM prover based on Airbender. | Airbender proofs of the RISC-V program |
 | Server | Era node framework, state keeper | New `zksync-os-server` pipeline |
-| History | Continuous with Via's current chain | Contracts, accounts, state, and proof history need an explicit transition |
+| History | Closer execution ancestry. Preserving Via state, proofs, history, and pending obligations still needs a compatibility and cutover plan. | A changed execution, account, and proof model. Preserving or migrating the same Via obligations needs an explicit plan. |
 
 ### Four options, and why the refork waits
 
@@ -114,7 +134,7 @@ The targets differ in four places:
 | --- | --- | --- |
 | Refork onto the last Era `main` | Closest to today's code. Existing interface research applies. | Builds on a VM its owner is retiring. Via would carry a second end-of-life alone. |
 | Refork onto ZKsync OS | Where upstream development continues. | EVM-only today. The newest release depends on private source. The server lineage is unclear. Migration of contracts and history is undefined. |
-| Era now, ZKsync OS later | Could relieve near-term constraints. | Pays the integration cost twice and adds a second history transition. |
+| Era now, ZKsync OS later | Could relieve near-term constraints. | Pays the integration cost twice and can require two cutovers. |
 | Wait, with defined exit conditions | Avoids committing to a retiring stack or to an incomplete public stack. | Today's fork keeps its divergence. Waiting needs explicit triggers to stay bounded. |
 
 The maintainer chose to wait. An Era refork no longer catches up with a continuing mainstream. It
@@ -171,16 +191,47 @@ forks. They do not depend on which upstream Via picks.
   [`fork.yaml`](https://github.com/ethereum-optimism/op-geth/blob/a160d1eac9d14b6f80dcfac94c6a48b5316ba8db/fork.yaml)
   pins the upstream base hash for its diff. Android's
   [patch series](https://android.googlesource.com/kernel/common-patches/+/40e2b065ba56b565a9a3461dc28c70c4acecfdbf/android-mainline/series)
-  records the upstream base and the target it matches, and tags each patch by origin. For Via,
+  records the upstream base and the target it matches, and uses patch-name prefixes to record
+  provenance and status. For Via,
   state each upstream claim with a SHA and the paths that would invalidate it. Re-check those
   claims against current upstream before acting on them.
+
+## How to re-check this note
+
+The decision and the method findings are stable. The facts below are bound to revisions and dates,
+and they go stale as upstream moves:
+
+- Repository tips and dates for zksync-era, zksync-os, and zksync-os-server.
+- Merged pull-request counts since 2026-09-01.
+- The `zksync-airbender-private` dependency of the newest ZKsync OS release branch.
+- The state of `zksync-os-server`: its default branch, newest branch, and production lineage.
+- The ZKsync OS pubdata modes and the Ethereum-shaped `SendToL1` command.
+- The ZKsync OS FAQ wording on execution environments and mainnet status.
+- The status of the EraVM transition and of any published migration procedure.
+
+To re-check them:
+
+1. Resolve the current default-branch SHA of each repository, for example with
+   `gh api repos/matter-labs/zksync-os-server/commits/main`.
+2. Repeat the source checks at the new SHAs: the release-branch manifest, `SendToL1`, `PubdataMode`,
+   and a search for Celestia or Bitcoin support.
+3. Repeat the merged pull-request search with `gh api -X GET search/issues` and a
+   `repo:<repo> is:pr is:merged merged:>=<date>` query.
+4. Re-read the ZKsync OS FAQ, the newest Matter Labs deliverables report, and forum posts on the
+   EraVM transition.
+5. Update each changed fact with its new SHA, or supersede the finding if its conclusion changes.
+   Then update the "Last verified" date.
+
+Via's own proposal, not a practice taken from another project: re-check monthly, and always before
+refork planning or the vertical spike starts. If an exit condition appears to hold, re-check at
+once.
 
 ## Limits
 
 - This note uses public documents and source only. It does not prove a deployed revision, an audit
   scope, or production throughput for any chain.
-- The FAQ and the Q3 report disagree on the mainnet status of ZKsync OS. This note follows the newer
-  report.
+- Public-mainnet availability is not resolved. The FAQ addresses public access, while the Q3 report
+  describes unnamed mainnets that Matter Labs operates.
 - Whether `zksync-airbender-private` is private or deleted is unknown. Either way it is unavailable
   to an independent chain.
 - No ZKsync OS build, Bitcoin prototype, or proof verification was run.
