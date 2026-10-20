@@ -48,9 +48,10 @@ The transition does not apply to chains running
 [Atlas](https://www.zksync.io/blog/introducing-the-zk-stacks-atlas-upgrade). Atlas is Matter Labs'
 name for the ZKsync OS stack: a new server, ZKsync OS, and the Airbender prover.
 
-Via runs neither Atlas nor Matter Labs' EraVM network. Via runs its own fork of v24-era code. The
-transition therefore describes chains on Matter Labs' network and puts no obligation on Via. Via is
-affected because its upstream code line is retiring.
+Via is an independent Bitcoin-settled chain whose code descends from Era's v24 line. Via runs
+neither Atlas nor Matter Labs' EraVM network. The announcement does not itself define a migration
+schedule for Via, and Via owns any upgrade decision. The retirement of Via's upstream code line and
+the relevant security changes still need assessment.
 
 The [Matter Labs Q3 2026 deliverables report](https://forum.zknation.io/t/matter-labs-q3-2026-deliverables-report/1172),
 posted on 2026-10-12, confirms the direction. EraVM chains "keep receiving security work", and
@@ -124,7 +125,7 @@ The targets differ in four places:
 | Area | zksync-era | ZKsync OS |
 | --- | --- | --- |
 | VM | EraVM, with native account abstraction | EVM only in the initial version |
-| Proofs | Boojum, EraVM proof statement. Matter Labs is rolling out EraBender, a second EraVM prover based on Airbender. | Airbender proofs of the RISC-V program |
+| Proofs | Boojum, EraVM proof statement. EraBender, an Airbender-based second EraVM prover, is planned alongside Boojum. The [Q3 report](https://forum.zknation.io/t/matter-labs-q3-2026-deliverables-report/1172) says its contract audit started and that end-to-end validation and production rollout are still ahead. | Airbender proofs of the RISC-V program |
 | Server | Era node framework, state keeper | New `zksync-os-server` pipeline |
 | History | Closer execution ancestry. Preserving Via state, proofs, history, and pending obligations still needs a compatibility and cutover plan. | A changed execution, account, and proof model. Preserving or migrating the same Via obligations needs an explicit plan. |
 
@@ -160,10 +161,10 @@ only if that spike succeeds.
 
 Fixes continue on today's via-core. Each fix should leave something a future target can reuse:
 
-- A behaviour contract: what Via must do, in observable terms, apart from the code that does it.
-- Regression evidence: a test or fixture that fails if the behaviour breaks.
+- A behavior contract: what Via must do, in observable terms, apart from the code that does it.
+- Regression evidence: a test or fixture that fails if the behavior breaks.
 - Preserved golden bytes, proof statements, signing rules, and restart and reorg cases.
-- Consolidation of duplicated behaviour where current work already touches it, as
+- Consolidation of duplicated behavior where current work already touches it, as
   [issue #382](https://github.com/vianetwork/via-core/issues/382) requires for the refork.
 
 ### Refork-method findings that hold for any target
@@ -177,7 +178,7 @@ forks. They do not depend on which upstream Via picks.
   Optimism classifies each fork consumer by what it does before it changes a dependency
   ([decoupling analysis](https://github.com/ethereum-optimism/optimism/blob/55a3061885a5b26b1c22cca89a996d35038f250e/docs/ai/opgeth-decoupling.md)).
   The PR #378 file census is useful in that role. Its v29 execution plan is superseded.
-- Acceptance comes from behaviour, not compilation. The same Optimism analysis states that
+- Acceptance comes from behavior, not compilation. The same Optimism analysis states that
   "Compile-compat is necessary, not sufficient". It pins equivalence with live differential tests
   and keeps shared golden vectors after those tests are deleted.
 - A library and extension-point model limits the next divergence. Reth composes nodes from
