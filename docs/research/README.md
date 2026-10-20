@@ -18,8 +18,14 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
   the fix. Replaying already skipped history remains open.
 - [Refork target and upstream direction](refork-target-and-upstream-direction.md):
   EraVM retirement, why zksync-era `main` is no longer the refork target, ZKsync OS
-  as the likely eventual target, and the exit conditions that the deferred refork
-  waits for.
+  as the likely eventual target, how large a port is, source publication, and the
+  exit conditions that the deferred refork waits for.
+- [Duplication paydown and the refork](duplication-paydown-and-refork.md): which
+  duplicated code between `core/` and `via_verifier/` survives a refork, why most
+  of it is Via behavior worth consolidating, and proposals for the paydown policy.
+- [Duplication detection with jscpd](duplication-detection-with-jscpd.md): the
+  current gate and its defects, jscpd 5.4.1 measurements, how established tools
+  decide what is new, and why a committed TSV budget is mainstream.
 - [Via contracts and a future re-fork](via-contracts-and-a-future-refork.md): the shared context for
   the nine current research questions, inspected zkSync integration interfaces, and evidence that
   remains useful when implementation files move. This is not a complete Via feature inventory.
