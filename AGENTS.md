@@ -131,6 +131,18 @@ cargo test -p <crate>
 just via-check
 ```
 
+For every Rust change, run `just via-dup-check`. It compares the working tree with
+the merge-base of `HEAD` and `origin/main`; `just via-dup-check --base REF` uses REF exactly.
+
+- Exit 1 (blocking copy): move shared logic to its existing owner under the reuse rules,
+  or mark an intentional copy with `jscpd:ignore-start <reason>` and `jscpd:ignore-end`.
+  Never add a marker only to pass. Stop and ask before merging main-node and verifier
+  copies or protocol-sensitive copies.
+- Exit 2: a tool or setup error. Fix the cause; it is not a duplication finding.
+
+`just via-dup-boundaries` (advisory) and `just via-dup-inventory` (existing copies) are
+optional. For intentional copies and CI deferral, see `.github/lint/via-structural/README.md`.
+
 Also run `just via-check-strict` for paths covered by
 `.github/sibling-paths.yml`, `.github/lint/via-structural/ast-grep/rules/` or
 `.github/scripts/check-via-structural-rules.sh`. Its duplication and structural

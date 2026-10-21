@@ -1,0 +1,11 @@
+{
+  "format": ["rust"],
+  "pattern": "**/*.rs",
+  "minTokens": 50,
+  "minLines": 5,
+  "mode": "weak",
+  "kind": ["exact"],
+  "ignore": ["**/generated/**", "**/target/**", "contracts/**", "via-core-ext/**"],
+  "reporters": ["json"],
+  "failOnEmpty": true
+}

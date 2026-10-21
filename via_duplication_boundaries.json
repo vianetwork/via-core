@@ -1,0 +1,25 @@
+{
+  "format": ["rust"],
+  "pattern": "**/*.rs",
+  "minTokens": 50,
+  "minLines": 5,
+  "mode": "weak",
+  "kind": ["exact"],
+  "ignore": ["**/generated/**", "**/target/**", "contracts/**", "via-core-ext/**"],
+  "reporters": ["json"],
+  "failOnEmpty": true,
+  "boundaries": [
+    {
+      "name": "reuse-shared-via-reorg",
+      "code": ["core/lib/via_reorg/src/**"],
+      "notIn": ["core/node/**", "via_verifier/**"],
+      "disable": ["renamed", "gap", "ast", "semantic"]
+    },
+    {
+      "name": "reuse-shared-via-btc-client",
+      "code": ["core/lib/via_btc_client/src/**"],
+      "notIn": ["core/node/**", "via_verifier/**"],
+      "disable": ["renamed", "gap", "ast", "semantic"]
+    }
+  ]
+}

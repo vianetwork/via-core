@@ -1,0 +1,163 @@
+name: Via Duplication
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: via-duplication-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Adapt FastPFOR's unprivileged producer; the required job always runs, including docs-only PRs.
+# https://github.com/fast-pack/FastPFOR-rs/blob/ebca273acf1de7644bd01bcbd79b03c61c1348ed/.github/workflows/ci.yml
+jobs:
+  duplication:
+    name: Via Duplication
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: '24'
+      - name: Install stable Rust and ensure rg
+        run: |
+          rustup toolchain install stable --profile minimal
+          command -v rg >/dev/null || { sudo apt-get update && sudo apt-get install -y ripgrep; }
+          rustc +stable --version
+          cargo +stable --version
+          node --version
+          npm --version
+          printf 'Runner image: %s %s\n' "$ImageOS" "$ImageVersion"
+      # Pin the recipe runner; each mode installs jscpd@latest itself, once.
+      # https://github.com/commonwarexyz/monorepo/blob/7e9deea92bc977f088146e6ad9a3c0c96a901278/.github/workflows/fast.yml
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
+        with:
+          tool: just@1.59.0
+      - name: Run exact gate
+        id: scan
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/via-duplication"
+          set +e
+          just via-dup-check --base HEAD^1 > "$RUNNER_TEMP/via-duplication/body.md"
+          raw=$?
+          set -e
+          case "$raw" in 0|1|2) ;; *) raw=2 ;; esac
+          echo "raw=$raw" >> "$GITHUB_OUTPUT"
+      - name: Require reasons for intentional copies
+        id: reasons
+        if: always()
+        run: bash .github/scripts/check-via-structural-rules.sh --duplication-ignore-reasons-only
+      - name: Verify current deferral
+        id: deferral
+        if: always()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          DUPLICATION_RAW_EXIT: ${{ steps.scan.outputs.raw }}
+        with:
+          script: |
+            const {readDeferral} = require('./.github/scripts/via-duplication/deferral.cjs');
+            const rawExit = Number(process.env.DUPLICATION_RAW_EXIT || '2');
+            const data = await readDeferral({github, context: {...context, rawExit}, core});
+            for (const [key, value] of Object.entries(data)) core.setOutput(key, value);
+      - name: Collect report and summary
+        if: always()
+        env:
+          RAW: ${{ steps.scan.outputs.raw }}
+          DEFERRED: ${{ steps.deferral.outputs.deferred }}
+          ACTOR: ${{ steps.deferral.outputs.actor }}
+          REASON: ${{ steps.deferral.outputs.reason }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PRIOR_STATUS: ${{ job.status }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/via-duplication"
+          report="$RUNNER_TEMP/via-duplication/body.md"
+          if [[ ! -s "$report" ]]; then printf '# Via duplication\n\nTool failed before report creation; version not resolved.\n' > "$report"; fi
+          printf '\nRaw result: %s. Verified deferral: %s. Prior steps: %s.\n' "${RAW:-missing}" "$DEFERRED" "$PRIOR_STATUS" >> "$report"
+          if [[ "$DEFERRED" == true ]]; then printf '\nDeferral by %s: %s\n' "$ACTOR" "$REASON" >> "$report"; fi
+          node <<'JS'
+          const fs = require('node:fs');
+          const dir = `${process.env.RUNNER_TEMP}/via-duplication`;
+          const body = fs.readFileSync(`${dir}/body.md`, 'utf8');
+          const git = (...args) => { try { return require('node:child_process').execFileSync('git', args, {encoding: 'utf8'}).trim(); } catch { return 'unavailable'; } };
+          fs.writeFileSync(`${dir}/metadata.json`, JSON.stringify({run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT,
+            head: process.env.HEAD_SHA, merge: git('rev-parse', 'HEAD'), base: git('rev-parse', 'HEAD^1'), raw: process.env.RAW || 'missing',
+            deferred: process.env.DEFERRED === 'true', priorStatus: process.env.PRIOR_STATUS,
+            effectiveVerdict: process.env.PRIOR_STATUS !== 'success' ? 'failed' : process.env.RAW === '0' ? 'pass' : process.env.RAW === '1' && process.env.DEFERRED === 'true' ? 'deferred' : 'failed',
+            version: body.match(/^jscpd version: (.+)$/m)?.[1] || 'not resolved'}));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, Buffer.from(body).subarray(0, 900000).toString('utf8').replace(/\uFFFD$/, '') + '\n\nFull report: workflow run artifact.\n');
+          JS
+      - name: Upload exact attempt report
+        if: always()
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        with:
+          name: via-duplication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/via-duplication/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Enforce result
+        if: always()
+        env:
+          PRIOR_STATUS: ${{ job.status }}
+          RAW: ${{ steps.scan.outputs.raw }}
+          DEFERRED: ${{ steps.deferral.outputs.deferred }}
+          REASONS: ${{ steps.reasons.outcome }}
+        run: |
+          [[ "$PRIOR_STATUS" == success && "$REASONS" == success ]] || exit 1
+          [[ "$RAW" == 0 || ( "$RAW" == 1 && "$DEFERRED" == true ) ]]
+
+  boundaries:
+    name: Via Duplication Boundaries (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: '24'
+      - run: rustup toolchain install stable --profile minimal
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
+        with:
+          tool: just@1.59.0
+      - name: Report boundary findings or failure
+        shell: bash
+        run: |
+          set +e
+          just via-dup-boundaries > "$RUNNER_TEMP/boundaries.md"
+          result=$?
+          set -e
+          cat "$RUNNER_TEMP/boundaries.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$result"
+
+  tool-tests:
+    name: Via Duplication Tool Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: '24'
+      - name: Install test prerequisites
+        run: |
+          rustup toolchain install stable --profile minimal
+          command -v rg >/dev/null || { sudo apt-get update && sudo apt-get install -y ripgrep; }
+      - run: cargo +stable test --locked --manifest-path via_duplication/Cargo.toml
+      - run: cargo +stable test --locked --manifest-path via_duplication/Cargo.toml --test native -- --ignored
+      - run: node --test .github/scripts/tests/via-duplication-workflows.test.cjs
+      - run: bash .github/scripts/tests/via-duplication-ignore-reasons.sh

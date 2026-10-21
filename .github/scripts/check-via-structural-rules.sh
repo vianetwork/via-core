@@ -31,6 +31,26 @@ case "$MODE" in
         ;;
 esac
 
+# Rust markers are line-based, including quoted text. Keep the native scanner's file scope.
+# https://github.com/kucherenko/jscpd/blob/db415b5d7cc34d72a324fe5eae2147646dc3558b/rust/crates/cpd-tokenizer/src/generic.rs
+check_duplication_reasons() {
+    command -v rg >/dev/null || { echo "Error: rg is required for duplication reasons." >&2; return 2; }
+    local status
+    if (cd "$REPO_ROOT" && rg -n --hidden -g '*.rs' -g '!**/.git/**' -g '!**/generated/**' -g '!**/target/**' -g '!**/contracts/**' -g '!**/via-core-ext/**' -- 'jscpd:ignore-start[[:space:][:punct:]]*$' .); then
+        echo "Error: jscpd ignore-start requires a reason." >&2
+        return 1
+    else
+        status=$?
+        [[ $status == 1 ]] && return 0
+        return 2
+    fi
+}
+
+# Reason failures cannot be waived by advisory mode or the ast-grep baseline.
+check_duplication_reasons
+if [[ $# == 1 && "$1" == --duplication-ignore-reasons-only ]]; then exit 0; fi
+if [[ $# != 0 ]]; then echo "Error: unknown structural checker arguments." >&2; exit 2; fi
+
 if ! command -v ast-grep >/dev/null 2>&1; then
     echo "Error: ast-grep is not installed." >&2
     echo "Install it from https://ast-grep.github.io/guide/quick-start.html" >&2
