@@ -1,0 +1,2 @@
+# This standalone executable keeps its own reproducible dependency lock.
+!/Cargo.lock

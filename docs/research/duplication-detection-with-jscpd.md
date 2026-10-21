@@ -364,9 +364,12 @@ The shared configuration and commands were decided on 2026-10-21 in
 [issue #416](https://github.com/vianetwork/via-core/issues/416):
 
 - The settings live in `via_duplication/jscpd.json`, which the tool passes with `--config`. The two
-  `boundaries` rules live in `via_duplication/jscpd-boundaries.json`. jscpd checks `boundaries` on
-  every scan that reads a config and exits 1 on findings, and configs cannot include each other, so
-  the second file repeats the few base settings.
+  `boundaries` rules live in `via_duplication_boundaries.json` at the repository root. jscpd checks
+  `boundaries` on every scan that reads a config and exits 1 on findings, and configs cannot include
+  each other, so the second file repeats the few base settings. jscpd 5.4.2 matches boundary globs
+  only below the config file's directory, so the boundaries file must sit at the root; the
+  maintainer moved it there during the build. The name avoids `.jscpd.json`, which jscpd loads
+  automatically.
 - The modes are subcommands of the tool, each exposed by one flat `just` recipe:
   `via-dup-check` (the gate, which also prints the PR comment body), `via-dup-boundaries` and
   `via-dup-inventory`. Via's recipes select stable Rust and forward arguments; the pattern of one

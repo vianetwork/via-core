@@ -1,0 +1,16 @@
+# Isolate tooling from product Cargo, as Agave does for ci/xtask:
+# https://github.com/anza-xyz/agave/blob/910af6bed4ad4f3a946f856da2a5b0618ea2f909/ci/xtask/Cargo.toml
+[package]
+name = "via-duplication"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+semver = "1"
+tempfile = "3"
