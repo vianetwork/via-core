@@ -2,10 +2,10 @@
 
 Status: research, 2026-10-20. No paydown plan, extraction, or policy is approved by this note. The
 classification is a judgment about which duplicated behavior survives a refork, made under the
-assumption that Via keeps Bitcoin settlement and its verifier model. The paydown policy itself is
-tracked as an open decision in [issue #419](https://github.com/vianetwork/via-core/issues/419).
+assumption that Via keeps Bitcoin settlement and its verifier model. The paydown defaults were
+decided on 2026-10-21 in [issue #419](https://github.com/vianetwork/via-core/issues/419).
 
-Last verified: 2026-10-20.
+Last verified: 2026-10-21.
 
 ## Question
 
@@ -129,7 +129,8 @@ A shared Via crate is an existing ownership mechanism, not a new framework.
 
 ### Prior art
 
-- **Avalanche consolidated surviving behavior and deferred the rest.** Before moving onto libevm,
+- **Avalanche consolidated surviving behavior and deferred the rest.** During an evolving
+  deduplication and libevm migration plan,
   [PR #4921](https://github.com/ava-labs/avalanchego/pull/4921) (merged 2026-02-18) extracted
   the nearly identical state-sync code of Coreth and Subnet-EVM into one engine because fixes had to
   be duplicated. Pinned source shows thin adapters in
@@ -158,8 +159,11 @@ an established choice. None of these projects gives an economic threshold for Vi
 
 ### Proposals for the paydown policy
 
-These are proposals for [issue #419](https://github.com/vianetwork/via-core/issues/419), not
-decisions.
+[Issue #419](https://github.com/vianetwork/via-core/issues/419) adopted the priority, exception and
+completion proposals below as defaults for its ranked list of planned merges, and added that each
+new shared crate gets an exact-only advisory `boundaries` rule. It replaced the inventory proposal:
+the first `just via-dup-inventory` run after the cutover seeds the list, and later inventories run on
+demand without a committed scan baseline.
 
 - **Inventory:** keep pinned scan inputs, pair and range tokens, and each pair's class and behavior
   owner. Use clone counts as a coverage aid, not as the measure of value.
