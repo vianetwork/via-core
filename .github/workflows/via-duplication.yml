@@ -27,10 +27,9 @@ jobs:
       - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
         with:
           node-version: '24'
-      - name: Install stable Rust and ensure rg
+      - name: Install stable Rust
         run: |
           rustup toolchain install stable --profile minimal
-          command -v rg >/dev/null || { sudo apt-get update && sudo apt-get install -y ripgrep; }
           rustc +stable --version
           cargo +stable --version
           node --version
@@ -154,9 +153,7 @@ jobs:
         with:
           node-version: '24'
       - name: Install test prerequisites
-        run: |
-          rustup toolchain install stable --profile minimal
-          command -v rg >/dev/null || { sudo apt-get update && sudo apt-get install -y ripgrep; }
+        run: rustup toolchain install stable --profile minimal
       - run: cargo +stable test --locked --manifest-path via_duplication/Cargo.toml
       - run: cargo +stable test --locked --manifest-path via_duplication/Cargo.toml --test native -- --ignored
       - run: node --test .github/scripts/tests/via-duplication-workflows.test.cjs

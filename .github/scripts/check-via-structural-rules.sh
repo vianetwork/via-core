@@ -33,10 +33,13 @@ esac
 
 # Rust markers are line-based, including quoted text. Keep the native scanner's file scope.
 # https://github.com/kucherenko/jscpd/blob/db415b5d7cc34d72a324fe5eae2147646dc3558b/rust/crates/cpd-tokenizer/src/generic.rs
+# Git's untracked search respects .gitignore without recursing into submodules.
+# https://github.com/git/git/blob/c44beea485f0f2feaf460e2ac87fdd5608d63cf0/Documentation/git-grep.adoc
 check_duplication_reasons() {
-    command -v rg >/dev/null || { echo "Error: rg is required for duplication reasons." >&2; return 2; }
     local status
-    if (cd "$REPO_ROOT" && rg -n --hidden -g '*.rs' -g '!**/.git/**' -g '!**/generated/**' -g '!**/target/**' -g '!**/contracts/**' -g '!**/via-core-ext/**' -- 'jscpd:ignore-start[[:space:][:punct:]]*$' .); then
+    if (cd "$REPO_ROOT" && git grep --untracked -n -E 'jscpd:ignore-start[[:space:][:punct:]]*$' -- \
+        '*.rs' ':(exclude,glob)**/generated/**' ':(exclude,glob)**/target/**' \
+        ':(exclude)contracts/**' ':(exclude)via-core-ext/**'); then
         echo "Error: jscpd ignore-start requires a reason." >&2
         return 1
     else

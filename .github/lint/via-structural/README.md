@@ -33,7 +33,7 @@ tooling (`zkstack dev lint`).
 # Strict mode — exits non-zero on new unbaselined findings or scanner errors
 VIA_STRUCTURAL_RULES_MODE=strict .github/scripts/check-via-structural-rules.sh
 
-# Requires stable Rust, Node/npm, Git, tar, rg, and just >=1.29
+# Requires stable Rust, Node/npm, Git, tar, and just >=1.29
 just via-dup-check
 just via-dup-check --base HEAD^1  # CI's merge-commit first parent
 just via-dup-boundaries
