@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: via-tests-${{ github.event.pull_request.number || github.ref }}
+  group: via-tests-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 env:
