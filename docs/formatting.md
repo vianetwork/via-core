@@ -58,6 +58,11 @@ Existing files preserve import grouping and order. With the pinned rustfmt, sele
 and reorder untouched imports in the same group, even with `--file-lines`; default import sorting also crosses that
 boundary. Both check and write modes therefore disable import merging, regrouping, and sorting for existing files.
 
+For existing files, the gate keeps import order, but the pinned rustfmt misses the five columns for `use`, its
+following space, and `;`. An import can stay on one line up to five columns over the limit, and rustfmt can rejoin a
+correctly wrapped import. Split it into separate `use` lines as a workaround. Adopt
+[rustfmt PR #5307](https://github.com/rust-lang/rustfmt/pull/5307) when a pinned toolchain includes the fix.
+
 `--file-lines` is unstable and needs `--unstable-features`. The script also disables child-module traversal. A
 statement only partly covered by the diff may stay unchanged; rustfmt determines which syntax can be formatted
 within the selected range. This check is a changed-range gate, not proof that an entire modified statement or file
