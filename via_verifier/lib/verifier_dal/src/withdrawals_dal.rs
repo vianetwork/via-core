@@ -542,10 +542,9 @@ impl ViaWithdrawalDal<'_, '_> {
         wallet: &[u8],
         observation: &WithdrawalObservation,
     ) -> anyhow::Result<()> {
-        ensure!(
-            !self.storage.in_transaction(),
-            "observation requires its own commit boundary"
-        );
+        // Standalone call commits before return.
+        // Inside caller's transaction, observation commits or rolls back with it.
+        // Rolled-back scan keeps its old position, letting retry record observation again.
         validate_observation(wallet, observation)?;
         let txid = observation.transaction.compute_txid().to_byte_array();
         let evidence = observation_evidence(observation)?;

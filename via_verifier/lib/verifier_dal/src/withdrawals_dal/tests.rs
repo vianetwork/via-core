@@ -145,6 +145,67 @@ async fn canonical(storage: &mut Connection<'_, Verifier>, height: u32, hash: Bl
 }
 
 #[tokio::test]
+async fn scan_observation_excludes_admission_until_commit_or_rollback() -> anyhow::Result<()> {
+    use std::time::Duration;
+
+    for commit in [false, true] {
+        let (pool, batch, _) = imported(vec![request(1)]).await;
+        let mut scanner = pool.connection().await?;
+        let mut outer = scanner.start_transaction().await?;
+        let scanner_pid: i32 =
+            sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(outer.conn()).await?;
+        outer.via_indexer_dal().lock_btc_watch().await?;
+        outer.via_indexer_dal().lock_withdrawal_invalidation().await?;
+        outer
+            .via_withdrawal_dal()
+            .record_withdrawal_observation(
+                wallet().as_bytes(),
+                &observation(&batch.withdrawals[0], 4, None),
+            )
+            .await?;
+        let mut signer = pool.connection().await?;
+        let signer_pid: i32 =
+            sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(signer.conn()).await?;
+        let admission = tokio::spawn(async move {
+            signer
+                .via_withdrawal_dal()
+                .admit_withdrawal_attempt(
+                    wallet().as_bytes(),
+                    &[1; 32],
+                    b"scan-race",
+                    &batch.withdrawals,
+                    &[input(4)],
+                )
+                .await
+        });
+        let mut monitor = pool.connection().await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let blocked: bool = sqlx::query_scalar("SELECT $1 = ANY(pg_blocking_pids($2))")
+                    .bind(scanner_pid)
+                    .bind(signer_pid)
+                    .fetch_one(monitor.conn())
+                    .await?;
+                if blocked {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        if commit {
+            outer.commit().await?;
+        } else {
+            outer.rollback().await?;
+        }
+        let admitted = tokio::time::timeout(Duration::from_secs(5), admission).await??;
+        assert_eq!(admitted.is_ok(), !commit);
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn import_and_observation_orders_converge_without_overwriting_gross() {
     for observed_first in [false, true] {
         let pool = ConnectionPool::<Verifier>::test_pool().await;

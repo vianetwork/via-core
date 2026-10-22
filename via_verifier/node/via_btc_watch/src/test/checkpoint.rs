@@ -38,6 +38,64 @@ use crate::{message_processors::MessageProcessorError, metrics::METRICS, Verifie
 
 type FetchBarrier = (tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn withdrawal_scan_advances_and_records_once() -> anyhow::Result<()> {
+    let (fixture, pool, mut watcher) = BitcoinFixture::with_withdrawal().await?;
+    let mut storage = pool.connection().await?;
+    let mut interrupted = storage.start_transaction().await?;
+    watcher.loop_iteration(&mut interrupted).await?;
+    fixture.assert_withdrawal_state(&mut interrupted, 2, Some(2)).await?;
+    interrupted.rollback().await?;
+    fixture.assert_withdrawal_state(&mut storage, 1, None).await?;
+    let mut restarted = fixture.watcher(pool.clone()).await?;
+    restarted.loop_iteration(&mut storage).await?;
+    fixture.assert_withdrawal_state(&mut storage, 2, Some(2)).await?;
+    storage.via_indexer_dal().update_last_processed_l1_block("via_btc_watch", 1).await?;
+    let mut restarted = fixture.watcher(pool).await?;
+    restarted.loop_iteration(&mut storage).await?;
+    fixture.assert_withdrawal_state(&mut storage, 2, Some(2)).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn withdrawal_reorg_retains_holds_and_replays_new_inclusion() -> anyhow::Result<()> {
+    let (fixture, pool, mut watcher) = BitcoinFixture::with_withdrawal().await?;
+    let txid = fixture.blocks.lock().unwrap()[&2].txdata[1].compute_txid();
+    let mut storage = pool.connection().await?;
+    watcher.loop_iteration(&mut storage).await?;
+    recover(&pool, 2).await?;
+    fixture.assert_withdrawal_state(&mut storage, 1, Some(2)).await?;
+    let wallet = fixture.wallets.bridge.script_pubkey();
+    assert!(
+        !storage
+            .via_withdrawal_dal()
+            .observed_withdrawal_transaction_has_canonical_inclusion(
+                wallet.as_bytes(),
+                txid.as_byte_array(),
+            )
+            .await?
+    );
+    let replacement_hash = {
+        let mut blocks = fixture.blocks.lock().unwrap();
+        let block = blocks.get_mut(&2).unwrap();
+        block.header.nonce += 1;
+        block.block_hash()
+    };
+    fixture.seed(&mut storage, Some(1)).await?;
+    watcher.loop_iteration(&mut storage).await?;
+    fixture.assert_withdrawal_state(&mut storage, 2, Some(2)).await?;
+    let observations =
+        storage.via_withdrawal_dal().pending_withdrawal_observations(wallet.as_bytes()).await?;
+    assert_eq!(observations.len(), 1);
+    let inclusion = observations[0].inclusion.as_ref().unwrap();
+    assert_eq!((inclusion.block_height, inclusion.block_hash), (2, replacement_hash));
+    let history: i64 = sqlx::query_scalar("SELECT count(*) FROM via_withdrawal_inclusions")
+        .fetch_one(storage.conn())
+        .await?;
+    assert_eq!(history, 2);
+    Ok(())
+}
+
 struct BitcoinFixture {
     client: Arc<BitcoinClient>,
     blocks: Arc<Mutex<HashMap<u32, Block>>>,
@@ -94,6 +152,89 @@ fn inscription(message: InscriptionMessage, nonce: u32) -> Transaction {
 }
 
 impl BitcoinFixture {
+    async fn assert_withdrawal_state(
+        &self,
+        storage: &mut Connection<'_, Verifier>,
+        position: u64,
+        payment_height: Option<u32>,
+    ) -> anyhow::Result<()> {
+        assert_eq!(
+            storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?,
+            position
+        );
+        let expected = payment_height
+            .map(|height| {
+                let txid = self.blocks.lock().unwrap()[&height].txdata[1]
+                    .compute_txid()
+                    .to_byte_array()
+                    .to_vec();
+                let wallet = self.wallets.bridge.script_pubkey().into_bytes();
+                (
+                    vec![(wallet.clone(), txid.clone())],
+                    vec![(
+                        wallet,
+                        format!("{:02x}", height as u8).repeat(10),
+                        "observation".to_owned(),
+                        txid,
+                    )],
+                )
+            })
+            .unwrap_or_default();
+        let observations: Vec<(Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT wallet,txid FROM via_withdrawal_observations ORDER BY wallet,txid",
+        )
+        .fetch_all(storage.conn())
+        .await?;
+        let holds: Vec<(Vec<u8>, String, String, Vec<u8>)> =
+            sqlx::query_as("SELECT wallet,reference,reason,source FROM via_withdrawal_holds ORDER BY wallet,reference,reason,source")
+                .fetch_all(storage.conn()).await?;
+        assert_eq!((observations, holds), expected);
+        Ok(())
+    }
+
+    fn add_withdrawal(&self, height: u32) -> anyhow::Result<bitcoin::Txid> {
+        use bitcoin::OutPoint;
+        use via_musig2::{
+            transaction_builder::TransactionBuilder,
+            types::{TransactionBuilderConfig, TransactionOutput},
+        };
+        use via_test_utils::utils::generate_dummy_outputs;
+
+        let mut outputs = generate_dummy_outputs(1, 10_000);
+        outputs[0].script_pubkey = self.wallets.bridge.script_pubkey();
+        let parent = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::from_consensus(height),
+            input: vec![TxIn::default()],
+            output: outputs,
+        };
+        let payment = TransactionBuilder::new(self.client.clone())?
+            .build_fixed_bridge_tx(
+                &[(OutPoint::new(parent.compute_txid(), 0), parent.output[0].clone())],
+                vec![TransactionOutput {
+                    output: parent.output[0].clone(),
+                    op_return_data: Some(vec![height as u8; 10]),
+                }],
+                &TransactionBuilderConfig::withdrawal(self.wallets.bridge.clone()),
+                1,
+            )?
+            .tx;
+        let txid = payment.compute_txid();
+        self.add_block(height, None);
+        self.blocks.lock().unwrap().get_mut(&height).unwrap().txdata = vec![parent, payment];
+        Ok(txid)
+    }
+
+    async fn with_withdrawal() -> anyhow::Result<(Self, ConnectionPool<Verifier>, VerifierBtcWatch)>
+    {
+        let fixture = Self::new()?;
+        fixture.add_withdrawal(2)?;
+        let pool = ConnectionPool::<Verifier>::test_pool().await;
+        fixture.seed(&mut pool.connection().await?, Some(1)).await?;
+        let watcher = fixture.watcher(pool.clone()).await?;
+        Ok((fixture, pool, watcher))
+    }
+
     fn new() -> anyhow::Result<Self> {
         let blocks = Arc::new(Mutex::new(HashMap::<u32, Block>::new()));
         let transactions = Arc::new(Mutex::new(HashMap::<String, Transaction>::new()));
