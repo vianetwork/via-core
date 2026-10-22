@@ -122,7 +122,6 @@ pub(crate) mod tests {
         aggregator_test: &mut ViaAggregatorTest,
         limit: i64,
     ) -> Vec<ViaBtcInscriptionRequest> {
-        // check/Validate the execution
         aggregator_test.storage.btc_sender_dal().list_new_inscription_request(limit).await.unwrap()
     }
 

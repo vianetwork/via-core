@@ -321,7 +321,7 @@ async fn execute_reverted_tx(vm_mode: FastVmMode) {
 
     assert_reverted(
         &executor
-            // Burning more than the entire transaction budget guarantees a VM revert.
+            // Burn above transaction gas budget forces VM revert.
             .execute_tx(alice.loadnext_custom_gas_call(tx.address, 2_000_000, 1_000_000))
             .await
             .unwrap(),
@@ -550,7 +550,7 @@ async fn execute_tx_with_large_packable_bytecode(vm_mode: FastVmMode) {
     executor.finish_batch().await.unwrap();
 }
 
-// New VM doesn't support call tracing yet.
+// New VM lacks call tracing.
 #[test_casing(2, [FastVmMode::Old, FastVmMode::Shadow])]
 #[tokio::test]
 async fn execute_tx_with_call_traces(vm_mode: FastVmMode) {
