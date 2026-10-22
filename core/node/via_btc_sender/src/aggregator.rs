@@ -232,10 +232,6 @@ async fn extract_ready_subrange(
     let mut last_l1_batch: Option<L1BatchNumber> = None;
     for criterion in publish_criteria {
         let l1_batch_by_criterion = criterion.last_l1_batch_to_publish(&uncommited_l1_batches).await;
-        if l1_batch_by_criterion.is_none() {
-            return None;
-        }
-
         if let Some(l1_batch) = l1_batch_by_criterion {
             last_l1_batch = Some(last_l1_batch.map_or(l1_batch, |number| number.min(l1_batch)));
         }
