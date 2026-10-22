@@ -16,6 +16,15 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
   instead, and why a missing proof must stop the reader.
   [ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) accepts
   the fix. Replaying already skipped history remains open.
+- [Bitcoin reorg handling](bitcoin-reorg-handling.md): how Bitcoin Core
+  exposes reorgs, measured reorg depths per network, where Via's current reader
+  breaks, and how established indexers, wallets and layer 2 systems detect,
+  undo, replay, mature and test. The
+  [Bitcoin reader redesign record](../design/bitcoin-reader-redesign/README.md)
+  explains the decisions, and ADRs
+  [0008](../adr/0008-one-bitcoin-reader-per-node-owns-reorg-recovery.md) to
+  [0015](../adr/0015-verifier-set-at-proof-inclusion-decides-finalization.md)
+  accept them.
 - [Refork target and upstream direction](refork-target-and-upstream-direction.md):
   EraVM retirement, why zksync-era `main` is no longer the refork target, ZKsync OS
   as the likely eventual target, how large a port is, source publication, and the
