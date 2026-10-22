@@ -112,10 +112,9 @@ impl TestContract {
     /// Returns a contract used in load testing that emulates various kinds of expensive operations
     /// (storage reads / writes, hashing, recursion via far calls etc.).
     pub fn load_test() -> &'static Self {
-        // Prebuilt from contracts/loadnext/loadnext_contract.sol at ca11943ebc679f6f40a4f810cbe4fc21d296aae9.
-        // zksolc 1.5.0 (LLVM f31171e1501f84ec863439d402b10e829ca19d26), solc 0.8.24+commit.e11b9ed9;
-        // standard JSON, optimizer.enabled=true, viaIR=true, enableEraVMExtensions=true, ABI output.
-        // Same load contract and Foo dependency as Era TestContract::load_test():
+        // Prebuilt from contracts/loadnext/loadnext_contract.sol, because build-time compilation is disabled.
+        // Compiler: zksolc 1.5.0 with LLVM f31171e1501f84ec863439d402b10e829ca19d26, solc 0.8.24+commit.e11b9ed9.
+        // Optimizer, viaIR and EraVM extensions on, matching Era's load-test contract and Foo dependency.
         // https://github.com/matter-labs/zksync-era/blob/4179711c82c210e0a1236c37a2a97fb9311ef820/core/lib/test_contracts/src/contracts.rs
         static CONTRACT: Lazy<TestContract> = Lazy::new(|| TestContract {
             abi: serde_json::from_str(include_str!(

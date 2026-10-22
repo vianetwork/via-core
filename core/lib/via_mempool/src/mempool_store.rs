@@ -251,7 +251,7 @@ impl MempoolStore {
         }
     }
 
-    // Era core/lib/mempool/src/mempool_store.rs::gc, unchanged; retain bounded ready accounts.
+    // Copied unchanged from Era's mempool. Over capacity, keeps highest-priority ready accounts, at least one.
     // https://github.com/vianetwork/via-core/blob/ca11943ebc679f6f40a4f810cbe4fc21d296aae9/core/lib/mempool/src/mempool_store.rs
     fn gc(&mut self) -> Vec<Address> {
         if self.size > self.capacity {

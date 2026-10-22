@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    // jscpd:ignore-start Each node has its own wallet processor and DAL schema.
+    // jscpd:ignore-start Separate wallet processor and DAL schema per node.
     use std::{str::FromStr, sync::Arc};
 
     use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::BitcoinAddress};
@@ -13,10 +13,6 @@ mod tests {
 
     use crate::{message_processors::SystemWalletProcessor, MessageProcessor};
 
-
-    // jscpd:ignore-end
-
-    // jscpd:ignore-start Each node has its own wallet processor and DAL schema.
     #[tokio::test]
     async fn test_update_sequencer_wallet() -> anyhow::Result<()> {
         let (pool, mut indexer, mut processor) = setup().await?;
@@ -38,9 +34,7 @@ mod tests {
 
         Ok(())
     }
-    // jscpd:ignore-end
 
-    // jscpd:ignore-start Each node has its own wallet processor and DAL schema.
     #[tokio::test]
     async fn test_update_governance_wallet() -> anyhow::Result<()> {
         let (pool, mut indexer, mut processor) = setup().await?;
@@ -62,23 +56,17 @@ mod tests {
 
         Ok(())
     }
-    // jscpd:ignore-end
 
-    // jscpd:ignore-start Each node has its own wallet processor and DAL schema.
     #[tokio::test]
     async fn test_update_bridge_wallet_with_4_new_verifiers_when_old_3() -> anyhow::Result<()> {
         check_bridge_update((0..4).map(|_| random_bitcoin_wallet().1).collect()).await
     }
-    // jscpd:ignore-end
 
-    // jscpd:ignore-start Each node has its own wallet processor and DAL schema.
     #[tokio::test]
     async fn test_update_bridge_wallet_with_2_new_verifiers_when_old_3() -> anyhow::Result<()> {
         check_bridge_update((0..2).map(|_| random_bitcoin_wallet().1).collect()).await
     }
-    // jscpd:ignore-end
 
-    // jscpd:ignore-start Each node has its own wallet processor and DAL schema.
     async fn check_bridge_update(new_verifiers: Vec<BitcoinAddress>) -> anyhow::Result<()> {
         let (pool, mut indexer, mut processor) = setup().await?;
         let new_bridge_address =
@@ -100,9 +88,7 @@ mod tests {
 
         Ok(())
     }
-    // jscpd:ignore-end
 
-    // jscpd:ignore-start Each node has its own wallet processor and DAL schema.
     #[tokio::test]
     async fn test_update_governance_bridge_wallet_and_sequencer() -> anyhow::Result<()> {
         let (pool, mut indexer, mut processor) = setup().await?;
@@ -142,9 +128,7 @@ mod tests {
 
         Ok(())
     }
-    // jscpd:ignore-end
 
-    // jscpd:ignore-start Each node has its own wallet processor and DAL schema.
     async fn setup(
     ) -> anyhow::Result<(ConnectionPool<Verifier>, BitcoinInscriptionIndexer, SystemWalletProcessor)>
     {
@@ -157,9 +141,7 @@ mod tests {
             SystemWalletProcessor::new(Arc::new(test_bitcoin_client())),
         ))
     }
-    // jscpd:ignore-end
 
-    // jscpd:ignore-start Each node has its own wallet processor and DAL schema.
     async fn stored_wallets(pool: &ConnectionPool<Verifier>) -> anyhow::Result<SystemWallets> {
         let stored = pool
             .connection()

@@ -237,7 +237,7 @@ pub(super) fn mock_l2_client(env: &TestEnvironment) -> MockClient<L2> {
         .build()
 }
 
-/// Creates a mock L2 client that times out during Via chain validation.
+/// Creates mock L2 client whose Bitcoin-network and block-info requests time out.
 pub(super) fn mock_l2_client_hanging() -> MockClient<L2> {
     MockClient::builder(L2::default())
         .method("eth_chainId", || Ok(U64::from(270)))
