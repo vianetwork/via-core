@@ -102,3 +102,7 @@ impl ViaBtcInscriptionAggregator {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "tests/btc_inscription_aggregator_test.rs"]
+pub(crate) mod test_support;

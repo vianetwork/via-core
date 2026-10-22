@@ -14,8 +14,9 @@ use via_btc_client::{
 use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
+use via_test_utils::utils::test_wallets;
 use zksync_types::{
-    block::{L1BatchHeader, L1BatchTreeData, L2BlockHasher, L2BlockHeader, UnsealedL1BatchHeader},
+    block::{L1BatchHeader, L1BatchTreeData, L2BlockHasher, L2BlockHeader},
     btc_block::ViaBtcL1BlockDetails,
     btc_inscription_operations::ViaBtcInscriptionRequestType,
     commitment::{L1BatchCommitmentArtifacts, L1BatchMetaParameters, L1BatchMetadata},
@@ -23,11 +24,12 @@ use zksync_types::{
     l2_to_l1_log::{L2ToL1Log, UserL2ToL1Log},
     protocol_version::{L1VerifierConfig, ProtocolSemanticVersion},
     Bloom, L1BatchNumber, L2BlockNumber, ProtocolVersion, ProtocolVersionId, H160, H256,
+    via_wallet::SystemWalletsDetails,
 };
 
 use crate::{
     aggregated_operations::ViaAggregatedOperation, aggregator::ViaAggregator,
-    btc_inscription_aggregator::ViaBtcInscriptionAggregator, btc_inscription_manager::ViaBtcInscriptionManager,
+    btc_inscription_manager::ViaBtcInscriptionManager,
 };
 
 pub const BOOTLOADER_CODE_HASH_TEST: &str = "010008e79c154523aa30981e598b73c4a33c304bef9c82bae7d2ca4d21daedc7";
@@ -92,9 +94,9 @@ pub fn default_l1_batch_metadata() -> L1BatchMetadata {
         bootloader_initial_content_commitment: Some(H256::zero()),
         state_diffs_compressed: vec![],
         state_diff_hash: Some(H256::default()),
-        aggregation_root: None,
+        aggregation_root: Some(H256::zero()),
         da_inclusion_data: None,
-        local_root: None,
+        local_root: Some(H256::zero()),
     }
 }
 
@@ -111,25 +113,31 @@ pub fn create_btc_l1_batch_details(number: L1BatchNumber, timestamp: i64) -> Via
 }
 
 pub fn get_btc_sender_config(
-    max_aggregated_blocks_to_commit: i32, max_aggregated_proofs_to_commit: i32,
+    max_aggregated_blocks_to_commit: i32,
+    max_aggregated_proofs_to_commit: i32,
 ) -> ViaBtcSenderConfig {
-    let mut config = ViaBtcSenderConfig::for_tests();
-    config.max_aggregated_blocks_to_commit = max_aggregated_blocks_to_commit;
-    config.max_aggregated_proofs_to_commit = max_aggregated_proofs_to_commit;
-    config
-}
-
-pub async fn get_inscription_aggregator_mock(
-    pool: ConnectionPool<Core>, config: ViaBtcSenderConfig,
-) -> ViaBtcInscriptionAggregator {
-    let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
-    Result::unwrap(ViaBtcInscriptionAggregator::new(inscriber, pool, config).await)
+    ViaBtcSenderConfig {
+        max_aggregated_blocks_to_commit,
+        max_aggregated_proofs_to_commit,
+        ..ViaBtcSenderConfig::for_tests()
+    }
 }
 
 pub async fn get_inscription_manager_mock(
-    pool: ConnectionPool<Core>, config: ViaBtcSenderConfig, mock_btc_ops_config: MockBitcoinOpsConfig,
+    pool: ConnectionPool<Core>,
+    config: ViaBtcSenderConfig,
+    mock_btc_ops_config: MockBitcoinOpsConfig,
 ) -> ViaBtcInscriptionManager {
     let inscriber = get_mock_inscriber_and_conditions(mock_btc_ops_config);
+    let mut wallets = test_wallets();
+    wallets.sequencer = inscriber.inscriber_address().unwrap();
+    pool.connection()
+        .await
+        .unwrap()
+        .via_wallet_dal()
+        .insert_wallets(&SystemWalletsDetails::try_from(wallets).unwrap(), 0)
+        .await
+        .unwrap();
     Result::unwrap(ViaBtcInscriptionManager::new(inscriber, pool, config).await)
 }
 
@@ -206,7 +214,10 @@ impl ViaAggregatorTest {
             .expect("save_l1_batch_inclusion_data");
     }
 
-    pub async fn update_l1_block_for_ready_to_commit_proof(&mut self, number: L1BatchNumber) -> (i64, i64) {
+    pub async fn update_l1_block_for_ready_to_commit_proof(
+        &mut self,
+        number: L1BatchNumber,
+    ) -> (i64, i64) {
         let batch: ViaBtcL1BlockDetails = ViaBtcL1BlockDetails {
             number,
             hash: Some(generate_random_bytes(32)),
@@ -257,11 +268,22 @@ impl ViaAggregatorTest {
             )
             .await
             .unwrap();
-        let sent_at = Utc::now().naive_utc();
-
-        let _ = self.storage.via_data_availability_dal().insert_proof_da(batch.number, "blob_id", sent_at, 0).await;
+        self.insert_proof_da(batch.number).await;
 
         (inscription_id, inscription_request_history_id as i64)
+    }
+
+    pub async fn insert_proof_da(&mut self, number: L1BatchNumber) {
+        self.storage
+            .via_data_availability_dal()
+            .insert_proof_da(number, "blob_id", Utc::now().naive_utc(), 0)
+            .await
+            .unwrap();
+        self.storage
+            .via_data_availability_dal()
+            .save_proof_inclusion_data(number, &[1], 0)
+            .await
+            .unwrap();
     }
 
     pub async fn confirme_inscription_request(&mut self, inscription_request_id: i64) {
@@ -288,13 +310,12 @@ impl ViaAggregatorTest {
     }
 
     pub async fn create_genesis_l1_batch(&mut self) -> anyhow::Result<()> {
-        let genesis_l1_batch_header = UnsealedL1BatchHeader {
-            number: L1BatchNumber(0),
-            timestamp: 0,
-            protocol_version: Some(self.protocol_version.version.minor),
-            fee_address: Default::default(),
-            fee_input: BatchFeeInput::l1_pegged(0, 0),
-        };
+        let genesis_l1_batch_header = L1BatchHeader::new(
+            L1BatchNumber(0),
+            0,
+            self.protocol_version.base_system_contracts_hashes,
+            self.protocol_version.version.minor,
+        );
 
         let genesis_l2_block_header = L2BlockHeader {
             number: L2BlockNumber(0),
@@ -317,7 +338,7 @@ impl ViaAggregatorTest {
         let mut transaction = self.storage.start_transaction().await?;
 
         transaction.protocol_versions_dal().save_protocol_version_with_tx(&self.protocol_version).await?;
-        transaction.blocks_dal().insert_l1_batch(genesis_l1_batch_header).await?;
+        transaction.blocks_dal().insert_mock_l1_batch(&genesis_l1_batch_header).await?;
         transaction.blocks_dal().insert_l2_block(&genesis_l2_block_header).await?;
         transaction.blocks_dal().mark_l2_blocks_as_executed_in_l1_batch(L1BatchNumber(0)).await?;
 

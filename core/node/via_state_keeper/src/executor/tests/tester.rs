@@ -6,7 +6,6 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use tempfile::TempDir;
 use tokio::{sync::watch, task::JoinHandle};
 use zksync_config::configs::chain::StateKeeperConfig;
-use zksync_contracts::{get_loadnext_contract, test_contracts::LoadnextContractExecutionParams};
 use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_multivm::{
     interface::{
@@ -19,9 +18,12 @@ use zksync_multivm::{
 use zksync_node_genesis::create_genesis_l1_batch;
 use zksync_node_test_utils::{recover, Snapshot};
 use zksync_state::{OwnedStorage, ReadStorageFactory, RocksdbStorageOptions};
-use zksync_test_account::{Account, DeployContractsTx, TxType};
+use zksync_test_contracts::{
+    Account, DeployContractsTx, LoadnextContractExecutionParams, TestContract, TxType,
+};
 use zksync_types::{
     block::L2BlockHasher,
+    fee::Fee,
     commitment::PubdataParams,
     ethabi::Token,
     protocol_version::ProtocolSemanticVersion,
@@ -37,7 +39,6 @@ use zksync_vm_executor::batch::{MainBatchExecutorFactory, TraceCalls};
 
 use super::{read_storage_factory::RocksdbStorageFactory, StorageType};
 use crate::{
-    testonly,
     testonly::BASE_SYSTEM_CONTRACTS,
     tests::{default_l1_batch_env, default_system_env},
     AsyncRocksdbCache,
@@ -355,17 +356,17 @@ pub trait AccountLoadNextExecutable {
 
 impl AccountLoadNextExecutable for Account {
     fn deploy_loadnext_tx(&mut self) -> DeployContractsTx {
-        let loadnext_contract = get_loadnext_contract();
+        let loadnext_contract = TestContract::load_test();
         let loadnext_constructor_data = &[Token::Uint(U256::from(100))];
         self.get_deploy_tx_with_factory_deps(
-            &loadnext_contract.bytecode,
+            loadnext_contract.bytecode,
             Some(loadnext_constructor_data),
-            loadnext_contract.factory_deps.clone(),
+            loadnext_contract.factory_deps(),
             TxType::L2,
         )
     }
     fn l1_execute(&mut self, serial_id: PriorityOpId) -> Transaction {
-        testonly::l1_transaction(self, serial_id)
+        self.get_l1_tx(Execute::transfer(Address::random(), 0.into()), serial_id.0)
     }
 
     /// Returns a valid `execute` transaction.
@@ -382,7 +383,7 @@ impl AccountLoadNextExecutable for Account {
                 value: Default::default(),
                 factory_deps,
             },
-            Some(testonly::fee(30_000_000)),
+            Some(Fee { gas_limit: 30_000_000.into(), ..Account::default_fee() }),
         )
     }
 
@@ -397,11 +398,11 @@ impl AccountLoadNextExecutable for Account {
         // For each iteration of the expensive contract, there are two slots that are updated:
         // the length of the vector and the new slot with the element itself.
         let minimal_fee = 2
-            * testonly::DEFAULT_GAS_PER_PUBDATA
+            * Account::default_fee().gas_per_pubdata_limit.as_u32()
             * initial_writes
             * INITIAL_STORAGE_WRITE_PUBDATA_BYTES as u32;
 
-        let fee = testonly::fee(minimal_fee + gas_limit);
+        let fee = Fee { gas_limit: (minimal_fee + gas_limit).into(), ..Account::default_fee() };
 
         self.get_l2_tx_for_execute(
             Execute {
@@ -426,7 +427,10 @@ impl AccountLoadNextExecutable for Account {
     /// Returns a valid `execute` transaction.
     /// Automatically increments nonce of the account.
     fn execute_with_gas_limit(&mut self, gas_limit: u32) -> Transaction {
-        testonly::l2_transaction(self, gas_limit)
+        self.get_l2_tx_for_execute(
+            Execute::transfer(Address::random(), 0.into()),
+            Some(Fee { gas_limit: gas_limit.into(), ..Account::default_fee() }),
+        )
     }
 
     /// Returns a transaction to the loadnext contract with custom gas limit and expected burned gas amount.
@@ -437,7 +441,7 @@ impl AccountLoadNextExecutable for Account {
         gas_to_burn: u32,
         gas_limit: u32,
     ) -> Transaction {
-        let fee = testonly::fee(gas_limit);
+        let fee = Fee { gas_limit: gas_limit.into(), ..Account::default_fee() };
         let calldata = mock_loadnext_gas_burn_calldata(gas_to_burn);
 
         self.get_l2_tx_for_execute(
@@ -453,8 +457,8 @@ impl AccountLoadNextExecutable for Account {
 }
 
 pub fn mock_loadnext_gas_burn_calldata(gas: u32) -> Vec<u8> {
-    let loadnext_contract = get_loadnext_contract();
-    let contract_function = loadnext_contract.contract.function("burnGas").unwrap();
+    let loadnext_contract = TestContract::load_test();
+    let contract_function = loadnext_contract.function("burnGas");
     let params = vec![Token::Uint(U256::from(gas))];
     contract_function
         .encode_input(&params)

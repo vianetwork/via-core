@@ -19,7 +19,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 #[test_casing(4, ["all", "core", "api", "core,tree_api"])]
 #[tokio::test]
-#[tracing::instrument] // Add args to the test logs
+#[tracing::instrument]
 async fn external_node_basics(components_str: &'static str) {
     let _guard = zksync_vlog::ObservabilityBuilder::new().build(); // Enable logging to simplify debugging
 
@@ -91,7 +91,7 @@ async fn external_node_basics(components_str: &'static str) {
 }
 
 #[tokio::test]
-async fn node_reacts_to_stop_signal_during_initial_reorg_detection() {
+async fn node_reacts_to_stop_signal_during_chain_validation() {
     let _guard = zksync_vlog::ObservabilityBuilder::new().build(); // Enable logging to simplify debugging
     let (env, env_handles) = utils::TestEnvironment::with_genesis_block("core").await;
 
@@ -123,7 +123,7 @@ async fn node_reacts_to_stop_signal_during_initial_reorg_detection() {
 
     // Send a stop signal and check that the node reacts to it.
     env_handles.sigint_sender.send(()).unwrap();
-    node_handle.await.unwrap().unwrap();
+    tokio::time::timeout(SHUTDOWN_TIMEOUT, node_handle).await.unwrap().unwrap().unwrap();
 }
 
 #[tokio::test]

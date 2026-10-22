@@ -112,22 +112,25 @@ impl TestContract {
     /// Returns a contract used in load testing that emulates various kinds of expensive operations
     /// (storage reads / writes, hashing, recursion via far calls etc.).
     pub fn load_test() -> &'static Self {
-        static CONTRACT: Lazy<TestContract> = Lazy::new(|| {
-            // 2. Return a Dummy TestContract
-            TestContract {
-                // Creates an empty ABI with no functions/events
-                abi: ethabi::Contract {
-                    constructor: None,
-                    functions: Default::default(),
-                    events: Default::default(),
-                    errors: Default::default(),
-                    receive: false,
-                    fallback: false,
-                },
-                // Empty bytecode slice
-                bytecode: &[],
+        // Prebuilt from contracts/loadnext/loadnext_contract.sol at ca11943ebc679f6f40a4f810cbe4fc21d296aae9.
+        // zksolc 1.5.0 (LLVM f31171e1501f84ec863439d402b10e829ca19d26), solc 0.8.24+commit.e11b9ed9;
+        // standard JSON, optimizer.enabled=true, viaIR=true, enableEraVMExtensions=true, ABI output.
+        // Same load contract and Foo dependency as Era TestContract::load_test():
+        // https://github.com/matter-labs/zksync-era/blob/4179711c82c210e0a1236c37a2a97fb9311ef820/core/lib/test_contracts/src/contracts.rs
+        static CONTRACT: Lazy<TestContract> = Lazy::new(|| TestContract {
+            abi: serde_json::from_str(include_str!(
+                "../contracts/loadnext/prebuilt/LoadnextContract.abi.json"
+            ))
+            .expect("invalid prebuilt load-test ABI"),
+            bytecode: include_bytes!("../contracts/loadnext/prebuilt/LoadnextContract.bin"),
+            dependencies: vec![TestContract {
+                abi: serde_json::from_str(include_str!(
+                    "../contracts/loadnext/prebuilt/Foo.abi.json"
+                ))
+                .expect("invalid prebuilt Foo ABI"),
+                bytecode: include_bytes!("../contracts/loadnext/prebuilt/Foo.bin"),
                 dependencies: vec![],
-            }
+            }],
         });
         &CONTRACT
     }

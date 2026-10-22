@@ -413,7 +413,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_balance() {
         let mut mock_rpc = MockBitcoinRpc::new();
-        mock_rpc.expect_get_balance().return_once(|_| Ok(1000000));
+        mock_rpc.expect_get_balance_scan().return_once(|_| Ok(1000000));
 
         let client = get_client_with_mock(mock_rpc);
         let address = Address::from_str("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")
@@ -451,7 +451,7 @@ mod tests {
             vout: 0,
         };
         mock_rpc
-            .expect_list_unspent_based_on_node_wallet()
+            .expect_list_unspent()
             .return_once(move |_| Ok(vec![outpoint]));
         mock_rpc.expect_get_transaction().return_once(|_| {
             Ok(Transaction {
@@ -520,19 +520,33 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_fee_rate() {
-        let mut mock_rpc = MockBitcoinRpc::new();
-        mock_rpc.expect_estimate_smart_fee().return_once(|_, _| {
-            Ok(EstimateSmartFeeResult {
-                fee_rate: Some(Amount::from_sat(1000)),
-                errors: None,
-                blocks: 0,
-            })
-        });
+        for (mempool_min_fee, expected_rate) in [(1000, 2), (5000, 5)] {
+            let mut mock_rpc = MockBitcoinRpc::new();
+            mock_rpc.expect_estimate_smart_fee().return_once(|_, _| {
+                Ok(EstimateSmartFeeResult {
+                    fee_rate: Some(Amount::from_sat(1000)),
+                    errors: None,
+                    blocks: 0,
+                })
+            });
+            mock_rpc.expect_get_mempool_info().return_once(move || {
+                Ok(GetMempoolInfoResult {
+                    loaded: Some(true),
+                    size: 0,
+                    bytes: 0,
+                    usage: 0,
+                    total_fee: None,
+                    max_mempool: 0,
+                    mempool_min_fee: Amount::from_sat(mempool_min_fee),
+                    min_relay_tx_fee: Amount::ZERO,
+                    incremental_relay_fee: None,
+                    unbroadcast_count: None,
+                    full_rbf: None,
+                })
+            });
 
-        let client = get_client_with_mock(mock_rpc);
-
-        let fee_rate = client.get_fee_rate(6).await.unwrap();
-        // 1000 sat/kb = 1 sat/byte
-        assert_eq!(fee_rate, 1);
+            let client = get_client_with_mock(mock_rpc);
+            assert_eq!(client.get_fee_rate(6).await.unwrap(), expected_rate);
+        }
     }
 }

@@ -236,3 +236,7 @@ impl ViaBtcInscriptionManager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "tests/btc_inscription_manager_test.rs"]
+pub(crate) mod test_support;

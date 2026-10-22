@@ -55,6 +55,7 @@ pub const FEE_ACCOUNT: Address = Address::repeat_byte(0x11);
 ///
 /// See any test in the `mod.rs` file to get a visual example.
 pub(crate) struct TestScenario {
+    protocol_version: ProtocolVersionId,
     actions: VecDeque<ScenarioItem>,
     pending_batch: Option<PendingBatchData>,
     l1_batch_seal_fn: Box<SealFn>,
@@ -76,11 +77,17 @@ impl fmt::Debug for TestScenario {
 impl TestScenario {
     pub(crate) fn new() -> Self {
         Self {
+            protocol_version: ProtocolVersionId::latest(),
             actions: VecDeque::new(),
             pending_batch: None,
             l1_batch_seal_fn: Box::new(|_| false),
             l2_block_seal_fn: Box::new(|_| false),
         }
+    }
+
+    pub(crate) fn with_protocol_version(mut self, version: ProtocolVersionId) -> Self {
+        self.protocol_version = version;
+        self
     }
 
     /// Adds a pending batch data that would be fed into the state keeper.
@@ -279,7 +286,8 @@ pub(crate) fn rejected_exec(reason: Halt) -> BatchTransactionExecutionResult {
     }
 }
 
-#[allow(clippy::type_complexity, clippy::large_enum_variant)] // It's OK for tests.
+// It's OK for tests.
+#[allow(clippy::type_complexity, clippy::large_enum_variant)]
 enum ScenarioItem {
     /// Configures scenario to repeatedly return `None` to tx requests until the next action from the scenario happens.
     NoTxsUntilNextAction(&'static str),
@@ -606,8 +614,8 @@ impl TestIO {
             l2_block_number,
             fee_account: FEE_ACCOUNT,
             skipping_txs: false,
-            protocol_version: ProtocolVersionId::latest(),
-            previous_batch_protocol_version: ProtocolVersionId::latest(),
+            protocol_version: scenario.protocol_version,
+            previous_batch_protocol_version: scenario.protocol_version,
             protocol_upgrade_txs: HashMap::default(),
         };
         (this, OutputHandler::new(Box::new(persistence)))

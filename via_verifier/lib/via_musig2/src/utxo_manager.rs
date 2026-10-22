@@ -338,7 +338,7 @@ mod tests {
         let client = Arc::new(MockBitcoinOps::new(config));
         let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
         let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
-        let expected_utxos = vec![utxos[1].clone(), utxos[2].clone()];
+        let expected_utxos = vec![utxos[2].clone(), utxos[1].clone()];
         assert_eq!(expected_utxos, utxos_out);
     }
 
