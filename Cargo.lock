@@ -11970,6 +11970,7 @@ dependencies = [
  "celestia-rpc",
  "celestia-types 0.4.0",
  "hex",
+ "httpmock",
  "pretty_assertions",
  "reqwest 0.12.9",
  "serde",

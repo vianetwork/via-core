@@ -1126,6 +1126,75 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn withdrawal_golden_transaction_and_sighashes() -> Result<()> {
+        // Independently assembled Bitcoin bytes and ALL digests, calibrated against the
+        // official keyPathSpending[0].inputSpending[2] sigMsg and sigHash (hashType 1):
+        // https://github.com/bitcoin/bips/blob/c0c5aea41e6a334d34db4ca87ae53bbfd7f268d1/bip-0341/wallet-test-vectors.json
+        // Via's two ordered payments lose 594 sats each; metadata precedes 30,000 sats change.
+        let raw_transaction = concat!(
+            "0200000002000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c",
+            "1d1e1f0100000000fdffffff202122232425262728292a2b2c2d2e2f303132333435",
+            "363738393a3b3c3d3e3f0200000000fdffffff043e5d010000000000160014000102",
+            "030405060708090a0b0c0d0e0f10111213de72000000000000160014202122232425",
+            "262728292a2b2c2d2e2f3031323300000000000000001d6a1b5649415f5749000001",
+            "020304050607080910111213141516171819307500000000000022512079be667ef9",
+            "dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f8179800000000",
+        );
+        let txid_display = "22da018097f5f99a4b46c08a0120eeb6c211916d51315636d6647aac3d2a77d5";
+        let txid_raw = "d5772a3dac7a64d6365631516d9111c2b6ee20018ac0464b9af9f5978001da22";
+        let expected_sighashes = vec![
+            hex::decode("672456eac04ba9fe01a4362168d57201ed1c04b20ddcdc52d120210f57179b2a")?,
+            hex::decode("b43cd1ff56320c4b95c446ef03e436de7fc752f12d7d3ab4fca02227aba6c8fa")?,
+        ];
+        let bridge_script = ScriptBuf::from_bytes(hex::decode(
+            "512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        )?);
+        let config = TransactionBuilderConfig::withdrawal(Address::from_script(
+            &bridge_script,
+            Network::Regtest,
+        )?);
+        let mut inputs = Vec::new();
+        for (txid, vout, amount) in [
+            ("1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100", 1, 70_000),
+            ("3f3e3d3c3b3a393837363534333231302f2e2d2c2b2a29282726252423222120", 2, 80_000),
+        ] {
+            inputs.push((
+                OutPoint::new(Txid::from_str(txid)?, vout),
+                TxOut { value: Amount::from_sat(amount), script_pubkey: bridge_script.clone() },
+            ));
+        }
+        let mut outputs = Vec::new();
+        for (amount, script, reference) in [
+            (90_000, "0014000102030405060708090a0b0c0d0e0f10111213", "00010203040506070809"),
+            (30_000, "0014202122232425262728292a2b2c2d2e2f30313233", "10111213141516171819"),
+        ] {
+            outputs.push(TransactionOutput {
+                output: TxOut {
+                    value: Amount::from_sat(amount),
+                    script_pubkey: ScriptBuf::from_bytes(hex::decode(script)?),
+                },
+                op_return_data: Some(hex::decode(reference)?),
+            });
+        }
+        let builder = create_tx_builder_mock(None)?;
+        let fixed = builder.build_fixed_bridge_tx(&inputs, outputs.clone(), &config, 3)?;
+        let produced = builder.build_bridge_txs(inputs, outputs, config, 3).await?;
+        assert_eq!(produced.len(), 1);
+        for candidate in [&fixed, &produced[0]] {
+            assert_eq!(bitcoin::consensus::serialize(&candidate.tx), hex::decode(raw_transaction)?);
+            assert_eq!(candidate.txid.to_string(), txid_display);
+            assert_eq!(hex::encode(candidate.txid.to_byte_array()), txid_raw);
+            assert_eq!(candidate.fee, Amount::from_sat(1_188));
+            assert_eq!(candidate.change_amount, Amount::from_sat(30_000));
+            assert_eq!(builder.get_tr_sighashes(candidate)?, expected_sighashes);
+        }
+        let mut misaligned = fixed;
+        misaligned.utxos.swap(0, 1);
+        assert!(builder.get_tr_sighashes(&misaligned).is_err());
+        Ok(())
+    }
+
     fn fixed_fixture(
         value: u64,
         gross: u64,
