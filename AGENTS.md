@@ -80,7 +80,12 @@ For other situational principles, use the conditional index in
   private detail. See `docs/agents/issue-tracker.md`.
 - Domain docs: single context, `GLOSSARY.md` and `docs/adr/`. See
   `docs/agents/domain.md`.
-- New glossary terms and ADRs: use the `domain-modeling` skill.
+- Decisions and terms: when a design decision is accepted (a wayfinder
+  ticket closes, an ExecPlan passes its design stop, or a review changes the
+  design), record it with the `domain-modeling` skill before moving on. It
+  decides between an ADR, a `GLOSSARY.md` entry or nothing. Publish the
+  record no later than the PR that implements the decision. Later agents
+  start from these files, not from chat or tickets.
 
 ## Change discipline
 
