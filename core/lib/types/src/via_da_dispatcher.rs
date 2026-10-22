@@ -63,8 +63,7 @@ mod tests {
     fn envelope_and_child_manifest_golden_bytes() {
         // Hand-assembled u64 LE chunk/data lengths, followed by data, using fixed-int defaults:
         // https://github.com/servo/bincode/blob/c44b5e364e7084cdbabf9f94b63a3c7f32b8fb68/src/lib.rs
-        // Manifest entries are independently assembled u32 BE lengths followed by opaque IDs:
-        // https://github.com/vianetwork/via-core/blob/ca11943ebc679f6f40a4f810cbe4fc21d296aae9/core/lib/types/src/via_da_dispatcher.rs
+        // Manifest entries are hand-assembled: u32 BE ID length, then the ID bytes.
         let ids = vec![
             "0102030405060708000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
                 .to_owned(),

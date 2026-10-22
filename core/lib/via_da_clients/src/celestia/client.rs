@@ -183,15 +183,13 @@ mod tests {
 
     use super::*;
 
-    // Hand-assembled height BE || opaque commitment bytes, independent of Via's codec:
-    // https://github.com/vianetwork/via-core/blob/ca11943ebc679f6f40a4f810cbe4fc21d296aae9/core/lib/via_da_clients/src/celestia/client.rs
+    // Hand-assembled IDs: 8-byte BE height, then the 32-byte commitment.
     const CHILD_ZERO: &str =
         "0102030405060708000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
     const ROOT_ID: &str =
         "2122232425262728404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f";
     // Literal u64 LE count/length and u32 BE child lengths; children have no envelopes:
     // https://github.com/servo/bincode/blob/c44b5e364e7084cdbabf9f94b63a3c7f32b8fb68/src/lib.rs
-    // https://github.com/vianetwork/via-core/blob/ca11943ebc679f6f40a4f810cbe4fc21d296aae9/core/node/via_da_dispatcher/src/da_dispatcher.rs
     const SINGLE_ENVELOPE: &str = "01000000000000000400000000000000000102ff";
     const ROOT_ENVELOPE: &str = concat!(
         "020000000000000058000000000000000000002801020304050607080001020304",
