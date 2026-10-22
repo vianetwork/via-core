@@ -91,6 +91,15 @@ take the reader's lock. Its only guard is a reorg check just before its commit
 every writer that shares a database, migrate and reconcile, then restart on the
 new contract. Rolling coexistence is not a requirement.
 
+**First positions after migration.** Each scan group starts from a position
+that retained evidence proves. What can be proved migrates. A group that
+cannot be proved stops the migration, and an operator chooses an explicit
+baseline, such as rebuilding the group's reversible state from a proved block.
+Today's hash at an old height is never taken as proof, because it does not
+show which block produced a row. Executed, signed or paid state is never
+inferred. Most legacy rows store only a height, so testnet4 is expected to
+need that operator baseline once.
+
 **Refinements.** These were recorded on #434 from the research in
 [#459](https://github.com/vianetwork/via-core/issues/459), without a new
 decision:
@@ -129,6 +138,13 @@ Read Committed allows recovery to commit between the check and the write.
 **Reconciling withdrawals against the latest state.** Rejected. It mixes
 configurations from different blocks.
 
+**Infer a legacy position from today's chain.** Rejected. Today's hash at the
+stored height looks like proof but does not show which block a row came from.
+
+**Rebuild every group from Via's first block.** Not chosen as the rule. It
+works for reversible state but cannot rebuild executed L2 state. It remains
+one baseline an operator may choose.
+
 ## Why this design
 
 Graph Node keeps effects and position per deployment and commits them together,
@@ -154,6 +170,14 @@ position without a check. Temporal and etcd reject late work by comparing an
 identity that a re-created record cannot share, which is the role of the
 captured row `id`.
 
+For migration, `pg_rewind` refuses to run when it cannot find a common point
+between two histories
+([`pg_rewind.c`](https://github.com/postgres/postgres/blob/a39e53a700c5b728f2f7dab964e33b157979fb3a/src/bin/pg_rewind/pg_rewind.c#L1052-L1085),
+C, PostgreSQL licence), and Debezium refuses to resume when its stored
+position history is gone and asks for a new snapshot
+([`BaseSourceTask.java`](https://github.com/debezium/debezium/blob/215ffa1ad3f13a484b11c8deb9600a05d9ef08cf/debezium-connector-common/src/main/java/io/debezium/connector/common/BaseSourceTask.java#L146-L167),
+Java, Apache-2.0). Via adapts the same stance: no proof, no automatic start.
+
 ## Consequences
 
 - A proof gap no longer stops deposits, configuration or withdrawal
@@ -167,11 +191,6 @@ captured row `id`.
 
 ## Not decided here
 
-- How each scan group's first position is proved during migration. It builds
-  on the shared reader home in ADR 0011
-  ([#433](https://github.com/vianetwork/via-core/issues/433)), depends on
-  [#439](https://github.com/vianetwork/via-core/issues/439), and is tracked on
-  the [reader map](https://github.com/vianetwork/via-core/issues/426).
 - How replay treats votes, upgrades and withdrawal observations, and which
   verifier set decides finalization during replay: decided later in
   [ADR 0013](0013-keep-evidence-membership-and-derived-state-apart.md) and

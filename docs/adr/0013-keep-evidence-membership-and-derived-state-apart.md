@@ -16,8 +16,8 @@ once, and rebuilds the derived state. It keeps evidence, holds, sender requests
 and signed history. When a processor reads a block again, it compares the full
 payload stored under the same identity, and a changed payload is a conflict.
 Configuration changes follow Bitcoin order and take effect from the next block.
-Two conflicting changes for the same role in one block are rejected. That last
-rule changes which messages Via accepts.
+A block that changes the same role more than once is rejected for that role.
+That last rule changes which messages Via accepts.
 
 ## Background for a new reader
 
@@ -92,17 +92,17 @@ transaction index. Protocol upgrades store no Bitcoin txid, height or hash.
    by block hash, height, transaction index and message order, never by
    `created_at`. A change included at height `h` takes effect at `h + 1`. The
    parser records the transaction index of every system message.
-7. **Two conflicting changes for the same role in one block are rejected.**
-   Neither change takes effect. The wire bytes do not change, but this changes
+7. **More than one change for the same role in one block is rejected.**
+   None of them takes effect, even when the changes are identical. The wire bytes do not change, but this changes
    which messages Via accepts. Every node must apply the same rule.
 8. **Finalization moves off the sender row.** The finalization that the reader
    decides gets its own record. Sender requests and signed history survive
    recovery. The foreign-key cascades that delete them are replaced.
 
 The comparison in step 2, the conditional withdrawal in step 3 and the
-duplicate check in step 7 are translated into Rust from the donors named
-below. An independent reviewer checks each translated unit line by line
-against its donor, and the donor's tests for that unit are ported with it.
+duplicate check in step 7 are short rules that Via writes in Rust, with the
+idea taken from the donors named below. The donors' tests for each rule are
+ported as test cases.
 
 ## Considered options
 
@@ -128,6 +128,10 @@ transaction and depends on when a node wrote the row, not on Bitcoin.
 order.** Not chosen. Rejection is the simpler rule, and etcd's check
 implements it without change.
 
+**Count identical changes for one role as one.** Not chosen. An operator has
+no reason to send the same change twice in one block, so a duplicate signals
+an error, and one rule without an exception is simpler.
+
 **Adopt a whole ledger, or NBXplorer's full trigger schema.** Rejected. Via
 needs the separation, not the surrounding machinery.
 
@@ -146,19 +150,19 @@ commit:
   first `exists_with_different_<field>`
   ([`state_machine.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/0450c32b2c3c3ab6114f3402cc601341cc8192aa/src/state_machine.zig#L3971-L4033),
   [tests](https://github.com/tigerbeetle/tigerbeetle/blob/0450c32b2c3c3ab6114f3402cc601341cc8192aa/src/state_machine_tests.zig#L1768-L1812),
-  Zig, Apache-2.0). Translated. Via defines its own payload fields and does
+  Zig, Apache-2.0). Idea; Via writes its own comparison. Via defines its own payload fields and does
   not copy TigerBeetle's optional-field exceptions.
 - **Conditional withdrawal.** Formance ledger v2 reverts a transaction with
   `UPDATE … WHERE reverted_at IS NULL RETURNING` and reports whether a row
   changed
   ([`transactions.go`](https://github.com/formancehq/ledger/blob/3ab99b3ad28ffcc6034d94b4e3d831b823cce7a5/internal/storage/ledger/transactions.go#L154-L213),
-  Go, MIT on the `main_v2` branch). Translated. A repeated withdrawal for the
+  Go, MIT on the `main_v2` branch). Idea; Via writes its own SQL. A repeated withdrawal for the
   same reorg converges instead of returning an error.
 - **Duplicate check before a batch applies.** etcd rejects a transaction that
   writes one key twice before it executes any write
   ([`key.go`](https://github.com/etcd-io/etcd/blob/bf9cadf044f0531036a61c9b6dbeba8aef2a3b30/server/etcdserver/api/v3rpc/key.go#L236-L314),
   [test](https://github.com/etcd-io/etcd/blob/bf9cadf044f0531036a61c9b6dbeba8aef2a3b30/tests/integration/clientv3/txn_test.go#L32-L44),
-  Go, Apache-2.0). Translated, with the role as the key. etcd orders writes by
+  Go, Apache-2.0). Idea; Via writes its own check, with the role as the key. etcd orders writes by
   revision and sub-revision, not by time
   ([`kvstore_txn.go`](https://github.com/etcd-io/etcd/blob/bf9cadf044f0531036a61c9b6dbeba8aef2a3b30/server/storage/mvcc/kvstore_txn.go#L174-L245)),
   which Via adapts as block, transaction and message order.
@@ -192,26 +196,21 @@ lists every donor with its licence and verdict.
   that produced them. The parser needs the transaction index of system
   messages.
 - Finalization needs its own record, and the sender cascades are replaced.
-- A block that carries two conflicting changes for one role was accepted
-  before, and `created_at` decided which change won. Now neither change
-  applies.
+- A block that carries two changes for one role was accepted before, and
+  `created_at` decided which change won. Now none of them applies.
   All nodes that share a database switch together, by the stop, migrate and
   restart upgrade in ADR 0010.
-- Each translated unit carries an origin comment with its pinned permalink,
-  licence and the changes made.
+- Each rule taken from a donor carries an origin comment with its pinned
+  permalink and what Via changed. No licence text is added: Via writes these
+  rules itself.
 
 ## Not decided here
 
 - Which old rows can be tied to the block that produced them during
-  migration. Retained data does not prove it for most of them. It stays open
-  on the [reader map](https://github.com/vianetwork/via-core/issues/426).
-- Whether two identical changes for one role in one block count as a
-  conflict. etcd's check, translated unchanged, rejects them too.
+  migration: what cannot be proved needs an operator baseline, decided in
+  [ADR 0010](0010-commit-each-scan-group-with-its-position.md).
 - Whether past blocks on any network carry two changes for one role. This has
   not been checked.
-- Whether Via adds a third-party notice file for translated Apache-2.0 code,
-  the same open item as for the copied code in
-  [ADR 0011](0011-shared-reader-in-via-reorg-with-copied-ldk-walk.md).
 
 This decision builds on
 [ADR 0008](0008-one-bitcoin-reader-per-node-owns-reorg-recovery.md) and

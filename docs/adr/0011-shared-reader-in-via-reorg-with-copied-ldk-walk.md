@@ -11,8 +11,7 @@ The one Bitcoin reader from
 [ADR 0008](0008-one-bitcoin-reader-per-node-owns-reorg-recovery.md) is written
 once, in the existing crate `core/lib/via_reorg`. The main node, the external
 node and the verifier plug in their own processors through small adapters. The
-code that finds a fork point is copied from LDK, with its licence and a pinned
-origin. Via takes no runtime dependency on LDK or BDK. Block headers come from
+code that finds a fork point is copied from LDK, with a pinned origin. Via takes no runtime dependency on LDK or BDK. Block headers come from
 the authoritative Bitcoin node through `via_btc_client`. The reader checks each
 header's identity and parent link but does not check proof of work itself.
 
@@ -64,7 +63,7 @@ detecting and recovering.
    type, the lookups (stored side from Via's ancestry table, node side through
    `via_btc_client`), the error type and the rollback-search limit from ADR
    0008. Each copied function carries an origin comment with the pinned
-   permalink, the licence and the changes made.
+   permalink and the changes made.
 4. **No BDK or LDK runtime dependency.**
 5. **Headers come from the authoritative node through `via_btc_client`.** The
    client returns hash, height, parent hash and canonical membership
@@ -139,12 +138,13 @@ records the dependency probes and links each source at a fixed commit.
 - LDK's proof-of-work and chainwork checks are not copied. The reader relies
   on its authoritative Bitcoin Core node, which validates the chain it reports.
 - If LDK changes the walk, Via does not get the change automatically. The
-  origin comment names the commit to compare against.
+  origin comment names the commit to compare against, and a weekly check
+  opens an issue when the donor file changes.
+- No third-party notice file is added. LDK's licence, MIT or Apache-2.0, is
+  the one Via already ships, and LDK has no NOTICE file.
 
 ## Not decided here
 
-- Whether Via adds a third-party notice file for copied MIT code beyond the
-  origin comments.
 - Whether Via revisits `bdk_chain` if its toolchain reaches Rust 1.85.
 - How a consumer in another process with its own database follows the reader.
   It stays open on the

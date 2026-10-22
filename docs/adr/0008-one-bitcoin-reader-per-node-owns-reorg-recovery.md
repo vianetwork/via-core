@@ -188,8 +188,9 @@ history, not a bound.
   inspection looks like: decided later in
   [ADR 0014](0014-repair-only-reversible-provable-steps-and-inspect-read-only.md)
   ([#436](https://github.com/vianetwork/via-core/issues/436)).
-- How each scan group's first position is proved during migration, and how a
-  consumer in another process follows the reader. Both stay open on the
+- How each scan group's first position is proved during migration: decided
+  later in [ADR 0010](0010-commit-each-scan-group-with-its-position.md).
+- How a consumer in another process follows the reader. It stays open on the
   [reader map](https://github.com/vianetwork/via-core/issues/426).
 
 This decision builds on

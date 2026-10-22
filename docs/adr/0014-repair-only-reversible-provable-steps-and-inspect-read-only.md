@@ -95,7 +95,18 @@ upstream `--components` flag.
 9. **No general effect digest yet.** Replay uses explicit identities and the
    field comparison from ADR 0013.
 
-Two gaps in the current main-node reverter are to be fixed. It skips its
+10. **Snapshot cleanup finishes before the barrier clears.** The main-node
+    reverter records the snapshot files to delete in the same transaction as
+    the revert, then deletes them. A crash resumes from that record. The
+    barrier clears only when every recorded deletion is done, so recovery
+    waits while object storage is down.
+11. **The manual main-node reverter stays as the only operator route for hard
+    repairs.** It uses the same inspection and identity checks as the reader.
+    Its executed-batch guard no longer has a reorg-row bypass. An override for
+    executed state is explicit, separately authorized and never part of
+    automatic recovery.
+
+These two decisions close the current main-node reverter's gaps: it skips its
 executed-batch guard when a reorg row exists, and its snapshot cleanup after
 the SQL commit does not resume after a crash.
 
@@ -117,6 +128,13 @@ Every writer must remember to check the flag. Kubernetes' in-process hooks and
 
 **A stored effect digest now.** Deferred. A digest is useful only after its
 field set, history baseline and encoding are defined.
+
+**Clear the barrier and clean up snapshots later.** Not chosen. It needs a
+proof that a stale snapshot can never be served. Main-node hard reorgs are
+rare, so waiting for cleanup costs little.
+
+**Remove the manual reverter and let the reader do everything.** Rejected.
+Automatic recovery must not rewrite executed L2 state (step 3).
 
 ## Why this design
 
@@ -167,6 +185,12 @@ Each part follows an established project that was read at a pinned commit:
   (CC0-1.0). ZKsync Era refuses to revert executed batches by default
   ([`block_reverter`](https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/block_reverter/src/lib.rs#L119-L180),
   MIT or Apache-2.0).
+- **Cleanup that survives a crash.** Kubernetes keeps an object until every
+  finalizer recorded on it is removed
+  ([`store.go`](https://github.com/kubernetes/apiserver/blob/9c4ec15b8038e9f47e8caf219903649dc67c992a/pkg/registry/generic/registry/store.go#L691-L708),
+  Go, Apache-2.0), and Flink records completion durably before it reports it
+  ([`CheckpointCoordinator.java`](https://github.com/apache/flink/blob/14fa27183139cb9ec0a5f2b34f5d72f7477115c1/flink-runtime/src/main/java/org/apache/flink/runtime/checkpoint/CheckpointCoordinator.java#L1363-L1441),
+  Java, Apache-2.0). Adapted as recorded deletions in the main-node reverter.
 
 No studied project runs real recovery writes on a disposable copy as a
 feature. That part is operations practice, not a donor.
@@ -189,15 +213,12 @@ lists every donor with its licence and verdict.
   operator. On testnet4, where recovery runs often, such stops become visible
   instead of silent.
 - The main-node reverter changes in two places: its guard and its snapshot
-  cleanup.
+  cleanup. Cleanup gets a small record of pending deletions.
 
 ## Not decided here
 
 - How an operator resolves a stop that involves an external effect or
   executed L2 state. That needs its own procedure.
-- The exact fix for the two reverter gaps. In particular, whether snapshot
-  cleanup must finish before the barrier clears, or is resumable cleanup that
-  may finish later.
 - A stored effect digest, if replay must ever prove equal effects beyond
   identities and undo.
 

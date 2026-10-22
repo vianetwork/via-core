@@ -132,8 +132,7 @@ at a fixed commit.
   the shared model.
 - Reader pull requests need a runner that can start Bitcoin Core and a
   PostgreSQL database.
-- Copied test code carries origin comments with pinned permalinks and
-  licences.
+- Copied test code carries origin comments with pinned permalinks.
 - The client's existing Docker-based regtest helper is repaired or retired
   when the runner is chosen, so Via keeps one way to start Bitcoin Core in
   tests.

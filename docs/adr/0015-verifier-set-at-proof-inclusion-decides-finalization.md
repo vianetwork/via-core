@@ -63,8 +63,13 @@ This decision says which of those configurations judges a proof.
    ([#454](https://github.com/vianetwork/via-core/issues/454)) is fixed by this
    tally. Each role keeps its own proof-verification prerequisite before it
    counts.
-3. **No verifier-set rotation while a proof is unfinalized.** Code enforces
-   it. The rule bounds how long a retired set keeps authority over a proof.
+3. **No verifier-set rotation while a proof is unfinalized.** The rule bounds
+   how long a retired set keeps authority over a proof. An `UpdateBridge`
+   message that Bitcoin includes while an earlier proof is unfinalized is
+   rejected for good. It stays as evidence but never takes effect, and
+   governance sends a new message after the proof is finalized. Each node
+   decides this from the same Bitcoin prefix, so all nodes agree. This
+   changes which messages Via accepts.
 
 This changes consensus interpretation across rotations. Today each vote is
 admitted under the set at its own block. After this decision, every vote for a
@@ -96,6 +101,10 @@ finalize an old proof at any later time.
 requirement behind it. Forbidding rotation while a proof is unfinalized bounds
 the window without one.
 
+**Hold a forbidden rotation and activate it when the proof is finalized.** Not
+chosen. The activation point would depend on finalization timing instead of
+the message's own block, which makes replay harder to reason about.
+
 ## Why this design
 
 Three established systems judge a decision by the membership that applies to
@@ -121,6 +130,10 @@ the object the decision refers to, not by the membership a node holds now:
   ([`Leader.java`](https://github.com/apache/zookeeper/blob/777b3723f56456524a052b79f73649e99da1f1aa/zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/Leader.java#L1316-L1325);
   Java, Apache-2.0). Idea only. For Via, a proof is created when Bitcoin
   includes it.
+- **Raft** refuses a new configuration change while an earlier one is still
+  pending and drops it instead of queueing it
+  ([`raft.go`](https://github.com/etcd-io/raft/blob/1931ff5beacc1e2539003c0c70f096285f04c425/raft.go#L1310-L1345);
+  Go, Apache-2.0). Idea only, for rejecting a forbidden rotation.
 
 No donor decides Via's anchor. Choosing the proof's inclusion block is Via
 protocol policy.
@@ -145,10 +158,6 @@ lists every donor with its licence and verdict.
 
 ## Not decided here
 
-- Where code enforces the rotation rule, and what a node does with an
-  `UpdateBridge` message that Bitcoin includes while a proof is unfinalized.
-  If enforcement means rejecting that message, it changes which messages Via
-  accepts and needs its own decision.
 - Whether any `UpdateBridge` message has been included on testnet4. That
   decides whether past votes crossed a rotation, and needs a chain census.
 

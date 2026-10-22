@@ -40,6 +40,12 @@ Every topic in this record is decided. The maintainer decided each ticket.
 | [Undo and replay](#every-processor-keeps-evidence-canonical-membership-and-derived-state-apart) | [#439](https://github.com/vianetwork/via-core/issues/439), [#446](https://github.com/vianetwork/via-core/issues/446) | Decided 2026-10-22 | [ADR 0013](../../adr/0013-keep-evidence-membership-and-derived-state-apart.md) |
 | [Automatic repair and read-only inspection](#recovery-repairs-only-reversible-provable-steps-and-inspection-is-read-only) | [#436](https://github.com/vianetwork/via-core/issues/436) | Decided 2026-10-22 | [ADR 0014](../../adr/0014-repair-only-reversible-provable-steps-and-inspect-read-only.md) |
 | [Verifier set for finalization](#the-verifier-set-at-a-proofs-inclusion-block-decides-its-finalization) | [#440](https://github.com/vianetwork/via-core/issues/440), evidence [#451](https://github.com/vianetwork/via-core/issues/451) | Decided 2026-10-22 | [ADR 0015](../../adr/0015-verifier-set-at-proof-inclusion-decides-finalization.md) |
+| [First positions after migration](#each-scan-group-commits-its-effects-with-its-own-scan-position) | [#426](https://github.com/vianetwork/via-core/issues/426) design stop | Decided 2026-10-22 | [ADR 0010](../../adr/0010-commit-each-scan-group-with-its-position.md) |
+| [Repeated changes for one role in one block](#every-processor-keeps-evidence-canonical-membership-and-derived-state-apart) | [#426](https://github.com/vianetwork/via-core/issues/426) design stop | Decided 2026-10-22 | [ADR 0013](../../adr/0013-keep-evidence-membership-and-derived-state-apart.md) |
+| [Snapshot cleanup and the manual reverter](#recovery-repairs-only-reversible-provable-steps-and-inspection-is-read-only) | [#426](https://github.com/vianetwork/via-core/issues/426) design stop | Decided 2026-10-22 | [ADR 0014](../../adr/0014-repair-only-reversible-provable-steps-and-inspect-read-only.md) |
+| [A rotation included while a proof is open](#the-verifier-set-at-a-proofs-inclusion-block-decides-its-finalization) | [#426](https://github.com/vianetwork/via-core/issues/426) design stop | Decided 2026-10-22 | [ADR 0015](../../adr/0015-verifier-set-at-proof-inclusion-decides-finalization.md) |
+| [Cadence and committed-state metrics](#cadence-and-committed-state-metrics) | [#426](https://github.com/vianetwork/via-core/issues/426) design stop | Decided 2026-10-22 | This record |
+| [Reused code checks](#reused-code-and-how-it-is-checked) | [#426](https://github.com/vianetwork/via-core/issues/426) design stop | Decided 2026-10-22 | This record |
 
 ## Words used in this record
 
@@ -467,6 +473,14 @@ agree. The final write of outside work, such as a zk verdict, takes the source g
 observation continues during a proof pause. The signing messages do not change. Nodes upgrade by
 stopping every writer of a database, migrating and restarting.
 
+Each scan group starts after migration from a position that retained evidence proves. What can be
+proved migrates. A group that cannot be proved stops the migration, and an operator chooses an
+explicit baseline, such as rebuilding its reversible state from a proved block. Today's hash at an
+old height is never taken as proof, and executed, signed or paid state is never inferred. Most
+legacy rows store only a height, so testnet4 is expected to need that operator baseline once.
+`pg_rewind` [refuses without a common point][pg-rewind-ancestor] and Debezium
+[refuses to resume without its position history][debezium-position], the same stance.
+
 **Who does it this way.** Graph Node commits a consumer's effects and head in one locked transaction,
 [forward][graph-apply] and [backward][graph-undo] (MIT or Apache-2.0). Its lock is held per session,
 while Via's advisory lock is held per transaction, so Via adopts the principle and keeps its own lock.
@@ -657,8 +671,8 @@ re-mined deposit links to the old one by `(txid, vout)`, and a deposit already e
 under the [repair stop](#recovery-repairs-only-reversible-provable-steps-and-inspection-is-read-only).
 
 Configuration changes are ordered by block hash, height, transaction index and message order, never
-by `created_at`. A change at height `h` takes effect at `h + 1`. Two conflicting changes for the same
-role in one block are rejected, and neither takes effect. **This changes which messages Via
+by `created_at`. A change at height `h` takes effect at `h + 1`. More than one change for the same
+role in one block is rejected, even when the changes are identical, and none of them takes effect. **This changes which messages Via
 accepts.** The wire bytes do not change. The parser records transaction indices for system messages.
 
 The finalization that the reader decides moves to its own record, off the sender row. Sender
@@ -669,10 +683,10 @@ replaced.
 [inclusion][nbx-inclusion] in separate tables and clears only the inclusion on a disconnect (MIT,
 adapt). TigerBeetle's [`create_transfer_exists`][tb-exists] compares a stored transfer field by field
 and returns `exists` or the first `exists_with_different_<field>` ([tests][tb-exists-tests], Zig,
-Apache-2.0, translate). Formance ledger v2 [reverts a transaction][formance-revert] with
-`UPDATE … WHERE reverted_at IS NULL RETURNING` and reports whether a row changed (Go, MIT, translate).
+Apache-2.0, idea). Formance ledger v2 [reverts a transaction][formance-revert] with
+`UPDATE … WHERE reverted_at IS NULL RETURNING` and reports whether a row changed (Go, MIT, idea).
 etcd [rejects a transaction that writes one key twice][etcd-dupkey] before it applies any write
-([test][etcd-dupkey-test], Go, Apache-2.0, translate with the role as the key), and orders writes by
+([test][etcd-dupkey-test], Go, Apache-2.0, idea, with the role as the key), and orders writes by
 [revision and sub-revision][etcd-revision], not by time (adapt). Apache Fineract
 [reverses with a linked opposite entry][fineract-reversal] and keeps the original (Java, Apache-2.0,
 adapt). ZKsync Era's upgrade processor [skips an upgrade older than the last seen version][era-upgrade]
@@ -730,8 +744,15 @@ barrier. Revoking stale authority and adding holds are always allowed.
 Inspection is a separate read-only path. It runs in a PostgreSQL `READ ONLY` transaction and wires no
 sender, coordinator or signer. Recovery applies a plan only if the identities it was planned against
 still hold, and refuses otherwise. A mutation rehearsal runs only on a disposable database copy and
-is never called read-only. No general effect digest is added yet. The two main-node reverter gaps
-above are to be fixed.
+is never called read-only. No general effect digest is added yet.
+
+The main-node reverter records the snapshot files to delete in the same transaction as the revert,
+then deletes them, and a crash resumes from that record. The barrier clears only when every recorded
+deletion is done, so recovery waits while object storage is down. Main-node hard reorgs are rare, so
+the wait costs little, and nothing has to prove that a stale snapshot is never served. The manual
+main-node reverter stays as the only operator route for hard repairs, with the same inspection and
+identity checks as the reader. Its executed-batch guard loses the reorg-row bypass. An override for
+executed state is explicit, separately authorized and never part of automatic recovery.
 
 **Who does it this way.** PostgreSQL's `pg_rewind` [finds the common ancestor][pg-rewind-ancestor]
 from timeline identity and start position and fails when there is none (PostgreSQL licence, adapt).
@@ -750,7 +771,9 @@ writes][etcd-compare], and Kubernetes [rejects an update whose resource version 
 [`VerifyDB`][core-verify] checks blocks through a detached in-memory view (MIT, adapt). Terraform
 [rejects a stale saved plan][terraform-plan], but its code is BSL 1.1, so it is an idea only. ord
 stops with [`Unrecoverable`][ord-bound] (CC0-1.0), and ZKsync Era [refuses to revert executed
-batches by default][era-reverter] (MIT or Apache-2.0). No studied project runs real recovery writes
+batches by default][era-reverter] (MIT or Apache-2.0). Kubernetes keeps an object until every
+[recorded finalizer][k8s-finalizer] is removed, and Flink [records completion durably][flink-complete]
+before it reports it (Go and Java, Apache-2.0, adapt as recorded deletions). No studied project runs real recovery writes
 on a disposable copy as a feature. That part is operations practice.
 
 **Why it works better.** The repair boundary is a list of effect classes, not a depth or a database
@@ -795,8 +818,13 @@ and the denominator for that proof, in every component: the reader, recovery rec
 verifier's final write. With `h + 1` activation, the set for a proof in block `p` is the configuration
 through block `p - 1`. A missing set is an error, never a fallback to the latest set. One shared tally
 counts each verifier once for one exact proof and set, which fixes #454. Each role keeps its own
-proof-verification prerequisite. The verifier set may not rotate while a proof is unfinalized, and
-code enforces it. **This changes consensus interpretation across rotations.**
+proof-verification prerequisite. The verifier set may not rotate while a proof is unfinalized. An
+`UpdateBridge` message that Bitcoin includes while an earlier proof is unfinalized is rejected for
+good: it stays as evidence but never takes effect, and governance sends a new message after the
+proof is finalized. Each node decides this from the same Bitcoin prefix. Holding the rotation and
+activating it at finalization was not chosen, because its activation point would depend on
+finalization timing instead of the message's own block. **This changes consensus interpretation
+across rotations and which messages Via accepts.**
 
 **Who does it this way.** CometBFT loads the validator set for a height with
 [`LoadValidators(height)`][comet-load], returns an error when it is missing, and verifies a commit
@@ -805,7 +833,9 @@ adapt). CometBFT activates validator changes at `h + 2` because each header comm
 Via has no such commitment and keeps `h + 1`. Lighthouse selects an attestation's committee from
 [the target it names][lighthouse-target], never from the head, and bounds old authority to the current and previous epoch
 (Rust, Apache-2.0, idea only). ZooKeeper [fixes the quorum on each proposal][zookeeper-quorum] when it
-is created (Java, Apache-2.0, idea only). No donor decides Via's anchor. Choosing the proof's
+is created (Java, Apache-2.0, idea only). Raft [refuses a configuration change while an earlier one is
+pending][raft-config] and drops it instead of queueing it (Go, Apache-2.0, idea only). No donor
+decides Via's anchor. Choosing the proof's
 inclusion block is Via protocol policy.
 
 **Why it works better.** Every component reaches the same verdict for the same proof, after a
@@ -816,35 +846,52 @@ Status: decided in [#440](https://github.com/vianetwork/via-core/issues/440), wi
 [#451](https://github.com/vianetwork/via-core/issues/451) as evidence, recorded in
 [ADR 0015](../../adr/0015-verifier-set-at-proof-inclusion-decides-finalization.md).
 
+## Cadence and committed-state metrics
+
+**Cadence.** The reader catches up chunk after chunk without waiting a tick between chunks. When it
+is level with the tip, it makes one cheap `getbestblockhash` comparison per existing idle interval. A
+failed step retries on that same interval. No new deployment setting is added. electrs
+[catches up in a loop][electrs-sync] and Bitcoin Core's index framework [syncs without a fixed
+wait][core-index-sync] (MIT, adapt).
+
+**Metrics.** Gauges report only committed state: each group's scan position and lag, the recovery
+phase, the proof-continuity pause, reorg depth and count, and classified errors. A reporter reads them
+from the database, as Via's existing `L1BatchMetricsReporter` in `house_keeper` does, and registers
+them in the shared metrics crate. Graph Node likewise [reports a head only after it commits][graph-apply]
+(MIT or Apache-2.0, adapt). Sender rows no longer report progress. Metric names are contracts, so
+dashboards and alerts in the infrastructure repository change with them.
+
 ## Reused code and how it is checked
 
-Most donors in this record are adapted: Via takes the mechanism and writes its own code. Four units
-are taken as code, and only from MIT, Apache-2.0 or CC0 sources:
+Most donors in this record are adapted: Via takes the mechanism and writes its own code. One unit is
+taken as code:
 
 | Unit | Donor | Language | Licence | How Via takes it | Record |
 | --- | --- | --- | --- | --- | --- |
 | Fork walk: `ChainDifference`, `find_difference_from_header`, `look_up_previous_header` | [LDK `lightning-block-sync` at `v0.3-rc3`][ldk-walk-rc3] | Rust | MIT or Apache-2.0 | Copied. Loop and traversal order unchanged. | [ADR 0011](../../adr/0011-shared-reader-in-via-reorg-with-copied-ldk-walk.md) |
-| Field-wise replay comparison, `create_transfer_exists` | [TigerBeetle][tb-exists] | Zig | Apache-2.0 | Translated to Rust. | [ADR 0013](../../adr/0013-keep-evidence-membership-and-derived-state-apart.md) |
-| Conditional membership withdrawal | [Formance ledger v2][formance-revert] | Go | MIT | Translated to Rust and SQL. | [ADR 0013](../../adr/0013-keep-evidence-membership-and-derived-state-apart.md) |
-| Duplicate-key check before a batch applies | [etcd][etcd-dupkey] | Go | Apache-2.0 | Translated to Rust, with the role as the key. | [ADR 0013](../../adr/0013-keep-evidence-membership-and-derived-state-apart.md) |
 
-Each unit is checked the same way:
+Three short rules are Via's own code with the idea from a donor: the field-wise replay comparison
+from [TigerBeetle][tb-exists], the conditional membership withdrawal from
+[Formance ledger v2][formance-revert] and the duplicate check from [etcd][etcd-dupkey], with the role
+as the key ([ADR 0013](../../adr/0013-keep-evidence-membership-and-derived-state-apart.md)). Each is a
+few lines, so Via writes it in Rust, cites the donor in an origin comment and ports the donor's test
+cases. No licence text is added for them.
 
-1. The unit carries an origin comment with the pinned permalink, the licence and every change from
-   the donor, so a reviewer can tell an intended change from a translation error.
-2. An independent reviewer, who did not write the unit, compares it line by line against the donor
+The copied walk is checked this way:
+
+1. It carries an origin comment with the pinned permalink and every change from the donor, so a
+   reviewer can tell an intended change from a copy error. LDK's licence is the one Via already
+   ships, and LDK has no NOTICE file, so no notice file or licence header is added.
+2. An independent reviewer, who did not write the change, compares it line by line against the donor
    at the pinned commit.
-3. The donor's tests for that unit are ported to Rust and must pass. For the LDK walk these are the
-   fork cases in [ADR 0012](../../adr/0012-test-reorgs-on-one-chain-model-and-real-bitcoin-core.md).
-4. A translated unit is also tested against the original's behaviour. The original Zig or Go code
-   runs once on a generated input set, its outputs are saved in the repository as reference
-   vectors, and a `proptest` test requires the Rust unit to produce the same outputs. Intentional
-   differences, such as refusing an overflow that the original wraps, are listed before the first
-   run. This is differential testing as practised by the Rust rewrites of GNU coreutils and sudo.
-5. The copied LDK walk is checked to be textually unchanged from the pinned donor.
-6. A provenance manifest records each unit's donor repository, path, commit and file hash. A
-   scheduled check opens an issue when the donor file changes, so a fix upstream is not missed. The
-   pattern follows Microsoft testfx's vendored-files manifest.
+3. The donor's tests are ported to Rust and must pass. These are the fork cases in
+   [ADR 0012](../../adr/0012-test-reorgs-on-one-chain-model-and-real-bitcoin-core.md).
+4. A check confirms that the copied loop is textually unchanged from the pinned donor.
+5. A manifest records the donor repository, path, commit and file hash. A weekly check opens an issue
+   when the donor file changes, so a fix upstream is not missed. The pattern follows Microsoft
+   testfx's vendored-files manifest. Both checks are a `provenance` subcommand of the existing Rust
+   `via_duplication` tool. Rust decodes the manifest with every field required, so an entry missing
+   its commit or path fails instead of passing as empty.
 
 Formal verifiers (Kani, Verus, Creusot, Prusti) and research translators (VERT, Syzygy, AlphaTrans,
 the DARPA TRACTOR tools) were considered and not used: the units are small, and the translators
@@ -852,7 +899,7 @@ target C, Java or WebAssembly. jscpd 5's experimental cross-language similarity 
 with Rust and may be run by hand, but it is not a gate.
 
 GPL, LGPL and BSL sources, such as Clementine, Fulcrum, Babylon, the sBTC signer and Terraform, are
-ideas only. No code from them is copied or translated, because a translation keeps the licence.
+ideas only. No code from them is copied.
 
 ## Work outside the redesign
 
@@ -878,11 +925,7 @@ These items are not specified yet. Each is added to this record when it is decid
 
 | Item | Waits on | Current direction |
 | --- | --- | --- |
-| How each scan group's first position is proved during migration | Migration design, after ADR 0013 and ADR 0014 | Stop every writer, migrate and restart is accepted. Today's hash at an old height does not prove which block produced a row, and only the newer verifier proof, vote and withdrawal rows carry a block hash. |
 | Fetching the block body by its checked hash | Implementation design | Fetch the header, check its parent, then fetch the body by hash. Most studied readers do this. Citrea's DA service and Alpen fetch by height. |
-| Cadence | Implementation design | One cadence that catches up without waiting a tick per chunk and makes cheap idle polls, such as one `getbestblockhash` comparison. Today each tick advances at most 50 blocks. |
-| Committed-state metrics | Implementation design | Publish committed scan positions and lag, recovery phase, the proof-continuity pause, reorg depth and count, and classified errors. Metric names are contracts, so dashboards and alerts change with them. |
-| The manual main-node hard-reorg binary | Implementation design, after ADR 0014 | Keep an operator entry point with hash-guarded inspect, plan and resume, after the C2 cascades into sender rows are resolved. |
 | A stored effect digest | Deferred by ADR 0014 | Add only if replay must prove equal effects beyond identity keys and undo. ZKsync OS compares a stored output hash, but it covers a defined VM output, not Via's tables. |
 | A consumer in another process | C7 | It keeps its own `(height, hash)` position, commits effects and position together, and reconciles its branch after a missed reorg. |
 
@@ -958,3 +1001,7 @@ These items are not specified yet. Each is added to this record when it is decid
 [zookeeper-quorum]: https://github.com/apache/zookeeper/blob/777b3723f56456524a052b79f73649e99da1f1aa/zookeeper-server/src/main/java/org/apache/zookeeper/server/quorum/Leader.java#L1316-L1325
 [core-verify]: https://github.com/bitcoin/bitcoin/blob/cce32b16874e85e8a00cfa1a2190f0b6f4dcaf66/src/validation.cpp#L4627-L4760
 [pg-sequence]: https://www.postgresql.org/docs/18/functions-sequence.html
+[k8s-finalizer]: https://github.com/kubernetes/apiserver/blob/9c4ec15b8038e9f47e8caf219903649dc67c992a/pkg/registry/generic/registry/store.go#L691-L708
+[flink-complete]: https://github.com/apache/flink/blob/14fa27183139cb9ec0a5f2b34f5d72f7477115c1/flink-runtime/src/main/java/org/apache/flink/runtime/checkpoint/CheckpointCoordinator.java#L1363-L1441
+[raft-config]: https://github.com/etcd-io/raft/blob/1931ff5beacc1e2539003c0c70f096285f04c425/raft.go#L1310-L1345
+[electrs-sync]: https://github.com/romanz/electrs/blob/35216c6d30148be8e6763d913d437330f431fc03/src/index.rs#L169-L258
