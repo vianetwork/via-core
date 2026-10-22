@@ -298,6 +298,7 @@ impl BitcoinRpc for BitcoinRpcClient {
         .await
     }
 
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
     async fn get_block_hash(&self, height: u64) -> BitcoinRpcResult<BlockHash> {
         self.retry_rpc("getblockhash", move |client| {
             client.get_block_hash(height).map_err(Into::into)
