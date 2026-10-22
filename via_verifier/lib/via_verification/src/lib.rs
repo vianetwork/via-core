@@ -45,7 +45,8 @@ pub async fn verify_proof(prover_batch_data: ProveBatchData) -> anyhow::Result<b
 
 #[cfg(test)]
 mod tests {
-    use circuit_definitions::snark_wrapper::franklin_crypto::bellman::{pairing::bn256::Fr, PrimeField};
+    use circuit_definitions::snark_wrapper::franklin_crypto::bellman::pairing::bn256::Fr;
+    use circuit_definitions::snark_wrapper::franklin_crypto::bellman::PrimeField;
     use primitive_types::H256;
     use sha3::{Digest, Keccak256};
 
