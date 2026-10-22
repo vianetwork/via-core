@@ -153,14 +153,15 @@ gates must pass. Advisory checks do not replace it. Explain false positives
 rather than suppressing rules without justification.
 
 Documentation-only changes need content and reference checks. The strict path
-gate still applies. Report checks not run and why. Reuse successful checks until
+gate still applies. Report checks not run and why in the PR's What changed
+section. Reuse successful checks until
 relevant inputs change or a failure raises a new concern. For CI changes, verify
 the resulting workflow run.
 
 ## Delivery
 
 Use the appropriate issue template and `.github/pull_request_template.md` for
-reuse, performance and validation evidence.
+the problem, the change and reuse evidence.
 
 For requested commits, use `<type>(via-<area>): <imperative subject>`.
 Choose scopes from `.github/via-scopes.yml`. Use `upstream-sync` for upstream

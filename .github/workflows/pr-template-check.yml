@@ -77,7 +77,7 @@ jobs:
             }
 
             const requiredSections = [
-              'Why', 'What changed', 'Reuse & Duplication', 'Performance, Complexity, and Resource Impact'
+              'Why', 'What changed', 'Reuse & Duplication'
             ];
 
             const missingSections = [];
@@ -109,17 +109,7 @@ jobs:
             const bannedPhrases = ['searched the repo', 'no duplication found', 'n/a'];
             const reuseContent = sectionContent['Reuse & Duplication'] || '';
             const reuseBody = reuseContent.replace(/^##\s+Reuse & Duplication\s*/i, '').trim();
-            const authoredReuseContent = reuseBody
-              .replace(/\*\*Required for any PR that adds or changes production logic in a `via_\*` path\.\*\*/g, '')
-              .replace(/Before writing implementation code, you must have completed the checks described in the root `AGENTS\.md` → \*Reuse and duplication discipline\*\./g, '')
-              .replace(/\*\*You must include the following in this section\*\* \(answers must be specific — vague or placeholder text will be rejected\):/g, '')
-              .replace(/-\s+Closest existing implementation considered: `<function or module name>`/g, '')
-              .replace(/-\s+Sibling paths inspected: `<list of specific paths>`/g, '')
-              .replace(/-\s+Search command run: `<exact rg\/grep command>`/g, '')
-              .replace(/-\s+Shared extraction decision: extracted to `<path>` \*\*OR\*\* not extracted because `<exact invariant \/ ownership \/ execution-context difference>`/g, '')
-              .replace(/Vague answers such as "searched the repo" or "no duplication found" are not accepted\./g, '')
-              .replace(/>\s+Self-check before submitting: Have you named a specific function\? Have you listed sibling paths actually inspected \(with backticks\)\? If any answer is no, revise this section\./g, '')
-              .trim();
+            const authoredReuseContent = reuseBody;
 
             const hasBannedPhrase = bannedPhrases.some(phrase =>
               authoredReuseContent.toLowerCase().includes(phrase)
@@ -204,32 +194,10 @@ jobs:
             const touchesHighRisk = siblingPairs.some(([a, b]) =>
               filePaths.some(f => f.startsWith(a) || f.startsWith(b))
             );
-            const defaultChecksScaffold = new Set([
-              '```bash',
-              '```',
-              'git diff --check',
-              'zkstack dev fmt',
-              'zkstack dev lint',
-              '# Via structural rules (ast-grep)',
-              '# Run for sibling-paired paths (see .github/sibling-paths.yml) or other high-risk areas.',
-              '# Use `just via-check-strict` when required. See root AGENTS.md → Validation section.',
-              'just via-check',
-              'just via-check-strict',
-              'cargo test -p <relevant-crate>',
-              '# Secret scanning',
-              'gitleaks protect --staged --redact --no-banner',
-              'gitleaks git --log-opts="main..HEAD" --redact --no-banner'
-            ]);
-            const checksBody = getSectionContent('Checks run')
-              .replace(/^##\s+Checks run\s*/i, '')
-              .split('\n')
-              .map(line => line.trim())
-              .filter(line => line && !defaultChecksScaffold.has(line))
-              .join('\n');
-            const mentionsStructural = /via-check|structural.*lint|ast-grep/i.test(checksBody);
+            const mentionsStructural = /via-check|structural.*lint|ast-grep/i.test(getSectionContent('What changed'));
 
             if (touchesHighRisk && !mentionsStructural) {
-              commentBody += '\n\n**Note:** This PR touches sibling-paired path(s). Consider running `just via-check-strict` (see root AGENTS.md → Validation) and recording it in the Checks run section.';
+              commentBody += '\n\n**Note:** This PR touches sibling-paired path(s). Consider running `just via-check-strict` (see root AGENTS.md → Validation) and recording it in the What changed section.';
             }
 
             // Find and update existing comment
