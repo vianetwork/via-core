@@ -20,6 +20,8 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
   EraVM retirement, why zksync-era `main` is no longer the refork target, ZKsync OS
   as the likely eventual target, how large a port is, source publication, and the
   exit conditions that the deferred refork waits for.
+- [Refork preparation prior art](refork-preparation-prior-art.md): old-code preparation,
+  migration failures, portable dependency boundaries, behavior evidence, and Brave's fork tooling.
 - [Duplication paydown and the refork](duplication-paydown-and-refork.md): which
   duplicated code between `core/` and `via_verifier/` survives a refork, why most
   of it is Via behavior worth consolidating, and proposals for the paydown policy.

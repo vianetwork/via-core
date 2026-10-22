@@ -229,6 +229,11 @@ op-geth measures its divergence from go-ethereum as a per-topic diff against a p
 [forkdiff](https://github.com/protolambda/forkdiff)). Clone detection answers a different question:
 which Via code is a modified copy of upstream code. Neither proves behavioral equivalence.
 
+Dependency reachability is another separate measurement. A shared owner can still depend on Era,
+and code can copy behavior without depending on its original crate. See
+[Refork preparation prior art](refork-preparation-prior-art.md#dependency-reachability-is-separate-from-shared-ownership)
+for scoped dependency checks and the open decision about which Via crates should be portable.
+
 ### Scan scope: measurements and donors
 
 jscpd 5.4.2 on via-core `8c7246001`, exact copies, 50 tokens, `--mode weak`, without `--skip-local`.

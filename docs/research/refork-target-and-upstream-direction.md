@@ -275,6 +275,9 @@ only if that spike succeeds.
 
 ### What current via-core work does meanwhile
 
+See [Refork preparation prior art](refork-preparation-prior-art.md) for preparation examples and
+their limits.
+
 Fixes continue on today's via-core. This work is target-neutral: it pays off today, on ZKsync OS,
 and on Via's own Era fork. Each fix should leave something a future target can reuse:
 

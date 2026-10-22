@@ -8,7 +8,10 @@ deployment repositories. Source changes do not prove rollout.
 Via is a zkSync Era fork. Keep Via features cohesive and minimize divergence so
 upstream updates and a future re-fork remain manageable. The re-fork target is
 no longer zksync-era `main`. For re-fork planning, read
-`docs/research/refork-target-and-upstream-direction.md`.
+`docs/research/refork-target-and-upstream-direction.md` and
+`docs/research/refork-preparation-prior-art.md`. When changing Via-owned
+behavior, read the target note's "What current via-core work does meanwhile"
+section.
 
 ## Authority
 
