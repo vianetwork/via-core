@@ -193,7 +193,7 @@ impl ViaNodeBuilder {
             secrets,
             self.wallets.clone(),
             None,
-        ));
+        ).with_component("main_node"));
         Ok(self)
     }
 

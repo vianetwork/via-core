@@ -17,6 +17,7 @@ pub struct BtcClientLayer {
     secrets: ViaL1Secrets,
     wallets: ViaWallets,
     bridge_address: Option<String>,
+    component: &'static str,
 }
 
 #[derive(Debug, IntoContext)]
@@ -37,7 +38,13 @@ impl BtcClientLayer {
             secrets,
             wallets,
             bridge_address,
+            component: "client",
         }
+    }
+
+    pub fn with_component(mut self, component: &'static str) -> Self {
+        self.component = component;
+        self
     }
 }
 
@@ -51,53 +58,32 @@ impl WiringLayer for BtcClientLayer {
     }
 
     async fn wire(self, _: Self::Input) -> Result<Self::Output, WiringError> {
-        let default_btc_client = BitcoinClient::new(
-            self.secrets.rpc_url.expose_str(),
-            self.secrets.auth_node(),
-            self.via_btc_client.clone(),
-        )
-        .map_err(|e| WiringError::Internal(e.into()))?;
-
-        let mut btc_client_resource = BtcClientResource::new(Arc::new(default_btc_client));
-
+        let client = |wallet: Option<String>| {
+            let url = match wallet {
+                Some(wallet) => self
+                    .via_btc_client
+                    .rpc_url(self.secrets.rpc_url.expose_str().to_string(), wallet),
+                None => self.secrets.rpc_url.expose_str().to_string(),
+            };
+            BitcoinClient::new_with_component(
+                &url,
+                self.secrets.auth_node(),
+                self.via_btc_client.clone(),
+                self.component,
+            )
+            .map(Arc::new)
+            .map_err(|err| WiringError::Internal(err.into()))
+        };
+        let mut btc_client_resource = BtcClientResource::new(client(None)?);
         if let Some(wallet) = self.wallets.btc_sender {
-            let btc_client = BitcoinClient::new(
-                &self.via_btc_client.rpc_url(
-                    self.secrets.rpc_url.expose_str().to_string(),
-                    wallet.address,
-                ),
-                self.secrets.auth_node(),
-                self.via_btc_client.clone(),
-            )
-            .map_err(|e| WiringError::Internal(e.into()))?;
-
-            btc_client_resource = btc_client_resource.with_btc_sender(Arc::new(btc_client))
+            btc_client_resource =
+                btc_client_resource.with_btc_sender(client(Some(wallet.address))?);
         }
-
         if let Some(wallet) = self.wallets.vote_operator {
-            let btc_client = BitcoinClient::new(
-                &self.via_btc_client.rpc_url(
-                    self.secrets.rpc_url.expose_str().to_string(),
-                    wallet.address,
-                ),
-                self.secrets.auth_node(),
-                self.via_btc_client.clone(),
-            )
-            .map_err(|e| WiringError::Internal(e.into()))?;
-            btc_client_resource = btc_client_resource.with_verifier(Arc::new(btc_client))
+            btc_client_resource = btc_client_resource.with_verifier(client(Some(wallet.address))?);
         }
-
-        if let Some(bridge_address) = self.bridge_address {
-            let btc_client = BitcoinClient::new(
-                &self.via_btc_client.rpc_url(
-                    self.secrets.rpc_url.expose_str().to_string(),
-                    bridge_address,
-                ),
-                self.secrets.auth_node(),
-                self.via_btc_client.clone(),
-            )
-            .map_err(|e| WiringError::Internal(e.into()))?;
-            btc_client_resource = btc_client_resource.with_bridge(Arc::new(btc_client))
+        if let Some(address) = self.bridge_address {
+            btc_client_resource = btc_client_resource.with_bridge(client(Some(address))?);
         }
 
         Ok(Output {

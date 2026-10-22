@@ -58,7 +58,7 @@ impl ViaNodeBuilder {
             self.configs.secrets.via_l1.clone().unwrap(),
             self.configs.wallets.clone(),
             Some(self.configs.via_bridge_config.bridge_address.clone()),
-        ));
+        ).with_component(if self.is_coordinator { "coordinator" } else { "verifier" }));
         Ok(self)
     }
 

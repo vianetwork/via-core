@@ -11847,6 +11847,7 @@ dependencies = [
  "vise",
  "zksync_basic_types",
  "zksync_config",
+ "zksync_health_check",
  "zksync_object_store",
  "zksync_types",
 ]

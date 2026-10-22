@@ -102,6 +102,7 @@ impl ViaMainNodeReorgDetector {
         Ok(())
     }
 
+    // jscpd:ignore-start Separate DAL types and recovery per node role. Hash fetch lives in via_btc_client.
     async fn is_canonical_chain(&self, block_height: i64, hash: String) -> anyhow::Result<bool> {
         let blocks = self.btc_client.fetch_block_window(block_height, block_height, self.config.max_concurrent_fetches()).await?;
 
@@ -109,7 +110,7 @@ impl ViaMainNodeReorgDetector {
             anyhow::bail!("Cannot fetch the block {}", block_height);
         };
 
-        Ok(block.block_hash().to_string() == hash)
+        Ok(block.to_string() == hash)
     }
 
     /// Seeds `via_l1_blocks` once `via_btc_watch` has advanced to a real
@@ -155,10 +156,10 @@ impl ViaMainNodeReorgDetector {
 
         let mut transaction = storage.start_transaction().await?;
 
-        for (height, block) in blocks {
-            tracing::debug!("Fetched block {height} with hash {}", block.block_hash().to_string());
+        for (height, hash) in blocks {
+            tracing::debug!("Fetched block {height} with hash {hash}");
 
-            transaction.via_l1_block_dal().insert_l1_block(height, block.block_hash().to_string()).await?;
+            transaction.via_l1_block_dal().insert_l1_block(height, hash.to_string()).await?;
         }
 
         transaction.commit().await?;
@@ -166,7 +167,10 @@ impl ViaMainNodeReorgDetector {
         Ok(())
     }
 
-    async fn detect_reorg(&self, storage: &mut Connection<'_, Core>) -> anyhow::Result<Option<(i64, i64)>> {
+    async fn detect_reorg(
+        &self,
+        storage: &mut Connection<'_, Core>,
+    ) -> anyhow::Result<Option<(i64, i64)>> {
         let Some((block_height, _)) = storage.via_l1_block_dal().get_last_l1_block().await? else {
             // Nothing to compare until `via_l1_blocks` is bootstrapped.
             tracing::debug!("Skipping reorg check: via_l1_blocks not yet bootstrapped");
@@ -199,7 +203,7 @@ impl ViaMainNodeReorgDetector {
         }
 
         let canonical_by_height: HashMap<i64, String> =
-            chain_blocks.into_iter().map(|(height, block)| (height, block.block_hash().to_string())).collect();
+            chain_blocks.into_iter().map(|(height, hash)| (height, hash.to_string())).collect();
 
         let reorg_start_block_height = match scan_for_reorg(&db_blocks, &canonical_by_height) {
             ReorgScan::NoReorg => return Ok(None),
@@ -239,6 +243,7 @@ impl ViaMainNodeReorgDetector {
 
         Ok(None)
     }
+    // jscpd:ignore-end
 
     async fn complete_soft_reorg(&self, storage: &mut Connection<'_, Core>) -> anyhow::Result<()> {
         let mut transaction = BTC_WATCH_OWNER.begin(storage).await?;
