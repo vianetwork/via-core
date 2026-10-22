@@ -2,13 +2,23 @@ use std::sync::Arc;
 
 use tempfile::TempDir;
 use tokio::sync::oneshot;
+use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, utils::test_wallets};
+use zksync_config::{
+    configs::{
+        via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig,
+        via_consensus::ViaGenesisConfig, via_reorg_detector::ViaReorgDetectorConfig,
+        via_secrets::ViaL1Secrets,
+    },
+    ViaBtcWatchConfig,
+};
 use zksync_dal::{ConnectionPoolBuilder, Core, CoreDal};
 use zksync_db_connection::connection_pool::TestTemplate;
 use zksync_eth_client::clients::MockSettlementLayer;
 use zksync_health_check::AppHealthCheck;
 use zksync_node_genesis::{insert_genesis_batch, GenesisBatchParams, GenesisParams};
 use zksync_types::{
-    api, block::L2BlockHeader, ethabi, Address, L2BlockNumber, ProtocolVersionId, H256,
+    api, block::L2BlockHeader, ethabi, via_wallet::SystemWalletsDetails, Address, L2BlockNumber,
+    ProtocolVersionId, H256,
 };
 use zksync_web3_decl::client::{MockClient, L1};
 
@@ -70,10 +80,49 @@ impl TestEnvironment {
             .await
             .unwrap()
             .expect("No genesis L2 block");
+        let wallets = test_wallets();
+        storage
+            .via_wallet_dal()
+            .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 0)
+            .await
+            .unwrap();
+        storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
         drop(storage);
 
         let components: ComponentsToRun = components_str.parse().unwrap();
         let mut config = ExternalNodeConfig::mock(&temp_dir, &connection_pool);
+        let block = bitcoin::blockdata::constants::genesis_block(bitcoin::Network::Regtest);
+        let block_hash = block.block_hash().to_string();
+        let block_hex = bitcoin::consensus::encode::serialize_hex(&block);
+        let bitcoin_rpc =
+            BitcoinRpcServer::new(Some(Duration::from_secs(5)), false, move |_, request| {
+                match request["method"].as_str().unwrap() {
+                    "getblockcount" => serde_json::json!(1),
+                    "getblockhash" => {
+                        assert_eq!(request["params"][0], 1);
+                        serde_json::json!(block_hash)
+                    }
+                    "getblock" => {
+                        assert_eq!(request["params"][0], block_hash);
+                        serde_json::json!(block_hex)
+                    }
+                    method => panic!("Unexpected Bitcoin RPC: {method}"),
+                }
+            })
+            .unwrap();
+        config.via_secrets = Some(ViaL1Secrets {
+            rpc_url: bitcoin_rpc.url("").parse().unwrap(),
+            rpc_user: String::new(),
+            rpc_password: String::new(),
+        });
+        config.via_genesis_config = Some(ViaGenesisConfig::default());
+        config.via_bridge_config = Some(ViaBridgeConfig {
+            bridge_address: wallets.bridge.to_string(),
+            verifiers_pub_keys: Vec::new(),
+        });
+        config.via_btc_client_config = Some(ViaBtcClientConfig::for_tests());
+        config.via_btc_watch_config = Some(ViaBtcWatchConfig::for_tests());
+        config.via_reorg_detector_config = Some(ViaReorgDetectorConfig::for_tests());
         if components.0.contains(&Component::TreeApi) {
             config.tree_component.api_port = Some(0);
         }
@@ -95,21 +144,22 @@ impl TestEnvironment {
         let handles = TestEnvironmentHandles {
             sigint_sender,
             app_health_receiver,
+            _bitcoin_rpc: bitcoin_rpc,
         };
 
         (this, handles)
     }
 }
 
-#[derive(Debug)]
 pub(super) struct TestEnvironmentHandles {
     pub(super) sigint_sender: oneshot::Sender<()>,
     pub(super) app_health_receiver: oneshot::Receiver<Arc<AppHealthCheck>>,
+    _bitcoin_rpc: BitcoinRpcServer,
 }
 
 // The returned components have the fully implemented health check life cycle (i.e., signal their shutdown).
 pub(super) fn expected_health_components(components: &ComponentsToRun) -> Vec<&'static str> {
-    let mut output = vec!["reorg_detector"];
+    let mut output = vec![];
     if components.0.contains(&Component::Core) {
         output.extend(["consistency_checker", "commitment_generator"]);
     }
@@ -161,6 +211,7 @@ pub(super) fn mock_l2_client(env: &TestEnvironment) -> MockClient<L2> {
     MockClient::builder(L2::default())
         .method("eth_chainId", || Ok(U64::from(270)))
         .method("zks_L1ChainId", || Ok(U64::from(9)))
+        .method("via_getBitcoinNetwork", || Ok(zksync_types::BitcoinNetwork::Regtest))
         .method("zks_L1BatchNumber", || Ok(U64::from(0)))
         .method("zks_getL1BatchDetails", move |number: L1BatchNumber| {
             assert_eq!(number, L1BatchNumber(0));
@@ -186,11 +237,12 @@ pub(super) fn mock_l2_client(env: &TestEnvironment) -> MockClient<L2> {
         .build()
 }
 
-/// Creates a mock L2 client that will mimic request timeouts on block info requests.
+/// Creates a mock L2 client that times out during Via chain validation.
 pub(super) fn mock_l2_client_hanging() -> MockClient<L2> {
     MockClient::builder(L2::default())
         .method("eth_chainId", || Ok(U64::from(270)))
         .method("zks_L1ChainId", || Ok(U64::from(9)))
+        .method("via_getBitcoinNetwork", || Err::<(), _>(ClientError::RequestTimeout))
         .method("zks_L1BatchNumber", || {
             Err::<(), _>(ClientError::RequestTimeout)
         })

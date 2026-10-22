@@ -119,17 +119,15 @@ fn prioritize_l1_txns() {
 }
 
 #[test]
-fn l1_txns_priority_id() {
+fn l1_txns_use_sparse_priority_id_order() {
     let mut mempool = MempoolStore::new(PriorityOpId(0), 100);
     let transactions = vec![
         gen_l1_tx(PriorityOpId(1)),
-        gen_l1_tx(PriorityOpId(2)),
-        gen_l1_tx(PriorityOpId(3)),
+        gen_l1_tx(PriorityOpId(30)),
+        gen_l1_tx(PriorityOpId(10)),
     ];
     mempool.insert_without_constraints(transactions, HashMap::new());
-    assert!(mempool.next_transaction(&L2TxFilter::default()).is_none());
-    mempool.insert_without_constraints(vec![gen_l1_tx(PriorityOpId(0))], HashMap::new());
-    for idx in 0..4 {
+    for id in [1, 10, 30] {
         let data = mempool
             .next_transaction(&L2TxFilter::default())
             .unwrap()
@@ -137,11 +135,21 @@ fn l1_txns_priority_id() {
             .common_data;
         match data {
             ExecuteTransactionCommon::L1(data) => {
-                assert_eq!(data.serial_id, PriorityOpId(idx as u64));
+                assert_eq!(data.serial_id, PriorityOpId(id));
             }
             _ => unreachable!("expected L1 transaction"),
         }
     }
+    mempool.insert_without_constraints(
+        vec![gen_l1_tx(PriorityOpId(10)), gen_l1_tx(PriorityOpId(40))],
+        HashMap::new(),
+    );
+    let tx = mempool.next_transaction(&L2TxFilter::default()).unwrap().0;
+    let ExecuteTransactionCommon::L1(data) = tx.common_data else {
+        panic!("expected L1 transaction");
+    };
+    assert_eq!(data.serial_id, PriorityOpId(40));
+    assert!(mempool.next_transaction(&L2TxFilter::default()).is_none());
 }
 
 #[test]

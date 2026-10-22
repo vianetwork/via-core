@@ -154,58 +154,40 @@ mod tests {
 
     async fn run_aggregator(pool: ConnectionPool<Verifier>) {
         {
-            // Create an async channel to break the while loop afer 3 seconds.
-            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) = watch::channel(false);
-
-            let toggle_handler = tokio::spawn(async move {
-                let mut toggle = false;
-
-                loop {
-                    time::sleep(time::Duration::from_secs(3)).await;
-                    toggle = !toggle;
-                    if sender.send(toggle).is_err() {
-                        break;
-                    }
-                    println!("Sent: {}", toggle);
-                }
-            });
+            let (receiver, stop_task) = stop_after_poll();
 
             let aggregator_test = ViaVoteInscriptionTest::new(pool.clone(), None).await;
 
             aggregator_test.aggregator.run(receiver).await.unwrap();
-            if let Err(e) = toggle_handler.await {
+            if let Err(e) = stop_task.await {
                 eprintln!("Toggle task failed: {:?}", e);
             }
         }
     }
 
     async fn run_manager(
-        pool: ConnectionPool<Verifier>, config: ViaBtcSenderConfig, mock_btc_ops_config: MockBitcoinOpsConfig,
+        pool: ConnectionPool<Verifier>,
+        config: ViaBtcSenderConfig,
+        mock_btc_ops_config: MockBitcoinOpsConfig,
     ) {
         {
-            // Create an async channel to break the while loop afer 3 seconds.
-            let (sender, receiver): (watch::Sender<bool>, watch::Receiver<bool>) = watch::channel(false);
-
-            let toggle_handler = tokio::spawn(async move {
-                let mut toggle = false;
-
-                loop {
-                    time::sleep(time::Duration::from_secs(3)).await;
-                    toggle = !toggle;
-                    if sender.send(toggle).is_err() {
-                        break;
-                    }
-                    println!("Sent: {}", toggle);
-                }
-            });
+            let (receiver, stop_task) = stop_after_poll();
 
             let inscription_manager_mock =
                 get_inscription_manager_mock(pool.clone(), config.clone(), mock_btc_ops_config).await;
 
             inscription_manager_mock.run(receiver).await.unwrap();
-            if let Err(e) = toggle_handler.await {
+            if let Err(e) = stop_task.await {
                 eprintln!("Toggle task failed: {:?}", e);
             }
         }
+    }
+    fn stop_after_poll() -> (watch::Receiver<bool>, tokio::task::JoinHandle<()>) {
+        let (sender, receiver) = watch::channel(false);
+        let task = tokio::spawn(async move {
+            time::sleep(time::Duration::from_secs(3)).await;
+            let _ = sender.send(true);
+        });
+        (receiver, task)
     }
 }

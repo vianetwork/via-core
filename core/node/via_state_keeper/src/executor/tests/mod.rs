@@ -5,7 +5,7 @@ use rand::{thread_rng, Rng};
 use test_casing::{test_casing, Product};
 use zksync_dal::{ConnectionPool, Core};
 use zksync_multivm::interface::{BatchTransactionExecutionResult, ExecutionResult, Halt};
-use zksync_test_account::Account;
+use zksync_test_contracts::Account;
 use zksync_types::{
     get_nonce_key, utils::storage_key_for_eth_balance, vm::FastVmMode, PriorityOpId,
 };
@@ -321,10 +321,8 @@ async fn execute_reverted_tx(vm_mode: FastVmMode) {
 
     assert_reverted(
         &executor
-            .execute_tx(alice.loadnext_custom_initial_writes_call(
-                tx.address, 1,
-                1_000_000, // We provide enough gas for tx to be executed, but not enough for the call to be successful.
-            ))
+            // Burning more than the entire transaction budget guarantees a VM revert.
+            .execute_tx(alice.loadnext_custom_gas_call(tx.address, 2_000_000, 1_000_000))
             .await
             .unwrap(),
     );
@@ -428,7 +426,8 @@ async fn bootloader_out_of_gas_for_any_tx(vm_mode: FastVmMode) {
 
 /// Checks that we can handle the bootloader out of gas error on tip phase.
 #[tokio::test]
-#[ignore] // This test fails.
+// This test fails.
+#[ignore]
 async fn bootloader_tip_out_of_gas() {
     let connection_pool = ConnectionPool::<Core>::constrained_test_pool(1).await;
     let mut alice = Account::random();
@@ -551,7 +550,8 @@ async fn execute_tx_with_large_packable_bytecode(vm_mode: FastVmMode) {
     executor.finish_batch().await.unwrap();
 }
 
-#[test_casing(2, [FastVmMode::Old, FastVmMode::Shadow])] // new VM doesn't support call tracing yet
+// New VM doesn't support call tracing yet.
+#[test_casing(2, [FastVmMode::Old, FastVmMode::Shadow])]
 #[tokio::test]
 async fn execute_tx_with_call_traces(vm_mode: FastVmMode) {
     let connection_pool = ConnectionPool::<Core>::constrained_test_pool(1).await;

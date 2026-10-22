@@ -2,15 +2,7 @@
 
 use std::{slice, sync::Arc, time::Duration};
 
-use via_btc_client::{
-    client::BitcoinClient,
-    inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOpsConfig},
-};
-use via_fee_model::{ViaGasAdjuster, ViaMainNodeFeeInputProvider};
-use zksync_config::{
-    configs::{chain::StateKeeperConfig, via_btc_client::ViaBtcClientConfig, wallets::Wallets},
-    GasAdjusterConfig,
-};
+use zksync_config::configs::{chain::StateKeeperConfig, wallets::Wallets};
 use zksync_contracts::BaseSystemContracts;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
 use zksync_multivm::{
@@ -20,13 +12,14 @@ use zksync_multivm::{
     vm_latest::constants::BATCH_COMPUTATIONAL_GAS_LIMIT,
 };
 use zksync_node_genesis::create_genesis_l1_batch;
+use zksync_node_fee_model::MockBatchFeeParamsProvider;
 use zksync_node_test_utils::{
     create_l1_batch, create_l2_block, create_l2_transaction, execute_l2_transaction,
 };
 use zksync_types::{
     block::L2BlockHeader,
     commitment::L1BatchCommitmentMode,
-    fee_model::{BatchFeeInput, FeeModelConfig, FeeModelConfigV2},
+    fee_model::{BatchFeeInput, FeeModelConfigV2, FeeParams, FeeParamsV2},
     l2::L2Tx,
     protocol_version::{L1VerifierConfig, ProtocolSemanticVersion},
     system_contracts::get_system_smart_contracts,
@@ -39,6 +32,7 @@ use crate::{MempoolGuard, MempoolIO};
 #[derive(Debug)]
 pub struct Tester {
     base_system_contracts: BaseSystemContracts,
+    protocol_version: ProtocolVersionId,
     current_timestamp: u64,
     _commitment_mode: L1BatchCommitmentMode,
 }
@@ -48,43 +42,32 @@ impl Tester {
         let base_system_contracts = BaseSystemContracts::load_from_disk();
         Self {
             base_system_contracts,
+            protocol_version: ProtocolVersionId::latest(),
             current_timestamp: 0,
             _commitment_mode: commitment_mode,
         }
     }
 
-    pub(super) async fn create_batch_fee_input_provider(&self) -> ViaMainNodeFeeInputProvider {
-        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
+    pub(super) fn with_protocol_version(mut self, version: ProtocolVersionId) -> Self {
+        self.protocol_version = version;
+        self
+    }
+
+    pub(super) async fn create_batch_fee_input_provider(&self) -> MockBatchFeeParamsProvider {
         let config = FeeModelConfigV2 {
-            minimal_l2_gas_price: 100_000_000_000,
+            minimal_l2_gas_price: self.minimal_l2_gas_price(),
             compute_overhead_part: 0.0,
             pubdata_overhead_part: 1.0,
             batch_overhead_l1_gas: 700_000,
             max_gas_per_batch: 500_000_000,
             max_pubdata_per_batch: 100_000,
         };
-        inscriber.get_client().await;
-        let client = BitcoinClient::new(
-            "",
-            via_btc_client::types::NodeAuth::None,
-            ViaBtcClientConfig::for_tests(),
-        )
-        .unwrap();
-        ViaMainNodeFeeInputProvider::new(
-            Arc::new(
-                ViaGasAdjuster::new(
-                    GasAdjusterConfig {
-                        internal_enforced_pubdata_price: Some(10),
-                        ..Default::default()
-                    },
-                    Arc::new(client),
-                )
-                .await
-                .unwrap(),
-            ),
-            FeeModelConfig::V2(config),
-        )
-        .unwrap()
+        MockBatchFeeParamsProvider(FeeParams::V2(FeeParamsV2::new(
+            config,
+            1,
+            10,
+            Default::default(),
+        )))
     }
 
     // Constant value to be used both in tests and inside of the IO.
@@ -132,7 +115,7 @@ impl Tester {
                 &mut storage,
                 L2ChainId::max(),
                 ProtocolSemanticVersion {
-                    minor: ProtocolVersionId::latest(),
+                    minor: self.protocol_version,
                     patch: 0.into(),
                 },
                 &self.base_system_contracts,

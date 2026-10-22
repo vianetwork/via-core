@@ -853,7 +853,8 @@ async fn test_mempool_with_timestamp_assertion() {
 #[tokio::test]
 async fn test_batch_params_with_protocol_upgrade_tx() {
     let connection_pool = ConnectionPool::<Core>::constrained_test_pool(2).await;
-    let tester = Tester::new(L1BatchCommitmentMode::Rollup);
+    let tester = Tester::new(L1BatchCommitmentMode::Rollup)
+        .with_protocol_version(ProtocolVersionId::Version27);
     // Genesis is needed for proper mempool initialization.
     tester.genesis(&connection_pool).await;
 
@@ -875,7 +876,7 @@ async fn test_batch_params_with_protocol_upgrade_tx() {
     };
     let version = ProtocolVersion {
         version: ProtocolSemanticVersion {
-            minor: ProtocolVersionId::next(),
+            minor: ProtocolVersionId::Version28,
             patch: 0.into(),
         },
         tx: Some(protocol_upgrade_tx),

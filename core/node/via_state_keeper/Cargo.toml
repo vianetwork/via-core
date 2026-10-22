@@ -49,5 +49,7 @@ tempfile.workspace = true
 test-casing.workspace = true
 futures.workspace = true
 via_btc_client.workspace = true
+zksync_test_contracts.workspace = true
+zksync_node_fee_model.workspace = true
 
 zksync_system_constants.workspace = true

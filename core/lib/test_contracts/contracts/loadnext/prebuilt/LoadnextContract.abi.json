@@ -1,0 +1,88 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "reads",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "val",
+        "type": "uint256"
+      }
+    ],
+    "name": "Event",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "gasToBurn",
+        "type": "uint256"
+      }
+    ],
+    "name": "burnGas",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "reads",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "initialWrites",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "repeatedWrites",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "hashes",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "events",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxRecursion",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deploys",
+        "type": "uint256"
+      }
+    ],
+    "name": "execute",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
