@@ -1,56 +1,130 @@
 name: Run Via tests
+
 on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       ref:
-        description: "Git reference (branch, commit, or tag) to build from"
+        description: "Git reference (branch, commit, or tag) to test"
         type: string
         required: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: via-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  SQLX_OFFLINE: 'true'
+  RUST_BACKTRACE: '1'
+
 jobs:
   tests:
-    name: Run tests
-    runs-on: [self-hosted, cpu]
-
-    steps:
-      - name: Set reference and fetch repo
+    name: Via Rust tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      TEST_DATABASE_URL: postgres://postgres@localhost:5433/via_core_test
+      ZKSYNC_HOME: ${{ github.workspace }}
+      VIA_HOME: ${{ github.workspace }}
+    services:
+      postgres:
+        image: postgres:14@sha256:a698d240380a51147281b62c2ad9daff51ae29c781d6d783c0adfd8e48ef4b1e
         env:
-          DEFAULT_REF: ${{ github.ref_name }}
-          INPUT_REF: ${{ inputs.ref }}
-        run: |
-          set -euo pipefail
-
-          if [[ -n "${INPUT_REF}" ]]; then
-            REF="${INPUT_REF}"
-          else
-            REF="${DEFAULT_REF}"
-          fi
-
-          if [[ "${REF}" == *$'\n'* || "${REF}" == *$'\r'* || "${REF}" == -* ]] || ! git check-ref-format --allow-onelevel "${REF}"; then
-            echo "::error::Invalid git ref: ${REF}"
-            exit 1
-          fi
-
-          printf 'REF=%s\n' "${REF}" >> "${GITHUB_ENV}"
-
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ env.REF }}
-          submodules: 'recursive'
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
           persist-credentials: false
-
-      - name: Setup env
+      - name: Install build dependencies
         run: |
-          printf 'VIA_HOME=%s\n' "$(pwd)" >> "${GITHUB_ENV}"
-          echo CI=1 >> "${GITHUB_ENV}"
-          printf '%s/bin\n' "$(pwd)" >> "${GITHUB_PATH}"
-          echo CI=1 >> .env
-          echo IN_DOCKER=1 >> .env
-
-      - name: Run tests
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev libssl-dev pkg-config protobuf-compiler postgresql-client
+          rustup show
+          df -h .
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
+        with:
+          tool: cargo-nextest@0.9.100
+      - name: Install prebuilt SQLx
         run: |
+          curl -fsSL https://github.com/cargo-bins/cargo-quickinstall/releases/download/sqlx-cli-0.8.2/sqlx-cli-0.8.2-x86_64-unknown-linux-gnu.tar.gz -o "$RUNNER_TEMP/sqlx.tar.gz"
+          echo "c6b7546820f23febfda09d8a9df487abef4a3177673a830fa1b01258fd16e00d  $RUNNER_TEMP/sqlx.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/sqlx.tar.gz" -C "$HOME/.cargo/bin"
+          cargo sqlx --version
+      - name: Prepare isolated database templates
+        run: |
+          pg_isready -h localhost -p 5433 -U postgres
+          for entry in core/lib/dal:via_core_test via_verifier/lib/verifier_dal:via_verifier_test; do
+            dal="${entry%:*}"
+            db="${entry#*:}"
+            url="postgres://postgres@localhost:5433/$db"
+            cargo sqlx database create --database-url "$url"
+            cargo sqlx migrate run --source "$dal/migrations" --database-url "$url"
+            psql "$url" -v ON_ERROR_STOP=1 -c 'UPDATE pg_database SET datallowconn = false WHERE datname = current_database()'
+          done
+      - uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: '20'
+      - name: Build contract fixtures
+        env:
+          CI: '1'
+        run: |
+          export PATH="$PWD/bin:$PATH"
           via
-          via test rust
+          yarn l1-contracts build
+          yarn l2-contracts build
+          yarn workspace system-contracts build
+      - name: Run all Via packages
+        run: |
+          verifier=$(cargo metadata --locked --no-deps --format-version 1 | jq -r --arg root "$PWD/via_verifier/" \
+            '[.packages[] | select(.manifest_path | startswith($root)) | "package(=" + .name + ")"] | join(" | ")')
+          # Only real-Core cases are deferred to R1; new packages and integration tests run by default.
+          eligible='package(/^via/) - (
+            (package(=via_btc_client) & binary(=deposit_integration_test) &
+              (test(=integration_tests::test_inscriber_deposit_with_container_user) |
+               test(=integration_tests::test_inscriber_deposit_with_real_bitcoin_node) |
+               test(=integration_tests::test_inscriber_multiple_users_different_amounts) |
+               test(=integration_tests::test_insufficient_funds_deposit_failure) |
+               test(=integration_tests::test_opreturn_deposit_multiple_amounts) |
+               test(=integration_tests::test_opreturn_deposit_with_real_bitcoin_node) |
+               test(=integration_tests::test_opreturn_insufficient_funds_deposit_failure)))
+            | ((package(=via_btc_watch) | package(=via_verifier_btc_watch)) &
+              (test(=test::system_wallets::tests::test_update_bridge_wallet_with_4_new_verifiers_when_old_3) |
+               test(=test::system_wallets::tests::test_update_bridge_wallet_with_2_new_verifiers_when_old_3) |
+               test(=test::system_wallets::tests::test_update_governance_bridge_wallet_and_sequencer)))
+            | (package(=via_verifier_btc_watch) &
+              (test(=test::verifier::tests::test_insert_first_batch) |
+               test(=test::verifier::tests::test_insert_two_times_first_batch) |
+               test(=test::verifier::tests::test_insert_multiple_batches) |
+               test(=test::verifier::tests::test_should_fail_to_insert_batch_with_invalid_prev_batch_hash) |
+               test(=test::verifier::tests::test_should_not_insert_batch_zero) |
+               test(=test::verifier::tests::test_should_insert_new_valid_batch_with_same_block_number_after_it_was_rejected)))
+          )'
+          test_result=0
+          cargo nextest run --locked -p 'via*' --tests --no-tests=fail --no-fail-fast --test-threads=4 \
+            -E "$eligible & not ($verifier)" || test_result=1
+          TEST_DATABASE_URL=postgres://postgres@localhost:5433/via_verifier_test \
+            cargo nextest run --locked -p 'via*' --tests --no-tests=fail --no-fail-fast --test-threads=4 \
+            -E "$eligible & ($verifier)" || test_result=1
+          exit "$test_result"
+      - name: Report disk use
+        if: ${{ !cancelled() }}
+        run: df -h . && du -sh target node_modules
