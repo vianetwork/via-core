@@ -108,7 +108,7 @@ async fn detected_reorg_commits_before_recovery_without_header_sync() -> anyhow:
         let mut owner = observer.start_transaction().await?;
         owner.via_indexer_dal().lock_btc_watch().await?;
         owner.commit().await?;
-        fixture.assert_hits(2, 2, 0);
+        fixture.assert_hits(2, 0, 0);
         assert_eq!(metrics(), (before.0 + u64::from(!hard), before.1 + u64::from(hard), 2, 2));
 
         let (stop, receiver) = watch::channel(false);
@@ -163,7 +163,7 @@ async fn canonical_chain_syncs_and_pending_recovery_stops_polling() -> anyhow::R
     iterate(&mut detector, &mut storage).await?;
     assert_eq!(storage.via_l1_block_dal().get_last_l1_block().await?, Some((3, fixture.blocks[2].block_hash().to_string())));
     assert_eq!(metrics(), before);
-    fixture.assert_hits(4, 4, 1);
+    fixture.assert_hits(4, 0, 1);
     storage.via_l1_block_dal().insert_reorg_metadata(2, 0).await?;
     let requests = fixture.requests.lock().unwrap().len();
     iterate(&mut detector, &mut storage).await?;

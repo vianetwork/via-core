@@ -25,7 +25,7 @@ pub struct BitcoinClient {
 }
 
 impl BitcoinClient {
-    #[instrument(skip(auth), target = "bitcoin_client")]
+    #[instrument(skip(auth, rpc_url), target = "bitcoin_client")]
     pub fn new(
         rpc_url: &str,
         auth: NodeAuth,
@@ -34,32 +34,40 @@ impl BitcoinClient {
     where
         Self: Sized,
     {
+        Self::new_with_component(rpc_url, auth, config, "client")
+    }
+
+    #[instrument(skip(auth, rpc_url), target = "bitcoin_client")]
+    pub fn new_with_component(
+        rpc_url: &str,
+        auth: NodeAuth,
+        config: ViaBtcClientConfig,
+        component: &'static str,
+    ) -> BitcoinClientResult<Self> {
         debug!("Creating new BitcoinClient");
-        let rpc = BitcoinRpcClient::new(rpc_url, auth)?;
+        let rpc = BitcoinRpcClient::new(rpc_url, auth, component)?;
         Ok(Self {
             rpc: Arc::new(rpc),
             config,
         })
     }
 
-    /// Fetches the node's current blocks from `from_block_height` to `to_block_height`, both included, each paired with its height.
+    /// Fetches current block hashes from `from_block_height` to `to_block_height`, both included, each paired with its height.
     /// Results keep height order. An error names the failed height and the whole range.
     pub async fn fetch_block_window(
         &self,
         from_block_height: i64,
         to_block_height: i64,
         max_concurrent_fetches: usize,
-    ) -> anyhow::Result<Vec<(i64, Block)>> {
+    ) -> anyhow::Result<Vec<(i64, BlockHash)>> {
         use futures::{stream, StreamExt, TryStreamExt};
 
-        let heights: Vec<i64> = (from_block_height..=to_block_height).collect();
-
-        stream::iter(heights)
+        stream::iter(from_block_height..=to_block_height)
             .map(|height| async move {
-                self.fetch_block(height as u128)
+                self.rpc.get_block_hash(height as u64)
                     .await
                     .with_context(|| format!("Failed to fetch canonical block at height {height}"))
-                    .map(|block| (height, block))
+                    .map(|hash| (height, hash))
             })
             .buffered(max_concurrent_fetches)
             .try_collect::<Vec<_>>()
@@ -338,10 +346,11 @@ mod tests {
             async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
             async fn get_block_count(&self) -> BitcoinClientResult<u64>;
-            fn get_block_by_height<'life0, 'async_trait>(
+            async fn get_block_by_height(&self, block_height: u128) -> BitcoinClientResult<Block>;
+            fn get_block_hash<'life0, 'async_trait>(
                 &'life0 self,
-                block_height: u128,
-            ) -> futures::future::BoxFuture<'static, BitcoinClientResult<Block>>
+                height: u64,
+            ) -> futures::future::BoxFuture<'static, BitcoinClientResult<BlockHash>>
             where
                 'life0: 'async_trait,
                 Self: 'async_trait;
@@ -362,36 +371,75 @@ mod tests {
         }
     }
 
+    fn hash_only_rpc() -> MockBitcoinRpc {
+        let mut rpc = MockBitcoinRpc::new();
+        rpc.expect_get_block_by_height().never();
+        rpc.expect_get_block_by_hash().never();
+        rpc
+    }
+
+    #[tokio::test]
+    async fn block_window_fetches_only_hashes_and_keeps_height_order() {
+        let later_started = Arc::new(tokio::sync::Notify::new());
+        let mut rpc = hash_only_rpc();
+        rpc.expect_get_block_hash().times(3).returning(move |height| {
+            let later_started = later_started.clone();
+            Box::pin(async move {
+                if height == 100 {
+                    later_started.notified().await;
+                } else {
+                    later_started.notify_one();
+                }
+                Ok(BlockHash::from_byte_array([height as u8; 32]))
+            })
+        });
+        let client = get_client_with_mock(rpc);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.fetch_block_window(100, 102, 3),
+        )
+        .await
+        .expect("hash window must make progress")
+        .unwrap();
+        assert_eq!(
+            result,
+            vec![
+                (100, BlockHash::from_byte_array([100; 32])),
+                (101, BlockHash::from_byte_array([101; 32])),
+                (102, BlockHash::from_byte_array([102; 32])),
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn block_window_stops_at_ordered_error_while_later_fetch_is_pending() {
         let later_started = Arc::new(tokio::sync::Notify::new());
         let (later_sender, mut later_dropped) = tokio::sync::oneshot::channel::<()>();
         let mut later_sender = Some(later_sender);
-        let mut rpc = MockBitcoinRpc::new();
-        rpc.expect_get_block_by_height()
-            .times(2)
-            .returning(move |height| {
-                let later_started = later_started.clone();
-                match height {
-                    100 => Box::pin(async move {
-                        later_started.notified().await;
-                        Err(BitcoinError::Rpc("height 100 failed".into()))
-                    }),
-                    101 => {
-                        let sender = later_sender.take().unwrap();
-                        Box::pin(async move {
-                            let _sender = sender;
-                            later_started.notify_one();
-                            futures::future::pending().await
-                        })
-                    }
-                    _ => panic!("unexpected block height {height}"),
+        let mut rpc = hash_only_rpc();
+        rpc.expect_get_block_hash().times(3).returning(move |height| {
+            let later_started = later_started.clone();
+            match height {
+                100 => Box::pin(async { Ok(BlockHash::from_byte_array([100; 32])) }),
+                101 => Box::pin(async move {
+                    later_started.notified().await;
+                    Err(BitcoinError::Rpc("height 101 failed".into()))
+                }),
+                102 => {
+                    let sender = later_sender.take().unwrap();
+                    Box::pin(async move {
+                        let _sender = sender;
+                        later_started.notify_one();
+                        futures::future::pending().await
+                    })
                 }
-            });
+                _ => panic!("unexpected block height {height}"),
+            }
+        });
         let client = get_client_with_mock(rpc);
         let error = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            client.fetch_block_window(100, 101, 2),
+            client.fetch_block_window(100, 102, 3),
         )
         .await
         .expect("ordered error must not wait for the later fetch")
@@ -399,9 +447,9 @@ mod tests {
         assert_eq!(
             error.chain().map(ToString::to_string).collect::<Vec<_>>(),
             vec![
-                "Failed to fetch canonical L1 block window 100..=101",
-                "Failed to fetch canonical block at height 100",
-                "RPC error: height 100 failed",
+                "Failed to fetch canonical L1 block window 100..=102",
+                "Failed to fetch canonical block at height 101",
+                "RPC error: height 101 failed",
             ]
         );
         assert_eq!(
