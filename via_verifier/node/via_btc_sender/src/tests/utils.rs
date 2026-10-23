@@ -5,9 +5,14 @@ use zksync_config::ViaBtcSenderConfig;
 use crate::btc_inscription_manager::ViaBtcInscriptionManager;
 
 pub fn get_btc_sender_config(
-    max_aggregated_blocks_to_commit: i32, max_aggregated_proofs_to_commit: i32,
+    max_aggregated_blocks_to_commit: i32,
+    max_aggregated_proofs_to_commit: i32,
 ) -> ViaBtcSenderConfig {
     let mut config = ViaBtcSenderConfig::for_tests();
+    config.wallet_address = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default())
+        .inscriber_address()
+        .unwrap()
+        .to_string();
     config.max_aggregated_blocks_to_commit = max_aggregated_blocks_to_commit;
     config.max_aggregated_proofs_to_commit = max_aggregated_proofs_to_commit;
     config

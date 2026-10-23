@@ -1,3 +1,4 @@
+// jscpd:ignore-start Stage labels are local to the distinct main-node and verifier metric contracts.
 use vise::{Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, LabeledFamily, Metrics};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EncodeLabelValue, EncodeLabelSet)]
@@ -5,10 +6,10 @@ use vise::{Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, LabeledFami
 pub enum InscriptionStage {
     IndexedL1Batch,
     Upgrade,
-    Finalized,
     Reorg,
-    Vote,
 }
+
+// jscpd:ignore-end
 
 #[derive(Debug, Metrics)]
 #[metrics(prefix = "via_verifier_btc_watch")]

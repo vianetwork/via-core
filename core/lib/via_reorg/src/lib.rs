@@ -17,7 +17,10 @@
 use std::collections::HashMap;
 
 pub mod chain;
+pub mod configuration;
 pub mod reader;
+pub mod replay;
+pub mod votes;
 
 /// Result of comparing local `via_l1_blocks` rows against canonical Bitcoin blocks by height.
 ///

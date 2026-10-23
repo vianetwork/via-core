@@ -1,5 +1,7 @@
+mod bitcoin_reader_migration;
+
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use zksync_config::{
     configs::{
         api::HealthCheckConfig,
@@ -28,6 +30,8 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[derive(Debug, Parser)]
 #[command(author = "Via verifer", version, about = "Via verifer node", long_about = None)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
     /// Path to the YAML config. If set, it will be used instead of env vars.
     #[arg(long)]
     config_path: Option<std::path::PathBuf>,
@@ -41,9 +45,24 @@ struct Cli {
     wallets_path: Option<std::path::PathBuf>,
 }
 
+#[derive(Debug, Subcommand)]
+enum Command {
+    BitcoinReaderMigration(bitcoin_reader_migration::MigrationArgs),
+}
+
 fn main() -> anyhow::Result<()> {
     let opt = Cli::parse();
+    if let Some(Command::BitcoinReaderMigration(args)) = &opt.command {
+        return tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(
+            bitcoin_reader_migration::run(
+                args,
+                opt.config_path.as_deref(),
+                opt.secrets_path.as_deref(),
+            ),
+        );
+    }
 
+    // jscpd:ignore-start Verifier startup retains its own optional key / database configuration contract.
     let wallets = match opt.wallets_path {
         None => ViaWallets::from_env()?,
         Some(path) => {
@@ -69,6 +88,8 @@ fn main() -> anyhow::Result<()> {
             via_da: ViaDASecrets::from_env().ok(),
         },
     };
+
+    // jscpd:ignore-end
 
     let via_general_verifier_config = ViaGeneralVerifierConfig {
         health_check: HealthCheckConfig::from_env()?,

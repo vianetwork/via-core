@@ -136,51 +136,33 @@ mod tests {
                 NextStep::Hold(SourceProblem::Unavailable)
             );
         }
-        assert_eq!(
-            step(
-                header(10, 10),
-                header(9, 9),
-                Membership::Canonical(NonZeroU32::new(1).unwrap()),
-                false
-            ),
-            NextStep::Hold(SourceProblem::InconsistentTip)
-        );
-        assert_eq!(
-            step(
-                header(10, 10),
-                header(10, 20),
-                Membership::Canonical(NonZeroU32::new(1).unwrap()),
-                false
-            ),
-            NextStep::Hold(SourceProblem::InconsistentTip)
-        );
-        assert_eq!(
-            step(
-                header(10, 10),
-                header(11, 10),
-                Membership::Canonical(NonZeroU32::new(1).unwrap()),
-                false
-            ),
-            NextStep::Hold(SourceProblem::InconsistentTip)
-        );
+        for tip in [header(9, 9), header(10, 20), header(11, 10)] {
+            assert_eq!(
+                step(
+                    header(10, 10),
+                    tip,
+                    Membership::Canonical(NonZeroU32::new(1).unwrap()),
+                    false
+                ),
+                NextStep::Hold(SourceProblem::InconsistentTip)
+            );
+        }
     }
 
     #[test]
     fn restart_above_agreement_catches_up_from_the_committed_agreement() {
         // BDK #2167: the pre-reorg position must not become the replacement start.
         let canonical = Membership::Canonical(NonZeroU32::new(1).unwrap());
-        assert_eq!(
-            step(header(4, 4), header(100, 1100), canonical, false),
-            NextStep::CatchUp { after: header(4, 4), through: 54, observed_tip: header(100, 1100) }
-        );
-        assert_eq!(
-            step(header(54, 1054), header(100, 1100), canonical, false),
-            NextStep::CatchUp {
-                after: header(54, 1054),
-                through: 100,
-                observed_tip: header(100, 1100)
-            }
-        );
+        for (position, tip, through) in [
+            (header(4, 4), header(100, 1100), 54),
+            (header(54, 1054), header(100, 1100), 100),
+            (header(u32::MAX - 1, 10), header(u32::MAX, u32::MAX), u32::MAX),
+        ] {
+            assert_eq!(
+                step(position, tip, canonical, false),
+                NextStep::CatchUp { after: position, through, observed_tip: tip }
+            );
+        }
     }
 
     #[test]
@@ -190,23 +172,5 @@ mod tests {
         let canonical = Membership::Canonical(NonZeroU32::new(1).unwrap());
         assert_eq!(step(tip, tip, canonical, true), NextStep::ReconcilePending);
         assert_eq!(step(tip, tip, canonical, false), NextStep::Idle);
-    }
-
-    #[test]
-    fn catchup_bound_does_not_overflow_height() {
-        let tip = header(u32::MAX, u32::MAX);
-        assert_eq!(
-            step(
-                header(u32::MAX - 1, 10),
-                tip,
-                Membership::Canonical(NonZeroU32::new(1).unwrap()),
-                false
-            ),
-            NextStep::CatchUp {
-                after: header(u32::MAX - 1, 10),
-                through: u32::MAX,
-                observed_tip: tip
-            }
-        );
     }
 }

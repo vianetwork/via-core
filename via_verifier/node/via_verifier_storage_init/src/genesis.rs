@@ -16,6 +16,7 @@ impl VerifierGenesis {
         let mut storage = self.pool.connection_tagged("verifier_genesis").await?;
         let mut transaction = storage.start_transaction().await?;
 
+        // jscpd:ignore-start Saving catalogue content and proving its bootstrap origin must receive the same complete bootstrap fields.
         transaction
             .via_protocol_versions_dal()
             .save_protocol_version(
@@ -26,6 +27,19 @@ impl VerifierGenesis {
                 self.bootstrap.snark_wrapper_vk_hash.as_bytes(),
             )
             .await?;
+
+        transaction
+            .via_protocol_versions_dal()
+            .mark_via_bootstrap_version(
+                self.bootstrap.protocol_version,
+                self.bootstrap.bootloader_hash.as_bytes(),
+                self.bootstrap.abstract_account_hash.as_bytes(),
+                H256::zero().as_bytes(),
+                self.bootstrap.snark_wrapper_vk_hash.as_bytes(),
+            )
+            .await?;
+
+        // jscpd:ignore-end
 
         transaction
             .via_protocol_versions_dal()

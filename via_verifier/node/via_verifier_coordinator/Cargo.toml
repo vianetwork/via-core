@@ -45,6 +45,8 @@ indexmap = "2.2"
 [dev-dependencies]
 tokio-stream.workspace = true
 bitcoind = { version = "=0.43.2", default-features = false, features = ["28_2"] }
+via_test_utils.workspace = true
+via_reorg.workspace = true
 zksync_da_clients.workspace = true
 zksync_web3_decl.workspace = true
 zksync_db_connection.workspace = true

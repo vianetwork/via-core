@@ -7,18 +7,15 @@ use bitcoin::{
     absolute,
     hashes::Hash,
     secp256k1::{Keypair, Secp256k1, SecretKey},
-    taproot::LeafVersion,
     transaction, Address, Amount, BlockHash, CompressedPublicKey, Network, OutPoint, ScriptBuf,
-    Transaction, TxIn, TxOut, Txid, Witness,
+    Transaction, TxIn, TxOut, Txid,
 };
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, watch};
 use tokio::time::timeout;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer, types::NodeAuth};
 use via_main_node_reorg_detector::ViaMainNodeReorgDetector;
-use via_test_utils::{
-    bitcoin_rpc::BitcoinRpcServer, chain::Chain as TestChain, inscription::inscription_script,
-};
+use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, chain::Chain as TestChain};
 use zksync_config::{
     configs::{via_btc_client::ViaBtcClientConfig, via_reorg_detector::ViaReorgDetectorConfig},
     ViaBtcWatchConfig,
@@ -27,7 +24,7 @@ use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
 use zksync_types::{
     protocol_version::ProtocolSemanticVersion,
     via_wallet::{SystemWallets, SystemWalletsDetails},
-    ProtocolVersion, ProtocolVersionId,
+    ProtocolVersion, ProtocolVersionId, H256,
 };
 
 use crate::BtcWatch;
@@ -76,18 +73,7 @@ fn push(bytes: &[u8]) -> bitcoin::script::PushBytesBuf {
 }
 
 fn inscription(kind: &[u8], fields: Vec<Vec<u8>>) -> Transaction {
-    let key = keypair();
-    let (internal, _) = key.x_only_public_key();
-    let script = inscription_script(internal, kind, &fields);
-    let mut control = vec![LeafVersion::TapScript.to_consensus()];
-    control.extend(internal.serialize());
-    let mut tx = transaction(vec![]);
-    tx.input[0].witness = Witness::from_slice(&[vec![0; 64], script.into_bytes(), control]);
-    tx.input.push(TxIn {
-        witness: Witness::from_slice(&[vec![0; 64], key.public_key().serialize().to_vec()]),
-        ..TxIn::default()
-    });
-    tx
+    via_test_utils::inscription::parser_transaction(keypair(), kind, &fields, 0)
 }
 
 fn packed_version(minor: ProtocolVersionId) -> Vec<u8> {
@@ -247,8 +233,12 @@ impl BitcoinFixture {
 
     async fn seed(&self, pool: &ConnectionPool<Core>) -> anyhow::Result<()> {
         let mut storage = pool.connection().await?;
-        storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await?;
-        storage.via_wallet_dal().insert_wallets(&SystemWalletsDetails::try_from(self.wallets.clone())?, 0).await?;
+        let mut tx = storage.start_transaction().await?;
+        tx.via_indexer_dal().lock_btc_watch().await?;
+        tx.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await?;
+        tx.via_wallet_dal()
+            .insert_bootstrap_wallets(&SystemWalletsDetails::try_from(self.wallets.clone())?, 0)
+            .await?;
         let version = ProtocolVersion {
             version: ProtocolSemanticVersion {
                 minor: ProtocolVersionId::Version27,
@@ -256,19 +246,19 @@ impl BitcoinFixture {
             },
             ..ProtocolVersion::default()
         };
-        storage.protocol_versions_dal().save_protocol_version_with_tx(&version).await?;
-        let canonical = self
-            .chain
-            .lock()
-            .unwrap()
-            .model
-            .blocks
-            .iter()
-            .map(|(&height, block)| (height, block.block_hash()))
-            .collect::<Vec<_>>();
-        for (height, hash) in canonical {
-            storage.via_l1_block_dal().insert_l1_block(i64::from(height), hash.to_string()).await?;
+        tx.protocol_versions_dal().save_protocol_version_with_tx(&version).await?;
+        tx.protocol_versions_dal()
+            .mark_via_bootstrap_version(
+                version.version,
+                version.base_system_contracts_hashes,
+                version.l1_verifier_config,
+            )
+            .await?;
+        let canonical = self.chain.lock().unwrap().model.headers().collect::<Vec<_>>();
+        for header in canonical {
+            tx.via_l1_block_dal().accept_header(header).await?;
         }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -304,7 +294,9 @@ impl BitcoinFixture {
 
     async fn sync_headers(&self, pool: &ConnectionPool<Core>) -> anyhow::Result<()> {
         let hash = self.chain.lock().unwrap().model.blocks[&3].block_hash();
-        self.detect_until(pool, &format!("SELECT EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=3 AND hash='{hash}')"))
+        let native =
+            hash.to_byte_array().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        self.detect_until(pool, &format!("SELECT EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=3 AND hash=decode('{native}','hex'))"))
             .await
     }
 }
@@ -349,8 +341,8 @@ async fn scan_finishes_before_soft_recovery_and_replacement_deposit_is_imported(
     let mut pause = fixture.pause(old);
     let scan_pool = pool.clone();
     let scan = tokio::spawn(async move {
-        reader.loop_iteration(&mut scan_pool.connection().await?).await?;
-        Ok::<_, anyhow::Error>(reader)
+        let result=reader.loop_iteration(&mut scan_pool.connection().await?).await;
+        Ok::<_, anyhow::Error>((reader,result))
     });
     tokio::time::timeout(Duration::from_secs(10), &mut pause.entered).await??;
     let deposit = fixture.deposit();
@@ -361,7 +353,8 @@ async fn scan_finishes_before_soft_recovery_and_replacement_deposit_is_imported(
     wait_until(&pool, OWNER_WAITER).await?;
     assert_eq!(pool.connection().await?.via_l1_block_dal().has_reorg_in_progress().await?, None);
     drop(pause);
-    let mut reader = scan.await??;
+    let (mut reader, result) = scan.await??;
+    assert!(result.unwrap_err().to_string().contains("not canonical at requested height"));
     wait_until(&pool, SOFT_RECOVERED).await?;
     stop.send(true)?;
     detector.await??;
@@ -471,7 +464,8 @@ async fn hard_detection_commits_pending_state_and_blocks_reader() -> anyhow::Res
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn failed_commit_rolls_back_deposit_wallet_and_upgrade_then_same_reader_retries() -> anyhow::Result<()> {
+async fn failed_commit_rolls_back_deposit_wallet_and_upgrade_then_same_reader_retries(
+) -> anyhow::Result<()> {
     let fixture = BitcoinFixture::new()?;
     let deposit = fixture.deposit();
     let upgrade = fixture.upgrade();
@@ -503,7 +497,7 @@ async fn failed_commit_rolls_back_deposit_wallet_and_upgrade_then_same_reader_re
         .execute(observer.conn())
         .await?;
     reader.loop_iteration(&mut storage).await?;
-    assert_deposit(&mut observer, deposit.compute_txid(), 2).await?;
+    assert_deposit(&mut observer, deposit.compute_txid(), 3).await?;
     reader.loop_iteration(&mut storage).await?;
     assert_deposit(&mut observer, deposit.compute_txid(), 3).await?;
     assert_eq!(
@@ -533,6 +527,24 @@ async fn initialization_seed_and_configured_restart_wait_for_owner() -> anyhow::
     let pool = ConnectionPool::<Core>::test_pool().await;
     let bootstrap = fixture.bootstrap_config();
     let mut storage = pool.connection().await?;
+    storage
+        .protocol_versions_dal()
+        .save_protocol_version_with_tx(&ProtocolVersion {
+            version: ProtocolSemanticVersion {
+                minor: ProtocolVersionId::Version27,
+                ..ProtocolSemanticVersion::default()
+            },
+            base_system_contracts_hashes: zksync_contracts::BaseSystemContractsHashes {
+                bootloader: H256::repeat_byte(1),
+                default_aa: H256::repeat_byte(2),
+                evm_emulator: Some(H256::repeat_byte(4)),
+            },
+            l1_verifier_config: zksync_types::protocol_version::L1VerifierConfig {
+                snark_wrapper_vk_hash: H256::repeat_byte(3),
+            },
+            ..ProtocolVersion::default()
+        })
+        .await?;
     assert!(storage.via_indexer_dal().lock_btc_watch().await.is_err());
     let mut owner = storage.start_transaction().await?;
     owner.via_indexer_dal().lock_btc_watch().await?;
@@ -572,7 +584,6 @@ async fn initialization_seed_and_configured_restart_wait_for_owner() -> anyhow::
     detector.await??;
     let first_hash = fixture.chain.lock().unwrap().model.blocks[&1].block_hash();
     assert_eq!(storage.via_l1_block_dal().get_l1_block_hash(1).await?, Some(first_hash.to_string()));
-    fixture.seed(&pool).await?;
     let mut reader = fixture.reader(pool.clone()).await?;
     let mut pause = fixture.pause(second);
     let scan_pool = pool.clone();
@@ -607,7 +618,10 @@ async fn soft_recovery_preserves_zero_and_missing_progress() -> anyhow::Result<(
                 .execute(storage.conn())
                 .await?;
         } else {
-            storage.via_indexer_dal().update_last_processed_l1_block("via_btc_watch", 0).await?;
+            let mut tx=storage.start_transaction().await?;
+            tx.via_indexer_dal().lock_btc_watch().await?;
+            tx.via_indexer_dal().update_last_processed_l1_block("via_btc_watch", 0).await?;
+            tx.commit().await?;
         }
         storage.via_l1_block_dal().insert_reorg_metadata(3, 0).await?;
         fixture.detect_until(&pool, "SELECT NOT EXISTS(SELECT 1 FROM via_l1_reorg)").await?;
@@ -618,7 +632,7 @@ async fn soft_recovery_preserves_zero_and_missing_progress() -> anyhow::Result<(
         assert_eq!(progress, if missing { None } else { Some(0) });
         assert_eq!(
             storage.via_l1_block_dal().list_l1_blocks(0, 10).await?,
-            vec![(1, first.to_string()), (2, boundary.to_string())]
+            vec![(0, bitcoin::blockdata::constants::genesis_block(Network::Regtest).block_hash().to_string()), (1, first.to_string()), (2, boundary.to_string())]
         );
     }
     Ok(())

@@ -32,19 +32,10 @@ impl ViaBlocksDal<'_, '_> {
                     .with_arg("batch_number", &batch_number)
                     .with_arg("inscription_request_id", &inscription_request_id);
 
-                let query = sqlx::query!(
-                    r#"
-                    INSERT INTO
-                    via_l1_batch_inscription_request (
-                        l1_batch_number, commit_l1_batch_inscription_id, created_at, updated_at
-                    )
-                    VALUES
-                    ($1, $2, NOW(), NOW())
-                    ON CONFLICT DO NOTHING
-                    "#,
-                    i64::from(batch_number.0),
-                    inscription_request_id as i32,
-                );
+                let query = sqlx::query("INSERT INTO via_batch_delivery_facts(l1_batch_number,source_batch_hash,commit_l1_batch_inscription_id,created_at,updated_at)
+                    SELECT number,hash,$2,NOW(),NOW() FROM l1_batches WHERE number=$1 AND hash IS NOT NULL
+                    ON CONFLICT(l1_batch_number,source_batch_hash) DO NOTHING")
+                    .bind(i64::from(batch_number.0)).bind(inscription_request_id as i32);
                 let result = instrumentation
                     .clone()
                     .with(query)
@@ -63,20 +54,10 @@ impl ViaBlocksDal<'_, '_> {
                 let instrumentation = Instrumented::new("set_inscription_request_tx_id#prove")
                     .with_arg("batch_number", &batch_number)
                     .with_arg("inscription_request_id", &inscription_request_id);
-                let query = sqlx::query!(
-                    r#"
-                    UPDATE via_l1_batch_inscription_request
-                    SET
-                        commit_proof_inscription_id = $1,
-                        updated_at = NOW()
-                    WHERE
-                        l1_batch_number = $2
-                        AND commit_l1_batch_inscription_id IS NOT NULL
-                        AND commit_proof_inscription_id IS NULL
-                    "#,
-                    inscription_request_id as i32,
-                    i64::from(batch_number.0),
-                );
+                let query=sqlx::query("UPDATE via_batch_delivery_facts d SET commit_proof_inscription_id=$1,updated_at=NOW()
+                    FROM l1_batches b WHERE d.l1_batch_number=$2 AND b.number=d.l1_batch_number AND b.hash=d.source_batch_hash
+                    AND d.commit_proof_inscription_id IS NULL")
+                    .bind(inscription_request_id as i32).bind(i64::from(batch_number.0));
 
                 let result = instrumentation
                     .clone()

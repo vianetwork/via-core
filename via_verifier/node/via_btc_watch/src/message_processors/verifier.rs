@@ -1,5 +1,4 @@
 use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::FullInscriptionMessage};
-use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
 
 use super::{convert_txid_to_h256, MessageProcessor, MessageProcessorError, ProofContinuityGap};
@@ -11,7 +10,9 @@ pub struct VerifierMessageProcessor {}
 #[async_trait::async_trait]
 impl MessageProcessor for VerifierMessageProcessor {
     async fn process_messages(
-        &mut self, storage: &mut Connection<'_, Verifier>, msgs: Vec<FullInscriptionMessage>,
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
+        msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         for msg in msgs {
@@ -23,11 +24,6 @@ impl MessageProcessor for VerifierMessageProcessor {
                         ))
                     })?;
                     let proof_reveal_tx_id = convert_txid_to_h256(proof_msg.common.tx_id);
-
-                    if storage.via_votes_dal().proof_reveal_tx_exists(proof_reveal_tx_id.as_bytes()).await? {
-                        tracing::info!("Skipping duplicate proof reveal tx: {:?}", proof_reveal_tx_id);
-                        continue;
-                    }
 
                     let pubdata_msgs = indexer.parse_transaction(&proof_msg.input.l1_batch_reveal_txid).await?;
 
@@ -45,180 +41,64 @@ impl MessageProcessor for VerifierMessageProcessor {
                     };
 
                     let new_l1_batch_number = l1_batch_da_ref_inscription.input.l1_batch_index.0;
-
+                    let payload=serde_json::json!({
+                        "proof":via_btc_client::indexer::replay::semantic_payload(&msg).map_err(anyhow::Error::from)?,
+                        "batch":via_btc_client::indexer::replay::semantic_payload(&pubdata_msgs[0]).map_err(anyhow::Error::from)?,
+                    });
+                    let reader_inclusion_id=storage.via_votes_dal().record_reader_proof(
+                        proof_msg.common.tx_id,new_l1_batch_number,&payload,
+                        proof_msg.common.inclusion().map_err(anyhow::Error::from)?,
+                    ).await?;
                     tracing::info!(
                         "Processing ProofDAReference for batch {} with hash {:?}",
                         new_l1_batch_number,
                         l1_batch_da_ref_inscription.input.l1_batch_hash
                     );
+                    storage.via_votes_dal().record_votable_transaction(
+                        new_l1_batch_number,l1_batch_da_ref_inscription.input.l1_batch_hash,
+                        l1_batch_da_ref_inscription.input.prev_l1_batch_hash,proof_msg.input.da_identifier.clone(),
+                        proof_reveal_tx_id,proof_msg.input.blob_id.clone(),proof_msg.input.l1_batch_reveal_txid.to_string(),
+                        l1_batch_da_ref_inscription.input.blob_id.clone(),reader_inclusion_id,
+                        via_verifier_dal::via_votes_dal::ProofMembership::RetainedOnly,
+                    ).await?;
 
-                    if new_l1_batch_number == 0 {
-                        tracing::info!("Skipping ProofDAReference message with l1_batch_number ZERO.");
-                        continue;
-                    } else if new_l1_batch_number == 1 {
-                        if storage.via_votes_dal().batch_exists(1).await? {
-                            tracing::info!("Skipping duplicate genesis batch 1");
-                            continue;
+                    match storage.via_votes_dal().admit_recorded_proof(
+                        reader_inclusion_id, proof_reveal_tx_id, new_l1_batch_number,
+                        l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
+                    ).await? {
+                        via_verifier_dal::via_votes_dal::ProofAdmission::Ignored => continue,
+                        via_verifier_dal::via_votes_dal::ProofAdmission::ContinuityGap { expected_batch, canonical_parent } => {
+                            return Err(MessageProcessorError::ProofContinuityGap(Box::new(ProofContinuityGap {
+                                expected_batch, canonical_parent,
+                                observed_batch: new_l1_batch_number,
+                                observed_parent: l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
+                                proof_txid: proof_reveal_tx_id,
+                                source_height: proof_msg.common.block_height,
+                                source_hash,
+                            })));
                         }
-                    } else if new_l1_batch_number > 1 {
-                        let last_batch_in_canonical_chain =
-                            match storage.via_votes_dal().get_last_batch_in_canonical_chain().await? {
-                                Some(last_batch_in_canonical_chain) => last_batch_in_canonical_chain,
-                                None => {
-                                    return Err(MessageProcessorError::ProofContinuityGap(Box::new(
-                                        ProofContinuityGap {
-                                            expected_batch: 1,
-                                            canonical_parent: None,
-                                            observed_batch: new_l1_batch_number,
-                                            observed_parent: l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
-                                            proof_txid: proof_reveal_tx_id,
-                                            source_height: proof_msg.common.block_height,
-                                            source_hash,
-                                        },
-                                    )))
-                                }
-                            };
-
-                        if last_batch_in_canonical_chain.0 + 1 != new_l1_batch_number {
-                            // Possible reorg: validate whether the batch is a fork of a previously reverted batch.
-                            // If this batch is valid (i.e., a fork of a previously valid batch),
-                            // the verifier treats it as a new fork, implicitly marking all earlier batches as invalid.
-                            let parent_hash = l1_batch_da_ref_inscription.input.prev_l1_batch_hash.as_bytes().to_vec();
-
-                            let exists = storage
-                                .via_votes_dal()
-                                .get_parent_batch_exists_for_l1_batch(new_l1_batch_number as i64, &parent_hash)
-                                .await?;
-                            if !exists {
-                                // ZKsync Era's `PriorityOpsEventProcessor::process_events` panics when priority operation is missing.
-                                // Here proof with missing parent rolls back scan and pauses it with typed error instead:
-                                // https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/eth_watch/src/event_processors/priority_ops.rs
-                                return Err(MessageProcessorError::ProofContinuityGap(Box::new(ProofContinuityGap {
-                                    expected_batch: last_batch_in_canonical_chain.0 + 1,
-                                    canonical_parent: Some(zksync_types::H256::from_slice(
-                                        &last_batch_in_canonical_chain.1,
-                                    )),
-                                    observed_batch: new_l1_batch_number,
-                                    observed_parent: l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
-                                    proof_txid: proof_reveal_tx_id,
-                                    source_height: proof_msg.common.block_height,
-                                    source_hash,
-                                })));
+                        via_verifier_dal::via_votes_dal::ProofAdmission::Admitted { rewound_to } => {
+                            if let Some(retained) = rewound_to {
+                                METRICS.inscriptions_processed[&InscriptionStage::Reorg].set(retained as usize);
                             }
-
-                            tracing::info!(
-                                "A Revert batch was found with number {}, parent hash {}",
-                                new_l1_batch_number,
-                                l1_batch_da_ref_inscription.input.prev_l1_batch_hash
-                            );
-
-                            let from_l1_batch_number = (new_l1_batch_number - 1) as i64;
-                            let mut transaction = storage.start_transaction().await?;
-                            transaction
-                                .via_withdrawal_dal()
-                                .invalidate_withdrawal_batches_from(new_l1_batch_number)
-                                .await?;
-
-                            transaction.via_votes_dal().delete_votable_transactions(from_l1_batch_number).await?;
-
-                            transaction.via_transactions_dal().reset_transactions(from_l1_batch_number).await?;
-
-                            transaction.commit().await?;
-
-                            METRICS.inscriptions_processed[&InscriptionStage::Reorg].set(from_l1_batch_number as usize);
-                        } else if last_batch_in_canonical_chain.1
-                            != l1_batch_da_ref_inscription.input.prev_l1_batch_hash.0
-                        {
-                            tracing::info!(
-                                "Skipping ProofDAReference message with l1_batch_number: {:?}. Last batch in canonical chain: {:?}",
-                                l1_batch_da_ref_inscription.input.l1_batch_index,
-                                last_batch_in_canonical_chain
-                            );
-                            continue;
+                            METRICS.inscriptions_processed[&InscriptionStage::IndexedL1Batch].set(new_l1_batch_number as usize);
                         }
                     }
-
-                    METRICS.inscriptions_processed[&InscriptionStage::IndexedL1Batch].set(new_l1_batch_number as usize);
-
-                    storage
-                        .via_votes_dal()
-                        .insert_votable_transaction(
-                            new_l1_batch_number,
-                            l1_batch_da_ref_inscription.input.l1_batch_hash,
-                            l1_batch_da_ref_inscription.input.prev_l1_batch_hash,
-                            proof_msg.input.da_identifier.clone(),
-                            proof_reveal_tx_id,
-                            proof_msg.input.blob_id.clone(),
-                            proof_msg.input.l1_batch_reveal_txid.to_string(),
-                            l1_batch_da_ref_inscription.input.blob_id,
-                            Some((proof_msg.common.block_height, source_hash)),
-                        )
-                        .await?;
 
                     tracing::info!("New votable transaction for L1 batch {:?}", new_l1_batch_number);
                 }
-                ref f @ FullInscriptionMessage::ValidatorAttestation(ref attestation_msg) => {
-                    let source_hash = attestation_msg.common.block_hash.ok_or_else(|| {
-                        MessageProcessorError::Internal(anyhow::anyhow!(
-                            "ValidatorAttestation is missing its scanned Bitcoin block hash"
-                        ))
-                    })?;
-                    if let Some(l1_batch_number) = indexer.get_l1_batch_number(f).await {
-                        let reveal_proof_txid = convert_txid_to_h256(attestation_msg.input.reference_txid);
-                        let tx_id = convert_txid_to_h256(attestation_msg.common.tx_id);
-
-                        // Vote = true if attestation_msg.input.attestation == Vote::Ok
-                        let is_ok = matches!(attestation_msg.input.attestation, via_btc_client::types::Vote::Ok);
-
-                        if let Some(votable_transaction_id) =
-                            storage.via_votes_dal().get_votable_transaction_id(reveal_proof_txid.as_bytes()).await?
-                        {
-                            let p2wpkh_address = attestation_msg
-                                .common
-                                .p2wpkh_address
-                                .as_ref()
-                                .expect("ValidatorAttestation message must have a p2wpkh address");
-
-                            let mut transaction = storage.start_transaction().await?;
-
-                            transaction
-                                .via_votes_dal()
-                                .insert_vote(
-                                    votable_transaction_id,
-                                    &p2wpkh_address.to_string(),
-                                    is_ok,
-                                    Some((attestation_msg.common.block_height, source_hash)),
-                                )
-                                .await?;
-
-                            tracing::info!("New vote found for L1 batch {:?}", l1_batch_number);
-
-                            METRICS.inscriptions_processed[&InscriptionStage::Vote].set(l1_batch_number.0 as usize);
-
-                            // Check finalization
-                            if transaction
-                                .via_votes_dal()
-                                .finalize_transaction_if_needed(
-                                    votable_transaction_id,
-                                    BATCH_FINALIZATION_THRESHOLD,
-                                    indexer.get_number_of_verifiers(),
-                                )
-                                .await?
-                            {
-                                METRICS.inscriptions_processed[&InscriptionStage::Finalized]
-                                    .set(l1_batch_number.0 as usize);
-
-                                tracing::info!(
-                                    "Finalizing transaction with tx_id: {:?} and block number: {:?}",
-                                    tx_id,
-                                    l1_batch_number
-                                );
-                            }
-
-                            transaction.commit().await?
-                        }
-                    }
+                // jscpd:ignore-start Raw vote evidence is committed by each concrete role’s source owner.
+                FullInscriptionMessage::ValidatorAttestation(ref vote) => {
+                    let verifier=vote.common.p2wpkh_address.as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("vote is missing its authenticated verifier"))?;
+                    storage.via_votes_dal().record_reader_vote(
+                        vote.common.tx_id,vote.input.reference_txid,&verifier.to_string(),
+                        matches!(vote.input.attestation,via_btc_client::types::Vote::Ok),
+                        &via_btc_client::indexer::replay::semantic_payload(&msg).map_err(anyhow::Error::from)?,
+                        vote.common.inclusion().map_err(anyhow::Error::from)?,
+                    ).await?;
                 }
+                // jscpd:ignore-end
                 _ => (),
             }
         }

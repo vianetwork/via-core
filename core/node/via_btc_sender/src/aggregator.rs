@@ -216,9 +216,11 @@ impl ViaAggregator {
     }
 
     async fn get_last_protocol_version_id(
-        &self, storage: &mut Connection<'_, Core>,
+        &self,
+        storage: &mut Connection<'_, Core>,
     ) -> anyhow::Result<ProtocolVersionId> {
-        let protocol_version_id_opt = storage.protocol_versions_dal().latest_semantic_version().await?;
+        let protocol_version_id_opt =
+            storage.protocol_versions_dal().latest_via_semantic_version().await?;
         if let Some(protocol_version_id) = protocol_version_id_opt {
             return Ok(protocol_version_id.minor);
         }

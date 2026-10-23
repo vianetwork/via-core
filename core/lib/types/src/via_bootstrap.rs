@@ -16,6 +16,14 @@ pub struct BootstrapState {
 }
 
 impl BootstrapState {
+    /// Zero on the bootstrap wire denotes an absent optional emulator, matching upgrade decoding.
+    /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/types/src/protocol_upgrade.rs
+    pub fn base_system_contracts_hashes(&self) -> zksync_contracts::BaseSystemContractsHashes {
+        zksync_contracts::BaseSystemContractsHashes { bootloader:self.bootloader_hash,
+            default_aa:self.abstract_account_hash,
+            evm_emulator:(self.evm_emulator_hash!=H256::zero()).then_some(self.evm_emulator_hash) }
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         if !self.wallets.sequencer.script_pubkey().is_p2wpkh() {
             anyhow::bail!("Sequencer must be P2WPKH");

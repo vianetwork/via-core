@@ -24,7 +24,8 @@ use zksync_vm_executor::storage::L1BatchParamsProvider;
 use super::*;
 
 #[test]
-#[rustfmt::skip] // One-line formatting looks better here.
+// One-line formatting looks better here.
+#[rustfmt::skip]
 fn test_poll_iters() {
     assert_eq!(poll_iters(Duration::from_millis(100), Duration::from_millis(0)), 1);
     assert_eq!(poll_iters(Duration::from_millis(100), Duration::from_millis(100)), 1);
@@ -527,6 +528,7 @@ async fn getting_batch_version_after_snapshot_recovery() {
                 minor: ProtocolVersionId::next(),
                 patch: 0.into(),
             },
+            base_system_contracts_hashes:zksync_contracts::BaseSystemContracts::load_from_disk().hashes(),
             ..ProtocolVersion::default()
         })
         .await

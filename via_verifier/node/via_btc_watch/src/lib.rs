@@ -32,6 +32,7 @@ mod test;
 pub struct VerifierBtcWatch {
     config: ViaBtcWatchConfig,
     indexer: BitcoinInscriptionIndexer,
+    btc_client: Arc<BitcoinClient>,
     pool: ConnectionPool<Verifier>,
     system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
@@ -56,14 +57,16 @@ impl std::fmt::Debug for WithdrawalFulfillment {
 
 impl VerifierBtcWatch {
     pub async fn new(
-        config: ViaBtcWatchConfig, indexer: BitcoinInscriptionIndexer, btc_client: Arc<BitcoinClient>,
+        config: ViaBtcWatchConfig,
+        indexer: BitcoinInscriptionIndexer,
+        btc_client: Arc<BitcoinClient>,
         pool: ConnectionPool<Verifier>,
     ) -> anyhow::Result<Self> {
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
         let withdrawal_builder = TransactionBuilder::new(btc_client.clone())?;
 
         let message_processors: Vec<Box<dyn MessageProcessor>> = vec![
-            Box::new(GovernanceUpgradesEventProcessor::new(btc_client)),
+            Box::new(GovernanceUpgradesEventProcessor::new(btc_client.clone())),
             Box::new(L1ToL2MessageProcessor::default()),
             Box::new(VerifierMessageProcessor::default()),
             Box::new(WithdrawalProcessor),
@@ -71,6 +74,7 @@ impl VerifierBtcWatch {
 
         Ok(Self {
             config,
+            btc_client,
             indexer: indexer.with_withdrawal_mode(WithdrawalScanMode::Required),
             pool,
             system_wallet_processor,
@@ -177,7 +181,11 @@ impl VerifierBtcWatch {
         }
     }
 
-    async fn process_scan(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), MessageProcessorError> {
+    // jscpd:ignore-start Concrete node-role transactions retain their separate processors, source locks and queue effects.
+    async fn process_scan(
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
+    ) -> Result<(), MessageProcessorError> {
         if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
@@ -263,32 +271,52 @@ impl VerifierBtcWatch {
             Some(system_wallets.governance),
         );
 
-        let mut messages = self
-            .indexer
-            .process_blocks(from_block, to_block)
-            .await
-            .map_err(|e| MessageProcessorError::Internal(e.into()))?;
-
-        // Re-process blocks if system wallets were updated, since the new wallet state
-        // may change how subsequent messages are interpreted.
-        let updated_at =
-            self.system_wallet_processor.process_messages(storage, messages.clone(), &mut self.indexer).await?;
-        // The active withdrawal wallet is an immutable activation boundary. Stop before
-        // rescanning or advancing under a rotated wallet; old holds remain authoritative.
-        storage.via_withdrawal_dal().verify_withdrawal_wallet(self.indexer.bridge_script_pubkey().as_bytes()).await?;
-        if let Some(block_number) = updated_at {
-            // Process the blocks until where the update wallets block.
-            to_block = block_number;
-
-            messages = self
-                .indexer
-                .process_blocks(from_block, to_block)
+        for height in from_block..=to_block {
+            let wallets = storage
+                .via_wallet_dal()
+                .get_system_wallets_raw(i64::from(height) - 1)
+                .await?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("configuration history missing before Bitcoin block {height}")
+                })?;
+            let wallets = SystemWallets::try_from(wallets)?;
+            self.indexer.update_system_wallets(
+                Some(wallets.sequencer),
+                Some(wallets.bridge),
+                Some(wallets.verifiers),
+                Some(wallets.governance),
+            );
+            let hash = storage
+                .via_l1_block_dal()
+                .get_l1_block_hash(i64::from(height))
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("canonical block is missing at {height}"))?;
+            let hash = hash.parse().map_err(anyhow::Error::from)?;
+            let header = self
+                .btc_client
+                .canonical_header_at(height, hash)
                 .await
-                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
-        }
-
-        for processor in self.message_processors.iter_mut() {
-            processor.process_messages(storage, messages.clone(), &mut self.indexer).await?;
+                .map_err(anyhow::Error::from)?;
+            let body = self.btc_client.checked_block(&header).await.map_err(anyhow::Error::from)?;
+            let messages = self
+                .indexer
+                .process_checked_block(height, &body)
+                .await
+                .map_err(anyhow::Error::from)?;
+            // Record the whole block before rotation admission; its query uses an exclusive source-coordinate prefix.
+            for processor in &mut self.message_processors {
+                processor.process_messages(storage, messages.clone(), &mut self.indexer).await?;
+            }
+            self.system_wallet_processor
+                .process_messages(storage, messages, &mut self.indexer)
+                .await?;
+            storage
+                .via_votes_dal()
+                .recompute_reader_finalization(
+                    height,
+                    via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD,
+                )
+                .await?;
         }
 
         storage.via_withdrawal_dal().verify_withdrawal_wallet(self.indexer.bridge_script_pubkey().as_bytes()).await?;
@@ -303,6 +331,7 @@ impl VerifierBtcWatch {
 
         Ok(())
     }
+    // jscpd:ignore-end
 
     fn module_name() -> &'static str {
         "via_btc_watch"

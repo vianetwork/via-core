@@ -11,6 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+serde_json.workspace = true
+via_reorg.workspace = true
 vise.workspace = true
 via_btc_client.workspace = true
 via_consensus.workspace = true
@@ -33,4 +35,3 @@ via_test_utils.workspace = true
 via_main_node_reorg_detector.workspace = true
 via_node_storage_init.workspace = true
 bitcoin.workspace = true
-serde_json.workspace = true

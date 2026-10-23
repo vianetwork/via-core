@@ -71,7 +71,7 @@ impl ViaWalletsInitializer {
                 .connection()
                 .await?
                 .via_wallet_dal()
-                .insert_wallets(
+                .insert_bootstrap_wallets(
                     &indexer_wallets_details,
                     self.bootstrap_state.starting_block_number as i64,
                 )

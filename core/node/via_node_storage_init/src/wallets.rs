@@ -67,8 +67,10 @@ impl ViaWalletsInitializer {
 
             transaction
                 .via_wallet_dal()
-                .insert_wallets(&indexer_wallets_details, state.starting_block_number as i64)
+                .insert_bootstrap_wallets(&indexer_wallets_details, state.starting_block_number as i64)
                 .await?;
+
+            transaction.protocol_versions_dal().mark_via_bootstrap_version(state.protocol_version,state.base_system_contracts_hashes(),zksync_types::protocol_version::L1VerifierConfig { snark_wrapper_vk_hash:state.snark_wrapper_vk_hash }).await?;
 
             tracing::info!("System wallets initialized");
         }

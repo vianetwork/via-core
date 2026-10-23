@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use std::{i64, str::FromStr, sync::Arc};
+    use std::str::FromStr;
 
     use via_btc_client::{
         indexer::BitcoinInscriptionIndexer,
@@ -18,99 +18,186 @@ mod tests {
     use crate::{message_processors::SystemWalletProcessor, MessageProcessor};
 
     #[tokio::test]
-    async fn test_update_sequencer_wallet() -> anyhow::Result<()> {
+    async fn identical_duplicate_role_updates_leave_unrelated_role_active() -> anyhow::Result<()> {
         let (pool, mut indexer, mut processor, _core) = setup().await?;
-        let new_sequencer_address = random_bitcoin_wallet().1;
-        let msg = create_update_sequencer_inscription(new_sequencer_address.clone());
-
-        let old_wallets = process_role_update(&pool, &mut indexer, &mut processor, msg).await?;
+        let original = indexer.get_state();
+        let sequencer = random_bitcoin_wallet().1;
+        let governance = random_bitcoin_wallet().1;
+        let message = create_update_sequencer_inscription(sequencer);
+        assert_eq!(
+            apply_prepared(
+                &pool,
+                &mut processor,
+                &mut indexer,
+                vec![
+                    message.clone(),
+                    message,
+                    create_update_governance_inscription(governance.clone())
+                ]
+            )
+            .await?,
+            Some(1)
+        );
         assert_eq!(
             stored_wallets(&pool).await?,
-            SystemWallets { sequencer: new_sequencer_address, ..(*old_wallets).clone() }
+            SystemWallets { governance, ..(*original).clone() }
         );
-
+        let mut storage = pool.connection().await?;
+        let decisions:Vec<String>=sqlx::query_scalar("SELECT i.decision FROM via_wallet_inclusions i JOIN via_wallets w ON w.id=i.wallet_id WHERE w.role='Sequencer' ORDER BY i.tx_index")
+            .fetch_all(storage.conn()).await?;
+        assert_eq!(decisions, vec!["duplicate_role", "duplicate_role"]);
+        assert_eq!(
+            SystemWallets::try_from(
+                storage.via_wallet_dal().get_system_wallets_raw(0).await?.unwrap()
+            )?,
+            *original
+        );
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_update_governance_wallet() -> anyhow::Result<()> {
-        let (pool, mut indexer, mut processor, _core) = setup().await?;
-        let new_governance_address = random_bitcoin_wallet().1;
-        let msg = create_update_governance_inscription(new_governance_address.clone());
-
-        let old_wallets = process_role_update(&pool, &mut indexer, &mut processor, msg).await?;
-        let expected_wallets =
-            SystemWallets { governance: new_governance_address, ..(*old_wallets).clone() };
-
-        assert_eq!(stored_wallets(&pool).await?, expected_wallets);
-
+    async fn malformed_update_retains_raw_evidence_without_erasing_another_role(
+    ) -> anyhow::Result<()> {
+        for empty_bridge_proposal in [false, true] {
+            let (pool, mut indexer, mut processor, core) = setup().await?;
+            let original = indexer.get_state();
+            let (invalid, roles) = if empty_bridge_proposal {
+                (bridge_update(&core, vec![]).await?.0, vec!["Bridge", "Verifier"])
+            } else {
+                let foreign = BitcoinAddress::from_script(
+                    &random_bitcoin_wallet().1.script_pubkey(),
+                    bitcoin::Network::Bitcoin,
+                )?;
+                (create_update_governance_inscription(foreign), vec!["Gov"])
+            };
+            let payload = via_btc_client::indexer::replay::semantic_payload(&invalid)?;
+            let sequencer = random_bitcoin_wallet().1;
+            assert_eq!(
+                apply_prepared(
+                    &pool,
+                    &mut processor,
+                    &mut indexer,
+                    vec![invalid, create_update_sequencer_inscription(sequencer.clone())]
+                )
+                .await?,
+                Some(1)
+            );
+            assert_eq!(
+                stored_wallets(&pool).await?,
+                SystemWallets { sequencer, ..(*original).clone() }
+            );
+            let mut storage = pool.connection().await?;
+            let rejected:Vec<(String,serde_json::Value)>=sqlx::query_as("SELECT i.decision,w.immutable_payload FROM via_wallet_inclusions i JOIN via_wallets w ON w.id=i.wallet_id WHERE w.role=ANY($1) ORDER BY w.role")
+                .bind(&roles).fetch_all(storage.conn()).await?;
+            assert_eq!(rejected.len(), roles.len());
+            for (decision, retained) in rejected {
+                assert_eq!(decision, "bad_update");
+                for (field, value) in payload.as_object().unwrap() {
+                    assert_eq!(&retained["message"][field], value);
+                }
+            }
+        }
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_update_bridge_wallet_with_4_new_verifiers_when_old_3() -> anyhow::Result<()> {
-        check_bridge_update((0..4).map(|_| random_bitcoin_wallet().1).collect()).await
-    }
-
-    #[tokio::test]
-    async fn test_update_bridge_wallet_with_2_new_verifiers_when_old_3() -> anyhow::Result<()> {
-        check_bridge_update((0..2).map(|_| random_bitcoin_wallet().1).collect()).await
-    }
-
-    async fn check_bridge_update(new_verifiers: Vec<BitcoinAddress>) -> anyhow::Result<()> {
-        let (pool, mut indexer, mut processor, _core) = setup().await?;
-
-        let (msg, new_bridge_address) = bridge_update(&_core, new_verifiers.clone()).await?;
-
-        let old_wallets = indexer.get_state();
-
-        processor.process_messages(&mut pool.connection().await?, vec![msg], &mut indexer).await?;
-
-        assert_eq!(indexer.get_state(), old_wallets);
-        let expected = SystemWallets {
-            bridge: new_bridge_address,
-            verifiers: new_verifiers,
-            ..(*old_wallets).clone()
-        };
-        assert_eq!(stored_wallets(&pool).await?, expected);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_update_governance_bridge_wallet_and_sequencer() -> anyhow::Result<()> {
-        let (pool, mut indexer, mut processor, _core) = setup().await?;
-
-        let new_governance_address = random_bitcoin_wallet().1;
-        let gov_msg = create_update_governance_inscription(new_governance_address.clone());
-
-        let new_sequencer_address = random_bitcoin_wallet().1;
-        let sequencer_msg = create_update_sequencer_inscription(new_sequencer_address.clone());
-
-
-        let new_verifier_1 = random_bitcoin_wallet().1;
-        let new_verifier_2 = random_bitcoin_wallet().1;
-        let new_verifier_3 = random_bitcoin_wallet().1;
-        let new_verifier_4 = random_bitcoin_wallet().1;
-
-        let new_verifiers = vec![new_verifier_1, new_verifier_2, new_verifier_3, new_verifier_4];
-
-        let (bridge_msg, new_bridge_address) = bridge_update(&_core, new_verifiers.clone()).await?;
-
-        processor
-            .process_messages(&mut pool.connection().await?, vec![bridge_msg, sequencer_msg, gov_msg], &mut indexer)
+    async fn unavailable_proposal_is_not_ready_and_never_becomes_a_permanent_rejection(
+    ) -> anyhow::Result<()> {
+        use bitcoin::{hashes::Hash, Txid};
+        let (pool, mut indexer, mut processor, core) = setup().await?;
+        let original = indexer.get_state();
+        let (mut update, _) = bridge_update(&core, original.verifiers.clone()).await?;
+        let FullInscriptionMessage::UpdateBridge(message) = &mut update else { unreachable!() };
+        message.input.proposal_tx_id = Txid::all_zeros();
+        let error =
+            apply_prepared(&pool, &mut processor, &mut indexer, vec![update]).await.unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<crate::message_processors::MessageProcessorError>(),
+            Some(crate::message_processors::MessageProcessorError::ConfigurationNotReady { .. })
+        ));
+        assert_eq!(stored_wallets(&pool).await?, *original);
+        let mut storage = pool.connection().await?;
+        let rejected: i64 = sqlx::query_scalar("SELECT count(*) FROM via_wallet_inclusions")
+            .fetch_one(storage.conn())
             .await?;
-
-        assert_eq!(indexer.get_state(), old_wallets);
-        let expected = SystemWallets {
-            bridge: new_bridge_address,
-            sequencer: new_sequencer_address,
-            governance: new_governance_address,
-            verifiers: new_verifiers,
-        };
-        assert_eq!(stored_wallets(&pool).await?, expected);
-
+        assert_eq!(rejected, 0);
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn all_roles_activate_together_with_larger_or_smaller_verifier_sets() -> anyhow::Result<()>
+    {
+        for verifier_count in [2, 4] {
+            let (pool, mut indexer, mut processor, core) = setup().await?;
+            let old = indexer.get_state();
+            let governance = random_bitcoin_wallet().1;
+            let sequencer = random_bitcoin_wallet().1;
+            let verifiers =
+                (0..verifier_count).map(|_| random_bitcoin_wallet().1).collect::<Vec<_>>();
+            let (bridge_message, bridge) = bridge_update(&core, verifiers.clone()).await?;
+            assert_eq!(
+                apply_prepared(
+                    &pool,
+                    &mut processor,
+                    &mut indexer,
+                    vec![
+                        bridge_message,
+                        create_update_sequencer_inscription(sequencer.clone()),
+                        create_update_governance_inscription(governance.clone())
+                    ]
+                )
+                .await?,
+                Some(1)
+            );
+            assert_eq!(indexer.get_state(), old);
+            assert_eq!(
+                stored_wallets(&pool).await?,
+                SystemWallets { bridge, sequencer, governance, verifiers }
+            );
+            let mut storage = pool.connection().await?;
+            assert_eq!(
+                SystemWallets::try_from(
+                    storage.via_wallet_dal().get_system_wallets_raw(0).await?.unwrap()
+                )?,
+                *old
+            );
+        }
+        Ok(())
+    }
+
+    // Processor-unit inputs are already parsed; the shared fixture supplies their explicit source preconditions.
+    async fn apply_prepared(
+        pool: &ConnectionPool<Core>,
+        processor: &mut SystemWalletProcessor,
+        indexer: &mut BitcoinInscriptionIndexer,
+        mut messages: Vec<FullInscriptionMessage>,
+    ) -> anyhow::Result<Option<u32>> {
+        use bitcoin::{hashes::Hash, BlockHash, Txid};
+        let mut storage = pool.connection().await?;
+        let mut tx = storage.start_transaction().await?;
+        tx.via_indexer_dal().lock_btc_watch().await?;
+        let height: i64 =
+            sqlx::query_scalar("SELECT COALESCE(MAX(height),0)+1 FROM via_btc_headers")
+                .fetch_one(tx.conn())
+                .await?;
+        let header = via_reorg::chain::Header {
+            height: u32::try_from(height)?,
+            block_hash: BlockHash::from_byte_array([height as u8; 32]),
+            parent_hash: BlockHash::all_zeros(),
+        };
+        via_test_utils::reader_db::header(tx.conn(), header, true).await?;
+        for (index, message) in messages.iter_mut().enumerate() {
+            let common = message.common_mut();
+            common.block_height = header.height;
+            common.block_hash = Some(header.block_hash);
+            common.tx_index = Some(index);
+            common.message_index = Some(0);
+            common.tx_id = Txid::from_byte_array([height as u8 + index as u8; 32]);
+            common.carrier_tx_id = Some(common.tx_id);
+        }
+        let changed = processor.process_messages(&mut tx, messages, indexer).await?;
+        tx.commit().await?;
+        Ok(changed)
     }
 
     async fn bridge_update(
@@ -133,7 +220,7 @@ mod tests {
         let core = BitcoinCore::new()?;
         let pool = ConnectionPool::<Core>::test_pool().await;
         let wallets = SystemWalletsDetails::try_from(test_wallets())?;
-        pool.connection().await?.via_wallet_dal().insert_wallets(&wallets, 0).await?;
+        pool.connection().await?.via_wallet_dal().insert_bootstrap_wallets(&wallets, 0).await?;
         Ok((
             pool,
             test_create_indexer(&core)?,
@@ -151,20 +238,5 @@ mod tests {
             .await?
             .unwrap();
         SystemWallets::try_from(stored)
-    }
-
-    async fn process_role_update(
-        pool: &ConnectionPool<Core>,
-        indexer: &mut BitcoinInscriptionIndexer,
-        processor: &mut SystemWalletProcessor,
-        message: FullInscriptionMessage,
-    ) -> anyhow::Result<Arc<SystemWallets>> {
-        let old = indexer.get_state();
-        let changed_height = processor
-            .process_messages(&mut pool.connection().await?, vec![message], indexer)
-            .await?;
-        assert_eq!(changed_height, Some(0));
-        assert_eq!(indexer.get_state(), old);
-        Ok(old)
     }
 }

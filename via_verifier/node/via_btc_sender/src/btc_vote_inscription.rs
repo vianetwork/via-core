@@ -47,14 +47,23 @@ impl ViaVoteInscription {
         Ok(())
     }
 
-    pub async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
-        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
+    pub async fn loop_iteration(
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
+    ) -> anyhow::Result<()> {
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_source_writer().await?;
+        if transaction.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
 
-        if let Some((votable_transaction_id, vote, tx_id)) = self.get_voting_operation(storage).await? {
+        if !transaction.via_btc_sender_dal().get_inflight_inscriptions().await?.is_empty() {
+            return Ok(());
+        }
+        if let Some((votable_transaction_id, vote, tx_id)) =
+            self.get_voting_operation(&mut transaction).await?
+        {
             tracing::info!("New voting operation ready to be processed");
-            let mut transaction = storage.start_transaction().await?;
             let inscription_message = self.construct_voting_inscription_message(vote, tx_id)?;
 
             let inscription_request = transaction
@@ -74,17 +83,21 @@ impl ViaVoteInscription {
                     ViaVerifierBtcInscriptionRequestType::VoteOnchain,
                 )
                 .await?;
-            transaction.commit().await?;
         }
+        transaction.commit().await?;
         Ok(())
     }
 
     pub async fn get_voting_operation(
-        &mut self, storage: &mut Connection<'_, Verifier>,
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<Option<(i64, bool, Vec<u8>)>> {
         if let Some(votable_transaction_id) =
             storage.via_votes_dal().get_first_non_finalized_l1_batch_in_canonical_inscription_chain().await?
         {
+            if !storage.via_votes_dal().may_create_vote(votable_transaction_id, &self.config.wallet_address).await? {
+                return Ok(None);
+            }
             // Check if already created a voting inscription
             if storage.via_block_dal().check_vote_l1_batch_inscription_request_if_exists(votable_transaction_id).await?
             {

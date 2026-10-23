@@ -405,8 +405,8 @@ mainnet, Alpen's documentation sets 6 on its signet, and Botanix's sidecar SDK r
 Mutinynet signet. Bitcoin Core contributors describe testnet4's minimum-difficulty rule as the cause:
 [BIP 94](https://bitcoin.org/bip/94/) keeps it on purpose although it "has led to block storms", and
 the [Optech podcast of 2026-06-16](https://bitcoinops.org/en/podcast/2026/06/16/) reports heights with
-"five or even ten different candidate blocks". Proposed fixes (Bitcoin Core PRs #31117, #34420,
-#35081) are unmerged, and [BIP 95](https://bips.dev/95/) testnet5, which removes the exception, is a
+"five or even ten different candidate blocks". Proposed fixes (Bitcoin Core PRs #31117, #34420, #35081)
+are unmerged, and [BIP 95](https://bips.dev/95/) testnet5, which removes the exception, is a
 draft.
 
 Via's own testnet deployment used 0 confirmations from April 2025, then 3 (September 2025), 6

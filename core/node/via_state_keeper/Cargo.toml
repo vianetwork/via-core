@@ -43,6 +43,9 @@ serde.workspace = true
 hex.workspace = true
 
 [dev-dependencies]
+bitcoin.workspace = true
+via_reorg.workspace = true
+serde_json.workspace = true
 assert_matches.workspace = true
 rand.workspace = true
 tempfile.workspace = true

@@ -16,6 +16,7 @@ pub enum NoVerdictReason {
     DepositIndexIncomplete,
     DepositMismatch,
     VerificationError,
+    StaleInputs,
     Unclassified,
 }
 

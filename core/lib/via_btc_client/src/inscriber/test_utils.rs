@@ -161,7 +161,7 @@ pub struct MockBitcoinSigner {
 impl Default for MockBitcoinSigner {
     fn default() -> Self {
         let secp = Secp256k1::new();
-        let sk = PrivateKey::generate(Network::Regtest);
+        let sk = PrivateKey::from_slice(&[1; 32], Network::Regtest).unwrap();
         let keypair = Keypair::from_secret_key(&secp, &sk.inner);
         let compressed_pk = CompressedPublicKey::from_private_key(&secp, &sk)
             .expect("Failed to generate compressed public key");
@@ -183,24 +183,7 @@ impl Default for MockBitcoinSigner {
 
 impl MockBitcoinSigner {
     pub fn new() -> Self {
-        let secp = Secp256k1::new();
-        let sk = PrivateKey::generate(Network::Regtest);
-        let keypair = Keypair::from_secret_key(&secp, &sk.inner);
-        let compressed_pk = CompressedPublicKey::from_private_key(&secp, &sk)
-            .expect("Failed to generate compressed public key");
-        let address = Address::p2wpkh(&compressed_pk, Network::Regtest);
-        let internal_key = keypair.x_only_public_key().0;
-        let script = address.script_pubkey();
-
-        Self {
-            ecdsa_signature: ECDSASignature::from_compact(&[0; 64]).unwrap(),
-            schnorr_signature: SchnorrSignature::from_slice(&[0; 64]).unwrap(),
-            address,
-            script,
-            secp,
-            internal_key,
-            public_key: compressed_pk.0,
-        }
+        Self::default()
     }
 }
 

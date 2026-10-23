@@ -14,7 +14,7 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
   continuity](verifier-checkpoint-and-proof-continuity.md): why a reorg made
   the verifier skip the proof for batch 265, what established software does
   instead, and why a missing proof must stop the reader.
-  [ADR 0016](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) accepts
+  [ADR 0016](../adr/0016-record-only-completed-proof-verdicts.md) accepts
   the fix. Replaying already skipped history remains open.
 - [Bitcoin reorg handling](bitcoin-reorg-handling.md): how Bitcoin Core
   exposes reorgs, measured reorg depths per network, where Via's current reader

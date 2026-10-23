@@ -591,8 +591,8 @@ impl ViaWithdrawalDal<'_, '_> {
                 .instrument("withdrawal_observed_input_hold").execute(&mut tx).await?;
         }
         if let Some(inclusion) = &observation.inclusion {
-            sqlx::query("INSERT INTO via_withdrawal_inclusions(wallet,txid,block_hash,block_height,block_hash_text) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING")
-                .bind(wallet).bind(txid.as_slice()).bind(inclusion.block_hash.as_byte_array().as_slice()).bind(i64::from(inclusion.block_height)).bind(inclusion.block_hash.to_string())
+            sqlx::query("INSERT INTO via_withdrawal_inclusions(wallet,txid,block_hash,block_height) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
+                .bind(wallet).bind(txid.as_slice()).bind(inclusion.block_hash.as_byte_array().as_slice()).bind(i64::from(inclusion.block_height))
                 .instrument("withdrawal_inclusion_history").execute(&mut tx).await?;
             let incompatible = if let Some(old) = &old {
                 let hash: Option<Vec<u8>> = old.try_get("accepted_block")?;
@@ -633,7 +633,7 @@ impl ViaWithdrawalDal<'_, '_> {
         wallet: &[u8],
         txid: &[u8],
     ) -> anyhow::Result<bool> {
-        let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=$1 AND i.txid=$2) AS present")
+        let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash WHERE i.wallet=$1 AND i.txid=$2) AS present")
             .bind(wallet).bind(txid).map(|row| row).instrument("withdrawal_observation_canonical_inclusion").fetch_one(self.storage).await?;
         Ok(row.try_get("present")?)
     }
@@ -642,7 +642,7 @@ impl ViaWithdrawalDal<'_, '_> {
         &mut self,
         wallet: &[u8],
     ) -> anyhow::Result<Vec<WithdrawalObservation>> {
-        let rows = sqlx::query("SELECT o.evidence,c.block_hash AS accepted_block,c.block_height AS accepted_height FROM via_withdrawal_observations o LEFT JOIN LATERAL (SELECT i.block_hash,i.block_height,count(*) OVER() AS candidates FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=o.wallet AND i.txid=o.txid) c ON c.candidates=1 WHERE o.wallet=$1 AND NOT o.fulfilled AND NOT o.conflicted ORDER BY o.txid")
+        let rows = sqlx::query("SELECT o.evidence,c.block_hash AS accepted_block,c.block_height AS accepted_height FROM via_withdrawal_observations o LEFT JOIN LATERAL (SELECT i.block_hash,i.block_height,count(*) OVER() AS candidates FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash WHERE i.wallet=o.wallet AND i.txid=o.txid) c ON c.candidates=1 WHERE o.wallet=$1 AND NOT o.fulfilled AND NOT o.conflicted ORDER BY o.txid")
             .bind(wallet).map(|row| row).instrument("withdrawal_pending_observations").fetch_all(self.storage).await?;
         rows.into_iter()
             .map(|row| {
@@ -695,8 +695,8 @@ impl ViaWithdrawalDal<'_, '_> {
         let txid = observation.transaction.compute_txid().to_byte_array();
         let mut tx = self.storage.start_transaction().await?;
         lock_wallet(&mut tx, wallet).await?;
-        let canonical = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=$1 AND hash=$2) AND EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=$3) AND EXISTS(SELECT 1 FROM via_withdrawal_inclusions WHERE wallet=$4 AND txid=$5 AND block_height=$1 AND block_hash_text=$2) AND (SELECT count(*) FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=$4 AND i.txid=$5)=1 AS valid")
-            .bind(i64::from(inclusion.block_height)).bind(inclusion.block_hash.to_string()).bind(i64::from(accepted_tip_height)).bind(wallet).bind(txid.as_slice()).map(|row| row).instrument("withdrawal_canonical_inclusion").fetch_one(&mut tx).await?;
+        let canonical = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=$1 AND hash=$2) AND EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=$3) AND EXISTS(SELECT 1 FROM via_withdrawal_inclusions WHERE wallet=$4 AND txid=$5 AND block_height=$1 AND block_hash=$2) AND (SELECT count(*) FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash WHERE i.wallet=$4 AND i.txid=$5)=1 AS valid")
+            .bind(i64::from(inclusion.block_height)).bind(inclusion.block_hash.as_byte_array().as_slice()).bind(i64::from(accepted_tip_height)).bind(wallet).bind(txid.as_slice()).map(|row| row).instrument("withdrawal_canonical_inclusion").fetch_one(&mut tx).await?;
         if !canonical.try_get::<bool, _>("valid")? {
             return Ok(false);
         }
@@ -1176,7 +1176,7 @@ impl ViaWithdrawalDal<'_, '_> {
         &mut self,
         wallet: &[u8],
     ) -> anyhow::Result<Vec<WithdrawalAttemptRecord>> {
-        let rows = sqlx::query("SELECT a.* FROM via_withdrawal_attempts a WHERE a.wallet=$1 AND a.state IN ('signed','finalized') AND NOT EXISTS(SELECT 1 FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=a.wallet AND i.txid=a.finalized_txid) ORDER BY a.round_id")
+        let rows = sqlx::query("SELECT a.* FROM via_withdrawal_attempts a WHERE a.wallet=$1 AND a.state IN ('signed','finalized') AND NOT EXISTS(SELECT 1 FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash WHERE i.wallet=a.wallet AND i.txid=a.finalized_txid) ORDER BY a.round_id")
             .bind(wallet).map(|row| row).instrument("withdrawal_recoverable_attempts").fetch_all(self.storage).await?;
         rows.iter().map(attempt_record).collect()
     }

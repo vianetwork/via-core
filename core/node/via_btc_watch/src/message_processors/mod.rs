@@ -7,7 +7,6 @@ use via_btc_client::{
 };
 pub(crate) use votable::VotableMessageProcessor;
 use zksync_dal::{Connection, Core, DalError};
-use zksync_types::H256;
 
 mod governance_upgrade;
 mod l1_to_l2;
@@ -16,6 +15,8 @@ mod votable;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum MessageProcessorError {
+    #[error("configuration not ready: approval {approval} needs proposal {proposal}: {source:#}")]
+    ConfigurationNotReady { approval: BitcoinTxid, proposal: BitcoinTxid, source: anyhow::Error },
     #[error("internal processing error: {0:?}")]
     Internal(#[from] anyhow::Error),
     #[error("database error: {0}")]
@@ -34,10 +35,4 @@ pub(super) trait MessageProcessor: 'static + std::fmt::Debug + Send + Sync {
         &mut self, storage: &mut Connection<'_, Core>, msgs: Vec<FullInscriptionMessage>,
         indexer: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError>;
-}
-
-pub(crate) fn convert_txid_to_h256(txid: BitcoinTxid) -> H256 {
-    let mut tx_id_bytes = txid.as_raw_hash()[..].to_vec();
-    tx_id_bytes.reverse();
-    H256::from_slice(&tx_id_bytes)
 }

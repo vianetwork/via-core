@@ -18,3 +18,32 @@ pub fn inscription_script(internal: XOnlyPublicKey, kind: &[u8], fields: &[Vec<u
         .push_opcode(bitcoin::opcodes::all::OP_ENDIF)
         .into_script()
 }
+
+/// Encoded parser / RPC input. Dummy signatures are not valid for Core submission.
+pub fn parser_transaction(
+    key: bitcoin::secp256k1::Keypair,
+    kind: &[u8],
+    fields: &[Vec<u8>],
+    nonce: u32,
+) -> bitcoin::Transaction {
+    use bitcoin::{absolute, taproot::LeafVersion, transaction, Transaction, TxIn, Witness};
+    let internal = key.x_only_public_key().0;
+    let script = inscription_script(internal, kind, fields);
+    let mut control = vec![LeafVersion::TapScript.to_consensus()];
+    control.extend(internal.serialize());
+    Transaction {
+        version: transaction::Version::TWO,
+        lock_time: absolute::LockTime::from_consensus(nonce),
+        input: vec![
+            TxIn {
+                witness: Witness::from_slice(&[vec![0; 64], script.into_bytes(), control]),
+                ..TxIn::default()
+            },
+            TxIn {
+                witness: Witness::from_slice(&[vec![0; 64], key.public_key().serialize().to_vec()]),
+                ..TxIn::default()
+            },
+        ],
+        output: vec![],
+    }
+}

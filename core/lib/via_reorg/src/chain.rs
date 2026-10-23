@@ -10,6 +10,15 @@ pub struct BlockRef<H> {
     pub height: u32,
 }
 
+/// Actual carrier coordinates are separate from a protocol's stable / normalized message ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MessageRef<H, T> {
+    pub block: BlockRef<H>,
+    pub carrier_txid: T,
+    pub tx_index: u32,
+    pub message_index: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header<H> {
     pub block_hash: H,
@@ -241,9 +250,7 @@ mod tests {
     // Port the LDK same/different, equal/shorter/longer, missing/no-new/some-new cases.
     #[test]
     fn fork_shapes_and_transition_order() {
-        for (old, new, fork) in
-            [(5, 5, 5), (5, 5, 0), (5, 5, 2), (5, 3, 2), (5, 8, 2), (5, 5, 5), (5, 8, 5)]
-        {
+        for (old, new, fork) in [(5, 5, 5), (5, 5, 0), (5, 5, 2), (5, 3, 2), (5, 8, 2), (5, 8, 5)] {
             let diff = difference(old, new, fork).unwrap();
             assert_eq!(diff.common_ancestor.height, fork.min(old).min(new));
             assert_eq!(

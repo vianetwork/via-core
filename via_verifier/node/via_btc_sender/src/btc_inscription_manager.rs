@@ -57,7 +57,8 @@ impl ViaBtcInscriptionManager {
     }
 
     async fn update_inscription_status_or_resend(
-        &mut self, storage: &mut Connection<'_, Verifier>,
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
         self.inscriber.sync_context_with_blockchain().await?;
 
@@ -122,13 +123,19 @@ impl ViaBtcInscriptionManager {
             }
         }
 
+        // jscpd:ignore-start Account balance observation is attached to each role’s independent physical-history status pass.
         let balance = self.inscriber.get_balance().await?;
         METRICS.btc_sender_account_balance[&self.config.wallet_address.clone()].set(balance as usize);
 
         Ok(())
     }
 
-    async fn send_new_inscription_txs(&mut self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
+    // jscpd:ignore-end
+    // jscpd:ignore-start Physical inflight capacity, source exclusion and signed-history commit belong to each node-role sender.
+    async fn send_new_inscription_txs(
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
+    ) -> anyhow::Result<()> {
         let number_inflight_txs = storage.via_btc_sender_dal().get_inflight_inscriptions().await?.len();
 
         tracing::debug!("Inflight inscriptions: {count}", count = number_inflight_txs);
@@ -155,8 +162,15 @@ impl ViaBtcInscriptionManager {
     }
 
     pub(crate) async fn send_inscription_tx(
-        &mut self, storage: &mut Connection<'_, Verifier>, tx: &ViaBtcInscriptionRequest,
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
+        tx: &ViaBtcInscriptionRequest,
     ) -> anyhow::Result<()> {
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_source_writer().await?;
+        if !transaction.via_btc_sender_dal().inscription_request_is_eligible(tx.id).await? {
+            return Ok(());
+        }
         let sent_at_block = self.inscriber.get_client().await.fetch_block_height().await? as i64;
 
         let input = InscriptionMessage::from_bytes(&tx.inscription_message.clone().unwrap_or_default());
@@ -186,7 +200,7 @@ impl ViaBtcInscriptionManager {
             reveal_tx = inscribe_info.final_reveal_tx.txid,
         );
 
-        storage
+        transaction
             .via_btc_sender_dal()
             .insert_inscription_request_history(
                 inscribe_info.final_commit_tx.txid.to_string(),
@@ -198,6 +212,8 @@ impl ViaBtcInscriptionManager {
                 sent_at_block,
             )
             .await?;
+        transaction.commit().await?;
         Ok(())
     }
+    // jscpd:ignore-end
 }

@@ -3,6 +3,7 @@
 use std::{collections::HashSet, sync::Mutex};
 
 use assert_matches::assert_matches;
+use bitcoin::hashes::Hash;
 use async_trait::async_trait;
 use test_casing::test_casing;
 use tokio::sync::watch;
@@ -25,38 +26,67 @@ async fn create_inscriptions_and_verifier_votes_for_l1_batch(
     number: u32,
     vote: bool,
 ) {
-    let id = storage
-        .btc_sender_dal()
-        .via_save_btc_inscriptions_request(
-            L1BatchNumber::from(number),
-            String::from(ViaBtcInscriptionRequestType::CommitL1BatchOnchain.as_str()),
-            vec![],
-            0,
+    use bitcoin::{hashes::Hash, BlockHash, Txid};
+    let mut tx = storage.start_transaction().await.unwrap();
+    tx.via_indexer_dal().lock_btc_watch().await.unwrap();
+    // Supply the rollback fixture's L2 subject before binding a simulated proof to it.
+    sqlx::query("UPDATE l1_batches SET hash=$2 WHERE number=$1 AND hash IS NULL")
+        .bind(i64::from(number))
+        .bind(zksync_types::H256::from_low_u64_be(u64::from(number)).as_bytes())
+        .execute(tx.conn())
+        .await
+        .unwrap();
+    create_inscriptions_for_l1_batch(&mut tx, number, true).await;
+    let request:i64=sqlx::query_scalar("SELECT commit_proof_inscription_id::BIGINT FROM via_batch_delivery_facts WHERE l1_batch_number=$1")
+        .bind(i64::from(number)).fetch_one(tx.conn()).await.unwrap();
+    let batch_hash: Vec<u8> = sqlx::query_scalar("SELECT hash FROM l1_batches WHERE number=$1")
+        .bind(i64::from(number))
+        .fetch_one(tx.conn())
+        .await
+        .unwrap();
+    let header = via_reorg::chain::Header {
+        height: number + 1,
+        block_hash: BlockHash::from_byte_array([number as u8 + 1; 32]),
+        parent_hash: BlockHash::all_zeros(),
+    };
+    via_test_utils::reader_db::header(tx.conn(), header, true).await.unwrap();
+    via_test_utils::reader_db::bootstrap_verifiers(tx.conn(), &["fixture".into()], 0)
+        .await
+        .unwrap();
+    let proof = Txid::from_byte_array([number as u8 + 40; 32]);
+    let origin = via_reorg::chain::MessageRef {
+        block: header.into(),
+        carrier_txid: proof,
+        tx_index: 1,
+        message_index: 0,
+    };
+    tx.via_votes_dal().record_reader_proof(proof,number,&serde_json::json!({"batch":{"input":{"l1_batch_hash":zksync_types::H256::from_slice(&batch_hash)}}}),origin).await.unwrap();
+    let identity = Txid::from_byte_array([number as u8 + 80; 32]);
+    tx.via_votes_dal()
+        .record_reader_vote(
+            identity,
+            proof,
+            "fixture",
+            vote,
+            &serde_json::json!({"fixture":true}),
+            via_reorg::chain::MessageRef { carrier_txid: identity, tx_index: 2, ..origin },
         )
         .await
         .unwrap();
-
-    storage
-        .via_blocks_dal()
-        .insert_l1_batch_inscription_request_id(
-            L1BatchNumber::from(number),
-            id,
-            ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
+    tx.btc_sender_dal()
+        .insert_inscription_request_history(
+            &[number as u8; 32],
+            proof.as_byte_array(),
+            request,
+            &[1],
+            &[2],
+            1,
+            i64::from(header.height),
         )
         .await
         .unwrap();
-
-    storage
-        .via_votes_dal()
-        .insert_vote(number, &[], "verifier_address", vote)
-        .await
-        .unwrap();
-
-    storage
-        .via_votes_dal()
-        .finalize_transaction_if_needed(number, 0.0, 1)
-        .await
-        .unwrap();
+    tx.via_votes_dal().recompute_reader_finalization(header.height, 0.66).await.unwrap();
+    tx.commit().await.unwrap();
 }
 
 async fn create_inscriptions_for_l1_batch(
@@ -75,26 +105,37 @@ async fn create_inscriptions_for_l1_batch(
         .await
         .unwrap();
 
-    storage
-        .via_blocks_dal()
-        .insert_l1_batch_inscription_request_id(
-            L1BatchNumber::from(number),
-            id,
-            ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
-        )
-        .await
-        .unwrap();
-
-    if with_proof_inscription {
+    let has_subject: bool =
+        sqlx::query_scalar("SELECT hash IS NOT NULL FROM l1_batches WHERE number=$1")
+            .bind(i64::from(number))
+            .fetch_one(storage.conn())
+            .await
+            .unwrap();
+    if has_subject {
         storage
             .via_blocks_dal()
             .insert_l1_batch_inscription_request_id(
-                L1BatchNumber::from(number),
+                L1BatchNumber(number),
                 id,
-                ViaBtcInscriptionRequestType::CommitProofOnchain,
+                ViaBtcInscriptionRequestType::CommitL1BatchOnchain,
             )
             .await
             .unwrap();
+        if with_proof_inscription {
+            storage
+                .via_blocks_dal()
+                .insert_l1_batch_inscription_request_id(
+                    L1BatchNumber(number),
+                    id,
+                    ViaBtcInscriptionRequestType::CommitProofOnchain,
+                )
+                .await
+                .unwrap();
+        }
+    } else {
+        // Unproved legacy delivery is retained without authorizing a new request for an unknown L2 subject.
+        sqlx::query("INSERT INTO via_batch_delivery_facts(l1_batch_number,commit_l1_batch_inscription_id,commit_proof_inscription_id,created_at,updated_at) VALUES($1,$2,$3,NOW(),NOW())")
+            .bind(i64::from(number)).bind(id as i32).bind(with_proof_inscription.then_some(id as i32)).execute(storage.conn()).await.unwrap();
     }
 }
 
@@ -303,17 +344,19 @@ async fn bitcoin_recovery_caps_completed_progress_with_one_connection(
     let pool = ConnectionPool::<Core>::constrained_test_pool(1).await;
     let mut storage = pool.connection().await.unwrap();
     setup_storage(&mut storage, &gen_storage_logs()).await;
+    let mut fixture = storage.start_transaction().await.unwrap();
+    fixture.via_indexer_dal().lock_btc_watch().await.unwrap();
     if let Some(progress) = progress {
-        storage
+        fixture
             .via_indexer_dal()
             .init_indexer_metadata("via_btc_watch", progress)
             .await
             .unwrap();
     }
     for height in 8..=11 {
-        storage
+        fixture
             .via_l1_block_dal()
-            .insert_l1_block(height, format!("{height:064x}"))
+            .accept_header(via_reorg::chain::Header { height:height as u32,block_hash:format!("{height:064x}").parse().unwrap(),parent_hash:bitcoin::BlockHash::all_zeros() })
             .await
             .unwrap();
     }
@@ -328,17 +371,20 @@ async fn bitcoin_recovery_caps_completed_progress_with_one_connection(
         }
         .l1_tx()
         .unwrap();
-        storage
+        let carrier=bitcoin::Txid::from_byte_array([height as u8;32]);
+        fixture.via_transactions_dal().record_deposit_evidence(carrier,0,&serde_json::json!({"fixture":height}),via_reorg::chain::MessageRef { block:via_reorg::chain::BlockRef { height:u32::try_from(height).unwrap(),block_hash:format!("{height:064x}").parse().unwrap() },carrier_txid:carrier,tx_index:0,message_index:0 },deposit.hash()).await.unwrap();
+        fixture
             .via_transactions_dal()
             .insert_transaction_l1(&deposit, deposit.eth_block(), H256::from_low_u64_be(height))
             .await
             .unwrap();
     }
-    storage
+    fixture
         .via_l1_block_dal()
         .insert_reorg_metadata(10, 6)
         .await
         .unwrap();
+    fixture.commit().await.unwrap();
     drop(storage);
     ViaBlockReverter::new(NodeRole::Main, pool.clone())
         .enable_rolling_back_postgres()
@@ -391,11 +437,9 @@ async fn bitcoin_recovery_waits_for_owner_and_reads_committed_progress() {
     let pool = ConnectionPool::<Core>::test_pool().await;
     let mut storage = pool.connection().await.unwrap();
     setup_storage(&mut storage, &gen_storage_logs()).await;
-    storage
-        .via_indexer_dal()
-        .init_indexer_metadata("via_btc_watch", 5)
-        .await
-        .unwrap();
+    let mut initialization = storage.start_transaction().await.unwrap();
+    initialization.via_indexer_dal().init_indexer_metadata("via_btc_watch", 5).await.unwrap();
+    initialization.commit().await.unwrap();
     storage
         .via_l1_block_dal()
         .insert_reorg_metadata(10, 6)

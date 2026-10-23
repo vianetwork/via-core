@@ -10,60 +10,59 @@ use zksync_types::{
 
 use crate::{
     message_processors::{MessageProcessor, MessageProcessorError},
-    metrics::METRICS,
 };
 
 #[derive(Debug, Default)]
 pub struct L1ToL2MessageProcessor {}
 
+// jscpd:ignore-start Distinct deposit queue / execution representations require separate concrete transaction adapters.
 #[async_trait::async_trait]
 impl MessageProcessor for L1ToL2MessageProcessor {
     async fn process_messages(
-        &mut self, storage: &mut Connection<'_, Core>, msgs: Vec<FullInscriptionMessage>,
+        &mut self,
+        storage: &mut Connection<'_, Core>,
+        msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
-        let mut priority_ops = Vec::new();
-        for msg in msgs {
-            if let FullInscriptionMessage::L1ToL2Message(l1_to_l2_msg) = msg {
-                let mut tx_id_bytes = l1_to_l2_msg.common.tx_id.as_raw_hash()[..].to_vec();
+        for message in msgs {
+            if let FullInscriptionMessage::L1ToL2Message(deposit) = &message {
+                let payload = via_btc_client::indexer::replay::semantic_payload(&message)
+                    .map_err(anyhow::Error::from)?;
+                let inclusion = deposit.common.inclusion().map_err(anyhow::Error::from)?;
+                let vout = u32::try_from(
+                    deposit
+                        .common
+                        .output_vout
+                        .ok_or_else(|| anyhow::anyhow!("deposit missing outpoint"))?,
+                )
+                .map_err(anyhow::Error::from)?;
+                let mut tx_id_bytes = deposit.common.tx_id.as_raw_hash()[..].to_vec();
                 tx_id_bytes.reverse();
                 let tx_id = H256::from_slice(&tx_id_bytes);
-
-                if storage
-                    .via_transactions_dal()
-                    .transaction_exists_with_txid(&tx_id)
-                    .await
-                    .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?
-                {
-                    tracing::info!("Transaction with tx_id {} already processed, skipping", tx_id);
-                    continue;
-                }
-                let Some(l1_tx) = self.create_l1_tx_from_message(&l1_to_l2_msg)? else {
-                    tracing::warn!("Invalid deposit, l1 tx_id {}", &l1_to_l2_msg.common.tx_id);
+                let Some(operation) = self.create_l1_tx_from_message(deposit)? else {
                     continue;
                 };
-
-                priority_ops.push((l1_tx, tx_id));
+                storage
+                    .via_transactions_dal()
+                    .record_deposit_evidence(
+                        inclusion.carrier_txid,
+                        vout,
+                        &payload,
+                        inclusion,
+                        operation.hash(),
+                    )
+                    .await?;
+                storage
+                    .via_transactions_dal()
+                    .insert_transaction_l1(&operation, operation.eth_block(), tx_id)
+                    .await?;
             }
-        }
-
-        if priority_ops.is_empty() {
-            return Ok(None);
-        }
-
-        for (new_op, txid) in priority_ops {
-            METRICS.deposit.inc();
-
-            storage
-                .via_transactions_dal()
-                .insert_transaction_l1(&new_op, new_op.eth_block(), txid)
-                .await
-                .map_err(|e| MessageProcessorError::DatabaseError(e.to_string()))?;
         }
 
         Ok(None)
     }
 }
+// jscpd:ignore-end
 
 impl L1ToL2MessageProcessor {
     fn create_l1_tx_from_message(&self, msg: &L1ToL2Message) -> Result<Option<L1Tx>, MessageProcessorError> {

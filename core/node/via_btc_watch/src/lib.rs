@@ -27,6 +27,7 @@ use crate::{message_processors::SystemWalletProcessor, metrics::METRICS};
 pub struct BtcWatch {
     btc_watch_config: ViaBtcWatchConfig,
     indexer: BitcoinInscriptionIndexer,
+    btc_client: Arc<BitcoinClient>,
     pool: ConnectionPool<Core>,
     system_wallet_processor: Box<dyn MessageProcessor>,
     message_processors: Vec<Box<dyn MessageProcessor>>,
@@ -35,8 +36,11 @@ pub struct BtcWatch {
 impl BtcWatch {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
-        btc_watch_config: ViaBtcWatchConfig, indexer: BitcoinInscriptionIndexer, btc_client: Arc<BitcoinClient>,
-        pool: ConnectionPool<Core>, is_main_node: bool,
+        btc_watch_config: ViaBtcWatchConfig,
+        indexer: BitcoinInscriptionIndexer,
+        btc_client: Arc<BitcoinClient>,
+        pool: ConnectionPool<Core>,
+        is_main_node: bool,
     ) -> anyhow::Result<Self> {
         let system_wallet_processor = Box::new(SystemWalletProcessor::new(btc_client.clone()));
 
@@ -49,16 +53,17 @@ impl BtcWatch {
 
             storage
                 .protocol_versions_dal()
-                .latest_semantic_version()
+                .latest_via_semantic_version()
                 .await
                 .expect("Failed to load the latest protocol semantic version")
                 .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
 
-            message_processors.push(Box::new(GovernanceUpgradesEventProcessor::new(btc_client)));
+            message_processors.push(Box::new(GovernanceUpgradesEventProcessor::new(btc_client.clone())));
         }
 
         Ok(Self {
             btc_watch_config,
+            btc_client,
             indexer: indexer.with_withdrawal_mode(WithdrawalScanMode::Ignore),
             pool,
             message_processors,
@@ -98,7 +103,11 @@ impl BtcWatch {
         Ok(())
     }
 
-    async fn process_scan(&mut self, storage: &mut Connection<'_, Core>) -> Result<(), MessageProcessorError> {
+    // jscpd:ignore-start Concrete node-role transactions retain their separate processors, source locks and queue effects.
+    async fn process_scan(
+        &mut self,
+        storage: &mut Connection<'_, Core>,
+    ) -> Result<(), MessageProcessorError> {
         if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
@@ -158,35 +167,52 @@ impl BtcWatch {
             Some(system_wallets.governance),
         );
 
-        let mut messages = self
-            .indexer
-            .process_blocks(from_block, to_block)
-            .await
-            .map_err(|e| MessageProcessorError::Internal(e.into()))?;
-
-        // Re-process blocks if system wallets were updated, since the new wallet state
-        // may change how subsequent messages are interpreted.
-        if let Some(block_number) = self
-            .system_wallet_processor
-            .process_messages(storage, messages.clone(), &mut self.indexer)
-            .await
-            .map_err(|e| MessageProcessorError::Internal(e.into()))?
-        {
-            // Process the blocks until where the update wallets block.
-            to_block = block_number;
-
-            messages = self
+        for height in from_block..=to_block {
+            let wallets = storage
+                .via_wallet_dal()
+                .get_system_wallets_raw(i64::from(height) - 1)
+                .await?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("configuration history missing before Bitcoin block {height}")
+                })?;
+            let wallets = SystemWallets::try_from(wallets)?;
+            self.indexer.update_system_wallets(
+                Some(wallets.sequencer),
+                Some(wallets.bridge),
+                Some(wallets.verifiers),
+                Some(wallets.governance),
+            );
+            let hash = storage
+                .via_l1_block_dal()
+                .get_l1_block_hash(i64::from(height))
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("canonical block is missing at {height}"))?;
+            let hash = hash.parse().map_err(anyhow::Error::from)?;
+            let header = self
+                .btc_client
+                .canonical_header_at(height, hash)
+                .await
+                .map_err(anyhow::Error::from)?;
+            let body = self.btc_client.checked_block(&header).await.map_err(anyhow::Error::from)?;
+            let messages = self
                 .indexer
-                .process_blocks(from_block, to_block)
+                .process_checked_block(height, &body)
                 .await
-                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
-        }
-
-        for processor in self.message_processors.iter_mut() {
-            processor
-                .process_messages(storage, messages.clone(), &mut self.indexer)
-                .await
-                .map_err(|e| MessageProcessorError::Internal(e.into()))?;
+                .map_err(anyhow::Error::from)?;
+            // Record the whole block before rotation admission; its query uses an exclusive source-coordinate prefix.
+            for processor in &mut self.message_processors {
+                processor.process_messages(storage, messages.clone(), &mut self.indexer).await?;
+            }
+            self.system_wallet_processor
+                .process_messages(storage, messages, &mut self.indexer)
+                .await?;
+            storage
+                .via_votes_dal()
+                .recompute_reader_finalization(
+                    height,
+                    via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD,
+                )
+                .await?;
         }
 
         storage
@@ -199,6 +225,7 @@ impl BtcWatch {
 
         Ok(())
     }
+    // jscpd:ignore-end
 
     fn module_name() -> &'static str {
         "via_btc_watch"

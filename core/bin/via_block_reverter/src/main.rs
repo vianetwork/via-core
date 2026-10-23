@@ -1,3 +1,5 @@
+mod bitcoin_reader_migration;
+
 use std::path::PathBuf;
 
 use anyhow::Context as _;
@@ -45,6 +47,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Inspect or apply a stopped Bitcoin reader semantic migration.
+    BitcoinReaderMigration(bitcoin_reader_migration::MigrationArgs),
     /// Rolls back internal database state to a previous L1 batch.
     #[command(name = "rollback-db")]
     RollbackDB {
@@ -75,6 +79,14 @@ enum Command {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opts = Cli::parse();
+    if let Command::BitcoinReaderMigration(args) = &opts.command {
+        return bitcoin_reader_migration::run(
+            args,
+            opts.config_path.as_deref(),
+            opts.secrets_path.as_deref(),
+        )
+        .await;
+    }
 
     let observability_config =
         ObservabilityConfig::from_env().context("ObservabilityConfig::from_env()")?;
@@ -160,6 +172,7 @@ async fn main() -> anyhow::Result<()> {
     let mut block_reverter = ViaBlockReverter::new(NodeRole::Main, connection_pool);
 
     match opts.command {
+        Command::BitcoinReaderMigration(_)=>unreachable!("early stopped command"),
         Command::RollbackDB {
             l1_batch_number,
             rollback_postgres,

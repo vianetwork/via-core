@@ -83,33 +83,35 @@ impl TestEnvironment {
         let wallets = test_wallets();
         storage
             .via_wallet_dal()
-            .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 0)
+            .insert_bootstrap_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 0)
             .await
             .unwrap();
-        storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+        let mut tx = storage.start_transaction().await.unwrap();
+        tx.via_indexer_dal().lock_btc_watch().await.unwrap();
+        tx.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+        tx.protocol_versions_dal()
+            .mark_via_bootstrap_version(
+                GenesisParams::mock().protocol_version(),
+                GenesisParams::mock().base_system_contracts().hashes(),
+                zksync_types::protocol_version::L1VerifierConfig {
+                    snark_wrapper_vk_hash: GenesisParams::mock().config().snark_wrapper_vk_hash,
+                },
+            )
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
         drop(storage);
 
         let components: ComponentsToRun = components_str.parse().unwrap();
         let mut config = ExternalNodeConfig::mock(&temp_dir, &connection_pool);
-        let block = bitcoin::blockdata::constants::genesis_block(bitcoin::Network::Regtest);
-        let block_hash = block.block_hash().to_string();
-        let block_hex = bitcoin::consensus::encode::serialize_hex(&block);
-        let bitcoin_rpc =
-            BitcoinRpcServer::new(Some(Duration::from_secs(5)), false, move |_, request| {
-                match request["method"].as_str().unwrap() {
-                    "getblockcount" => serde_json::json!(1),
-                    "getblockhash" => {
-                        assert_eq!(request["params"][0], 1);
-                        serde_json::json!(block_hash)
-                    }
-                    "getblock" => {
-                        assert_eq!(request["params"][0], block_hash);
-                        serde_json::json!(block_hex)
-                    }
-                    method => panic!("Unexpected Bitcoin RPC: {method}"),
-                }
-            })
-            .unwrap();
+        let mut chain = via_test_utils::chain::Chain::default();
+        chain.insert(1, bitcoin::blockdata::constants::genesis_block(bitcoin::Network::Regtest));
+        let bitcoin_rpc = BitcoinRpcServer::new_with_errors(
+            Some(Duration::from_secs(5)),
+            false,
+            move |_, request| chain.rpc(&request),
+        )
+        .unwrap();
         config.via_secrets = Some(ViaL1Secrets {
             rpc_url: bitcoin_rpc.url("").parse().unwrap(),
             rpc_user: String::new(),

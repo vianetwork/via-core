@@ -79,6 +79,20 @@ impl Tester {
         &self,
         pool: ConnectionPool<Core>,
     ) -> (MempoolIO, MempoolGuard) {
+        // This harness's configured version is its explicit genesis / recovered-snapshot baseline.
+        let mut connection = pool.connection().await.unwrap();
+        let mut tx = connection.start_transaction().await.unwrap();
+        tx.via_indexer_dal().lock_btc_watch().await.unwrap();
+        tx.protocol_versions_dal()
+            .mark_via_bootstrap_version(
+                ProtocolSemanticVersion { minor: self.protocol_version, patch: 0.into() },
+                self.base_system_contracts.hashes(),
+                L1VerifierConfig::default(),
+            )
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        drop(connection);
         let batch_fee_input_provider = self.create_batch_fee_input_provider().await;
 
         let mempool = MempoolGuard::new(PriorityOpId(0), 100);

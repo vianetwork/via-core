@@ -151,6 +151,13 @@ impl ViaVerifierBlockReverter {
                 .context("Invalidating withdrawal source batches from the first affected batch")?;
         }
 
+        if let Some(first_deleted_batch) = first_deleted_batch {
+            transaction
+                .via_votes_dal()
+                .invalidate_l2_inputs_after_reorg(first_deleted_batch, l1_block_number_to_keep)
+                .await
+                .context("Withholding proofs whose L2 input suffix was damaged")?;
+        }
         transaction
             .via_l1_block_dal()
             .delete_l1_blocks(l1_block_number_to_keep)
@@ -164,12 +171,13 @@ impl ViaVerifierBlockReverter {
             .update_last_processed_l1_block("via_btc_watch", checkpoint_to_keep)
             .await?;
 
-        if first_affected_batch.is_some() {
-            transaction
-                .via_transactions_dal()
-                .delete_transactions(l1_block_number_to_keep)
-                .await?;
-        }
+        // Unbatched deposits still belong to the disconnected Bitcoin suffix.
+        transaction.via_transactions_dal().delete_transactions(l1_block_number_to_keep).await?;
+        transaction.via_wallet_dal().revoke_wallets_after(l1_block_number_to_keep).await?;
+        transaction
+            .via_protocol_versions_dal()
+            .revoke_via_upgrades_after(l1_block_number_to_keep)
+            .await?;
         // A vote-only reorg revokes withdrawal authority, not the canonical
         // proof chain. Deposits and proof anchors determine deletion separately.
         if let Some(first_deleted_batch) = first_deleted_batch {
@@ -178,11 +186,6 @@ impl ViaVerifierBlockReverter {
                 .reset_transactions(first_deleted_batch - 1)
                 .await
                 .context("Resetting retained deposits assigned to deleted proof batches")?;
-            transaction
-                .via_votes_dal()
-                .delete_votable_transactions(first_deleted_batch - 1)
-                .await
-                .context("Deleting proof rows from the first invalid proof or deposit batch")?;
         }
         let retained_vote_parents = transaction
             .via_votes_dal()
@@ -208,18 +211,10 @@ impl ViaVerifierBlockReverter {
                     .via_votes_dal()
                     .finalize_transaction_if_needed(
                         id,
-                        BATCH_FINALIZATION_THRESHOLD,
-                        wallets.verifiers.len(),
-                    )
+                        BATCH_FINALIZATION_THRESHOLD)
                     .await
                     .context("Recomputing finalization from retained canonical votes")?;
             }
-        }
-        if first_affected_batch.is_some() {
-            transaction
-                .via_wallet_dal()
-                .delete_system_wallet(l1_block_number_to_keep)
-                .await?;
         }
 
         transaction.commit().await?;

@@ -1,23 +1,21 @@
+// jscpd:ignore-start Separate node-role adapters own SQL transactions and retain independently tested configuration admission.
 use std::sync::Arc;
 
 use via_btc_client::{
     client::BitcoinClient,
-    indexer::{BitcoinInscriptionIndexer, MessageParser},
+    indexer::{replay::semantic_payload, BitcoinInscriptionIndexer, MessageParser},
     traits::BitcoinOps,
-    types::{BitcoinAddress, FullInscriptionMessage, UpdateBridge, UpdateGovernance, UpdateSequencer},
+    types::FullInscriptionMessage,
 };
+use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
+use via_reorg::configuration::{admit_rotation, duplicate_roles, RotationAdmission};
 use via_verifier_dal::{Connection, Verifier, VerifierDal};
-use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails, WalletInfo, WalletRole};
+use zksync_types::via_wallet::{SystemWalletsDetails, WalletInfo, WalletRole};
 
-use crate::{
-    message_processors::{MessageProcessor, MessageProcessorError},
-    metrics::METRICS,
-};
+use crate::message_processors::{MessageProcessor, MessageProcessorError};
 
-// jscpd:ignore-start Each node constructs its wallet processor against its own SQL owner and node lifecycle.
 #[derive(Debug)]
 pub struct SystemWalletProcessor {
-    /// BTC client
     btc_client: Arc<BitcoinClient>,
 }
 
@@ -26,7 +24,6 @@ impl SystemWalletProcessor {
         Self { btc_client }
     }
 }
-// jscpd:ignore-end
 
 #[async_trait::async_trait]
 impl MessageProcessor for SystemWalletProcessor {
@@ -36,200 +33,112 @@ impl MessageProcessor for SystemWalletProcessor {
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
-        // jscpd:ignore-start Each node dispatches wallet effects inside its own DAL transaction and returns its local restart boundary.
-        let mut l1_block_number: Option<u32> = None;
-
-        for msg in FullInscriptionMessage::sort_messages(msgs) {
-            let l1_block_number_opt = match msg {
-                FullInscriptionMessage::UpdateGovernance(m) => self.handle_update_governance(storage, m).await?,
-                FullInscriptionMessage::UpdateSequencer(m) => self.handle_update_sequencer(storage, m).await?,
-                FullInscriptionMessage::UpdateBridge(m) => self.handle_update_bridge_proposal(storage, m).await?,
-                _ => None,
-            };
-
-            // Keep the smallest (earliest) block number
-            match (l1_block_number, l1_block_number_opt) {
-                (Some(current), Some(new)) if new < current => l1_block_number = Some(new),
-                (None, Some(new)) => l1_block_number = Some(new),
-                _ => {}
-            }
-        }
-
-        Ok(l1_block_number)
-        // jscpd:ignore-end
-    }
-}
-
-impl SystemWalletProcessor {
-    async fn handle_update_bridge_proposal(
-        &self,
-        storage: &mut Connection<'_, Verifier>,
-        update_bridge_msg: UpdateBridge,
-    ) -> Result<Option<u32>, MessageProcessorError> {
-        let proposal_tx_id = update_bridge_msg.input.proposal_tx_id;
-
-        let proposal_tx = match self.btc_client.get_transaction(&proposal_tx_id).await {
-            Ok(proposal_tx) => proposal_tx,
-            Err(err) => {
-                tracing::warn!("Failed to fetch update bridge proposal transaction: {}, error {}", proposal_tx_id, err);
-                return Ok(None);
-            }
+        use FullInscriptionMessage as M;
+        let roles = |message: &FullInscriptionMessage| match message {
+            M::UpdateGovernance(_) => vec!["Gov"],
+            M::UpdateSequencer(_) => vec!["Sequencer"],
+            M::UpdateBridge(_) => vec!["Bridge", "Verifier"],
+            _ => vec![],
         };
-
-        let mut message_parser = MessageParser::new(self.btc_client.get_network());
-
-        let messages =
-            message_parser.parse_system_transaction(&proposal_tx, update_bridge_msg.common.block_height, None);
-
-        if let Some(message) = messages.into_iter().next() {
+        let duplicates = duplicate_roles(msgs.iter().flat_map(|message| {
+            let common = message.common();
+            roles(message).into_iter().map(move |role| {
+                ((common.block_height, role), (common.tx_id, common.message_index))
+            })
+        }));
+        let mut changed = None;
+        for message in FullInscriptionMessage::sort_messages(msgs) {
+            let affected_roles = roles(&message);
+            if affected_roles.is_empty() {
+                continue;
+            }
+            let rejected_roles = affected_roles
+                .iter()
+                .map(|role| role.parse::<WalletRole>())
+                .collect::<Result<Vec<_>, _>>()?;
+            let common = message.common().clone();
+            let inclusion =
+                common.inclusion().map_err(|err| MessageProcessorError::Internal(err.into()))?;
+            let mut payload = semantic_payload(&message)
+                .map_err(|err| MessageProcessorError::Internal(err.into()))?;
+            let mut details = SystemWalletsDetails::default();
+            let mut updates = Vec::new();
+            let mut decision = if affected_roles
+                .iter()
+                .any(|role| duplicates.contains(&(common.block_height, *role)))
+            {
+                "duplicate_role"
+            } else {
+                "accepted"
+            };
             match message {
-                FullInscriptionMessage::UpdateBridgeProposal(update_bridge_msg) => {
-                    let system_wallets_map = storage
-                        .via_wallet_dal()
-                        .get_system_wallets_raw(update_bridge_msg.common.block_height as i64)
-                        .await?
-                        .unwrap_or_default();
-
-                    // jscpd:ignore-start Verifier wallet validation and payload projection stay within its SQL authority transaction.
-                    let system_wallets = SystemWallets::try_from(system_wallets_map)?;
-
-                    let new_bridge_address = match update_bridge_msg
-                        .input
-                        .bridge_musig2_address
-                        .require_network(self.btc_client.get_network())
-                    {
-                        Ok(address) => address,
-                        Err(err) => {
-                            tracing::error!("Failed to parse bridge address: {}", err);
-                            return Ok(None);
-                        }
+                M::UpdateGovernance(message) => {
+                    let Ok(address)=message.input.address.require_network(self.btc_client.get_network()) else {
+                        storage.via_wallet_dal().record_wallet_rejection(common.tx_id,&rejected_roles,inclusion,&payload).await?;
+                        continue;
                     };
-
-                    // Skip if bridge already registered
-                    if system_wallets.bridge == new_bridge_address {
-                        tracing::info!("Bridge wallet already exists, skipping");
-                        return Ok(None);
-                    }
-
-                    let mut wallets_details = SystemWalletsDetails::default();
-
-                    wallets_details.0.insert(
-                        WalletRole::Bridge,
-                        WalletInfo {
-                            addresses: vec![new_bridge_address.clone()],
-                            txid: update_bridge_msg.common.tx_id,
-                        },
-                    );
-
-                    let verifier_addresses = update_bridge_msg
-                        .input
-                        .verifier_p2wpkh_addresses
-                        .iter()
-                        .map(|addr| addr.clone().assume_checked())
-                        .collect::<Vec<BitcoinAddress>>();
-
-                    wallets_details.0.insert(
-                        WalletRole::Verifier,
-                        WalletInfo { addresses: verifier_addresses.clone(), txid: update_bridge_msg.common.tx_id },
-                    );
-
-                    // jscpd:ignore-end
-                    storage
-                        .via_wallet_dal()
-                        .insert_wallets(&wallets_details, update_bridge_msg.common.block_height as i64)
-                        .await?;
-
-                    tracing::info!("New bridge address updated: {:?}", &wallets_details);
-
-                    METRICS.system_wallets[&(WalletRole::Bridge.to_string(), new_bridge_address.to_string())].inc();
-
-                    return Ok(Some(update_bridge_msg.common.block_height));
+                    updates.push((WalletRole::Gov,vec![address]));
                 }
-                _ => return Ok(None),
+                M::UpdateSequencer(message) => {
+                    let Ok(address)=message.input.address.require_network(self.btc_client.get_network()) else {
+                        storage.via_wallet_dal().record_wallet_rejection(common.tx_id,&rejected_roles,inclusion,&payload).await?;
+                        continue;
+                    };
+                    updates.push((WalletRole::Sequencer,vec![address]));
+                }
+                M::UpdateBridge(message) => {
+                    let transaction = self.btc_client.get_transaction(&message.input.proposal_tx_id).await
+                        .map_err(|source| MessageProcessorError::ConfigurationNotReady { approval:common.tx_id,
+                            proposal:message.input.proposal_tx_id,source:source.into() })?;
+                    let proposals: Vec<_> = MessageParser::new(self.btc_client.get_network())
+                        .parse_system_transaction(&transaction,common.block_height,None).into_iter()
+                        .filter(|message| matches!(message,M::UpdateBridgeProposal(_))).collect();
+                    if proposals.len()!=1 {
+                        payload["proposals"]=serde_json::Value::Array(proposals.iter().map(semantic_payload).collect::<Result<_,_>>().map_err(anyhow::Error::from)?);
+                        storage.via_wallet_dal().record_wallet_rejection(common.tx_id,&rejected_roles,inclusion,&payload).await?;
+                        continue;
+                    }
+                    payload["proposal"] = semantic_payload(&proposals[0]).map_err(|err| MessageProcessorError::Internal(err.into()))?;
+                    let M::UpdateBridgeProposal(proposal) = &proposals[0] else { unreachable!() };
+                    let bridge=proposal.input.bridge_musig2_address.clone().require_network(self.btc_client.get_network());
+                    let verifiers=proposal.input.verifier_p2wpkh_addresses.iter().cloned()
+                        .map(|address|address.require_network(self.btc_client.get_network())).collect::<Result<Vec<_>,_>>();
+                    let (Ok(bridge),Ok(verifiers))=(bridge,verifiers) else {
+                        storage.via_wallet_dal().record_wallet_rejection(common.tx_id,&rejected_roles,inclusion,&payload).await?;
+                        continue;
+                    };
+                    if verifiers.is_empty() {
+                        storage.via_wallet_dal().record_wallet_rejection(common.tx_id,&rejected_roles,inclusion,&payload).await?;
+                        continue;
+                    }
+                    updates.push((WalletRole::Bridge,vec![bridge]));
+                    updates.push((WalletRole::Verifier,verifiers));
+                    if decision=="accepted" {
+                        let pending = storage.via_votes_dal().prefix_has_unfinalized_proof(
+                            [i64::from(inclusion.block.height)+1,0,0],BATCH_FINALIZATION_THRESHOLD,
+                        ).await?;
+                        if admit_rotation(true,pending)==RotationAdmission::RejectedEarlierUnfinalizedProof {
+                            decision="earlier_unfinalized_proof";
+                        }
+                    }
+                }
+                _ => unreachable!(),
+            }
+            for (role, addresses) in updates {
+                details.0.insert(role, WalletInfo { addresses, txid: common.tx_id });
+            }
+            storage
+                .via_wallet_dal()
+                .record_wallet_update(&details, inclusion, &payload, decision)
+                .await?;
+            if decision == "accepted" {
+                changed =
+                    Some(changed.map_or(common.block_height, |height: u32| {
+                        height.min(common.block_height)
+                    }));
             }
         }
-        Ok(None)
-    }
-
-    async fn handle_update_sequencer(
-        &self, storage: &mut Connection<'_, Verifier>, update_sequencer_msg: UpdateSequencer,
-    ) -> Result<Option<u32>, MessageProcessorError> {
-        tracing::info!("Received UpdateSequencer message");
-
-        let system_wallets_map = storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(update_sequencer_msg.common.block_height as i64)
-            .await
-            .unwrap()
-            .unwrap_or_default();
-
-        let system_wallets = SystemWallets::try_from(system_wallets_map)?;
-
-        let new_sequencer_address = update_sequencer_msg.input.address.assume_checked();
-
-        // Skip if sequencer already registered
-        if system_wallets.sequencer == new_sequencer_address {
-            tracing::info!("Sequencer wallet already exists, skipping");
-            return Ok(None);
-        }
-
-        let mut wallets_details = SystemWalletsDetails::default();
-
-        wallets_details.0.insert(
-            WalletRole::Sequencer,
-            WalletInfo { addresses: vec![new_sequencer_address.clone()], txid: update_sequencer_msg.common.tx_id },
-        );
-
-        storage
-            .via_wallet_dal()
-            .insert_wallets(&wallets_details, update_sequencer_msg.common.block_height as i64)
-            .await?;
-
-        tracing::info!("New sequencer address updated: {:?}", &wallets_details);
-
-        METRICS.system_wallets[&(WalletRole::Sequencer.to_string(), new_sequencer_address.to_string())].inc();
-
-        Ok(Some(update_sequencer_msg.common.block_height))
-    }
-
-    async fn handle_update_governance(
-        &self, storage: &mut Connection<'_, Verifier>, update_governance_msg: UpdateGovernance,
-    ) -> Result<Option<u32>, MessageProcessorError> {
-        tracing::info!("Received UpdateGovernance message");
-
-        let system_wallets_map = storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(update_governance_msg.common.block_height as i64)
-            .await
-            .unwrap()
-            .unwrap_or_default();
-
-        let system_wallets = SystemWallets::try_from(system_wallets_map)?;
-
-        let new_governance_address = update_governance_msg.input.address.assume_checked();
-
-        // Skip if sequencer already registered
-        if system_wallets.governance == new_governance_address {
-            tracing::info!("Sequencer wallet already exists, skipping");
-            return Ok(None);
-        }
-
-        let mut wallets_details = SystemWalletsDetails::default();
-
-        wallets_details.0.insert(
-            WalletRole::Gov,
-            WalletInfo { addresses: vec![new_governance_address.clone()], txid: update_governance_msg.common.tx_id },
-        );
-
-        storage
-            .via_wallet_dal()
-            .insert_wallets(&wallets_details, update_governance_msg.common.block_height as i64)
-            .await?;
-
-        tracing::info!("New governance address updated: {:?}", &wallets_details);
-
-        METRICS.system_wallets[&(WalletRole::Gov.to_string(), new_governance_address.to_string())].inc();
-
-        Ok(Some(update_governance_msg.common.block_height))
+        Ok(changed)
     }
 }
+// jscpd:ignore-end

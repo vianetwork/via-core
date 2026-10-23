@@ -2,6 +2,7 @@
 
 use std::future::Future;
 
+use bitcoin::BlockHash;
 use via_btc_client::types::L1BatchDAReferenceInput;
 use via_da_client::types::L1MessengerL2ToL1Log;
 use via_verification::{
@@ -12,6 +13,7 @@ use via_verifier_dal::{via_store_mode_dal::StoreMode, via_transactions_dal::L1To
 use zksync_object_store::{Bucket, MockObjectStore, ObjectStore, ObjectStoreError, StoredObject};
 use zksync_types::{
     protocol_version::{ProtocolSemanticVersion, VersionPatch},
+    via_wallet::SystemWallets,
     ProtocolVersionId, H256,
 };
 
@@ -236,9 +238,30 @@ async fn approval_fixture_in(
         .await
         .unwrap();
     let proof_reveal_tx_id = H256::random();
-    storage
+    use bitcoin::{hashes::Hash, Txid};
+    let deposit = H256::random();
+    let mut tx = storage.start_transaction().await.unwrap();
+    tx.via_indexer_dal().lock_source_writer().await.unwrap();
+    let header = via_test_utils::reader_db::first_source(tx.conn(), 1).await.unwrap();
+    via_test_utils::reader_db::bootstrap_verifiers(tx.conn(), &["verifier".into()], 0)
+        .await
+        .unwrap();
+    let mut raw = proof_reveal_tx_id.0;
+    raw.reverse();
+    let proof = Txid::from_byte_array(raw);
+    let origin = via_reorg::chain::MessageRef {
+        block: header.into(),
+        carrier_txid: proof,
+        tx_index: 1,
+        message_index: 0,
+    };
+    let inclusion = tx
         .via_votes_dal()
-        .insert_votable_transaction(
+        .record_reader_proof(proof, BATCH as u32, &serde_json::json!({"fixture":true}), origin)
+        .await
+        .unwrap();
+    tx.via_votes_dal()
+        .record_votable_transaction(
             BATCH as u32,
             H256::random(),
             H256::random(),
@@ -247,13 +270,23 @@ async fn approval_fixture_in(
             "proof_blob".into(),
             "pubdata_tx".into(),
             "pubdata_blob".into(),
-            None,
+            inclusion,
+            via_verifier_dal::via_votes_dal::ProofMembership::Canonical,
         )
         .await
         .unwrap();
-    let deposit = H256::random();
-    storage
-        .via_transactions_dal()
+    let carrier = Txid::from_byte_array([2; 32]);
+    tx.via_transactions_dal()
+        .record_deposit_evidence(
+            carrier,
+            0,
+            &serde_json::json!({"fixture":true}),
+            via_reorg::chain::MessageRef { carrier_txid: carrier, tx_index: 2, ..origin },
+            deposit,
+        )
+        .await
+        .unwrap();
+    tx.via_transactions_dal()
         .insert_transaction(L1ToL2Transaction {
             priority_id: 0,
             tx_id: H256::random(),
@@ -265,6 +298,8 @@ async fn approval_fixture_in(
         })
         .await
         .unwrap();
+    tx.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+    tx.commit().await.unwrap();
     let pubdata = Pubdata {
         user_logs: vec![L1MessengerL2ToL1Log {
             sender: H160::from_str(L2_BOOTLOADER_CONTRACT_ADDR).unwrap(),
@@ -277,13 +312,192 @@ async fn approval_fixture_in(
     (storage, proof_reveal_tx_id, deposit, pubdata)
 }
 
+async fn prepare_fixture_approval(
+    storage: &mut Connection<'_, Verifier>,
+    batch: i64,
+    proof: H256,
+    approval: Approval,
+    pubdata: &Pubdata,
+    upgrade: Option<H256>,
+) -> anyhow::Result<Option<PreparedApproval>> {
+    let mut snapshot = storage.transaction_builder()?.set_readonly().build().await?;
+    let Some(incarnation) =
+        snapshot.via_votes_dal().get_votable_transaction_id(proof.as_bytes()).await?
+    else {
+        return Ok(None);
+    };
+    let deposits = verify_op_priority_id(&mut snapshot, batch, pubdata).await?;
+    let deposit_count = deposits.len();
+    let Some(inputs) =
+        snapshot.via_votes_dal().verification_snapshot(incarnation, deposit_count).await?
+    else {
+        return Ok(None);
+    };
+    snapshot.rollback().await?;
+    Ok(Some(PreparedApproval {
+        incarnation,
+        batch,
+        inputs,
+        deposit_count,
+        approval,
+        deposits,
+        upgrade,
+    }))
+}
+
+async fn save_fixture_approval(
+    storage: &mut Connection<'_, Verifier>,
+    batch: i64,
+    proof: H256,
+    approval: Approval,
+    pubdata: &Pubdata,
+    upgrade: Option<H256>,
+    _: usize,
+) -> anyhow::Result<bool> {
+    let Some(prepared) =
+        prepare_fixture_approval(storage, batch, proof, approval, pubdata, upgrade).await?
+    else {
+        return Ok(false);
+    };
+    record_approval(storage, &prepared).await
+}
+
+#[tokio::test]
+async fn changes_to_prefix_siblings_protocol_or_incarnation_discard_prepared_approval() {
+    use bitcoin::{hashes::Hash, Txid};
+    for change in ["prefix", "sibling", "protocol", "incarnation"] {
+        let (mut storage, proof, deposit, pubdata) = approval_fixture(false, false).await;
+        if change == "prefix" {
+            sqlx::query("UPDATE via_transactions SET priority_id=1")
+                .execute(storage.conn())
+                .await
+                .unwrap();
+        }
+        let prepared = prepare_fixture_approval(
+            &mut storage,
+            BATCH,
+            proof,
+            Approval::Verified,
+            &pubdata,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let mut tx = storage.start_transaction().await.unwrap();
+        tx.via_indexer_dal().lock_source_writer().await.unwrap();
+        let block = via_reorg::chain::BlockRef {
+            height: 1,
+            block_hash: BlockHash::from_byte_array([1; 32]),
+        };
+        match change {
+            "prefix" => {
+                let carrier = Txid::from_byte_array([44; 32]);
+                let operation = H256::repeat_byte(44);
+                tx.via_transactions_dal()
+                    .record_deposit_evidence(
+                        carrier,
+                        0,
+                        &serde_json::json!({"fixture":true}),
+                        via_reorg::chain::MessageRef {
+                            block,
+                            carrier_txid: carrier,
+                            tx_index: 4,
+                            message_index: 0,
+                        },
+                        operation,
+                    )
+                    .await
+                    .unwrap();
+                tx.via_transactions_dal()
+                    .insert_transaction(L1ToL2Transaction {
+                        priority_id: 0,
+                        tx_id: operation,
+                        receiver: "other".into(),
+                        value: 1,
+                        calldata: vec![],
+                        canonical_tx_hash: operation,
+                        l1_block_number: 1,
+                    })
+                    .await
+                    .unwrap();
+            }
+            "sibling" => {
+                let identity = Txid::from_byte_array([77; 32]);
+                let (set_id, _) = tx.via_wallet_dal().verifier_set_before(1).await.unwrap();
+                let details = via_test_utils::reader_db::ProofVerdict {
+                    batch: BATCH as u32,
+                    batch_hash: H256::repeat_byte(77),
+                    parent_hash: H256::zero(),
+                    proof_txid: identity,
+                    proof_blob: "sibling".into(),
+                    batch_txid: "sibling".into(),
+                    batch_blob: "sibling".into(),
+                    da_identifier: "fixture".into(),
+                };
+                via_test_utils::reader_db::verdict(
+                    tx.conn(),
+                    &details,
+                    via_reorg::chain::MessageRef {
+                        block,
+                        carrier_txid: identity,
+                        tx_index: 4,
+                        message_index: 0,
+                    },
+                    set_id,
+                )
+                .await
+                .unwrap();
+            }
+            "protocol" => {
+                tx.via_protocol_versions_dal()
+                    .save_protocol_version(
+                        ProtocolSemanticVersion::new(ProtocolVersionId::Version27, VersionPatch(0)),
+                        &[1; 32],
+                        &[2; 32],
+                        &[3; 32],
+                        &[4; 32],
+                    )
+                    .await
+                    .unwrap();
+            }
+            "incarnation" => {
+                tx.via_votes_dal().revoke_reader_inclusions_after(0).await.unwrap();
+                let mut raw = proof.0;
+                raw.reverse();
+                let identity = Txid::from_byte_array(raw);
+                let replacement = tx
+                    .via_votes_dal()
+                    .record_reader_proof(
+                        identity,
+                        BATCH as u32,
+                        &serde_json::json!({"fixture":true}),
+                        via_reorg::chain::MessageRef {
+                            block,
+                            carrier_txid: identity,
+                            tx_index: 1,
+                            message_index: 0,
+                        },
+                    )
+                    .await
+                    .unwrap();
+                assert_ne!(replacement, prepared.inputs["inclusion"]["id"].as_i64().unwrap());
+            }
+            _ => unreachable!(),
+        }
+        tx.commit().await.unwrap();
+        assert!(!record_approval(&mut storage, &prepared).await.unwrap(), "{change}");
+        assert_eq!(persisted(&mut storage, deposit).await, (None, false, None), "{change}");
+    }
+}
+
 /// The batch status, its development marker and the deposit status, as persisted.
 async fn persisted(
     storage: &mut Connection<'_, Verifier>,
     deposit: H256,
 ) -> (Option<bool>, bool, Option<bool>) {
     let (status, dev): (Option<bool>, bool) = sqlx::query_as(
-        "SELECT l1_batch_status, unverified_dev FROM via_votable_transactions WHERE l1_batch_number = $1",
+        "SELECT l1_batch_status, unverified_dev FROM via_proof_verdicts WHERE l1_batch_number = $1",
     )
     .bind(BATCH)
     .fetch_one(storage.conn())
@@ -303,7 +517,9 @@ async fn an_approval_records_the_batch_and_its_deposits() {
     for (dev_mode, approval) in [(false, Approval::Verified), (true, Approval::DevAccepted)] {
         let (mut storage, tx_id, deposit, pubdata) = approval_fixture(dev_mode, false).await;
         let committed =
-            record_approval(&mut storage, BATCH, tx_id, approval, &pubdata, None, 1).await.unwrap();
+            save_fixture_approval(&mut storage, BATCH, tx_id, approval, &pubdata, None, 1)
+                .await
+                .unwrap();
         assert!(committed);
         let marked = approval == Approval::DevAccepted;
         assert_eq!(persisted(&mut storage, deposit).await, (Some(true), marked, Some(true)));
@@ -314,7 +530,8 @@ async fn an_approval_records_the_batch_and_its_deposits() {
 async fn a_deposit_mismatch_writes_nothing() {
     let (mut storage, tx_id, deposit, pubdata) = approval_fixture(false, true).await;
     let outcome =
-        record_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1).await;
+        save_fixture_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1)
+            .await;
     assert_eq!(reason(outcome.map(|_| Approval::Verified)), NoVerdictReason::DepositMismatch);
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
 }
@@ -323,7 +540,8 @@ async fn a_deposit_mismatch_writes_nothing() {
 async fn a_strict_store_rolls_back_a_development_approval() {
     let (mut storage, tx_id, deposit, pubdata) = approval_fixture(false, false).await;
     let outcome =
-        record_approval(&mut storage, BATCH, tx_id, Approval::DevAccepted, &pubdata, None, 1).await;
+        save_fixture_approval(&mut storage, BATCH, tx_id, Approval::DevAccepted, &pubdata, None, 1)
+            .await;
     assert!(outcome.is_err());
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
 }
@@ -333,7 +551,7 @@ async fn a_reorg_before_commit_writes_nothing() {
     let (mut storage, tx_id, deposit, pubdata) = approval_fixture(false, false).await;
     storage.via_l1_block_dal().insert_reorg_metadata(1, BATCH).await.unwrap();
     let committed =
-        record_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1)
+        save_fixture_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1)
             .await
             .unwrap();
     assert!(!committed);
@@ -346,13 +564,13 @@ async fn watermarks_come_from_the_database_and_follow_a_reorg() {
     // A fresh process sees the pending batch without having processed anything.
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (1, 0));
 
-    record_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1)
+    save_fixture_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1)
         .await
         .unwrap();
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (1, 1));
 
     // A reorg removes the batch, and both watermarks fall back with it.
-    sqlx::query("DELETE FROM via_votable_transactions WHERE l1_batch_number = $1")
+    sqlx::query("UPDATE via_proof_inclusions SET revoked_at=NOW() WHERE id IN(SELECT reader_proof_inclusion_id FROM via_proof_verdicts WHERE l1_batch_number=$1)")
         .bind(BATCH)
         .execute(storage.conn())
         .await
@@ -471,76 +689,113 @@ async fn lifecycle_fixture_with_genesis(
         governance: address.clone(),
         verifiers: vec![address.clone()],
     };
-    storage
-        .via_wallet_dal()
-        .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 1)
+    use bitcoin::{hashes::Hash, Txid};
+    let mut tx = storage.start_transaction().await.unwrap();
+    tx.via_indexer_dal().lock_source_writer().await.unwrap();
+    let bootstrap = serde_json::json!({"role":"Verifier","addresses":address.to_string(),"origin":"bootstrap","baseline":0});
+    sqlx::query("UPDATE via_wallets SET address=$1,immutable_payload=$2 WHERE role='Verifier'")
+        .bind(address.to_string())
+        .bind(bootstrap)
+        .execute(tx.conn())
         .await
         .unwrap();
-    storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+    tx.via_wallet_dal()
+        .insert_bootstrap_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 0)
+        .await
+        .unwrap();
     let version = v28_patches(&[0])[0];
-    storage
-        .via_protocol_versions_dal()
+    tx.via_protocol_versions_dal()
         .save_protocol_version(version, &[0; 32], &[0; 32], &[0; 32], &[0; 32])
         .await
         .unwrap();
-    sqlx::query("UPDATE protocol_versions SET executed = TRUE")
-        .execute(storage.conn())
+    tx.via_protocol_versions_dal()
+        .mark_via_bootstrap_version(version, &[0; 32], &[0; 32], &[0; 32], &[0; 32])
         .await
         .unwrap();
+    tx.via_protocol_versions_dal().mark_upgrade_as_executed(&[0; 32]).await.unwrap();
     let proof_hash = H256::from_str(&proof_tx.compute_txid().to_string()).unwrap();
-    sqlx::query("UPDATE via_votable_transactions SET l1_batch_number = $1, l1_batch_hash = $2, prev_l1_batch_hash = $3, proof_reveal_tx_id = $4")
-        .bind(i64::from(batch)).bind(input.l1_batch_hash.as_bytes())
-        .bind(input.prev_l1_batch_hash.as_bytes()).bind(proof_hash.as_bytes())
-        .execute(storage.conn()).await.unwrap();
-    storage
-        .via_votes_dal()
-        .insert_votable_transaction(
-            batch - 1,
-            input.prev_l1_batch_hash,
-            H256::zero(),
-            "fixture".into(),
-            H256::repeat_byte(8),
-            "previous".into(),
-            "previous".into(),
-            "previous".into(),
-            None,
-        )
-        .await
-        .unwrap();
+    let mut parser = via_btc_client::indexer::MessageParser::new(bitcoin::Network::Regtest);
+    let proof_message = parser.parse_system_transaction(&proof_tx, 1, None).pop().unwrap();
+    let batch_message = parser.parse_system_transaction(&batch_tx, 1, None).pop().unwrap();
+    let payload = serde_json::json!({"batch":batch,"message":{
+        "proof":via_btc_client::indexer::replay::semantic_payload(&proof_message).unwrap(),
+        "batch":via_btc_client::indexer::replay::semantic_payload(&batch_message).unwrap(),
+    }});
     sqlx::query(
-        "UPDATE via_votable_transactions SET l1_batch_status = TRUE WHERE l1_batch_number = $1",
+        "UPDATE via_proof_evidence SET proof_txid=$1,l1_batch_number=$2,immutable_payload=$3",
     )
-    .bind(i64::from(batch - 1))
-    .execute(storage.conn())
+    .bind(proof_tx.compute_txid().as_byte_array().as_slice())
+    .bind(i64::from(batch))
+    .bind(payload)
+    .execute(tx.conn())
     .await
     .unwrap();
-    sqlx::query("INSERT INTO via_withdrawal_holds(wallet, reference, reason, source) VALUES ($1, 'keep', 'unresolved', $2)")
-        .bind(address.script_pubkey().as_bytes()).bind(&[7_u8; 32][..])
-        .execute(storage.conn()).await.unwrap();
-    storage
-        .via_votes_dal()
-        .insert_votable_transaction(
-            batch + 1,
-            H256::repeat_byte(10),
-            input.l1_batch_hash,
-            "fixture".into(),
-            H256::repeat_byte(10),
-            "next_proof".into(),
-            "next_tx".into(),
-            "next_blob".into(),
-            None,
+    sqlx::query("UPDATE via_proof_inclusions SET carrier_txid=$1")
+        .bind(proof_tx.compute_txid().as_byte_array().as_slice())
+        .execute(tx.conn())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE via_proof_verdicts SET l1_batch_number=$1,l1_batch_hash=$2,prev_l1_batch_hash=$3,proof_reveal_tx_id=$4,proof_blob_id='proof',pubdata_reveal_tx_id=$5,pubdata_blob_id='pubdata',da_identifier='fixture'")
+        .bind(i64::from(batch)).bind(input.l1_batch_hash.as_bytes()).bind(input.prev_l1_batch_hash.as_bytes()).bind(proof_hash.as_bytes()).bind(batch_tx.compute_txid().to_string()).execute(tx.conn()).await.unwrap();
+    let (set_id, _) = tx.via_wallet_dal().verifier_set_before(1).await.unwrap();
+    let header =
+        via_reorg::chain::BlockRef { height: 1, block_hash: BlockHash::from_byte_array([1; 32]) };
+    for (batch_number, hash, parent, identity, blob) in [
+        (batch - 1, input.prev_l1_batch_hash, H256::zero(), 8u8, "previous"),
+        (batch + 1, H256::repeat_byte(10), input.l1_batch_hash, 10u8, "next"),
+    ] {
+        let proof = Txid::from_byte_array([identity; 32]);
+        let details = via_test_utils::reader_db::ProofVerdict {
+            batch: batch_number,
+            batch_hash: hash,
+            parent_hash: parent,
+            proof_txid: proof,
+            proof_blob: blob.into(),
+            batch_txid: blob.into(),
+            batch_blob: blob.into(),
+            da_identifier: "fixture".into(),
+        };
+        let id = via_test_utils::reader_db::verdict(
+            tx.conn(),
+            &details,
+            via_reorg::chain::MessageRef {
+                block: header,
+                carrier_txid: proof,
+                tx_index: u32::from(identity),
+                message_index: 0,
+            },
+            set_id,
         )
         .await
         .unwrap();
-    let id = storage
-        .via_votes_dal()
-        .get_votable_transaction_id(proof_hash.as_bytes())
+        if batch_number < batch {
+            sqlx::query("UPDATE via_proof_verdicts SET l1_batch_status=TRUE WHERE id=$1")
+                .bind(id)
+                .execute(tx.conn())
+                .await
+                .unwrap();
+        }
+    }
+    sqlx::query("INSERT INTO via_withdrawal_holds(wallet,reference,reason,source) VALUES($1,'keep','unresolved',$2)")
+        .bind(address.script_pubkey().as_bytes()).bind([7u8;32].as_slice()).execute(tx.conn()).await.unwrap();
+    let vote = Txid::from_byte_array([42; 32]);
+    tx.via_votes_dal()
+        .record_reader_vote(
+            vote,
+            proof_tx.compute_txid(),
+            &address.to_string(),
+            true,
+            &serde_json::json!({"fixture":true}),
+            via_reorg::chain::MessageRef {
+                block: header,
+                carrier_txid: vote,
+                tx_index: 20,
+                message_index: 0,
+            },
+        )
         .await
-        .unwrap()
         .unwrap();
-    storage.via_votes_dal().insert_vote(id, &address.to_string(), true, None).await.unwrap();
-    storage
-        .via_protocol_versions_dal()
+    tx.via_protocol_versions_dal()
         .save_protocol_version(
             ProtocolSemanticVersion::new(ProtocolVersionId::Version27, VersionPatch(0)),
             &[0; 32],
@@ -550,6 +805,7 @@ async fn lifecycle_fixture_with_genesis(
         )
         .await
         .unwrap();
+    tx.commit().await.unwrap();
     drop(storage);
 
     let transactions = std::collections::HashMap::from([
@@ -726,7 +982,12 @@ async fn durable_effects(storage: &mut Connection<'_, Verifier>) -> Vec<serde_js
     let mut state = Vec::new();
     for table in [
         "via_votable_transactions",
-        "via_votes",
+        "via_proof_evidence",
+        "via_proof_inclusions",
+        "via_proof_finalization",
+        "via_vote_evidence",
+        "via_vote_inclusions",
+        "via_legacy_votes",
         "via_transactions",
         "via_withdrawal_holds",
         "protocol_versions",
@@ -755,7 +1016,34 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
         )
         .await
         .unwrap();
-    storage.via_votes_dal().insert_vote(1, "verifier", true, None).await.unwrap();
+    let mut tx = storage.start_transaction().await.unwrap();
+    tx.via_indexer_dal().lock_source_writer().await.unwrap();
+    let raw: Vec<u8> = sqlx::query_scalar("SELECT proof_txid FROM via_proof_evidence LIMIT 1")
+        .fetch_one(tx.conn())
+        .await
+        .unwrap();
+    use bitcoin::{hashes::Hash, Txid};
+    let vote = Txid::from_byte_array([42; 32]);
+    tx.via_votes_dal()
+        .record_reader_vote(
+            vote,
+            Txid::from_slice(&raw).unwrap(),
+            "verifier",
+            true,
+            &serde_json::json!({"fixture":true}),
+            via_reorg::chain::MessageRef {
+                block: via_reorg::chain::BlockRef {
+                    height: 1,
+                    block_hash: BlockHash::from_byte_array([1; 32]),
+                },
+                carrier_txid: vote,
+                tx_index: 20,
+                message_index: 0,
+            },
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
     sqlx::query(
         "ALTER TABLE protocol_versions ADD CONSTRAINT fixture_upgrade_failure CHECK (NOT executed)",
     )
@@ -763,9 +1051,17 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
     .await
     .unwrap();
     let before = durable_effects(&mut storage).await;
-    record_approval(&mut storage, BATCH, tx_id, Approval::DevAccepted, &pubdata, Some(upgrade), 1)
-        .await
-        .unwrap_err();
+    save_fixture_approval(
+        &mut storage,
+        BATCH,
+        tx_id,
+        Approval::DevAccepted,
+        &pubdata,
+        Some(upgrade),
+        1,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
     assert_eq!(durable_effects(&mut storage).await, before);
 
@@ -773,7 +1069,7 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
         .execute(storage.conn())
         .await
         .unwrap();
-    assert!(record_approval(
+    assert!(save_fixture_approval(
         &mut storage,
         BATCH,
         tx_id,
@@ -802,11 +1098,17 @@ async fn a_development_reorg_rolls_back_the_marker_and_deposit_effects() {
     let (mut storage, tx_id, deposit, pubdata) = approval_fixture(true, false).await;
     storage.via_l1_block_dal().insert_reorg_metadata(1, BATCH).await.unwrap();
     let before = durable_effects(&mut storage).await;
-    assert!(
-        !record_approval(&mut storage, BATCH, tx_id, Approval::DevAccepted, &pubdata, None, 1,)
-            .await
-            .unwrap()
-    );
+    assert!(!save_fixture_approval(
+        &mut storage,
+        BATCH,
+        tx_id,
+        Approval::DevAccepted,
+        &pubdata,
+        None,
+        1,
+    )
+    .await
+    .unwrap());
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
     assert_eq!(durable_effects(&mut storage).await, before);
 }

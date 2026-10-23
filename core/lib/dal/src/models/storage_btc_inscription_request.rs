@@ -2,7 +2,7 @@ use bitcoin::{hashes::Hash, Txid};
 use sqlx::types::chrono::NaiveDateTime;
 use zksync_types::via_btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ViaStorageBtcInscriptionRequest {
     pub id: i64,
     pub l1_batch_number: i64,

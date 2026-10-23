@@ -32,6 +32,12 @@ pub(super) struct ProofContinuityGap {
 pub(super) enum MessageProcessorError {
     #[error(transparent)]
     ProofContinuityGap(Box<ProofContinuityGap>),
+    #[error("configuration not ready: approval {approval} needs proposal {proposal}: {source:#}")]
+    ConfigurationNotReady {
+        approval: bitcoin::Txid,
+        proposal: bitcoin::Txid,
+        source: anyhow::Error,
+    },
     #[error("internal processing error: {0:?}")]
     Internal(#[from] anyhow::Error),
     #[error("database error: {0}")]

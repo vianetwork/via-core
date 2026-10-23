@@ -17,6 +17,7 @@ use crate::{
     },
 };
 
+pub mod replay;
 pub mod withdrawal;
 
 /// Controls withdrawal provenance work independently of deposit and system-message ingestion.
@@ -125,9 +126,16 @@ impl BitcoinInscriptionIndexer {
         debug!("Processing block at height {}", block_height);
 
         let block = self.client.fetch_block(block_height as u128).await?;
+        self.process_checked_block(block_height, &block).await
+    }
+
+    /// The caller supplies the body checked against its requested header; no height-based refetch.
+    pub async fn process_checked_block(
+        &mut self,
+        block_height: u32,
+        block: &bitcoin::Block,
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
         let block_hash = block.block_hash();
-        // TODO: check block header is belong to a valid chain of blocks (reorg detection and management)
-        // TODO: deal with malicious sequencer, verifiers from being able to make trouble by sending invalid messages / valid messages with invalid data
 
         let mut valid_messages = Vec::new();
 
@@ -146,7 +154,7 @@ impl BitcoinInscriptionIndexer {
 
             let mut messages = vec![];
             for message in parsed_messages {
-                if self.is_valid_gov_message(&message).await {
+                if self.is_valid_gov_message(&message).await? {
                     messages.push(message);
                 }
             }
@@ -159,8 +167,12 @@ impl BitcoinInscriptionIndexer {
                 .system_txs
                 .iter()
                 .flat_map(|tx| {
-                    self.parser
-                        .parse_system_transaction(&tx.tx, block_height, Some(&self.wallets))
+                    let mut messages = self.parser
+                        .parse_system_transaction(&tx.tx, block_height, Some(&self.wallets));
+                    for message in &mut messages {
+                        message.common_mut().tx_index = Some(tx.tx_index);
+                    }
+                    messages
                 })
                 .collect();
 
@@ -235,6 +247,7 @@ impl BitcoinInscriptionIndexer {
                         }
                     };
                     if valid {
+                        message.common_mut().tx_index = Some(tx.tx_index);
                         if let FullInscriptionMessage::BridgeWithdrawal(withdrawal) = &mut message {
                             withdrawal.input.block_hash = Some(block_hash);
                         }
@@ -243,6 +256,11 @@ impl BitcoinInscriptionIndexer {
                 }
             }
         }
+
+        for message in &mut valid_messages {
+            message.common_mut().block_hash = Some(block_hash);
+        }
+        let valid_messages = FullInscriptionMessage::sort_messages(valid_messages);
 
         debug!(
             "Processed {} valid messages in block {}",
@@ -262,12 +280,8 @@ impl BitcoinInscriptionIndexer {
             .enumerate()
             .filter_map(|(tx_index, tx)| {
                 let is_valid = tx.input.iter().any(|input| {
-                    if let Some(btc_address) = self.parser.parse_p2wpkh(&input.witness) {
-                        btc_address == self.wallets.sequencer
-                            || self.wallets.verifiers.contains(&btc_address)
-                    } else {
-                        false
-                    }
+                    // Historical membership is checked against the referenced proof's set.
+                    self.parser.parse_p2wpkh(&input.witness).is_some()
                 });
 
                 if is_valid {
@@ -381,11 +395,7 @@ impl BitcoinInscriptionIndexer {
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_system_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
-            FullInscriptionMessage::ValidatorAttestation(m) => m
-                .common
-                .p2wpkh_address
-                .as_ref()
-                .map_or(false, |addr| self.wallets.verifiers.contains(addr)),
+            FullInscriptionMessage::ValidatorAttestation(m) => m.common.p2wpkh_address.is_some(),
             FullInscriptionMessage::L1BatchDAReference(m) => m
                 .common
                 .p2wpkh_address
@@ -421,18 +431,19 @@ impl BitcoinInscriptionIndexer {
         }
     }
 
-    async fn is_valid_gov_message(&self, message: &FullInscriptionMessage) -> bool {
+    async fn is_valid_gov_message(
+        &self,
+        message: &FullInscriptionMessage,
+    ) -> crate::types::BitcoinClientResult<bool> {
         let maybe_input = match message {
             FullInscriptionMessage::SystemContractUpgrade(m) => m.input.inputs.first(),
             FullInscriptionMessage::UpdateBridge(m) => m.input.inputs.first(),
             FullInscriptionMessage::UpdateSequencer(m) => m.input.inputs.first(),
             FullInscriptionMessage::UpdateGovernance(m) => m.input.inputs.first(),
-            _ => return false,
+            _ => return Ok(false),
         };
 
-        self.is_valid_gov_upgrade(maybe_input)
-            .await
-            .unwrap_or(false)
+        self.is_valid_gov_upgrade(maybe_input).await
     }
 
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
@@ -519,7 +530,10 @@ impl BitcoinInscriptionIndexer {
     }
 
     #[instrument(skip(self, outpoint_opt), target = "bitcoin_indexer")]
-    async fn is_valid_gov_upgrade(&self, outpoint_opt: Option<&OutPoint>) -> anyhow::Result<bool> {
+    async fn is_valid_gov_upgrade(
+        &self,
+        outpoint_opt: Option<&OutPoint>,
+    ) -> crate::types::BitcoinClientResult<bool> {
         if let Some(outpoint) = outpoint_opt {
             let tx = self.client.get_transaction(&outpoint.txid).await?;
             if let Some(txout) = tx.output.get(outpoint.vout as usize) {
@@ -610,6 +624,55 @@ mod tests {
         }
     }
 
+    fn test_block(txdata: Vec<Transaction>) -> Block {
+        Block {
+            header: Header {
+                version: Default::default(),
+                prev_blockhash: BlockHash::all_zeros(),
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0,
+                bits: Default::default(),
+                nonce: 0,
+            },
+            txdata,
+        }
+    }
+
+    fn test_transaction(output: Vec<TxOut>) -> Transaction {
+        Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output,
+        }
+    }
+
+    fn withdrawal_payment(parent: &Transaction, vouts: &[u32], amount: u64) -> Transaction {
+        let mut payment = test_transaction(vec![
+            TxOut {
+                value: Amount::from_sat(amount),
+                script_pubkey: get_test_addr().script_pubkey(),
+            },
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: ScriptBuf::new_op_return(
+                    bitcoin::script::PushBytesBuf::try_from(
+                        [b"VIA_WI\0".as_slice(), &[1; 10]].concat(),
+                    )
+                    .unwrap(),
+                ),
+            },
+        ]);
+        payment.input = vouts
+            .iter()
+            .map(|&vout| TxIn {
+                previous_output: OutPoint { txid: parent.compute_txid(), vout },
+                ..TxIn::default()
+            })
+            .collect();
+        payment
+    }
+
     fn get_test_addr() -> Address {
         Address::from_str("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
             .unwrap()
@@ -626,6 +689,8 @@ mod tests {
             tx_id: Txid::all_zeros(),
             p2wpkh_address: Some(get_test_addr()),
             tx_index: None,
+            message_index: None,
+            carrier_tx_id: None,
             output_vout: None,
         }
     }
@@ -647,7 +712,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_inclusion_requires_block_scan_and_preserves_sender_authorization() {
+    async fn source_inclusion_requires_block_scan_and_retains_historical_set_votes() {
         use bitcoin::{
             opcodes::{all, OP_FALSE},
             script::Builder,
@@ -660,7 +725,7 @@ mod tests {
             Keypair::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&[1; 32]).unwrap());
         let (internal_key, _) = keypair.x_only_public_key();
         let sender = Address::p2wpkh(&CompressedPublicKey(keypair.public_key()), Network::Testnet);
-        let envelope = |message_type: &[u8]| {
+        let envelope = |message_type: &[u8], first: &[u8]| {
             Builder::new()
                 .push_slice(internal_key.serialize())
                 .push_opcode(all::OP_CHECKSIG)
@@ -668,19 +733,49 @@ mod tests {
                 .push_opcode(all::OP_IF)
                 .push_slice(b"via_inscription_protocol")
                 .push_slice(bitcoin::script::PushBytesBuf::try_from(message_type.to_vec()).unwrap())
-                .push_slice([7; 32])
+                .push_slice(bitcoin::script::PushBytesBuf::try_from(first.to_vec()).unwrap())
         };
-        let proof = envelope(types::PROOF_DA_REFERENCE_MSG.as_bytes())
+        let mut control_block = vec![LeafVersion::TapScript.to_consensus()];
+        control_block.extend(internal_key.serialize());
+        let batch_script = envelope(types::L1_BATCH_DA_REFERENCE_MSG.as_bytes(), &[7; 32])
+            .push_slice(0_u32.to_be_bytes())
+            .push_slice(b"test-da")
+            .push_slice(b"test-batch")
+            .push_slice([6; 32])
+            .push_opcode(all::OP_ENDIF)
+            .into_script();
+        let batch = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![
+                TxIn {
+                    witness: Witness::from_slice(&[
+                        vec![0; 64],
+                        batch_script.into_bytes(),
+                        control_block.clone(),
+                    ]),
+                    ..TxIn::default()
+                },
+                TxIn {
+                    witness: Witness::from_slice(&[
+                        vec![0; 64],
+                        keypair.public_key().serialize().to_vec(),
+                    ]),
+                    ..TxIn::default()
+                },
+            ],
+            output: vec![],
+        };
+        let batch_identity = batch.compute_txid();
+        let proof = envelope(types::PROOF_DA_REFERENCE_MSG.as_bytes(), batch_identity.as_byte_array())
             .push_slice(b"test-da")
             .push_slice(b"test-proof")
             .push_opcode(all::OP_ENDIF)
             .into_script();
-        let vote = envelope(types::VALIDATOR_ATTESTATION_MSG.as_bytes())
+        let vote = envelope(types::VALIDATOR_ATTESTATION_MSG.as_bytes(), &[7; 32])
             .push_int(1)
             .push_opcode(all::OP_ENDIF)
             .into_script();
-        let mut control_block = vec![LeafVersion::TapScript.to_consensus()];
-        control_block.extend(internal_key.serialize());
         let mut inputs: Vec<_> = [proof, vote]
             .into_iter()
             .map(|script| TxIn {
@@ -696,12 +791,20 @@ mod tests {
             witness: Witness::from_slice(&[vec![0; 64], keypair.public_key().serialize().to_vec()]),
             ..TxIn::default()
         });
-        let transaction = Transaction {
+        let mut transaction = Transaction {
             version: transaction::Version::TWO,
             lock_time: absolute::LockTime::ZERO,
             input: inputs,
             output: vec![],
         };
+        let proof_identity: Txid = transaction.compute_ntxid().into();
+        let vote =
+            envelope(types::VALIDATOR_ATTESTATION_MSG.as_bytes(), proof_identity.as_byte_array())
+                .push_int(1)
+                .push_opcode(all::OP_ENDIF)
+                .into_script();
+        transaction.input[1].witness =
+            Witness::from_slice(&[vec![0; 64], vote.into_bytes(), control_block.clone()]);
         let block = Block {
             header: Header {
                 version: Default::default(),
@@ -737,12 +840,29 @@ mod tests {
                 .with(eq(42u128))
                 .times(2)
                 .returning(move |_| Ok(scanned_block.clone()));
+            let linked = batch.clone();
+            client.expect_get_transaction().with(eq(batch_identity)).times(2)
+                .returning(move |_| Ok(linked.clone()));
+            let mut wrong_batch = batch.clone();
+            wrong_batch.lock_time = absolute::LockTime::from_consensus(1);
+            client.expect_get_transaction().with(eq(batch_identity)).times(1)
+                .returning(move |_| Ok(wrong_batch.clone()));
             let mut indexer = get_indexer_with_mock(client).with_withdrawal_mode(mode);
             let wallets = Arc::make_mut(&mut indexer.wallets);
             wallets.sequencer = sender.clone();
             wallets.verifiers = vec![sender.clone()];
             let messages = indexer.process_block(42).await.unwrap();
             assert_eq!(messages.len(), 2);
+            let mut pending = crate::migration::MigrationProofPrefix::default();
+            let proof_only = messages.iter().filter(|message| matches!(message, FullInscriptionMessage::ProofDAReference(_))).cloned().collect::<Vec<_>>();
+            let prepared = pending.prepare_block(&mut indexer, &proof_only).await.unwrap();
+            assert_eq!(prepared[0].batch.l1_batch_index.0, 0);
+            assert_eq!(pending.rotation_admission(0.66).unwrap(), via_reorg::configuration::RotationAdmission::RejectedEarlierUnfinalizedProof);
+            let mut complete = crate::migration::MigrationProofPrefix::default();
+            complete.prepare_block(&mut indexer, &messages).await.unwrap();
+            assert_eq!(complete.rotation_admission(0.66).unwrap(), via_reorg::configuration::RotationAdmission::Accepted);
+            let mut inconsistent = crate::migration::MigrationProofPrefix::default();
+            assert!(inconsistent.prepare_block(&mut indexer,&messages).await.is_err());
             for message in messages {
                 let source = common(message);
                 assert_eq!(
@@ -751,11 +871,11 @@ mod tests {
                 );
             }
             Arc::make_mut(&mut indexer.wallets).verifiers.clear();
+            assert_eq!(complete.rotation_admission(0.66).unwrap(), via_reorg::configuration::RotationAdmission::Accepted);
             let messages = indexer.process_block(42).await.unwrap();
-            assert!(matches!(
-                messages.as_slice(),
-                [FullInscriptionMessage::ProofDAReference(_)]
-            ));
+            assert_eq!(messages.len(),2);
+            assert!(messages.iter().any(|message| matches!(message,FullInscriptionMessage::ProofDAReference(_))));
+            assert!(messages.iter().any(|message| matches!(message,FullInscriptionMessage::ValidatorAttestation(vote) if vote.common.p2wpkh_address.as_ref()==Some(&sender))));
         }
     }
 
@@ -781,11 +901,7 @@ mod tests {
                 } else {
                     [b"VIA_WI\0".as_slice(), &[1; 10]].concat()
                 };
-                let mut candidate = Transaction {
-                    version: transaction::Version::TWO,
-                    lock_time: absolute::LockTime::ZERO,
-                    input: vec![TxIn::default()],
-                    output: vec![
+                let mut candidate = test_transaction(vec![
                         TxOut {
                             value: Amount::from_sat(100_000),
                             script_pubkey: bridge.script_pubkey(),
@@ -796,17 +912,12 @@ mod tests {
                                 bitcoin::script::PushBytesBuf::try_from(metadata).unwrap(),
                             ),
                         },
-                    ],
-                };
+                    ]);
                 // An unrelated deposit on the same transaction must survive skipping
                 // its withdrawal classification, as must a separate deposit transaction.
                 candidate.input[0].witness =
                     parser::tests::inscription_witness(&[0x83; 20], &[0; 20]);
-                let deposit = Transaction {
-                    version: transaction::Version::TWO,
-                    lock_time: absolute::LockTime::ZERO,
-                    input: vec![TxIn::default()],
-                    output: vec![
+                let deposit = test_transaction(vec![
                         TxOut {
                             value: Amount::from_sat(100_000),
                             script_pubkey: bridge.script_pubkey(),
@@ -815,19 +926,8 @@ mod tests {
                             value: Amount::ZERO,
                             script_pubkey: ScriptBuf::new_op_return([0x81; 20]),
                         },
-                    ],
-                };
-                let block = Block {
-                    header: Header {
-                        version: Default::default(),
-                        prev_blockhash: BlockHash::all_zeros(),
-                        merkle_root: TxMerkleNode::all_zeros(),
-                        time: 0,
-                        bits: Default::default(),
-                        nonce: 0,
-                    },
-                    txdata: vec![candidate, deposit],
-                };
+                    ]);
+                let block = test_block(vec![candidate, deposit]);
                 let mut client = MockBitcoinOps::new();
                 client
                     .expect_fetch_block()
@@ -875,11 +975,7 @@ mod tests {
     #[tokio::test]
     async fn same_block_parents_preserve_verified_mixed_input_payments_without_rpc() {
         for mode in [WithdrawalScanMode::Required, WithdrawalScanMode::BestEffort] {
-            let parent = Transaction {
-                version: transaction::Version::TWO,
-                lock_time: absolute::LockTime::ZERO,
-                input: vec![TxIn::default()],
-                output: vec![
+            let parent = test_transaction(vec![
                     TxOut {
                         value: Amount::from_sat(10_000),
                         script_pubkey: ScriptBuf::new(),
@@ -888,48 +984,9 @@ mod tests {
                         value: Amount::from_sat(10_000),
                         script_pubkey: get_test_addr().script_pubkey(),
                     },
-                ],
-            };
-            let payment = Transaction {
-                version: transaction::Version::TWO,
-                lock_time: absolute::LockTime::ZERO,
-                input: [0, 1]
-                    .into_iter()
-                    .map(|vout| TxIn {
-                        previous_output: OutPoint {
-                            txid: parent.compute_txid(),
-                            vout,
-                        },
-                        ..TxIn::default()
-                    })
-                    .collect(),
-                output: vec![
-                    TxOut {
-                        value: Amount::from_sat(19_000),
-                        script_pubkey: get_test_addr().script_pubkey(),
-                    },
-                    TxOut {
-                        value: Amount::ZERO,
-                        script_pubkey: ScriptBuf::new_op_return(
-                            bitcoin::script::PushBytesBuf::try_from(
-                                [b"VIA_WI\0".as_slice(), &[1; 10]].concat(),
-                            )
-                            .unwrap(),
-                        ),
-                    },
-                ],
-            };
-            let block = Block {
-                header: Header {
-                    version: Default::default(),
-                    prev_blockhash: BlockHash::all_zeros(),
-                    merkle_root: TxMerkleNode::all_zeros(),
-                    time: 0,
-                    bits: Default::default(),
-                    nonce: 0,
-                },
-                txdata: vec![parent.clone(), payment.clone()],
-            };
+                ]);
+            let payment = withdrawal_payment(&parent,&[0,1],19000);
+            let block = test_block(vec![parent.clone(), payment.clone()]);
             let mut client = MockBitcoinOps::new();
             client
                 .expect_fetch_block()
@@ -957,52 +1014,12 @@ mod tests {
 
     #[tokio::test]
     async fn withdrawal_parent_unavailability_defers_and_retry_retains_whole_payment() {
-        let parent = BitcoinTransaction {
-            version: transaction::Version::TWO,
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn::default()],
-            output: vec![TxOut {
+        let parent = test_transaction(vec![TxOut {
                 value: Amount::from_sat(10_000),
                 script_pubkey: get_test_addr().script_pubkey(),
-            }],
-        };
-        let payment = BitcoinTransaction {
-            version: transaction::Version::TWO,
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn {
-                previous_output: OutPoint {
-                    txid: parent.compute_txid(),
-                    vout: 0,
-                },
-                ..TxIn::default()
-            }],
-            output: vec![
-                TxOut {
-                    value: Amount::from_sat(9_000),
-                    script_pubkey: get_test_addr().script_pubkey(),
-                },
-                TxOut {
-                    value: Amount::ZERO,
-                    script_pubkey: ScriptBuf::new_op_return(
-                        bitcoin::script::PushBytesBuf::try_from(
-                            [b"VIA_WI\0".as_slice(), &[1; 10]].concat(),
-                        )
-                        .unwrap(),
-                    ),
-                },
-            ],
-        };
-        let block = Block {
-            header: Header {
-                version: Default::default(),
-                prev_blockhash: BlockHash::all_zeros(),
-                merkle_root: TxMerkleNode::all_zeros(),
-                time: 0,
-                bits: Default::default(),
-                nonce: 0,
-            },
-            txdata: vec![payment.clone()],
-        };
+            }]);
+        let payment = withdrawal_payment(&parent, &[0], 9000);
+        let block = test_block(vec![payment.clone()]);
         let block_hash = block.block_hash();
         let mut client = MockBitcoinOps::new();
         client
@@ -1040,11 +1057,7 @@ mod tests {
 
     #[tokio::test]
     async fn third_party_metadata_does_not_create_a_bridge_observation() {
-        let parent = BitcoinTransaction {
-            version: transaction::Version::TWO,
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn::default()],
-            output: vec![
+        let parent = test_transaction(vec![
                 TxOut {
                     value: Amount::from_sat(10_000),
                     script_pubkey: ScriptBuf::new(),
@@ -1053,34 +1066,8 @@ mod tests {
                     value: Amount::from_sat(1_000),
                     script_pubkey: get_test_addr().script_pubkey(),
                 },
-            ],
-        };
-        let mut tx = BitcoinTransaction {
-            version: transaction::Version::TWO,
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn {
-                previous_output: OutPoint {
-                    txid: parent.compute_txid(),
-                    vout: 0,
-                },
-                ..TxIn::default()
-            }],
-            output: vec![
-                TxOut {
-                    value: Amount::from_sat(9_000),
-                    script_pubkey: get_test_addr().script_pubkey(),
-                },
-                TxOut {
-                    value: Amount::ZERO,
-                    script_pubkey: ScriptBuf::new_op_return(
-                        bitcoin::script::PushBytesBuf::try_from(
-                            [b"VIA_WI\0".as_slice(), &[1; 10]].concat(),
-                        )
-                        .unwrap(),
-                    ),
-                },
-            ],
-        };
+            ]);
+        let mut tx = withdrawal_payment(&parent, &[0], 9000);
         let mut client = MockBitcoinOps::new();
         client
             .expect_get_transaction()
@@ -1157,19 +1144,14 @@ mod tests {
     #[tokio::test]
     async fn malformed_bridge_metadata_defers_but_unrelated_metadata_does_not() {
         for bridge_spend in [true, false] {
-            let parent = Transaction {
-                version: transaction::Version::TWO,
-                lock_time: absolute::LockTime::ZERO,
-                input: vec![TxIn::default()],
-                output: vec![TxOut {
+            let parent = test_transaction(vec![TxOut {
                     value: Amount::from_sat(10_000),
                     script_pubkey: if bridge_spend {
                         get_test_addr().script_pubkey()
                     } else {
                         ScriptBuf::new()
                     },
-                }],
-            };
+                }]);
             let payment = Transaction {
                 version: transaction::Version::TWO,
                 lock_time: absolute::LockTime::ZERO,
@@ -1185,17 +1167,7 @@ mod tests {
                     script_pubkey: ScriptBuf::new_op_return(b"VIA_WI"),
                 }],
             };
-            let block = Block {
-                header: Header {
-                    version: Default::default(),
-                    prev_blockhash: BlockHash::all_zeros(),
-                    merkle_root: TxMerkleNode::all_zeros(),
-                    time: 0,
-                    bits: Default::default(),
-                    nonce: 0,
-                },
-                txdata: vec![payment],
-            };
+            let block = test_block(vec![payment]);
             let mut client = MockBitcoinOps::new();
             client
                 .expect_fetch_block()
@@ -1220,11 +1192,7 @@ mod tests {
 
         let mut op_return_script = vec![0x6a, 0x13];
         op_return_script.extend([0x55; 19]);
-        let malformed_transaction = Transaction {
-            version: transaction::Version::TWO,
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn::default()],
-            output: vec![
+        let malformed_transaction = test_transaction(vec![
                 TxOut {
                     value: Amount::from_sat(100_000),
                     script_pubkey: get_test_addr().script_pubkey(),
@@ -1233,8 +1201,7 @@ mod tests {
                     value: Amount::ZERO,
                     script_pubkey: ScriptBuf::from_bytes(op_return_script),
                 },
-            ],
-        };
+            ]);
         let mut valid_transaction = malformed_transaction.clone();
         valid_transaction.output[1].script_pubkey = ScriptBuf::new_op_return([0x81; 20]);
         let mut malformed_receiver = malformed_transaction.clone();
@@ -1242,36 +1209,21 @@ mod tests {
             parser::tests::inscription_witness(&[0x55; 19], &[0; 20]);
         let mut malformed_withdrawal = malformed_transaction.clone();
         malformed_withdrawal.output[1].script_pubkey = ScriptBuf::new_op_return(b"VIA_WI");
-        let unrelated_parent = Transaction {
-            version: transaction::Version::TWO,
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn::default()],
-            output: vec![TxOut {
+        let unrelated_parent = test_transaction(vec![TxOut {
                 value: Amount::from_sat(100_000),
                 script_pubkey: ScriptBuf::new(),
-            }],
-        };
+            }]);
         malformed_withdrawal.input[0].previous_output = OutPoint {
             txid: unrelated_parent.compute_txid(),
             vout: 0,
         };
 
-        let mock_block = Block {
-            header: Header {
-                version: Default::default(),
-                prev_blockhash: BlockHash::all_zeros(),
-                merkle_root: TxMerkleNode::all_zeros(),
-                time: 0,
-                bits: Default::default(),
-                nonce: 0,
-            },
-            txdata: vec![
+        let mock_block = test_block(vec![
                 malformed_transaction,
                 malformed_receiver,
                 malformed_withdrawal,
                 valid_transaction,
-            ],
-        };
+            ]);
 
         let mut mock_client = MockBitcoinOps::new();
         mock_client
@@ -1301,6 +1253,69 @@ mod tests {
             assert_eq!(deposit.common.tx_index, Some(3));
             assert_eq!(deposit.common.output_vout, Some(0));
         }
+        for prefix in [b"VIA_PROTOCOL:GOV".as_slice(), b"VIA_PROTOCOL:SEQ".as_slice()] {
+            let transaction = test_transaction(vec![TxOut {
+                value: Amount::ZERO,
+                script_pubkey: ScriptBuf::new_op_return(
+                    bitcoin::script::PushBytesBuf::try_from(prefix.to_vec()).unwrap(),
+                ),
+            }]);
+            let metadata = crate::types::TransactionWithMetadata {
+                tx: transaction,
+                tx_index: 0,
+                output_vout: None,
+            };
+            assert!(indexer.parser.parse_protocol_upgrade_transactions(&metadata, 4).is_empty());
+        }
+        // An unavailable authorization parent cannot acknowledge the block as empty.
+        for unavailable in [false, true] {
+            let parent = test_transaction(vec![TxOut {
+                value: Amount::from_sat(100_000),
+                script_pubkey: get_test_addr().script_pubkey(),
+            }]);
+            let mut data = b"VIA_PROTOCOL:GOV:".to_vec();
+            data.extend(get_test_addr().to_string().as_bytes());
+            let approval = Transaction {
+                input: vec![TxIn {
+                    previous_output: OutPoint { txid: parent.compute_txid(), vout: 0 },
+                    ..TxIn::default()
+                }],
+                output: vec![
+                    parent.output[0].clone(),
+                    TxOut {
+                        value: Amount::ZERO,
+                        script_pubkey: ScriptBuf::new_op_return(
+                            bitcoin::script::PushBytesBuf::try_from(data).unwrap(),
+                        ),
+                    },
+                ],
+                ..parent.clone()
+            };
+            let mut mock = MockBitcoinOps::new();
+            mock.expect_get_transaction().times(1).returning(move |_| {
+                if unavailable {
+                    Err(types::BitcoinError::Rpc("governance parent unavailable".into()))
+                } else {
+                    Ok(parent.clone())
+                }
+            });
+            let block = Block {
+                header: bitcoin::blockdata::constants::genesis_block(Network::Testnet).header,
+                txdata: vec![approval],
+            };
+            let result = get_indexer_with_mock(mock).process_checked_block(4, &block).await;
+            if unavailable {
+                assert!(matches!(
+                    result,
+                    Err(types::IndexerError::BitcoinClientError(types::BitcoinError::Rpc(_)))
+                ));
+            } else {
+                assert!(matches!(
+                    result.unwrap().as_slice(),
+                    [FullInscriptionMessage::UpdateGovernance(_)]
+                ));
+            }
+        }
     }
 
     #[tokio::test]
@@ -1315,20 +1330,11 @@ mod tests {
                     attestation: Vote::Ok,
                 },
             });
-        assert!(!indexer.is_valid_system_message(&validator_attestation));
+        assert!(indexer.is_valid_system_message(&validator_attestation));
 
         let l1_batch_da_reference =
             FullInscriptionMessage::L1BatchDAReference(types::L1BatchDAReference {
-                common: CommonFields {
-                    schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-                    encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
-                    block_height: 0,
-                    block_hash: None,
-                    tx_id: Txid::all_zeros(),
-                    p2wpkh_address: Some(get_test_addr()),
-                    tx_index: None,
-                    output_vout: None,
-                },
+                common: get_test_common_fields(),
                 input: types::L1BatchDAReferenceInput {
                     l1_batch_hash: zksync_basic_types::H256::zero(),
                     l1_batch_index: zksync_types::L1BatchNumber(0),

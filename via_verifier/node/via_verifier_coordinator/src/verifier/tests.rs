@@ -115,57 +115,72 @@ async fn seed(
     wallets: &SystemWallets,
     batch: &CompleteWithdrawalBatch,
 ) {
-    let mut db = pool.connection().await.unwrap();
+    let mut connection = pool.connection().await.unwrap();
+    let mut db = connection.start_transaction().await.unwrap();
+    db.via_indexer_dal().lock_source_writer().await.unwrap();
     db.via_wallet_dal()
-        .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 1)
+        .insert_bootstrap_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 0)
         .await
         .unwrap();
-    db.via_indexer_dal()
-        .init_indexer_metadata("via_btc_watch", 1)
-        .await
-        .unwrap();
+    db.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
     let proof = H256::repeat_byte(4);
-    let source_block = BlockHash::from_byte_array([5; 32]);
-    db.via_l1_block_dal()
-        .insert_l1_block(1, source_block.to_string())
-        .await
-        .unwrap();
+    let header = via_reorg::chain::Header {
+        height: 1,
+        block_hash: BlockHash::from_byte_array([5; 32]),
+        parent_hash: BlockHash::all_zeros(),
+    };
+    db.via_l1_block_dal().accept_header(header).await.unwrap();
+    let (set, _) = db.via_wallet_dal().verifier_set_before(1).await.unwrap();
+    let id = via_test_utils::reader_db::verdict(
+        db.conn(),
+        &via_test_utils::reader_db::ProofVerdict {
+            batch: 1,
+            batch_hash: H256::repeat_byte(3),
+            parent_hash: H256::zero(),
+            proof_txid: Txid::from_byte_array([4; 32]),
+            proof_blob: "proof".into(),
+            batch_txid: "pubdata".into(),
+            batch_blob: batch.blob_id.clone(),
+            da_identifier: "fixture".into(),
+        },
+        via_reorg::chain::MessageRef {
+            block: header.into(),
+            carrier_txid: Txid::from_byte_array([4; 32]),
+            tx_index: 1,
+            message_index: 0,
+        },
+        set,
+    )
+    .await
+    .unwrap();
     db.via_votes_dal()
-        .insert_votable_transaction(
-            1,
-            H256::repeat_byte(3),
-            H256::zero(),
-            "fixture".into(),
-            proof,
-            "proof".into(),
-            "pubdata".into(),
-            batch.blob_id.clone(),
-            Some((1, source_block)),
-        )
+        .mark_proof_verified(id, &serde_json::json!({"fixture":"completed local proof"}))
         .await
         .unwrap();
-    let id = db
-        .via_votes_dal()
-        .verify_votable_transaction(1, proof, true)
-        .await
-        .unwrap();
-    for verifier in &wallets.verifiers {
+    for (index, verifier) in wallets.verifiers.iter().enumerate() {
+        let identity = Txid::from_byte_array([10 + index as u8; 32]);
         db.via_votes_dal()
-            .insert_vote(id, &verifier.to_string(), true, Some((1, source_block)))
+            .record_reader_vote(
+                identity,
+                Txid::from_byte_array([4; 32]),
+                &verifier.to_string(),
+                true,
+                &serde_json::json!({"fixture":"observed vote"}),
+                via_reorg::chain::MessageRef {
+                    block: header.into(),
+                    carrier_txid: identity,
+                    tx_index: 2 + index as u32,
+                    message_index: 0,
+                },
+            )
             .await
             .unwrap();
     }
-    assert!(db
-        .via_votes_dal()
-        .finalize_transaction_if_needed(id, 1.0, 2)
-        .await
-        .unwrap());
+    assert!(db.via_votes_dal().finalize_transaction_if_needed(id, 1.0).await.unwrap());
+    db.commit().await.unwrap();
+    let mut db = connection;
     db.via_withdrawal_dal()
-        .import_complete_batch(
-            wallets.bridge.script_pubkey().as_bytes(),
-            proof.as_bytes(),
-            batch,
-        )
+        .import_complete_batch(wallets.bridge.script_pubkey().as_bytes(), proof.as_bytes(), batch)
         .await
         .unwrap();
 
@@ -1751,12 +1766,15 @@ async fn bounded_signing_digest_precedes_bincode_and_real_signer_admission() {
     let mut client = network.writer(&server);
     let (pool, wallets) = (&network.pool, &network.wallets);
     let mut owner = pool.connection().await.unwrap();
-    owner
+    let mut setup = owner.start_transaction().await.unwrap();
+    setup.via_indexer_dal().lock_source_writer().await.unwrap();
+    setup
         .via_wallet_dal()
-        .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 1)
+        .insert_bootstrap_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 0)
         .await
         .unwrap();
-    owner.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+    setup.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+    setup.commit().await.unwrap();
     let wallet = wallets.bridge.script_pubkey().into_bytes();
     assert!(owner.via_withdrawal_dal().acquire_withdrawal_signer_lock(&wallet).await.unwrap());
     let error = client.iteration(&mut owner, &wallet).await.unwrap_err();

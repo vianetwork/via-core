@@ -86,6 +86,12 @@ pub struct BlockHeaderInfo {
     pub membership: HeaderMembership,
 }
 
+impl From<BlockHeaderInfo> for via_reorg::chain::Header<bitcoin::BlockHash> {
+    fn from(header: BlockHeaderInfo) -> Self {
+        Self { block_hash: header.hash, parent_hash: header.parent_hash, height: header.height }
+    }
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum HeaderValidationError {
     #[error("response hash mismatch")]
@@ -154,8 +160,31 @@ pub struct CommonFields {
     pub block_hash: Option<bitcoin::BlockHash>,
     pub tx_id: Txid,
     pub tx_index: Option<usize>,
+    /// Input index, or number of inputs plus output index, in the original transaction.
+    pub message_index: Option<usize>,
+    pub carrier_tx_id: Option<Txid>,
     pub output_vout: Option<usize>,
     pub p2wpkh_address: Option<BitcoinAddress>,
+}
+
+impl CommonFields {
+    pub fn inclusion(&self) -> Result<via_reorg::chain::MessageRef<bitcoin::BlockHash, Txid>> {
+        use via_reorg::chain::{BlockRef, MessageRef};
+        let missing =
+            || BitcoinError::InvalidTransaction("missing checked message coordinates".into());
+        Ok(MessageRef {
+            block: BlockRef {
+                height: self.block_height,
+                block_hash: self.block_hash.ok_or_else(missing)?,
+            },
+            carrier_txid: self.carrier_tx_id.ok_or_else(missing)?,
+            tx_index: self.tx_index.and_then(|index| index.try_into().ok()).ok_or_else(missing)?,
+            message_index: self
+                .message_index
+                .and_then(|index| index.try_into().ok())
+                .ok_or_else(missing)?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -359,29 +388,46 @@ pub enum FullInscriptionMessage {
 }
 
 impl FullInscriptionMessage {
-    /// Return a numeric sort key that reflects the enum declaration order
-    fn order_key(&self) -> usize {
-        match self {
-            FullInscriptionMessage::L1BatchDAReference(_) => 0,
-            FullInscriptionMessage::ProofDAReference(_) => 1,
-            FullInscriptionMessage::ValidatorAttestation(_) => 2,
-            FullInscriptionMessage::SystemBootstrapping(_) => 3,
-            FullInscriptionMessage::L1ToL2Message(_) => 4,
-            FullInscriptionMessage::SystemContractUpgradeProposal(_) => 5,
-            FullInscriptionMessage::BridgeWithdrawal(_) => 6,
-            FullInscriptionMessage::UpdateBridgeProposal(_) => 7,
+    pub fn sort_messages(mut msgs: Vec<FullInscriptionMessage>) -> Vec<FullInscriptionMessage> {
+        msgs.sort_by_key(|msg| {
+            let common = msg.common();
+            (common.block_height, common.tx_index, common.message_index)
+        });
+        msgs
+    }
 
-            // System inscriptions must be ordered to ensure the indexer always uses the latest wallet state.
-            FullInscriptionMessage::UpdateGovernance(_) => 8,
-            FullInscriptionMessage::UpdateSequencer(_) => 9,
-            FullInscriptionMessage::SystemContractUpgrade(_) => 10,
-            FullInscriptionMessage::UpdateBridge(_) => 11,
+    pub fn common(&self) -> &CommonFields {
+        match self {
+            Self::L1BatchDAReference(msg) => &msg.common,
+            Self::ProofDAReference(msg) => &msg.common,
+            Self::ValidatorAttestation(msg) => &msg.common,
+            Self::SystemBootstrapping(msg) => &msg.common,
+            Self::L1ToL2Message(msg) => &msg.common,
+            Self::SystemContractUpgradeProposal(msg) => &msg.common,
+            Self::BridgeWithdrawal(msg) => &msg.common,
+            Self::UpdateBridgeProposal(msg) => &msg.common,
+            Self::UpdateGovernance(msg) => &msg.common,
+            Self::UpdateSequencer(msg) => &msg.common,
+            Self::SystemContractUpgrade(msg) => &msg.common,
+            Self::UpdateBridge(msg) => &msg.common,
         }
     }
 
-    pub fn sort_messages(mut msgs: Vec<FullInscriptionMessage>) -> Vec<FullInscriptionMessage> {
-        msgs.sort_by_key(|msg| msg.order_key());
-        msgs
+    pub fn common_mut(&mut self) -> &mut CommonFields {
+        match self {
+            Self::L1BatchDAReference(msg) => &mut msg.common,
+            Self::ProofDAReference(msg) => &mut msg.common,
+            Self::ValidatorAttestation(msg) => &mut msg.common,
+            Self::SystemBootstrapping(msg) => &mut msg.common,
+            Self::L1ToL2Message(msg) => &mut msg.common,
+            Self::SystemContractUpgradeProposal(msg) => &mut msg.common,
+            Self::BridgeWithdrawal(msg) => &mut msg.common,
+            Self::UpdateBridgeProposal(msg) => &mut msg.common,
+            Self::UpdateGovernance(msg) => &mut msg.common,
+            Self::UpdateSequencer(msg) => &mut msg.common,
+            Self::SystemContractUpgrade(msg) => &mut msg.common,
+            Self::UpdateBridge(msg) => &mut msg.common,
+        }
     }
 }
 
@@ -469,6 +515,8 @@ pub struct InscriberOutput {
 
 #[derive(Debug, Error, Clone)]
 pub enum BitcoinError {
+    #[error("getblockheader {hash}: not canonical at requested height {height}")]
+    NotCanonicalAtHeight { hash: bitcoin::BlockHash, height: u32 },
     #[error("getblockheader {hash}: {reason}")]
     InvalidBlockHeader { hash: bitcoin::BlockHash, reason: HeaderValidationError },
 

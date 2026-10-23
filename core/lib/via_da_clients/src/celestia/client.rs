@@ -46,6 +46,16 @@ impl CelestiaClient {
         Ok(Self { light_node_url: secrets.api_node_url, inner: Arc::new(client), blob_size_limit, namespace })
     }
 
+    async fn get_blob(&self, blob_id: &str) -> Result<Blob, types::DAError> {
+        let (commitment, block_height) = self
+            .parse_blob_id(blob_id)
+            .map_err(|error| types::DAError { error, is_retriable: false })?;
+        self.inner
+            .blob_get(block_height, self.namespace, commitment)
+            .await
+            .map_err(|error| types::DAError { error: error.into(), is_retriable: true })
+    }
+
     fn parse_blob_id(&self, blob_id: &str) -> anyhow::Result<(Commitment, u64)> {
         // [8]byte block height ++ [32]byte commitment
         let mut blob_id_bytes = [0; 40];
@@ -100,15 +110,7 @@ impl DataAvailabilityClient for CelestiaClient {
         &self,
         blob_id: &str,
     ) -> Result<Option<types::InclusionData>, types::DAError> {
-        let (commitment, block_height) = self
-            .parse_blob_id(blob_id)
-            .map_err(|error| types::DAError { error, is_retriable: false })?;
-
-        let blob = self
-            .inner
-            .blob_get(block_height, self.namespace, commitment)
-            .await
-            .map_err(|error| types::DAError { error: error.into(), is_retriable: true })?;
+        let blob = self.get_blob(blob_id).await?;
 
         let data = match ViaDaBlob::from_bytes(&blob.data) {
             Some(blob) => {
@@ -133,20 +135,12 @@ impl DataAvailabilityClient for CelestiaClient {
                     let mut batch_blob = vec![];
 
                     for child_blob_id in blob_ids {
-                        let (commitment, block_height) = self
-                            .parse_blob_id(&child_blob_id)
-                            .map_err(|error| types::DAError {
-                                error: error.context(format!(
-                                    "Failed to parse child blob ID {child_blob_id:?} in manifest {blob_id:?}"
-                                )),
-                                is_retriable: false,
-                            })?;
-
-                        let blob = self
-                            .inner
-                            .blob_get(block_height, self.namespace, commitment)
-                            .await
-                            .map_err(|error| types::DAError { error: error.into(), is_retriable: true })?;
+                        let blob = self.get_blob(&child_blob_id).await.map_err(|mut error| {
+                            error.error = error.error.context(format!(
+                                "Failed to fetch child blob ID {child_blob_id:?} in manifest {blob_id:?}"
+                            ));
+                            error
+                        })?;
 
                         batch_blob.extend_from_slice(&blob.data);
                     }

@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+serde_json.workspace = true
 vise.workspace = true
 via_btc_client.workspace = true
 zksync_shared_metrics.workspace = true
@@ -41,6 +42,7 @@ via_verifier_dal.workspace = true
 via_verifier_state.workspace = true
 
 [dev-dependencies]
+via_reorg.workspace = true
+via_test_utils.workspace = true
 via_verifier_storage_init.workspace = true
 bitcoin.workspace = true
-serde_json.workspace = true

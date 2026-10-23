@@ -369,6 +369,8 @@ impl ViaBlockReverter {
                 .delete_priority_txs(l1_block_number as i32)
                 .await?;
 
+            transaction.protocol_versions_dal().revoke_via_upgrades_after(l1_block_number).await?;
+            transaction.via_votes_dal().revoke_reader_inclusions_after(l1_block_number).await?;
             transaction
                 .via_l1_block_dal()
                 .delete_l1_blocks(l1_block_number)
@@ -403,7 +405,7 @@ impl ViaBlockReverter {
 
             transaction
                 .via_wallet_dal()
-                .delete_system_wallet(l1_block_number)
+                .revoke_wallets_after(l1_block_number)
                 .await?;
         }
 

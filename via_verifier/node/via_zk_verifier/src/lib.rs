@@ -22,10 +22,7 @@ use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
 use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
 use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
 use zksync_object_store::{ObjectStore, ObjectStoreError};
-use zksync_types::{
-    protocol_version::ProtocolSemanticVersion, via_wallet::SystemWallets, ProtocolVersionId, H160,
-    H256,
-};
+use zksync_types::{protocol_version::ProtocolSemanticVersion, ProtocolVersionId, H160, H256};
 
 mod metrics;
 #[cfg(test)]
@@ -38,6 +35,17 @@ enum Approval {
     Verified,
     /// Development mode accepted the batch without a proof, and it is persisted as unverified.
     DevAccepted,
+}
+
+#[derive(Debug)]
+struct PreparedApproval {
+    incarnation: i64,
+    batch: i64,
+    inputs: serde_json::Value,
+    deposit_count: usize,
+    approval: Approval,
+    deposits: Vec<(H256, bool)>,
+    upgrade: Option<H256>,
 }
 
 #[derive(Debug)]
@@ -129,15 +137,15 @@ impl ViaVerifier {
             return Ok(());
         }
 
-        self.validate_verifier_address().await?;
-
         if let Some((l1_batch_number, mut raw_tx_id)) = storage
             .via_votes_dal()
             .get_first_not_verified_l1_batch_in_canonical_inscription_chain()
             .await?
         {
             let latency = METRICS.verification_time.start();
-            let db_raw_tx_id = H256::from_slice(&raw_tx_id);
+            let Some(incarnation)=storage.via_votes_dal().get_votable_transaction_id(&raw_tx_id).await? else {
+                return Ok(());
+            };
             tracing::info!("New non executed l1_batch {l1_batch_number}, ready to be processed");
 
             raw_tx_id.reverse();
@@ -184,11 +192,17 @@ impl ViaVerifier {
                     no_verdict(NoVerdictReason::MalformedPackage, l1_batch_number, err)
                 })?;
 
-            let upgrade_tx_hash_opt = self.verify_upgrade_tx_hash(storage, &pubdata).await?;
+            let mut input_snapshot=storage.transaction_builder()?.set_readonly().build().await?;
+            let Some(candidate)=input_snapshot.via_votes_dal().verification_snapshot(incarnation,0).await? else {
+                return Ok(());
+            };
+            let proof_height=candidate["inclusion"]["block_height"].as_u64()
+                .and_then(|height| u32::try_from(height).ok()).context("invalid captured proof height")?;
+            let upgrade_tx_hash_opt = self.verify_upgrade_tx_hash(&mut input_snapshot, &pubdata,proof_height).await?;
 
-            let mut protocol_version = storage
+            let mut protocol_version = input_snapshot
                 .via_protocol_versions_dal()
-                .latest_protocol_semantic_version()
+                .latest_executed_version_before(proof_height)
                 .await
                 .context("Failed to load the latest protocol semantic version")?
                 .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
@@ -197,9 +211,9 @@ impl ViaVerifier {
                 // Discard the first log since it related to protocol upgrade.
                 pubdata.user_logs.remove(0);
 
-                protocol_version = storage
+                protocol_version = input_snapshot
                     .via_protocol_versions_dal()
-                    .latest_semantic_version()
+                    .latest_semantic_version_before(proof_height)
                     .await
                     .context("Failed to load the latest protocol semantic version")?
                     .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
@@ -208,10 +222,28 @@ impl ViaVerifier {
                 check_if_supported_sequencer_version(protocol_version)?;
             }
 
-            let allowed_versions = storage
+            let allowed_versions = input_snapshot
                 .via_protocol_versions_dal()
-                .semantic_versions_of_minor(protocol_version.minor)
+                .semantic_versions_of_minor_before(protocol_version.minor,proof_height)
                 .await?;
+            let deposits=verify_op_priority_id(&mut input_snapshot,l1_batch_number,&pubdata).await?;
+            let deposit_count=deposits.len();
+            let Some(inputs)=input_snapshot.via_votes_dal().verification_snapshot(incarnation,deposit_count).await? else {
+                return Ok(());
+            };
+            if inputs["selected_candidate"].as_i64()!=Some(incarnation) {
+                return Ok(());
+            }
+            let (set_id,members)=input_snapshot.via_wallet_dal().verifier_set_before(proof_height).await?;
+            anyhow::ensure!(inputs["historical_set"]["id"].as_i64()==Some(set_id),"proof historical set changed");
+            anyhow::ensure!(members.contains(&self.config.wallet_address()?.to_string()),"verifier is not in this proof's historical set");
+            let payload=&inputs["proof"]["immutable_payload"]["message"];
+            anyhow::ensure!(payload["proof"]==via_btc_client::indexer::replay::semantic_payload(&proof_msgs[0])?,"captured proof payload changed");
+            anyhow::ensure!(payload["batch"]==via_btc_client::indexer::replay::semantic_payload(&batch_msgs[0])?,"captured batch payload changed");
+            let sources=inputs["deposit_sources"].as_array().context("missing captured deposit sources")?;
+            anyhow::ensure!(sources.len()==deposit_count,"deposit prefix has incomplete or ambiguous canonical source");
+            anyhow::ensure!(sources.iter().all(|source| source["block_height"].as_u64().is_some_and(|height| height<=u64::from(proof_height))),"deposit source is later than its proof");
+            input_snapshot.rollback().await?;
             let approval = verify_batch_proof(
                 &*self.blob_store,
                 self.config.proof_verification_dev_mode,
@@ -223,22 +255,16 @@ impl ViaVerifier {
             .await?;
             tracing::info!("Proof check for l1 batch {l1_batch_number}: {approval:?}");
 
-            let committed = record_approval(
-                storage,
-                l1_batch_number,
-                db_raw_tx_id,
-                approval,
-                &pubdata,
-                upgrade_tx_hash_opt,
-                self.indexer.get_number_of_verifiers(),
-            )
-            .await?;
+            let prepared=PreparedApproval { incarnation,batch:l1_batch_number,inputs,deposit_count,approval,deposits,upgrade:upgrade_tx_hash_opt };
+            let committed=record_approval(storage,&prepared).await?;
             if committed {
                 if approval == Approval::DevAccepted {
                     METRICS.dev_accepted_batches.inc();
                 }
                 latency.observe();
                 tracing::info!("Approved l1 batch {l1_batch_number}: {approval:?}");
+            } else {
+                METRICS.non_verdicts[&NoVerdictReason::StaleInputs].inc();
             }
         }
 
@@ -250,10 +276,11 @@ impl ViaVerifier {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
         pubdata: &Pubdata,
+        proof_height: u32,
     ) -> anyhow::Result<Option<H256>> {
         if let Some(upgrade_tx_hash) = storage
             .via_protocol_versions_dal()
-            .get_in_progress_upgrade_tx_hash()
+            .get_in_progress_upgrade_tx_hash_before(proof_height)
             .await?
         {
             if let Some(log) = pubdata.user_logs.first() {
@@ -299,26 +326,6 @@ impl ViaVerifier {
         let hash = batch_msg.input.l1_batch_hash;
 
         Ok((blob, hash))
-    }
-    /// Check if the wallet is in the verifier set.
-    async fn validate_verifier_address(&self) -> anyhow::Result<()> {
-        let mut storage = self.pool.connection().await?;
-
-        let last_processed_l1_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block("via_btc_watch")
-            .await?;
-
-        let Some(wallets_map) = storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_l1_block as i64)
-            .await?
-        else {
-            anyhow::bail!("System wallets not found")
-        };
-
-        let wallets = SystemWallets::try_from(wallets_map)?;
-        wallets.is_valid_verifier_address(self.config.wallet_address()?)
     }
 }
 
@@ -444,56 +451,41 @@ async fn report_watermarks(storage: &mut Connection<'_, Verifier>) -> anyhow::Re
 /// Returns false when a reorg started meanwhile, in which case nothing is written.
 async fn record_approval(
     storage: &mut Connection<'_, Verifier>,
-    l1_batch_number: i64,
-    proof_reveal_tx_id: H256,
-    approval: Approval,
-    pubdata: &Pubdata,
-    upgrade_tx_hash: Option<H256>,
-    number_of_verifiers: usize,
+    prepared: &PreparedApproval,
 ) -> anyhow::Result<bool> {
     let mut transaction = storage.start_transaction().await?;
-    // Read in the transaction that records their statuses, next to the reorg check below.
-    let deposits = verify_op_priority_id(&mut transaction, l1_batch_number, pubdata).await?;
-
-    let votable_transaction_id = transaction
+    transaction.via_votes_dal().lock_verdict_inputs().await?;
+    // Incarnation plus the complete read set catches a recovery that began and finished during verification.
+    // The owner/source locks remain held through every effect and the commit below.
+    if transaction
         .via_votes_dal()
-        .verify_votable_transaction(l1_batch_number, proof_reveal_tx_id, true)
-        .await?;
-
-    if approval == Approval::DevAccepted {
-        transaction.via_votes_dal().mark_unverified_dev(votable_transaction_id).await?;
-    }
-
-    transaction
-        .via_votes_dal()
-        .finalize_transaction_if_needed(
-            votable_transaction_id,
-            BATCH_FINALIZATION_THRESHOLD,
-            number_of_verifiers,
-        )
-        .await?;
-
-    for (hash, status) in deposits {
-        transaction
-            .via_transactions_dal()
-            .update_transaction(&hash, status, l1_batch_number)
-            .await?;
-    }
-
-    transaction.via_votes_dal().delete_invalid_votable_transactions_if_exists().await?;
-
-    if let Some(upgrade_tx_hash) = upgrade_tx_hash {
-        transaction
-            .via_protocol_versions_dal()
-            .mark_upgrade_as_executed(upgrade_tx_hash.as_bytes())
-            .await?;
-    }
-
-    // Dropping the transaction on a reorg rolls every write above back.
-    if transaction.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
+        .verification_snapshot(prepared.incarnation, prepared.deposit_count)
+        .await?
+        .as_ref()
+        != Some(&prepared.inputs)
+    {
         return Ok(false);
     }
-
+    transaction.via_votes_dal().mark_proof_verified(prepared.incarnation, &prepared.inputs).await?;
+    if prepared.approval == Approval::DevAccepted {
+        transaction.via_votes_dal().mark_unverified_dev(prepared.incarnation).await?;
+    }
+    for (hash, status) in &prepared.deposits {
+        transaction
+            .via_transactions_dal()
+            .update_transaction(hash, *status, prepared.batch)
+            .await?;
+    }
+    if let Some(upgrade) = prepared.upgrade {
+        transaction
+            .via_protocol_versions_dal()
+            .mark_upgrade_as_executed(upgrade.as_bytes())
+            .await?;
+    }
+    transaction
+        .via_votes_dal()
+        .finalize_transaction_if_needed(prepared.incarnation, BATCH_FINALIZATION_THRESHOLD)
+        .await?;
     transaction.commit().await?;
     Ok(true)
 }
@@ -514,7 +506,10 @@ async fn verify_op_priority_id(
 
     let txs = storage
         .via_transactions_dal()
-        .list_transactions_not_processed(deposit_logs.len() as i64)
+        .deposit_prefix_for_batch(
+            l1_batch_number,
+            i64::try_from(deposit_logs.len()).context("deposit prefix exceeds supported range")?,
+        )
         .await?;
 
     if txs.len() != deposit_logs.len() {

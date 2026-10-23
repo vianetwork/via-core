@@ -4,7 +4,7 @@ use bitcoin::Txid;
 use sqlx::types::chrono::NaiveDateTime;
 use zksync_types::via_btc_sender::{ViaBtcInscriptionRequest, ViaBtcInscriptionRequestHistory};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ViaStorageBtcInscriptionRequest {
     pub id: i64,
     pub request_type: String,

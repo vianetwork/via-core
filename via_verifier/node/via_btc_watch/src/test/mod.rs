@@ -43,9 +43,13 @@ async fn rotated_wallet_stops_reconciliation_before_bitcoin_rpc() -> anyhow::Res
         }
         wallets.bridge = wallets.governance.clone();
         let fulfillment_wallet = if initialized { wallets.bridge.clone() } else { original };
-        storage.via_wallet_dal().insert_wallets(&SystemWalletsDetails::try_from(wallets.clone())?, 1).await?;
-        storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await?;
-        storage.via_l1_block_dal().insert_l1_block(1, "11".repeat(32)).await?;
+        let mut tx=storage.start_transaction().await?;
+        tx.via_indexer_dal().lock_source_writer().await?;
+        tx.via_wallet_dal().insert_bootstrap_wallets(&SystemWalletsDetails::try_from(wallets.clone())?, 0).await?;
+        tx.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await?;
+        use bitcoin::{hashes::Hash,BlockHash};
+        tx.via_l1_block_dal().accept_header(via_reorg::chain::Header { height:1,block_hash:BlockHash::from_byte_array([17;32]),parent_hash:BlockHash::all_zeros() }).await?;
+        tx.commit().await?;
         let indexer = BitcoinInscriptionIndexer::new(client.clone(), Arc::new(wallets));
         let mut watcher =
             crate::VerifierBtcWatch::new(ViaBtcWatchConfig::for_tests(), indexer, client.clone(), pool.clone())

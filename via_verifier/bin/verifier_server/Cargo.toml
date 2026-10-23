@@ -10,6 +10,13 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+via_btc_client.workspace = true
+via_reorg.workspace = true
+via_consensus.workspace = true
+bitcoin.workspace = true
+sqlx = { workspace = true, features = ["migrate"] }
+via_verifier_dal.workspace = true
+serde_json.workspace = true
 zksync_config = { workspace = true, features = ["observability_ext"] }
 zksync_env_config.workspace = true
 zksync_storage.workspace = true
@@ -31,3 +38,6 @@ tracing.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator.workspace = true
+
+[dev-dependencies]
+via_test_utils.workspace = true

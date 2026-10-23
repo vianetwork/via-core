@@ -674,7 +674,7 @@ impl ViaDataAvailabilityDal<'_, '_> {
         let latest_semantic_version = match self
             .storage
             .protocol_versions_dal()
-            .latest_semantic_version()
+            .latest_via_semantic_version()
             .await
         {
             Ok(Some(version)) => version,

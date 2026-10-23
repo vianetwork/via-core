@@ -890,6 +890,32 @@ async fn test_batch_params_with_protocol_upgrade_tx() {
         .save_protocol_version_with_tx(&version)
         .await
         .unwrap();
+    use bitcoin::{hashes::Hash, BlockHash, Txid};
+    let mut connection = connection_pool.connection().await.unwrap();
+    let mut tx = connection.start_transaction().await.unwrap();
+    tx.via_indexer_dal().lock_btc_watch().await.unwrap();
+    let header = via_reorg::chain::Header {
+        height: 1,
+        block_hash: BlockHash::from_byte_array([1; 32]),
+        parent_hash: BlockHash::all_zeros(),
+    };
+    tx.via_l1_block_dal().accept_header(header).await.unwrap();
+    tx.protocol_versions_dal()
+        .record_via_upgrade_origin(
+            version.version,
+            Txid::all_zeros(),
+            &serde_json::json!({"fixture":"approved protocol upgrade"}),
+            via_reorg::chain::MessageRef {
+                block: header.into(),
+                carrier_txid: Txid::all_zeros(),
+                tx_index: 1,
+                message_index: 0,
+            },
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    drop(connection);
     let new_batch_params = mempool
         .wait_for_new_batch_params(&cursor, Duration::from_millis(100))
         .await

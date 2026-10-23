@@ -217,7 +217,7 @@ impl StateKeeperIO for MempoolIO {
             let mut storage = self.pool.connection_tagged("state_keeper").await?;
             let protocol_version = storage
                 .protocol_versions_dal()
-                .protocol_version_id_by_timestamp(timestamp)
+                .via_protocol_version_id_by_timestamp(timestamp)
                 .await
                 .context("Failed loading protocol version")?;
             let previous_protocol_version = storage

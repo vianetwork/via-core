@@ -24,6 +24,10 @@ tokio = { workspace = true, features = ["time", "fs"] }
 tracing.workspace = true
 
 [dev-dependencies]
+via_reorg.workspace = true
+via_test_utils.workspace = true
+bitcoin.workspace = true
+serde_json.workspace = true
 sqlx.workspace = true
 assert_matches.workspace = true
 async-trait.workspace = true

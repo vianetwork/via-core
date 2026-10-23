@@ -11,7 +11,6 @@ use rand::Rng;
 use via_btc_client::{
     indexer::{BitcoinInscriptionIndexer, MessageParser},
     inscriber::Inscriber,
-    traits::BitcoinOps,
     types::{
         BitcoinAddress,
         BitcoinSecp256k1::hashes::{
@@ -115,10 +114,30 @@ pub fn bootstrap_state_mock() -> BootstrapState {
     }
 }
 
-/// Create a update sequencer address inscription
-pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
-    FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
-        common: CommonFields {
+/// Encoded bootstrap for parser / RPC fixtures; dummy signatures do not make a mineable transaction.
+pub fn bootstrap_transaction(state: &BootstrapState, kind: &[u8]) -> bitcoin::Transaction {
+    use bitcoin::secp256k1::{Keypair, Secp256k1, SecretKey};
+    let key =
+        Keypair::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&[1; 32]).unwrap());
+    let mut version = [0; 32];
+    state.protocol_version.pack().to_big_endian(&mut version);
+    let mut fields = vec![
+        state.starting_block_number.to_be_bytes().to_vec(),
+        version.to_vec(),
+        state.bootloader_hash.as_bytes().to_vec(),
+        state.abstract_account_hash.as_bytes().to_vec(),
+        state.snark_wrapper_vk_hash.as_bytes().to_vec(),
+        state.evm_emulator_hash.as_bytes().to_vec(),
+        state.wallets.governance.to_string().into_bytes(),
+        state.wallets.sequencer.to_string().into_bytes(),
+        state.wallets.bridge.to_string().into_bytes(),
+    ];
+    fields.extend(state.wallets.verifiers.iter().map(|address| address.to_string().into_bytes()));
+    crate::inscription::parser_transaction(key, kind, &fields, 0)
+}
+
+fn unscanned_fields() -> CommonFields {
+    CommonFields {
             schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
                 .ok()
                 .unwrap(),
@@ -128,8 +147,16 @@ pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscr
             tx_id: BitcoinTxid::all_zeros(),
             p2wpkh_address: None,
             tx_index: None,
+            message_index: None,
+            carrier_tx_id: None,
             output_vout: None,
-        },
+        }
+}
+
+/// Create a update sequencer address inscription
+pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
+    FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
+        common: unscanned_fields(),
         input: UpdateSequencerInput {
             inputs: vec![],
             address: address.as_unchecked().clone(),
@@ -140,18 +167,7 @@ pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscr
 /// Create a update governance address inscription
 pub fn create_update_governance_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
     FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
-                .ok()
-                .unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            block_hash: None,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: unscanned_fields(),
         input: UpdateGovernanceInput {
             inputs: vec![],
             address: address.as_unchecked().clone(),
@@ -183,16 +199,7 @@ pub async fn create_update_bridge_inscription(
     core.mine(1)?;
 
     Ok(FullInscriptionMessage::UpdateBridge(UpdateBridge {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            block_hash: None,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: unscanned_fields(),
         input: UpdateBridgeInput {
             inputs: vec![],
             proposal_tx_id: result.final_reveal_tx.txid,
@@ -249,11 +256,15 @@ pub async fn create_chained_inscriptions(
         let result = inscriber
             .inscribe(InscriptionMessage::ProofDAReference(batch_proof.clone()))
             .await?;
-        core.mine(1)?;
+        let mined=core.mine(1)?;
         inscriber.sync_context_with_blockchain().await?;
-
-        let tx = client.get_transaction(&result.final_reveal_tx.txid).await?;
-        msgs.extend(parser.parse_system_transaction(&tx, 0, None));
+        let header=client.header_by_hash(&mined[0]).await?.ok_or_else(|| anyhow::anyhow!("mined proof header is missing"))?;
+        let block=client.checked_block(&header).await?;
+        let (tx_index,tx)=block.txdata.iter().enumerate().find(|(_,tx)|tx.compute_txid()==result.final_reveal_tx.txid)
+            .ok_or_else(|| anyhow::anyhow!("mined proof carrier is missing"))?;
+        let mut messages=parser.parse_system_transaction(tx,header.height,None);
+        for message in &mut messages { let common=message.common_mut();common.block_hash=Some(header.hash);common.tx_index=Some(tx_index); }
+        msgs.extend(messages);
     }
 
     Ok((msgs, prev_l1_batch_hash))

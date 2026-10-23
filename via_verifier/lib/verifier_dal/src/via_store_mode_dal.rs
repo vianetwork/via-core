@@ -5,7 +5,7 @@ use anyhow::{bail, ensure, Context};
 use sqlx::Row;
 use zksync_db_connection::{connection::Connection, instrument::InstrumentExt};
 
-use crate::Verifier;
+use crate::{Verifier, VerifierDal};
 
 pub struct ViaStoreModeDal<'c, 'a> {
     pub(crate) storage: &'c mut Connection<'a, Verifier>,
@@ -41,12 +41,13 @@ impl ViaStoreModeDal<'_, '_> {
             mode.bitcoin_network
         );
         let mut tx = self.storage.start_transaction().await?;
+        tx.via_indexer_dal().lock_source_writer().await?;
         let mut adopted_legacy = false;
         // The primary key serializes concurrent first starts, so only the process that inserts judges existing verdicts.
         let designated_now = sqlx::query(
             "INSERT INTO via_verifier_store_mode \
              (id, proof_verification_dev_mode, bitcoin_network, bitcoin_genesis_hash, designated_after_votable_id) \
-             SELECT 1, $1, $2, $3, COALESCE(MAX(id), 0) FROM via_votable_transactions \
+             SELECT 1, $1, $2, $3, COALESCE(MAX(id), 0) FROM via_proof_verdicts \
              ON CONFLICT (id) DO NOTHING",
         )
         .bind(mode.proof_verification_dev_mode)
@@ -59,7 +60,7 @@ impl ViaStoreModeDal<'_, '_> {
             == 1;
         if designated_now {
             let has_verdicts: bool = sqlx::query(
-                "SELECT EXISTS(SELECT 1 FROM via_votable_transactions WHERE l1_batch_status IS NOT NULL) AS found",
+                "SELECT EXISTS(SELECT 1 FROM via_proof_verdicts WHERE l1_batch_status IS NOT NULL) AS found",
             )
             .instrument("store_mode_existing_verdicts")
             .fetch_optional(&mut tx)

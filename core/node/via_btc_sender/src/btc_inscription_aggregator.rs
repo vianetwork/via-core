@@ -49,18 +49,22 @@ impl ViaBtcInscriptionAggregator {
         Ok(())
     }
 
-    async fn loop_iteration(&mut self, storage: &mut Connection<'_, Core>) -> Result<(), anyhow::Error> {
-        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
+    async fn loop_iteration(
+        &mut self,
+        storage: &mut Connection<'_, Core>,
+    ) -> Result<(), anyhow::Error> {
+        let mut transaction = storage.start_transaction().await?;
+        transaction.via_indexer_dal().lock_btc_watch().await?;
+        if transaction.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(());
         }
 
         let latency = METRICS.inscription_preparation_time.start();
         let mut processed_inscriptions = vec![];
 
-        if let Some(operation) = self.aggregator.get_next_ready_operation(storage).await? {
+        if let Some(operation) = self.aggregator.get_next_ready_operation(&mut transaction).await? {
             tracing::info!("New operation ready to be processed {operation}");
 
-            let mut transaction = storage.start_transaction().await?;
 
             for batch in operation.get_l1_batches_detail() {
                 let inscription_message =

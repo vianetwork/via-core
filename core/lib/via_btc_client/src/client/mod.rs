@@ -27,6 +27,24 @@ pub struct BitcoinClient {
 }
 
 impl BitcoinClient {
+    pub async fn canonical_header_at(
+        &self,
+        height: u32,
+        hash: BlockHash,
+    ) -> BitcoinClientResult<BlockHeaderInfo> {
+        let header = self
+            .header_by_hash(&hash)
+            .await?
+            .ok_or(BitcoinError::NotCanonicalAtHeight { hash, height })?;
+        if header.hash != hash
+            || header.height != height
+            || !matches!(header.membership, crate::types::HeaderMembership::Canonical(_))
+        {
+            return Err(BitcoinError::NotCanonicalAtHeight { hash, height });
+        }
+        Ok(header)
+    }
+
     pub async fn block_hash_at_height(&self, height: u32) -> BitcoinClientResult<BlockHash> {
         self.rpc.get_block_hash(u64::from(height)).await
     }

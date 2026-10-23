@@ -12,6 +12,11 @@ categories.workspace = true
 publish = false
 
 [dependencies]
+via_btc_client.workspace = true
+via_reorg.workspace = true
+via_consensus.workspace = true
+bitcoin.workspace = true
+sqlx = { workspace = true, features = ["migrate"] }
 zksync_config = { workspace = true, features = ["observability_ext"] }
 zksync_env_config.workspace = true
 zksync_core_leftovers.workspace = true
@@ -26,3 +31,6 @@ anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["full"] }
 serde_json.workspace = true
+
+[dev-dependencies]
+via_test_utils.workspace = true

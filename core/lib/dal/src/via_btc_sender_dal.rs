@@ -95,38 +95,19 @@ impl ViaBtcSenderDal<'_, '_> {
     }
 
     /// List new inscription requests not processed.
-    pub async fn list_new_inscription_request(
-        &mut self,
-        limit: i64,
-    ) -> DalResult<Vec<ViaBtcInscriptionRequest>> {
-        let records = sqlx::query_as!(
-            ViaStorageBtcInscriptionRequest,
-            r#"
-            SELECT
-                via_btc_inscriptions_request.*
-            FROM
-                via_btc_inscriptions_request
-            LEFT JOIN
-                via_btc_inscriptions_request_history
-                ON
-                    via_btc_inscriptions_request.id
-                    = via_btc_inscriptions_request_history.inscription_request_id
-            WHERE
-                via_btc_inscriptions_request_history.inscription_request_id IS NULL
-            ORDER BY
-                via_btc_inscriptions_request.id
-            LIMIT
-                $1
-            "#,
-            limit,
-        )
-        .instrument("list_new_inscription_request")
-        .report_latency()
-        .fetch_all(self.storage)
-        .await?;
-
-        Ok(records.into_iter().map(|r| r.into()).collect())
+    // jscpd:ignore-start Eligibility is defined by each database’s source / delivery SQL, including retained physical history.
+    pub async fn inscription_request_is_eligible(&mut self,id:i64) -> anyhow::Result<bool> {
+        Ok(sqlx::query_scalar("SELECT via_btc_request_is_eligible($1)").bind(id).fetch_one(self.storage.conn()).await?)
     }
+
+    pub async fn list_new_inscription_request(&mut self,limit:i64) -> DalResult<Vec<ViaBtcInscriptionRequest>> {
+        let records=sqlx::query_as::<_,ViaStorageBtcInscriptionRequest>("SELECT r.* FROM via_btc_inscriptions_request r
+            WHERE via_btc_request_is_eligible(r.id) AND NOT EXISTS(
+                SELECT 1 FROM via_btc_inscriptions_request_history h WHERE h.inscription_request_id=r.id)
+            ORDER BY r.id LIMIT $1").bind(limit).instrument("list_new_inscription_request").fetch_all(self.storage).await?;
+        Ok(records.into_iter().map(Into::into).collect())
+    }
+    // jscpd:ignore-end
 
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_inscription_request_history(

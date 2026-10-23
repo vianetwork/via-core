@@ -11,15 +11,15 @@ use bitcoin::{
     block::Header,
     hashes::Hash,
     secp256k1::{Keypair, Secp256k1, SecretKey},
-    taproot::LeafVersion,
-    transaction, Address, Block, BlockHash, CompressedPublicKey, Network, Transaction, TxIn, TxMerkleNode, Witness,
+    transaction, Address, Block, BlockHash, CompressedPublicKey, Network, Transaction, TxIn,
+    TxMerkleNode,
 };
 use via_btc_client::{
     client::BitcoinClient,
     indexer::BitcoinInscriptionIndexer,
     types::{InscriptionMessage, L1BatchDAReferenceInput, NodeAuth, ProofDAReferenceInput},
 };
-use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, chain::Chain, inscription::inscription_script};
+use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, chain::Chain};
 use via_verifier_block_reverter::ViaVerifierBlockReverter;
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal, BTC_WATCH_OWNER_LOCK_KEY};
 use zksync_config::{
@@ -47,7 +47,10 @@ async fn withdrawal_scan_advances_and_records_once() -> anyhow::Result<()> {
     let mut restarted = fixture.watcher(pool.clone()).await?;
     restarted.loop_iteration(&mut storage).await?;
     fixture.assert_withdrawal_state(&mut storage, 2, Some(2)).await?;
-    storage.via_indexer_dal().update_last_processed_l1_block("via_btc_watch", 1).await?;
+    let mut tx = storage.start_transaction().await?;
+    tx.via_indexer_dal().lock_source_writer().await?;
+    tx.via_indexer_dal().update_last_processed_l1_block("via_btc_watch", 1).await?;
+    tx.commit().await?;
     let mut restarted = fixture.watcher(pool).await?;
     restarted.loop_iteration(&mut storage).await?;
     fixture.assert_withdrawal_state(&mut storage, 2, Some(2)).await?;
@@ -107,8 +110,6 @@ fn keypair() -> Keypair {
 }
 
 fn inscription(message: InscriptionMessage, nonce: u32) -> Transaction {
-    let key = keypair();
-    let (internal, _) = key.x_only_public_key();
     let (kind, fields) = match message {
         InscriptionMessage::L1BatchDAReference(batch) => (
             via_btc_client::types::L1_BATCH_DA_REFERENCE_MSG.as_bytes(),
@@ -130,21 +131,7 @@ fn inscription(message: InscriptionMessage, nonce: u32) -> Transaction {
         ),
         _ => unreachable!("checkpoint fixture only produces batch and proof messages"),
     };
-    let script = inscription_script(internal, kind, &fields);
-    let mut control = vec![LeafVersion::TapScript.to_consensus()];
-    control.extend(internal.serialize());
-    Transaction {
-        version: transaction::Version::TWO,
-        lock_time: absolute::LockTime::from_consensus(nonce),
-        input: vec![
-            TxIn { witness: Witness::from_slice(&[vec![0; 64], script.into_bytes(), control]), ..TxIn::default() },
-            TxIn {
-                witness: Witness::from_slice(&[vec![0; 64], key.public_key().serialize().to_vec()]),
-                ..TxIn::default()
-            },
-        ],
-        output: vec![],
-    }
+    via_test_utils::inscription::parser_transaction(keypair(), kind, &fields, nonce)
 }
 
 impl BitcoinFixture {
@@ -322,28 +309,66 @@ impl BitcoinFixture {
         VerifierBtcWatch::new(config, indexer, client, pool)
     }
 
+    async fn with_proof(
+    ) -> anyhow::Result<(Self, ConnectionPool<Verifier>, Connection<'static, Verifier>)> {
+        let fixture = Self::new()?;
+        fixture.add_block(2, Some((1, H256::repeat_byte(1), H256::zero())));
+        fixture.add_block(3, None);
+        let (pool, storage) = fixture.seeded(Some(1)).await?;
+        Ok((fixture, pool, storage))
+    }
+
+    async fn seeded(
+        &self,
+        cursor: Option<u32>,
+    ) -> anyhow::Result<(ConnectionPool<Verifier>, Connection<'static, Verifier>)> {
+        let pool = ConnectionPool::<Verifier>::test_pool().await;
+        let mut storage = pool.connection().await?;
+        self.seed(&mut storage, cursor).await?;
+        Ok((pool, storage))
+    }
+
     async fn seed(
         &self,
         storage: &mut Connection<'_, Verifier>,
         cursor: Option<u32>,
     ) -> anyhow::Result<()> {
-        storage.via_wallet_dal().insert_wallets(&SystemWalletsDetails::try_from(self.wallets.clone())?, 1).await?;
+        let mut tx = storage.start_transaction().await?;
+        tx.via_indexer_dal().lock_btc_watch().await?;
+        tx.via_wallet_dal()
+            .insert_bootstrap_wallets(&SystemWalletsDetails::try_from(self.wallets.clone())?, 0)
+            .await?;
         if let Some(cursor) = cursor {
-            storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", cursor).await?;
+            tx.via_indexer_dal().init_indexer_metadata("via_btc_watch", cursor).await?;
         }
-        let blocks = self
-            .chain
-            .lock()
-            .unwrap()
-            .blocks
-            .iter()
-            .map(|(&height, block)| (height, block.block_hash()))
-            .collect::<Vec<_>>();
-        for (height, hash) in blocks {
-            storage.via_l1_block_dal().insert_l1_block(i64::from(height), hash.to_string()).await?;
+        let blocks = self.chain.lock().unwrap().headers().collect::<Vec<_>>();
+        for header in blocks {
+            tx.via_l1_block_dal().accept_header(header).await?;
         }
+        tx.commit().await?;
         Ok(())
     }
+}
+
+async fn rewind_headers(storage: &mut Connection<'_, Verifier>, height: i64) -> anyhow::Result<()> {
+    let mut tx = storage.start_transaction().await?;
+    tx.via_indexer_dal().lock_source_writer().await?;
+    tx.via_l1_block_dal().delete_l1_blocks(height).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn assert_reader_state(
+    storage: &mut Connection<'_, Verifier>,
+    progress: u64,
+    tip: Option<(u32, Vec<u8>)>,
+) -> anyhow::Result<()> {
+    assert_eq!(
+        storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?,
+        progress
+    );
+    assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, tip);
+    Ok(())
 }
 
 async fn recover(pool: &ConnectionPool<Verifier>, divergence: i64) -> anyhow::Result<()> {
@@ -373,18 +398,31 @@ async fn recovery_above_lagging_cursor_imports_the_previously_skipped_proof() ->
     fixture.add_block(156450, None);
     fixture.add_block(156451, Some((266, H256::from_low_u64_be(266), H256::from_low_u64_be(265))));
     fixture.add_block(156456, None);
-    let pool = ConnectionPool::<Verifier>::test_pool().await;
-    let mut storage = pool.connection().await?;
-    fixture.seed(&mut storage, Some(156449)).await?;
+    let (pool, mut storage) = fixture.seeded(Some(156449)).await?;
+    let mut tx = storage.start_transaction().await?;
+    tx.via_indexer_dal().lock_source_writer().await?;
+    let header = via_reorg::chain::Header {
+        height: 156449,
+        block_hash: BlockHash::from_byte_array([49; 32]),
+        parent_hash: BlockHash::from_byte_array([48; 32]),
+    };
+    via_test_utils::reader_db::header(tx.conn(), header, true).await?;
+    let (_, members) = tx.via_wallet_dal().verifier_set_before(156449).await?;
+    let set = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM via_wallets WHERE role='Verifier' AND address=$1",
+    )
+    .bind(members.join(","))
+    .fetch_one(tx.conn())
+    .await?;
     for batch in 1..=265 {
-        sqlx::query("INSERT INTO via_votable_transactions(l1_batch_number,l1_batch_hash,prev_l1_batch_hash,proof_blob_id,proof_reveal_tx_id,pubdata_blob_id,pubdata_reveal_tx_id,da_identifier) VALUES($1,$2,$3,$4,$2,$5,$5,'fixture')")
-            .bind(i64::from(batch))
-            .bind(H256::from_low_u64_be(batch as u64).as_bytes())
-            .bind(H256::from_low_u64_be((batch - 1) as u64).as_bytes())
-            .bind(format!("proof-{batch}"))
-            .bind(format!("batch-{batch}"))
-            .execute(storage.conn()).await?;
+        let identity=bitcoin::Txid::from_byte_array(H256::from_low_u64_be(batch as u64).0);
+        via_test_utils::reader_db::verdict(tx.conn(),&via_test_utils::reader_db::ProofVerdict {
+            batch,batch_hash:H256::from_low_u64_be(batch as u64),parent_hash:H256::from_low_u64_be((batch-1) as u64),
+            proof_txid:identity,proof_blob:format!("proof-{batch}"),batch_txid:identity.to_string(),
+            batch_blob:format!("batch-{batch}"),da_identifier:"fixture".into(),
+        },via_reorg::chain::MessageRef { block:header.into(),carrier_txid:identity,tx_index:batch,message_index:0 },set).await?;
     }
+    tx.commit().await?;
     recover(&pool, 156456).await?;
     assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 156449);
     fixture.chain.lock().unwrap().blocks.remove(&156456);
@@ -403,9 +441,7 @@ async fn gap_rolls_back_all_effects_and_pauses_retries() -> anyhow::Result<()> {
     let fixture = BitcoinFixture::new()?;
     fixture.add_block(2, Some((1, H256::repeat_byte(1), H256::zero())));
     fixture.add_block(3, Some((3, H256::repeat_byte(3), H256::repeat_byte(2))));
-    let pool = ConnectionPool::<Verifier>::test_pool().await;
-    let mut storage = pool.connection().await?;
-    fixture.seed(&mut storage, Some(1)).await?;
+    let (pool, mut storage) = fixture.seeded(Some(1)).await?;
     let mut watcher = fixture.watcher(pool.clone()).await?;
     let error = watcher.loop_iteration(&mut storage).await.unwrap_err();
     let MessageProcessorError::ProofContinuityGap(gap) = error else {
@@ -429,23 +465,17 @@ async fn gap_rolls_back_all_effects_and_pauses_retries() -> anyhow::Result<()> {
     watcher.loop_iteration(&mut storage).await?;
     assert_eq!(fixture.requests.load(Ordering::SeqCst), requests);
     fixture.add_block(3, Some((2, H256::repeat_byte(2), H256::repeat_byte(1))));
-    storage.via_l1_block_dal().delete_l1_blocks(2).await?;
+    rewind_headers(&mut storage, 2).await?;
     fixture.seed(&mut storage, Some(1)).await?;
     let mut reconstructed = fixture.watcher(pool.clone()).await?;
     reconstructed.loop_iteration(&mut storage).await?;
-    assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 3);
-    assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, Some((2, vec![2; 32])));
+    assert_reader_state(&mut storage, 3, Some((2, vec![2; 32]))).await?;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn scan_commits_before_waiting_recovery_and_reconstruction_replays() -> anyhow::Result<()> {
-    let fixture = BitcoinFixture::new()?;
-    fixture.add_block(2, Some((1, H256::repeat_byte(1), H256::zero())));
-    fixture.add_block(3, None);
-    let pool = ConnectionPool::<Verifier>::test_pool().await;
-    let mut storage = pool.connection().await?;
-    fixture.seed(&mut storage, Some(1)).await?;
+    let (fixture, pool, mut storage) = BitcoinFixture::with_proof().await?;
     let (entered, fetched) = tokio::sync::oneshot::channel();
     let (release, wait) = std::sync::mpsc::channel();
     *fixture.fetch_barrier.lock().unwrap() = Some((entered, wait));
@@ -458,36 +488,29 @@ async fn scan_commits_before_waiting_recovery_and_reconstruction_replays() -> an
     fetched.await?;
     let recovery_pool = pool.clone();
     let recovery = tokio::spawn(async move { recover(&recovery_pool, 3).await });
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while storage.via_l1_block_dal().has_reorg_in_progress().await.unwrap().is_none() {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await?;
+    wait_for_owner_waiters(&mut storage, 1).await?;
+    assert!(storage.via_l1_block_dal().has_reorg_in_progress().await?.is_none());
     assert!(!recovery.is_finished());
     assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 1);
     assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, None);
     release.send(())?;
     scan.await??;
     recovery.await??;
-    assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 2);
-    assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, Some((1, vec![1; 32])));
+    assert_reader_state(&mut storage, 2, Some((1, vec![1; 32]))).await?;
     assert_eq!(storage.via_l1_block_dal().get_l1_block_hash(3).await?, None);
     fixture.seed(&mut storage, Some(1)).await?;
     let mut reconstructed = fixture.watcher(pool.clone()).await?;
     reconstructed.loop_iteration(&mut storage).await?;
-    assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 3);
-    assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, Some((1, vec![1; 32])));
+    assert_reader_state(&mut storage, 3, Some((1, vec![1; 32]))).await?;
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn rollback_before_commit_and_restart_after_commit_keep_effects_with_progress() -> anyhow::Result<()> {
+async fn rollback_before_commit_and_restart_after_commit_keep_effects_with_progress(
+) -> anyhow::Result<()> {
     let fixture = BitcoinFixture::new()?;
     fixture.add_block(2, Some((1, H256::repeat_byte(1), H256::zero())));
-    let pool = ConnectionPool::<Verifier>::test_pool().await;
-    let mut storage = pool.connection().await?;
-    fixture.seed(&mut storage, Some(1)).await?;
+    let (pool, mut storage) = fixture.seeded(Some(1)).await?;
     let mut watcher = fixture.watcher(pool.clone()).await?;
     let mut interrupted = storage.start_transaction().await?;
     watcher.loop_iteration(&mut interrupted).await?;
@@ -499,8 +522,7 @@ async fn rollback_before_commit_and_restart_after_commit_keep_effects_with_progr
     drop(reconstructed);
     let mut reconstructed = fixture.watcher(pool.clone()).await?;
     reconstructed.loop_iteration(&mut storage).await?;
-    assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 2);
-    assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, Some((1, vec![1; 32])));
+    assert_reader_state(&mut storage, 2, Some((1, vec![1; 32]))).await?;
     Ok(())
 }
 
@@ -534,16 +556,13 @@ async fn valid_fork_still_replaces_the_canonical_suffix() -> anyhow::Result<()> 
     let fixture = BitcoinFixture::new()?;
     fixture.add_block(2, Some((1, H256::repeat_byte(1), H256::zero())));
     fixture.add_block(3, Some((2, H256::repeat_byte(2), H256::repeat_byte(1))));
-    let pool = ConnectionPool::<Verifier>::test_pool().await;
-    let mut storage = pool.connection().await?;
-    fixture.seed(&mut storage, Some(1)).await?;
+    let (pool, mut storage) = fixture.seeded(Some(1)).await?;
     let mut watcher = fixture.watcher(pool.clone()).await?;
     watcher.loop_iteration(&mut storage).await?;
     fixture.add_block(4, Some((2, H256::repeat_byte(4), H256::repeat_byte(1))));
     fixture.seed(&mut storage, Some(1)).await?;
     watcher.loop_iteration(&mut storage).await?;
-    assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 4);
-    assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, Some((2, vec![4; 32])));
+    assert_reader_state(&mut storage, 4, Some((2, vec![4; 32]))).await?;
     assert!(watcher.proof_gap.is_none());
     Ok(())
 }
@@ -563,12 +582,7 @@ async fn wait_for_owner_waiters(storage: &mut Connection<'_, Verifier>, count: i
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn recovery_owns_unchanged_height_before_scan_fetches() -> anyhow::Result<()> {
-    let fixture = BitcoinFixture::new()?;
-    fixture.add_block(2, Some((1, H256::repeat_byte(1), H256::zero())));
-    fixture.add_block(3, None);
-    let pool = ConnectionPool::<Verifier>::test_pool().await;
-    let mut storage = pool.connection().await?;
-    fixture.seed(&mut storage, Some(1)).await?;
+    let (fixture, pool, mut storage) = BitcoinFixture::with_proof().await?;
     let mut owner_connection = pool.connection().await?;
     let mut owner = owner_connection.start_transaction().await?;
     owner.via_indexer_dal().lock_btc_watch().await?;
@@ -586,8 +600,9 @@ async fn recovery_owns_unchanged_height_before_scan_fetches() -> anyhow::Result<
     owner.commit().await?;
     recovery.await??;
     scan.await??;
-    assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 2);
-    assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, Some((1, vec![1; 32])));
+    let mut restarted = fixture.watcher(pool.clone()).await?;
+    restarted.loop_iteration(&mut storage).await?;
+    assert_reader_state(&mut storage, 2, Some((1, vec![1; 32]))).await?;
     assert_eq!(storage.via_l1_block_dal().get_l1_block_hash(3).await?, None);
     Ok(())
 }
@@ -596,9 +611,7 @@ async fn recovery_owns_unchanged_height_before_scan_fetches() -> anyhow::Result<
 async fn missing_genesis_pauses_but_wrong_sequential_parent_is_rejected() -> anyhow::Result<()> {
     let fixture = BitcoinFixture::new()?;
     fixture.add_block(2, Some((3, H256::repeat_byte(3), H256::repeat_byte(2))));
-    let pool = ConnectionPool::<Verifier>::test_pool().await;
-    let mut storage = pool.connection().await?;
-    fixture.seed(&mut storage, Some(1)).await?;
+    let (pool, mut storage) = fixture.seeded(Some(1)).await?;
     let mut watcher = fixture.watcher(pool.clone()).await?;
     let MessageProcessorError::ProofContinuityGap(gap) = watcher.loop_iteration(&mut storage).await.unwrap_err() else {
         panic!("missing genesis must surface a typed gap");
@@ -607,22 +620,20 @@ async fn missing_genesis_pauses_but_wrong_sequential_parent_is_rejected() -> any
     assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 1);
     fixture.add_block(2, Some((1, H256::repeat_byte(1), H256::zero())));
     fixture.add_block(3, Some((2, H256::repeat_byte(2), H256::repeat_byte(9))));
-    storage.via_l1_block_dal().delete_l1_blocks(1).await?;
+    rewind_headers(&mut storage, 1).await?;
     fixture.seed(&mut storage, Some(1)).await?;
     let mut reconstructed = fixture.watcher(pool.clone()).await?;
     reconstructed.loop_iteration(&mut storage).await?;
     assert!(reconstructed.proof_gap.is_none());
-    assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 3);
-    assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, Some((1, vec![1; 32])));
+    assert_reader_state(&mut storage, 3, Some((1, vec![1; 32]))).await?;
     Ok(())
 }
 
 #[tokio::test]
-async fn header_owner_allows_wallet_checks_but_invalidation_gate_excludes_them() -> anyhow::Result<()> {
+async fn header_owner_allows_wallet_checks_but_invalidation_gate_excludes_them(
+) -> anyhow::Result<()> {
     let fixture = BitcoinFixture::new()?;
-    let pool = ConnectionPool::<Verifier>::test_pool().await;
-    let mut storage = pool.connection().await?;
-    fixture.seed(&mut storage, Some(1)).await?;
+    let (pool, mut storage) = fixture.seeded(Some(1)).await?;
     let wallets = storage.via_wallet_dal().get_system_wallets_raw(1).await?.unwrap();
     let wallet = SystemWallets::try_from(wallets)?.bridge.script_pubkey();
     let mut owner_connection = pool.connection().await?;

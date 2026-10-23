@@ -23,7 +23,21 @@ pub struct Chain {
 }
 
 impl Chain {
+    pub fn headers(&self) -> impl Iterator<Item = via_reorg::chain::Header<BlockHash>> + '_ {
+        self.blocks.iter().map(|(&height, block)| via_reorg::chain::Header {
+            height,
+            block_hash: block.block_hash(),
+            parent_hash: block.header.prev_blockhash,
+        })
+    }
+
     pub fn insert(&mut self, height: u32, mut block: Block) -> BlockHash {
+        if height > 0 && self.blocks.is_empty() {
+            self.blocks.insert(0, genesis_block(Network::Regtest));
+        }
+        if block.txdata.is_empty() {
+            block.txdata.push(genesis_block(Network::Regtest).txdata.remove(0));
+        }
         block.header.prev_blockhash = height
             .checked_sub(1)
             .and_then(|parent| self.blocks.get(&parent))

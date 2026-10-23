@@ -28,6 +28,9 @@ futures.workspace = true
 bitcoin.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
+via_test_utils.workspace = true
+via_reorg.workspace = true
 sqlx.workspace = true
 zksync_db_connection.workspace = true
 via_verifier_types.workspace = true

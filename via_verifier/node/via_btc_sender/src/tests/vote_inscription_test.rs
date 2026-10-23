@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use bitcoin::BlockHash;
 
     use tokio::{sync::watch, time};
     use via_btc_client::{
@@ -20,11 +21,14 @@ mod tests {
     }
 
     impl ViaVoteInscriptionTest {
-        pub async fn new(pool: ConnectionPool<Verifier>, mut config: Option<ViaBtcSenderConfig>) -> Self {
+        pub async fn new(
+            pool: ConnectionPool<Verifier>,
+            mut config: Option<ViaBtcSenderConfig>,
+        ) -> Self {
             let storage = pool.connection().await.unwrap();
 
             if config.is_none() {
-                config = Some(ViaBtcSenderConfig::for_tests());
+                config = Some(get_btc_sender_config(1, 1));
             }
             let aggregator = ViaVoteInscription::new(pool, config.unwrap()).await.unwrap();
 
@@ -32,33 +36,107 @@ mod tests {
         }
     }
 
+    async fn seed_pending(storage: &mut Connection<'_, Verifier>, tx_id: H256) -> i64 {
+        use bitcoin::{hashes::Hash, Txid};
+        let mut tx = storage.start_transaction().await.unwrap();
+        tx.via_indexer_dal().lock_source_writer().await.unwrap();
+        let header = via_test_utils::reader_db::first_source(tx.conn(), 1).await.unwrap();
+        let set = via_test_utils::reader_db::bootstrap_verifiers(
+            tx.conn(),
+            &[get_btc_sender_config(1, 1).wallet_address],
+            0,
+        )
+        .await
+        .unwrap();
+        let mut raw = tx_id.0;
+        raw.reverse();
+        let proof = Txid::from_byte_array(raw);
+        let input = via_test_utils::reader_db::ProofVerdict {
+            batch: 1,
+            batch_hash: H256::random(),
+            parent_hash: H256::zero(),
+            proof_txid: proof,
+            proof_blob: "proof".into(),
+            batch_txid: "batch-tx".into(),
+            batch_blob: "batch".into(),
+            da_identifier: "fixture".into(),
+        };
+        let id = via_test_utils::reader_db::verdict(
+            tx.conn(),
+            &input,
+            via_reorg::chain::MessageRef {
+                block: header.into(),
+                carrier_txid: proof,
+                tx_index: 1,
+                message_index: 0,
+            },
+            set,
+        )
+        .await
+        .unwrap();
+        tx.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+        tx.commit().await.unwrap();
+        id
+    }
+
+    async fn approve(storage: &mut Connection<'_, Verifier>, id: i64) {
+        let mut tx = storage.start_transaction().await.unwrap();
+        let inputs = tx.via_votes_dal().verification_snapshot(id, 0).await.unwrap().unwrap();
+        tx.via_votes_dal().mark_proof_verified(id, &inputs).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+
     // Get the current operation (commitBatch or commitProof) to execute when there is no batches. Should return 'None'
     #[tokio::test]
     async fn test_get_next_ready_vote_operation() {
+        use bitcoin::{hashes::Hash, Txid};
+        use zksync_types::via_wallet::{SystemWalletsDetails, WalletInfo, WalletRole};
         let pool = ConnectionPool::<Verifier>::test_pool().await;
-        let mut aggregator_test = ViaVoteInscriptionTest::new(pool, None).await;
+        let mut aggregator_test = ViaVoteInscriptionTest::new(pool.clone(), None).await;
 
         let tx_id = H256::random();
-        let _ = aggregator_test
-            .storage
-            .via_votes_dal()
-            .insert_votable_transaction(
-                1,
-                H256::random(),
-                H256::random(),
-                "".to_string(),
-                tx_id,
-                "".to_string(),
-                "".to_string(),
-                "".to_string(),
-                None,
-            )
-            .await;
+        let id = seed_pending(&mut aggregator_test.storage, tx_id).await;
 
         let op = aggregator_test.aggregator.get_voting_operation(&mut aggregator_test.storage).await.unwrap();
         assert!(op.is_none());
 
-        let _ = aggregator_test.storage.via_votes_dal().verify_votable_transaction(1, tx_id, true).await;
+        approve(&mut aggregator_test.storage, id).await;
+
+        let other_address = via_test_utils::utils::random_bitcoin_wallet().1;
+        let mut other_config = get_btc_sender_config(1, 1);
+        other_config.wallet_address = other_address.to_string();
+        let mut other = ViaVoteInscription::new(pool.clone(), other_config).await.unwrap();
+        assert!(other.get_voting_operation(&mut aggregator_test.storage).await.unwrap().is_none());
+        let mut transaction = aggregator_test.storage.start_transaction().await.unwrap();
+        transaction.via_indexer_dal().lock_source_writer().await.unwrap();
+        let header = via_reorg::chain::Header {
+            height: 2,
+            block_hash: BlockHash::from_byte_array([2; 32]),
+            parent_hash: BlockHash::from_byte_array([1; 32]),
+        };
+        transaction.via_l1_block_dal().accept_header(header).await.unwrap();
+        let mut latest = SystemWalletsDetails::default();
+        latest.0.insert(
+            WalletRole::Verifier,
+            WalletInfo { addresses: vec![other_address], txid: Txid::from_byte_array([50; 32]) },
+        );
+        transaction
+            .via_wallet_dal()
+            .record_wallet_update(
+                &latest,
+                via_reorg::chain::MessageRef {
+                    block: header.into(),
+                    carrier_txid: Txid::from_byte_array([50; 32]),
+                    tx_index: 0,
+                    message_index: 0,
+                },
+                &serde_json::json!({"fixture":"newer-set"}),
+                "accepted",
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        assert!(other.get_voting_operation(&mut aggregator_test.storage).await.unwrap().is_none());
 
         let op = aggregator_test.aggregator.get_voting_operation(&mut aggregator_test.storage).await.unwrap();
         assert!(op.is_some());
@@ -66,6 +144,44 @@ mod tests {
         assert_eq!(votable_transaction_id, 1);
         assert!(vote);
         assert_eq!(H256::from_slice(&tx_id_vec), tx_id);
+
+        let mut transaction = aggregator_test.storage.start_transaction().await.unwrap();
+        let observed_vote = Txid::from_byte_array([51; 32]);
+        let mut proof = tx_id.0;
+        proof.reverse();
+        transaction
+            .via_votes_dal()
+            .record_reader_vote(
+                observed_vote,
+                Txid::from_byte_array(proof),
+                &get_btc_sender_config(1, 1).wallet_address,
+                true,
+                &serde_json::json!({"fixture":"own-vote"}),
+                via_reorg::chain::MessageRef {
+                    block: header.into(),
+                    carrier_txid: observed_vote,
+                    tx_index: 1,
+                    message_index: 0,
+                },
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        assert!(aggregator_test
+            .aggregator
+            .get_voting_operation(&mut aggregator_test.storage)
+            .await
+            .unwrap()
+            .is_none());
+        let mut transaction = aggregator_test.storage.start_transaction().await.unwrap();
+        transaction.via_votes_dal().revoke_reader_inclusions_after(1).await.unwrap();
+        transaction.commit().await.unwrap();
+        assert!(aggregator_test
+            .aggregator
+            .get_voting_operation(&mut aggregator_test.storage)
+            .await
+            .unwrap()
+            .is_some());
 
         let inscription = aggregator_test.aggregator.construct_voting_inscription_message(vote, tx_id_vec).unwrap();
 
@@ -91,23 +207,9 @@ mod tests {
 
         let tx_id = H256::random();
 
-        let _ = aggregator_test
-            .storage
-            .via_votes_dal()
-            .insert_votable_transaction(
-                1,
-                H256::random(),
-                H256::random(),
-                "".to_string(),
-                tx_id,
-                "".to_string(),
-                "".to_string(),
-                "".to_string(),
-                None,
-            )
-            .await;
+        let id = seed_pending(&mut aggregator_test.storage, tx_id).await;
 
-        let _ = aggregator_test.storage.via_votes_dal().verify_votable_transaction(1, tx_id, true).await;
+        approve(&mut aggregator_test.storage, id).await;
 
         run_aggregator(pool.clone()).await;
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;

@@ -73,6 +73,7 @@ impl ViaMainNodeReorgDetector {
         let mut transaction = BTC_WATCH_OWNER.begin(&mut storage).await?;
         let storage = &mut transaction;
 
+        // jscpd:ignore-start Each legacy detector retains its own transaction owner until the reader owns recovery.
         match storage.via_l1_block_dal().get_last_l1_block().await? {
             Some(_) => {}
             None => {
@@ -89,10 +90,13 @@ impl ViaMainNodeReorgDetector {
                 } else {
                     let block = self.btc_client.fetch_block(block_height as u128).await?;
 
-                    storage.via_l1_block_dal().insert_l1_block(block_height, block.block_hash().to_string()).await?;
+                    let header=self.btc_client.canonical_header_at(u32::try_from(block_height)?,block.block_hash()).await?;
+                    storage.via_l1_block_dal().accept_header(header.into()).await?;
                 }
             }
         };
+
+        // jscpd:ignore-end
 
         transaction.commit().await?;
         METRICS.errors.inc_by(0);
@@ -115,7 +119,10 @@ impl ViaMainNodeReorgDetector {
 
     /// Seeds `via_l1_blocks` once `via_btc_watch` has advanced to a real
     /// Bitcoin height. Returns `None` while the watch cursor is uninitialized.
-    async fn lazy_bootstrap_first_l1_block(&self, storage: &mut Connection<'_, Core>) -> anyhow::Result<Option<(i64, String)>> {
+    async fn lazy_bootstrap_first_l1_block(
+        &self,
+        storage: &mut Connection<'_, Core>,
+    ) -> anyhow::Result<Option<(i64, String)>> {
         let cursor = storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await? as i64;
         if cursor <= 0 {
             tracing::debug!("via_l1_blocks empty and via_btc_watch not yet initialized; waiting");
@@ -123,7 +130,9 @@ impl ViaMainNodeReorgDetector {
         }
         let block = self.btc_client.fetch_block(cursor as u128).await?;
         let hash = block.block_hash().to_string();
-        storage.via_l1_block_dal().insert_l1_block(cursor, hash.clone()).await?;
+        let header =
+            self.btc_client.canonical_header_at(u32::try_from(cursor)?, block.block_hash()).await?;
+        storage.via_l1_block_dal().accept_header(header.into()).await?;
         tracing::info!("Seeded via_l1_blocks bootstrap row at height {cursor}");
         Ok(Some((cursor, hash)))
     }
@@ -159,7 +168,8 @@ impl ViaMainNodeReorgDetector {
         for (height, hash) in blocks {
             tracing::debug!("Fetched block {height} with hash {hash}");
 
-            transaction.via_l1_block_dal().insert_l1_block(height, hash.to_string()).await?;
+            let header=self.btc_client.canonical_header_at(u32::try_from(height)?,hash).await?;
+            transaction.via_l1_block_dal().accept_header(header.into()).await?;
         }
 
         transaction.commit().await?;
@@ -265,6 +275,20 @@ impl ViaMainNodeReorgDetector {
                 )
                 .await?;
         }
+        transaction
+            .via_transactions_dal()
+            .delete_priority_txs(i32::try_from(canonical_boundary)?)
+            .await?;
+        transaction.via_wallet_dal().revoke_wallets_after(canonical_boundary).await?;
+        transaction.protocol_versions_dal().revoke_via_upgrades_after(canonical_boundary).await?;
+        transaction.via_votes_dal().revoke_reader_inclusions_after(canonical_boundary).await?;
+        transaction
+            .via_votes_dal()
+            .recompute_reader_finalization(
+                u32::try_from(keep_height)?,
+                via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD,
+            )
+            .await?;
         transaction.via_l1_block_dal().delete_l1_reorg(canonical_boundary).await?;
         transaction.via_l1_block_dal().delete_l1_blocks(canonical_boundary).await?;
         transaction.commit().await?;

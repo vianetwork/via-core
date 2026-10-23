@@ -50,6 +50,28 @@ pub struct MessageParser {
 }
 
 impl MessageParser {
+    fn op_return_common_fields(
+        tx: &Transaction,
+        block_height: u32,
+        protocol_txid: Txid,
+    ) -> Option<CommonFields> {
+        Some(CommonFields {
+            schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
+            encoded_public_key: PushBytesBuf::new(),
+            block_height,
+            block_hash: None,
+            tx_id: protocol_txid,
+            p2wpkh_address: None,
+            tx_index: None,
+            message_index: Some(
+                tx.input.len()
+                    + tx.output.iter().position(|output| output.script_pubkey.is_op_return())?,
+            ),
+            carrier_tx_id: Some(tx.compute_txid()),
+            output_vout: None,
+        })
+    }
+
     pub fn new(network: Network) -> Self {
         Self { network }
     }
@@ -75,8 +97,12 @@ impl MessageParser {
                 // parsing messages
                 tx.input
                     .iter()
-                    .filter_map(|input| {
-                        self.parse_system_input(input, tx, block_height, address.clone(), wallets)
+                    .enumerate()
+                    .filter_map(|(index, input)| {
+                        let mut message = self.parse_system_input(input, tx, block_height, address.clone(), wallets)?;
+                        message.common_mut().message_index = Some(index);
+                        message.common_mut().carrier_tx_id = Some(tx.compute_txid());
+                        Some(message)
                     })
                     .collect()
             }
@@ -113,6 +139,9 @@ impl MessageParser {
             messages.push(update_sequencer);
         }
 
+        for message in &mut messages {
+            message.common_mut().tx_index = Some(tx.tx_index);
+        }
         messages
     }
 
@@ -207,6 +236,8 @@ impl MessageParser {
             tx_id: tx.compute_ntxid().into(),
             p2wpkh_address: Some(address),
             tx_index: None,
+            message_index: None,
+            carrier_tx_id: None,
             output_vout: None,
         };
 
@@ -735,7 +766,7 @@ impl MessageParser {
         wallets: &SystemWallets,
     ) -> Option<FullInscriptionMessage> {
         // Try to find any witness data that contains a valid inscription
-        for input in tx.tx.input.iter() {
+        for (input_index, input) in tx.tx.input.iter().enumerate() {
             let witness = &input.witness;
             if witness.len() < MIN_WITNESS_LENGTH {
                 continue;
@@ -760,6 +791,8 @@ impl MessageParser {
                 tx_id: tx.tx.compute_ntxid().into(),
                 p2wpkh_address,
                 tx_index: Some(tx.tx_index),
+                message_index: Some(input_index),
+                carrier_tx_id: Some(tx.tx.compute_txid()),
                 output_vout: tx.output_vout,
             };
 
@@ -825,6 +858,8 @@ impl MessageParser {
                 tx_id: tx.tx.compute_ntxid().into(),
                 p2wpkh_address,
                 tx_index: Some(tx.tx_index),
+                message_index: Some(tx.tx.input.len() + tx.tx.output.iter().position(|output| output.script_pubkey.is_op_return())?),
+                carrier_tx_id: Some(tx.tx.compute_txid()),
                 output_vout: tx.output_vout,
             };
 
@@ -946,17 +981,7 @@ impl MessageParser {
                 withdrawals,
             };
 
-            // Create common fields with empty signature for OP_RETURN
-            let common_fields = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                block_hash: None,
-                tx_id: tx.compute_txid(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
+            let common_fields = Self::op_return_common_fields(tx, block_height, tx.compute_txid())?;
 
             return Some(FullInscriptionMessage::BridgeWithdrawal(BridgeWithdrawal {
                 common: common_fields,
@@ -999,17 +1024,7 @@ impl MessageParser {
                 proposal_tx_id,
             };
 
-            // Create common fields with empty signature for OP_RETURN
-            let common_fields = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                block_hash: None,
-                tx_id: tx.compute_ntxid().into(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
+            let common_fields = Self::op_return_common_fields(tx, block_height, tx.compute_ntxid().into())?;
 
             return Some(FullInscriptionMessage::SystemContractUpgrade(
                 SystemContractUpgrade {
@@ -1054,17 +1069,7 @@ impl MessageParser {
                 proposal_tx_id,
             };
 
-            // Create common fields with empty signature for OP_RETURN
-            let common = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                block_hash: None,
-                tx_id: tx.compute_ntxid().into(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
+            let common = Self::op_return_common_fields(tx, block_height, tx.compute_ntxid().into())?;
 
             return Some(FullInscriptionMessage::UpdateBridge(UpdateBridge {
                 common,
@@ -1074,55 +1079,29 @@ impl MessageParser {
         None
     }
 
+    fn op_return_address(tx: &Transaction, prefix: &[u8]) -> Option<Address<NetworkUnchecked>> {
+        let output = tx.output.iter().find(|output| output.script_pubkey.is_op_return())?;
+        let data = output.script_pubkey.as_bytes().get(2..)?;
+        if !data.starts_with(prefix) {
+            return None;
+        }
+        Address::from_str(std::str::from_utf8(data.get(prefix.len() + 1..)?).ok()?).ok()
+    }
+
     fn parse_op_return_update_sequencer(
         &self,
         tx: &Transaction,
         block_height: u32,
     ) -> Option<FullInscriptionMessage> {
-        // Find OP_RETURN output
-        let op_return_output = tx
-            .output
-            .iter()
-            .find(|output| output.script_pubkey.is_op_return())?;
-
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
-            if !op_return_data.starts_with(OP_RETURN_UPDATE_SEQUENCER_PREFIX) {
-                return None;
-            }
-
-            let start = OP_RETURN_UPDATE_SEQUENCER_PREFIX.len() + 1;
-
-            // Parse sequencer address from OP_RETURN data
-            let address_str = std::str::from_utf8(&op_return_data[start..]).ok()?;
-            let address = match Address::from_str(address_str) {
-                Ok(address) => address,
-                Err(_) => return None,
-            };
-
-            let input = UpdateSequencerInput {
+        let address = Self::op_return_address(tx, OP_RETURN_UPDATE_SEQUENCER_PREFIX)?;
+        let common = Self::op_return_common_fields(tx, block_height, tx.compute_ntxid().into())?;
+        Some(FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
+            common,
+            input: UpdateSequencerInput {
                 inputs: tx.input.iter().map(|input| input.previous_output).collect(),
                 address,
-            };
-
-            // Create common fields with empty signature for OP_RETURN
-            let common = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                block_hash: None,
-                tx_id: tx.compute_ntxid().into(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
-
-            return Some(FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
-                common,
-                input,
-            }));
-        }
-        None
+            },
+        }))
     }
 
     fn parse_op_return_update_governance(
@@ -1130,50 +1109,15 @@ impl MessageParser {
         tx: &Transaction,
         block_height: u32,
     ) -> Option<FullInscriptionMessage> {
-        // Find OP_RETURN output
-        let op_return_output = tx
-            .output
-            .iter()
-            .find(|output| output.script_pubkey.is_op_return())?;
-
-        // Parse OP_RETURN data
-        if let Some(op_return_data) = op_return_output.script_pubkey.as_bytes().get(2..) {
-            if !op_return_data.starts_with(OP_RETURN_UPDATE_GOVERNANCE_PREFIX) {
-                return None;
-            }
-
-            let start = OP_RETURN_UPDATE_GOVERNANCE_PREFIX.len() + 1;
-
-            // Parse sequencer address from OP_RETURN data
-            let address_str = std::str::from_utf8(&op_return_data[start..]).ok()?;
-            let address = match Address::from_str(address_str) {
-                Ok(address) => address,
-                Err(_) => return None,
-            };
-
-            let input = UpdateGovernanceInput {
+        let address = Self::op_return_address(tx, OP_RETURN_UPDATE_GOVERNANCE_PREFIX)?;
+        let common = Self::op_return_common_fields(tx, block_height, tx.compute_ntxid().into())?;
+        Some(FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
+            common,
+            input: UpdateGovernanceInput {
                 inputs: tx.input.iter().map(|input| input.previous_output).collect(),
                 address,
-            };
-
-            // Create common fields with empty signature for OP_RETURN
-            let common = CommonFields {
-                schnorr_signature: TaprootSignature::from_slice(&[0; 64]).ok()?,
-                encoded_public_key: PushBytesBuf::new(),
-                block_height,
-                block_hash: None,
-                tx_id: tx.compute_ntxid().into(),
-                p2wpkh_address: None,
-                tx_index: None,
-                output_vout: None,
-            };
-
-            return Some(FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
-                common,
-                input,
-            }));
-        }
-        None
+            },
+        }))
     }
 }
 
@@ -1590,5 +1534,28 @@ pub(super) mod tests {
         } else {
             panic!("Expected SystemBootstrapping message");
         }
+    }
+
+    #[test]
+    fn normalized_protocol_id_and_physical_carrier_coordinates_stay_distinct() {
+        let mut tx = bridge_transaction(&[0x91; 20], 37);
+        let normalized = tx.tx.compute_ntxid();
+        let original_txid = tx.tx.compute_txid();
+        tx.tx.input[0].script_sig = ScriptBuf::from_bytes(vec![0x51]);
+        assert_eq!(tx.tx.compute_ntxid(), normalized);
+        assert_ne!(tx.tx.compute_txid(), original_txid);
+        let mut parser = MessageParser::new(Network::Bitcoin);
+        let messages = parser.parse_bridge_transaction(&mut tx, 7, &system_wallets());
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].common().tx_id, Txid::from_raw_hash(normalized));
+        assert_eq!(messages[0].common().carrier_tx_id, Some(tx.tx.compute_txid()));
+        assert_eq!(messages[0].common().tx_index, Some(37));
+        let input_index = messages[0].common().message_index.unwrap();
+        // An irrelevant earlier input changes the physical slot; successful-message numbering would not.
+        tx.tx.input.insert(0, bitcoin::TxIn::default());
+        let messages = parser.parse_bridge_transaction(&mut tx, 7, &system_wallets());
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].common().message_index, Some(input_index + 1));
+        assert_eq!(messages[0].common().carrier_tx_id, Some(tx.tx.compute_txid()));
     }
 }

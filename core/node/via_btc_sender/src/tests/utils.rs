@@ -14,7 +14,6 @@ use via_btc_client::{
 use zksync_config::ViaBtcSenderConfig;
 use zksync_contracts::BaseSystemContractsHashes;
 use zksync_dal::{Connection, ConnectionPool, Core, CoreDal};
-use via_test_utils::utils::test_wallets;
 use zksync_types::{
     block::{L1BatchHeader, L1BatchTreeData, L2BlockHasher, L2BlockHeader},
     btc_block::ViaBtcL1BlockDetails,
@@ -129,15 +128,46 @@ pub async fn get_inscription_manager_mock(
     mock_btc_ops_config: MockBitcoinOpsConfig,
 ) -> ViaBtcInscriptionManager {
     let inscriber = get_mock_inscriber_and_conditions(mock_btc_ops_config);
-    let mut wallets = test_wallets();
-    wallets.sequencer = inscriber.inscriber_address().unwrap();
-    pool.connection()
-        .await
-        .unwrap()
-        .via_wallet_dal()
-        .insert_wallets(&SystemWalletsDetails::try_from(wallets).unwrap(), 0)
+    let mut storage = pool.connection().await.unwrap();
+    let mut tx = storage.start_transaction().await.unwrap();
+    tx.via_indexer_dal().lock_btc_watch().await.unwrap();
+    let bootstrap = via_test_utils::utils::test_wallets();
+    tx.via_wallet_dal()
+        .insert_bootstrap_wallets(&SystemWalletsDetails::try_from(bootstrap).unwrap(), 0)
         .await
         .unwrap();
+    let identity = Txid::from_byte_array([77; 32]);
+    let header = via_reorg::chain::Header {
+        height: 1,
+        block_hash: bitcoin::BlockHash::from_byte_array([1; 32]),
+        parent_hash: bitcoin::BlockHash::all_zeros(),
+    };
+    via_test_utils::reader_db::header(tx.conn(), header, true).await.unwrap();
+    let details = SystemWalletsDetails(std::collections::HashMap::from([(
+        zksync_types::via_wallet::WalletRole::Sequencer,
+        zksync_types::via_wallet::WalletInfo {
+            addresses: vec![inscriber.inscriber_address().unwrap()],
+            txid: identity,
+        },
+    )]));
+    tx.via_wallet_dal()
+        .record_wallet_update(
+            &details,
+            via_reorg::chain::MessageRef {
+                block: header.into(),
+                carrier_txid: identity,
+                tx_index: 1,
+                message_index: 0,
+            },
+            &serde_json::json!({"fixture":"sender_wallet"}),
+            "accepted",
+        )
+        .await
+        .unwrap();
+    tx.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+    tx.via_indexer_dal().update_last_processed_l1_block("via_btc_watch", 1).await.unwrap();
+    tx.commit().await.unwrap();
+    drop(storage);
     Result::unwrap(ViaBtcInscriptionManager::new(inscriber, pool, config).await)
 }
 
@@ -149,8 +179,10 @@ pub struct ViaAggregatorTest {
 
 impl ViaAggregatorTest {
     pub async fn new(
-        protocol_version: ProtocolVersionId, base_system_contracts_hashes: BaseSystemContractsHashes,
-        pool: ConnectionPool<Core>, mut config: Option<ViaBtcSenderConfig>,
+        protocol_version: ProtocolVersionId,
+        base_system_contracts_hashes: BaseSystemContractsHashes,
+        pool: ConnectionPool<Core>,
+        mut config: Option<ViaBtcSenderConfig>,
     ) -> Self {
         let mut storage = pool.connection().await.unwrap();
 
@@ -168,7 +200,22 @@ impl ViaAggregatorTest {
             version: ProtocolSemanticVersion { minor: protocol_version, patch: 0.into() },
         };
 
-        storage.protocol_versions_dal().save_protocol_version_with_tx(&protocol_version).await.unwrap();
+        let mut bootstrap = storage.start_transaction().await.unwrap();
+        bootstrap
+            .protocol_versions_dal()
+            .save_protocol_version_with_tx(&protocol_version)
+            .await
+            .unwrap();
+        bootstrap
+            .protocol_versions_dal()
+            .mark_via_bootstrap_version(
+                protocol_version.version,
+                protocol_version.base_system_contracts_hashes,
+                protocol_version.l1_verifier_config,
+            )
+            .await
+            .unwrap();
+        bootstrap.commit().await.unwrap();
 
         Self { aggregator, storage, protocol_version }
     }
