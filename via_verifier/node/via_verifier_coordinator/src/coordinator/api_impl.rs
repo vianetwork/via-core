@@ -5,7 +5,11 @@ use via_btc_client::traits::Serializable;
 use via_musig2::utils::verify_partial_signature;
 use via_verifier_dal::VerifierDal;
 
-use super::{api_decl::RestApi, auth_middleware::AuthenticatedRequest, error::ApiError};
+use super::{
+    api_decl::RestApi,
+    auth_middleware::{AuthenticatedRequest, SigningSnapshot},
+    error::ApiError,
+};
 use crate::{
     auth::{digest, random_id},
     metrics::{SigningSizeLabel, SigningSizeStage, METRICS},
@@ -223,21 +227,17 @@ impl RestApi {
         Extension(auth): Extension<AuthenticatedRequest>,
     ) -> Result<Response, ApiError> {
         let session = this.state.signing_session.read().await.clone();
-        if let Err(error) = transport::check_round_size_in(
-            &session,
-            this.state.verifiers_pub_keys.len(),
-            auth.transport,
-        ) {
+        let snapshot =
+            transport::snapshot(&session, this.state.verifiers_pub_keys.len(), auth.transport)?;
+        let body = transport::encode_snapshot(snapshot, auth.transport).map_err(|error| {
             METRICS.signing_size_refusals[&SigningSizeLabel { stage: SigningSizeStage::Serving }]
                 .inc();
             tracing::warn!(round = %hex::encode(session.round_id), "Retained signing round unservable: {error:#}");
-            return Err(ApiError::SigningRoundUnservable);
-        }
-        let snapshot =
-            transport::snapshot(&session, this.state.verifiers_pub_keys.len(), auth.transport)?;
-        Ok(Response::new(axum::body::Body::from(
-            transport::encode_snapshot(snapshot, auth.transport).map_err(anyhow::Error::from)?,
-        )))
+            ApiError::SigningRoundUnservable
+        })?;
+        let mut response = Response::new(axum::body::Body::from(body));
+        response.extensions_mut().insert(SigningSnapshot);
+        Ok(response)
     }
 
     pub async fn submit_nonce(
