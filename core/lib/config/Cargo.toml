@@ -19,7 +19,6 @@ zksync_vlog = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 
 bitcoin.workspace = true
-bitcoincore-rpc.workspace = true
 
 url.workspace = true
 anyhow.workspace = true

@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc};
 
 use anyhow::{Context, Result};
 use bitcoin::Amount;
@@ -7,114 +7,30 @@ use via_btc_client::{
     client::BitcoinClient,
     inscriber::Inscriber,
     traits::BitcoinOps,
-    types::{
-        BitcoinAddress, BitcoinNetwork, InscriptionMessage, L1ToL2MessageInput, NodeAuth, Recipient,
-    },
+    types::{BitcoinAddress, BitcoinNetwork, InscriptionMessage, L1ToL2MessageInput, Recipient},
 };
-use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
+use via_test_utils::bitcoin_core::BitcoinCore;
 use zksync_types::Address as EVMAddress;
 
 pub mod config {
     use super::*;
 
-    pub const RPC_URL: &str = "http://localhost:18443";
-    pub const RPC_USER: &str = "rpcuser";
-    pub const RPC_PASSWORD: &str = "rpcpassword";
     pub const NETWORK: BitcoinNetwork = BitcoinNetwork::Regtest;
 
-    pub const TEST_PRIVATE_KEY: &str = "cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc";
     pub const BRIDGE_MUSIG2_ADDRESS: &str =
         "bcrt1p3s7m76wp5seprjy4gdxuxrr8pjgd47q5s8lu9vefxmp0my2p4t9qh6s8kq";
-    pub const ALICE_WALLET_ADDRESS: &str = "bcrt1qg9ly0933msv97jpgrlqwn0h6743y0u6zrvh020";
     pub const TEST_RECEIVER_L2_ADDRESS: &str = "0x1234567890123456789012345678901234567890";
 
     pub const DEFAULT_DEPOSIT_AMOUNT_SATS: u64 = 100000;
     pub const DEFAULT_FUNDING_AMOUNT_BTC: f64 = 0.1;
 
-    pub const L2_RPC_URL: &str = "http://localhost:3050";
 }
 
 pub struct DepositTestUtils;
 
 impl DepositTestUtils {
-    pub fn create_bitcoin_client() -> Result<Arc<BitcoinClient>> {
-        let auth = NodeAuth::UserPass(
-            config::RPC_USER.to_string(),
-            config::RPC_PASSWORD.to_string(),
-        );
-        let client_config = ViaBtcClientConfig {
-            network: config::NETWORK.to_string(),
-            external_apis: vec![],
-            fee_strategies: vec![],
-            use_rpc_for_fee_rate: None,
-        };
-        let client = Arc::new(BitcoinClient::new(config::RPC_URL, auth, client_config)?);
-        Ok(client)
-    }
-
-    pub async fn check_l2_balance(address: &EVMAddress) -> Result<u64> {
-        let response = reqwest::Client::new()
-            .post(config::L2_RPC_URL)
-            .header("content-type", "application/json")
-            .json(&serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "eth_getBalance",
-                "params": [format!("{:?}", address), "latest"]
-            }))
-            .send()
-            .await?;
-
-        let response_text = response.text().await?;
-        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        if let Some(error) = response_json.get("error") {
-            if !error.is_null() {
-                return Err(anyhow::anyhow!("L2 RPC error: {}", error));
-            }
-        }
-
-        let balance_hex = response_json["result"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("No balance result in response"))?;
-
-        let balance = u64::from_str_radix(balance_hex.trim_start_matches("0x"), 16)
-            .map_err(|err| anyhow::anyhow!("Failed to parse balance: {}", err))?;
-
-        Ok(balance)
-    }
-
-    pub async fn wait_for_l2_balance_update(
-        address: &EVMAddress,
-        expected_min_balance: u64,
-        max_wait_time: Duration,
-        check_interval: Duration,
-    ) -> Result<u64> {
-        let start_time = std::time::Instant::now();
-
-        loop {
-            match Self::check_l2_balance(address).await {
-                Ok(balance) => {
-                    debug!("L2 balance for {}: {} wei", address, balance);
-                    if balance >= expected_min_balance {
-                        return Ok(balance);
-                    }
-                }
-                Err(e) => {
-                    debug!("Failed to check L2 balance: {}", e);
-                }
-            }
-
-            if start_time.elapsed() >= max_wait_time {
-                return Err(anyhow::anyhow!(
-                    "Timeout waiting for L2 balance update. Expected at least {} wei for address {}",
-                    expected_min_balance,
-                    address
-                ));
-            }
-
-            tokio::time::sleep(check_interval).await;
-        }
+    pub fn create_bitcoin_client(core: &BitcoinCore) -> Result<Arc<BitcoinClient>> {
+        core.inscriber_client()
     }
 
     pub fn get_bridge_address() -> Result<BitcoinAddress> {
@@ -131,175 +47,35 @@ impl DepositTestUtils {
     }
 
     pub async fn get_address_from_private_key(private_key: &str) -> Result<String> {
-        let response = reqwest::Client::new()
-            .post(config::RPC_URL)
-            .header("content-type", "text/plain")
-            .basic_auth(config::RPC_USER, Some(config::RPC_PASSWORD))
-            .body(format!(
-                r#"{{"jsonrpc": "1.0", "id": "get_descriptor", "method": "getdescriptorinfo", "params": ["wpkh({})"]}}"#,
-                private_key
-            ))
-            .send()
-            .await?;
-
-        let response_text = response.text().await?;
-        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        if let Some(error) = response_json.get("error") {
-            if !error.is_null() {
-                return Err(anyhow::anyhow!("RPC error: {}", error));
-            }
-        }
-
-        let descriptor = response_json["result"]["descriptor"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("No descriptor in response"))?;
-
-        let response = reqwest::Client::new()
-            .post(config::RPC_URL)
-            .header("content-type", "text/plain")
-            .basic_auth(config::RPC_USER, Some(config::RPC_PASSWORD))
-            .body(format!(
-                r#"{{"jsonrpc": "1.0", "id": "derive_address", "method": "deriveaddresses", "params": ["{}"]}}"#,
-                descriptor
-            ))
-            .send()
-            .await?;
-
-        let response_text = response.text().await?;
-        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        if let Some(error) = response_json.get("error") {
-            if !error.is_null() {
-                return Err(anyhow::anyhow!("RPC error: {}", error));
-            }
-        }
-
-        let addresses = response_json["result"]
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("No addresses array in response"))?;
-
-        let address = addresses[0]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("No address in response"))?;
-
-        Ok(address.to_string())
+        let key = bitcoin::PrivateKey::from_wif(private_key)?;
+        let public = bitcoin::CompressedPublicKey::from_private_key(
+            &bitcoin::secp256k1::Secp256k1::new(),
+            &key,
+        )?;
+        Ok(bitcoin::Address::p2wpkh(&public, config::NETWORK).to_string())
     }
 
-    pub async fn fund_test_address(test_address: &str, amount_btc: f64) -> Result<()> {
-        debug!("Checking if test address {} needs funding", test_address);
-
-        let mut current_balance = 0.0;
-        let response = reqwest::Client::new()
-            .post(config::RPC_URL)
-            .header("content-type", "text/plain")
-            .basic_auth(config::RPC_USER, Some(config::RPC_PASSWORD))
-            .body(format!(
-                r#"{{"jsonrpc": "1.0", "id": "check_balance", "method": "scantxoutset", "params": ["start", [{{"desc": "addr({})"}}]]}}"#,
-                test_address
-            ))
-            .send()
-            .await?;
-
-        let response_text = response.text().await?;
-        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        if let Some(error) = response_json.get("error") {
-            if !error.is_null() {
-                let error_code = error["code"].as_i64().unwrap_or(0);
-                if error_code == -8 {
-                    debug!(
-                        "Scan in progress, proceeding with funding for test address {}",
-                        test_address
-                    );
-                } else {
-                    return Err(anyhow::anyhow!("RPC error checking balance: {}", error));
-                }
-            }
-        } else {
-            current_balance = response_json["result"]["total_amount"]
-                .as_f64()
-                .unwrap_or(0.0);
-        }
-
-        let required_balance = amount_btc;
-
-        if current_balance >= required_balance {
-            debug!(
-                "Test address {} already has sufficient balance: {} BTC",
-                test_address, current_balance
-            );
-            return Ok(());
-        }
-
-        debug!(
-            "Funding test address {} with {} BTC (current balance: {} BTC)",
-            test_address, amount_btc, current_balance
-        );
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-
-        let response = reqwest::Client::new()
-            .post(&format!("{}/wallet/Alice", config::RPC_URL))
-            .header("content-type", "text/plain")
-            .basic_auth(config::RPC_USER, Some(config::RPC_PASSWORD))
-            .body(format!(
-                r#"{{"jsonrpc": "1.0", "id": "fund_test", "method": "sendtoaddress", "params": ["{}", {}]}}"#,
-                test_address, amount_btc
-            ))
-            .send()
-            .await?;
-
-        let response_text = response.text().await?;
-        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        if let Some(error) = response_json.get("error") {
-            if !error.is_null() {
-                return Err(anyhow::anyhow!("RPC error: {}", error));
-            }
-        }
-
-        let txid = response_json["result"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("No transaction ID in response"))?;
-
-        debug!("Funding transaction created: {}", txid);
-
-        let response = reqwest::Client::new()
-            .post(&format!("{}/wallet/Alice", config::RPC_URL))
-            .header("content-type", "text/plain")
-            .basic_auth(config::RPC_USER, Some(config::RPC_PASSWORD))
-            .body(format!(
-                r#"{{"jsonrpc": "1.0", "id": "generate_block", "method": "generatetoaddress", "params": [1, "{}"]}}"#,
-                config::ALICE_WALLET_ADDRESS
-            ))
-            .send()
-            .await?;
-
-        let response_text = response.text().await?;
-        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        if let Some(error) = response_json.get("error") {
-            if !error.is_null() {
-                return Err(anyhow::anyhow!("RPC error generating block: {}", error));
-            }
-        }
-
-        debug!("Block generated to confirm funding transaction");
-        Ok(())
+    pub async fn fund_test_address(
+        core: &BitcoinCore,
+        test_address: &str,
+        amount_btc: f64,
+    ) -> Result<()> {
+        let address = BitcoinAddress::from_str(test_address)?.require_network(config::NETWORK)?;
+        core.fund(&address, Amount::from_btc(amount_btc)?)
     }
 
     pub async fn setup_funded_inscriber_with_key(
+        core: &BitcoinCore,
         private_key: &str,
     ) -> Result<(Arc<BitcoinClient>, Inscriber)> {
         debug!("Setting up funded inscriber for testing with private key");
 
-        let client = Self::create_bitcoin_client()?;
+        let client = Self::create_bitcoin_client(core)?;
 
         let test_address = Self::get_address_from_private_key(private_key).await?;
         debug!("Test address derived from private key: {}", test_address);
 
-        Self::fund_test_address(&test_address, config::DEFAULT_FUNDING_AMOUNT_BTC).await?;
+        Self::fund_test_address(core, &test_address, config::DEFAULT_FUNDING_AMOUNT_BTC).await?;
 
         let context = None;
         let inscriber = Inscriber::new(client.clone(), private_key, context)
@@ -307,10 +83,6 @@ impl DepositTestUtils {
             .context("Failed to create Depositor Inscriber")?;
 
         Ok((client, inscriber))
-    }
-
-    pub async fn setup_funded_inscriber() -> Result<(Arc<BitcoinClient>, Inscriber)> {
-        Self::setup_funded_inscriber_with_key(config::TEST_PRIVATE_KEY).await
     }
 
     pub fn create_test_l1_to_l2_message() -> Result<L1ToL2MessageInput> {
@@ -330,123 +102,36 @@ impl DepositTestUtils {
         })
     }
 
-    pub async fn perform_deposit_test(amount_sats: Option<u64>) -> Result<()> {
-        Self::perform_deposit_test_with_key(amount_sats, config::TEST_PRIVATE_KEY).await
-    }
-
     pub async fn perform_deposit_test_with_key(
+        core: &BitcoinCore,
         amount_sats: Option<u64>,
         private_key: &str,
-    ) -> Result<()> {
-        Self::perform_deposit_test_with_key_and_l2_check(amount_sats, private_key, true).await
-    }
-
-    pub async fn perform_deposit_test_with_key_and_l2_check(
-        amount_sats: Option<u64>,
-        private_key: &str,
-        check_l2_balance: bool,
     ) -> Result<()> {
         let amount = amount_sats.unwrap_or(config::DEFAULT_DEPOSIT_AMOUNT_SATS);
-
-        debug!("Starting deposit test");
-        debug!("Amount: {} sats", amount);
-        debug!("Using private key: {}...", &private_key[..8]);
-        debug!("L2 balance check: {}", check_l2_balance);
-
-        let client = Self::create_bitcoin_client()?;
-        let context = None;
-        let mut inscriber = Inscriber::new(client.clone(), private_key, context)
+        let client = Self::create_bitcoin_client(core)?;
+        let mut inscriber = Inscriber::new(client.clone(), private_key, None)
             .await
             .context("Failed to create Depositor Inscriber")?;
-
-        let balance = inscriber
-            .get_balance()
-            .await
-            .context("Failed to get balance")?;
-        debug!("Depositor L1 balance: {}", balance);
-
-        if balance < amount as u128 {
-            return Err(anyhow::anyhow!(
-                "Insufficient balance: {} < {}",
-                balance,
-                amount
-            ));
-        }
-
+        let balance = inscriber.get_balance().await.context("Failed to get balance")?;
+        anyhow::ensure!(
+            balance >= u128::from(amount),
+            "Insufficient balance: {balance} < {amount}"
+        );
         let input = Self::create_test_l1_to_l2_message()?;
-        let receiver_l2_address = input.receiver_l2_address;
-
-        let initial_l2_balance = if check_l2_balance {
-            match Self::check_l2_balance(&receiver_l2_address).await {
-                Ok(balance) => {
-                    debug!(
-                        "Initial L2 balance for {}: {} wei",
-                        receiver_l2_address, balance
-                    );
-                    Some(balance)
-                }
-                Err(e) => {
-                    debug!("Failed to get initial L2 balance: {}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
         let recipient = Self::create_test_recipient(amount)?;
-
-        debug!("Performing deposit inscription...");
-        let deposit_info = inscriber
+        let deposit = inscriber
             .inscribe_with_recipient(InscriptionMessage::L1ToL2Message(input), Some(recipient))
             .await?;
-
-        debug!("Deposit successful!");
-        debug!("Transaction ID: {:?}", deposit_info.final_reveal_tx.txid);
-        debug!(
-            "Recipient output: {:?}",
-            deposit_info.reveal_tx_output_info.recipient_tx_output
+        core.mine(1)?;
+        anyhow::ensure!(
+            client.check_tx_confirmation(&deposit.final_reveal_tx.txid, 1).await?,
+            "deposit was not confirmed by isolated Core"
         );
-
-        let is_confirmed = client
-            .check_tx_confirmation(&deposit_info.final_reveal_tx.txid, 1)
-            .await?;
-        debug!("Transaction confirmed: {}", is_confirmed);
-
-        if check_l2_balance {
-            debug!("Waiting for L2 balance update...");
-            let expected_amount_wei = amount as u64 * 10_000_000_000;
-
-            match Self::wait_for_l2_balance_update(
-                &receiver_l2_address,
-                expected_amount_wei,
-                Duration::from_secs(60),
-                Duration::from_secs(2),
-            )
-            .await
-            {
-                Ok(final_balance) => {
-                    debug!("✅ L2 balance verification successful!");
-                    debug!(
-                        "Final L2 balance for {}: {} wei",
-                        receiver_l2_address, final_balance
-                    );
-
-                    if let Some(initial) = initial_l2_balance {
-                        let balance_increase = final_balance - initial;
-                        debug!("L2 balance increased by: {} wei", balance_increase);
-                    }
-                }
-                Err(e) => {
-                    debug!("⚠️  L2 balance verification failed: {}", e);
-                }
-            }
-        }
-
         Ok(())
     }
 
     pub async fn perform_opreturn_deposit_test(
+        core: &BitcoinCore,
         amount_sats: Option<u64>,
         private_key: &str,
     ) -> Result<String> {
@@ -454,9 +139,8 @@ impl DepositTestUtils {
 
         debug!("Starting OP_RETURN deposit test");
         debug!("Amount: {} sats", amount);
-        debug!("Using private key: {}...", &private_key[..8]);
 
-        let client = Self::create_bitcoin_client()?;
+        let client = Self::create_bitcoin_client(core)?;
 
         let bridge_address = Self::get_bridge_address()?;
         let receiver_l2_address = Self::get_test_receiver_l2_address()?;
@@ -470,6 +154,7 @@ impl DepositTestUtils {
         )
         .await?;
 
+        core.mine(1)?;
         debug!("OP_RETURN deposit successful!");
         debug!("Transaction ID: {}", txid);
 

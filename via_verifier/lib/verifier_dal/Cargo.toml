@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+via_reorg.workspace = true
 anyhow.workspace = true
 zksync_db_connection.workspace = true
 zksync_basic_types.workspace = true

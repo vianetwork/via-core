@@ -21,6 +21,12 @@ pub struct BitcoinRpcServer {
     server: Option<thread::JoinHandle<()>>,
 }
 
+#[derive(Debug)]
+pub struct RpcError {
+    pub code: i32,
+    pub message: String,
+}
+
 impl BitcoinRpcServer {
     /// Serves each request's result with its original JSON-RPC ID.
     /// `allow_disconnect` permits a client to cancel a response without failing the fixture.
@@ -28,6 +34,16 @@ impl BitcoinRpcServer {
         read_timeout: Option<Duration>,
         allow_disconnect: bool,
         handler: impl Fn(&str, Value) -> Value + Send + Sync + 'static,
+    ) -> anyhow::Result<Self> {
+        Self::new_with_errors(read_timeout, allow_disconnect, move |actor, request| {
+            Ok(handler(actor, request))
+        })
+    }
+
+    pub fn new_with_errors(
+        read_timeout: Option<Duration>,
+        allow_disconnect: bool,
+        handler: impl Fn(&str, Value) -> Result<Value, RpcError> + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let address = listener.local_addr()?;
@@ -67,8 +83,11 @@ impl BitcoinRpcServer {
                         reader.read_exact(&mut body).unwrap();
                         let request: Value = serde_json::from_slice(&body).unwrap();
                         let id = request["id"].clone();
-                        let result = handler(&path, request);
-                        let body = json!({"result": result, "error": null, "id": id}).to_string();
+                        let (result, error) = match handler(&path, request) {
+                            Ok(result) => (result, Value::Null),
+                            Err(error) => (Value::Null, json!({"code":error.code,"message":error.message})),
+                        };
+                        let body = json!({"result": result, "error": error, "id": id}).to_string();
                         let response = write!(reader.get_mut(), "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len());
                         if !allow_disconnect {
                             response.unwrap();

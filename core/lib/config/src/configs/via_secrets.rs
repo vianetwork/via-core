@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use bitcoincore_rpc::Auth;
 use serde::Deserialize;
 use zksync_basic_types::url::SensitiveUrl;
 
@@ -16,12 +15,6 @@ pub struct ViaL1Secrets {
 
     /// Password for the Bitcoin node RPC.
     pub rpc_password: String,
-}
-
-impl ViaL1Secrets {
-    pub fn auth_node(&self) -> Auth {
-        Auth::UserPass(self.rpc_user.clone(), self.rpc_password.clone())
-    }
 }
 
 impl Debug for ViaL1Secrets {

@@ -48,6 +48,12 @@ via-dup-boundaries *args:
 via-dup-inventory *args:
     cargo +stable run --quiet --locked --manifest-path via_duplication/Cargo.toml -- inventory "$@"
 
+# Validate literal reader copies without installing the duplication scanner
+[group('via')]
+[positional-arguments]
+via-provenance-check *args:
+    cargo +stable run --quiet --locked --manifest-path via_duplication/Cargo.toml -- provenance check "$@"
+
 # Run Via-specific structural rules in strict (blocking) mode
 via-check-strict: via-dup-check
     VIA_STRUCTURAL_RULES_MODE=strict .github/scripts/check-via-structural-rules.sh

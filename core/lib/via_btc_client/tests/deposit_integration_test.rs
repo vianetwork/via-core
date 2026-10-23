@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use via_test_utils::bitcoin_core::BitcoinCore;
 use via_btc_client::{inscriber::Inscriber, traits::BitcoinOps};
 
 mod deposit_utils;
@@ -13,11 +14,13 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_inscriber_deposit_with_real_bitcoin_node() -> Result<()> {
+        let core = BitcoinCore::new()?;
+        core.mine(1)?;
         let unique_private_key = "cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc";
 
-        DepositTestUtils::setup_funded_inscriber_with_key(unique_private_key).await?;
+        DepositTestUtils::setup_funded_inscriber_with_key(&core, unique_private_key).await?;
 
-        DepositTestUtils::perform_deposit_test_with_key(None, unique_private_key).await?;
+        DepositTestUtils::perform_deposit_test_with_key(&core, None, unique_private_key).await?;
 
         Ok(())
     }
@@ -25,14 +28,16 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_inscriber_deposit_with_container_user() -> Result<()> {
+        let core = BitcoinCore::new()?;
+        core.mine(1)?;
         let unique_private_key = "cQYPr9i7N9WA1js1SqGHUwcDNkFVxWikZQJAALasoDpzN5QuJrJE";
 
-        let client = DepositTestUtils::create_bitcoin_client()?;
+        let client = DepositTestUtils::create_bitcoin_client(&core)?;
         let block_count = client.fetch_block_height().await?;
         assert!(block_count > 0, "Block height should be greater than 0");
 
         let (_, inscriber) =
-            DepositTestUtils::setup_funded_inscriber_with_key(unique_private_key).await?;
+            DepositTestUtils::setup_funded_inscriber_with_key(&core, unique_private_key).await?;
 
         let balance = inscriber.get_balance().await?;
 
@@ -49,6 +54,8 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_inscriber_multiple_users_different_amounts() -> Result<()> {
+        let core = BitcoinCore::new()?;
+        core.mine(1)?;
         let test_users = vec![
             (
                 "User1",
@@ -72,74 +79,15 @@ mod integration_tests {
             ),
         ];
 
-        let enable_l2_balance_check = false;
-        let max_retry_attempts = 3;
-        let retry_delay_ms = 1000;
-        let continue_on_failure = true;
-
         let mut successful_deposits = Vec::new();
-        let mut failed_deposits = Vec::new();
-
         for (user_name, private_key, amount_sats) in test_users {
-            let (_, inscriber) = DepositTestUtils::setup_funded_inscriber_with_key(private_key)
-                .await
-                .expect(&format!("Failed to setup funding for {}", user_name));
-
+            let (_, inscriber) = DepositTestUtils::setup_funded_inscriber_with_key(&core, private_key).await?;
             let balance = inscriber.get_balance().await?;
-
-            assert!(
-                balance >= amount_sats as u128,
-                "Insufficient balance for {}: {} < {} sats",
-                user_name,
-                balance,
-                amount_sats
-            );
-
-            let mut attempt = 1;
-            let mut last_error = None;
-
-            while attempt <= max_retry_attempts {
-                match DepositTestUtils::perform_deposit_test_with_key_and_l2_check(
-                    Some(amount_sats),
-                    private_key,
-                    enable_l2_balance_check,
-                )
-                .await
-                {
-                    Ok(_) => {
-                        successful_deposits.push((user_name, amount_sats));
-                        break;
-                    }
-                    Err(e) => {
-                        last_error = Some(e);
-
-                        if attempt < max_retry_attempts {
-                            tokio::time::sleep(tokio::time::Duration::from_millis(retry_delay_ms))
-                                .await;
-                        }
-                        attempt += 1;
-                    }
-                }
-            }
-
-            if attempt > max_retry_attempts {
-                if let Some(error) = last_error {
-                    failed_deposits.push((user_name, amount_sats, error.to_string()));
-
-                    if !continue_on_failure {
-                        panic!("Deposit failed for {} after {} attempts and continue_on_failure is false", 
-                               user_name, max_retry_attempts);
-                    }
-                }
-            }
-
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            assert!(balance >= amount_sats as u128, "Insufficient balance for {user_name}: {balance} < {amount_sats}");
+            DepositTestUtils::perform_deposit_test_with_key(&core, Some(amount_sats), private_key).await?;
+            successful_deposits.push(user_name);
         }
-
-        assert!(
-            !successful_deposits.is_empty(),
-            "All deposits failed - no successful deposits"
-        );
+        assert_eq!(successful_deposits.len(), 4);
 
         Ok(())
     }
@@ -147,13 +95,15 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_opreturn_deposit_with_real_bitcoin_node() -> Result<()> {
+        let core = BitcoinCore::new()?;
+        core.mine(1)?;
         let unique_private_key = "cPuM8wv8rGA5EPD8DKJF2sirHdkdrk9JSVXEiyv8F6JCUGziXx19";
 
         let address = DepositTestUtils::get_address_from_private_key(unique_private_key).await?;
-        DepositTestUtils::fund_test_address(&address, 0.1).await?;
+        DepositTestUtils::fund_test_address(&core, &address, 0.1).await?;
 
-        let txid =
-            DepositTestUtils::perform_opreturn_deposit_test(None, unique_private_key).await?;
+        let txid = DepositTestUtils::perform_opreturn_deposit_test(&core, None, unique_private_key)
+            .await?;
 
         assert!(!txid.is_empty(), "Transaction ID should not be empty");
 
@@ -163,6 +113,8 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_opreturn_deposit_multiple_amounts() -> Result<()> {
+        let core = BitcoinCore::new()?;
+        core.mine(1)?;
         let test_amounts = vec![50000, 100000, 250000, 500000];
 
         for (i, amount_sats) in test_amounts.iter().enumerate() {
@@ -176,9 +128,9 @@ mod integration_tests {
 
             let address =
                 DepositTestUtils::get_address_from_private_key(unique_private_key).await?;
-            DepositTestUtils::fund_test_address(&address, 0.1).await?;
+            DepositTestUtils::fund_test_address(&core, &address, 0.1).await?;
 
-            let txid = DepositTestUtils::perform_opreturn_deposit_test(
+            let txid = DepositTestUtils::perform_opreturn_deposit_test(&core,
                 Some(*amount_sats),
                 unique_private_key,
             )
@@ -190,7 +142,6 @@ mod integration_tests {
                 amount_sats
             );
 
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
 
         Ok(())
@@ -199,24 +150,15 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_insufficient_funds_deposit_failure() -> Result<()> {
+        let core = BitcoinCore::new()?;
+        core.mine(1)?;
         let insufficient_private_key = "cNxiyS3cffhwK6x5sp72LiyhvP7QkM8o4VDJVLya3yaRXc3QPJYc";
 
-        let client = DepositTestUtils::create_bitcoin_client()?;
-        let context = None;
-        let inscriber = Inscriber::new(client.clone(), insufficient_private_key, context)
-            .await
-            .context("Failed to create test Inscriber")?;
+        let client = DepositTestUtils::create_bitcoin_client(&core)?;
+        let excessive_amount =
+            unfunded_balance(&client, insufficient_private_key).await? + 1_000_000;
 
-        let current_balance = inscriber.get_balance().await?;
-        println!("Current balance: {} sats", current_balance);
-
-        let excessive_amount = current_balance + 1_000_000;
-        println!(
-            "Attempting to deposit: {} sats (exceeds balance by 1M sats)",
-            excessive_amount
-        );
-
-        let result = DepositTestUtils::perform_deposit_test_with_key(
+        let result = DepositTestUtils::perform_deposit_test_with_key(&core,
             Some(excessive_amount as u64),
             insufficient_private_key,
         )
@@ -242,22 +184,13 @@ mod integration_tests {
     #[tokio::test]
     #[traced_test]
     async fn test_opreturn_insufficient_funds_deposit_failure() -> Result<()> {
+        let core = BitcoinCore::new()?;
+        core.mine(1)?;
         let insufficient_private_key = "cQYPr9i7N9WA1js1SqGHUwcDNkFVxWikZQJAALasoDpzN5QuJrJE";
 
-        let client = DepositTestUtils::create_bitcoin_client()?;
-        let context = None;
-        let inscriber = Inscriber::new(client.clone(), insufficient_private_key, context)
-            .await
-            .context("Failed to create test Inscriber")?;
-
-        let current_balance = inscriber.get_balance().await?;
-        println!("Current balance: {} sats", current_balance);
-
-        let excessive_amount = current_balance + 1_000_000;
-        println!(
-            "Attempting to deposit: {} sats (exceeds balance by 1M sats)",
-            excessive_amount
-        );
+        let client = DepositTestUtils::create_bitcoin_client(&core)?;
+        let excessive_amount =
+            unfunded_balance(&client, insufficient_private_key).await? + 1_000_000;
 
         let bridge_address = DepositTestUtils::get_bridge_address()?;
         let receiver_l2_address = DepositTestUtils::get_test_receiver_l2_address()?;
@@ -285,5 +218,14 @@ mod integration_tests {
         );
 
         Ok(())
+    }
+    async fn unfunded_balance(
+        client: &std::sync::Arc<via_btc_client::client::BitcoinClient>,
+        key: &str,
+    ) -> Result<u128> {
+        let inscriber = Inscriber::new(client.clone(), key, None)
+            .await
+            .context("Failed to create test Inscriber")?;
+        inscriber.get_balance().await
     }
 }

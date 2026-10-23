@@ -844,7 +844,7 @@ mod tests {
         Block, BlockHash, CompressedPublicKey, OutPoint, PrivateKey, ScriptBuf, Transaction, TxOut,
         Txid,
     };
-    use bitcoincore_rpc::json::GetBlockStatsResult;
+    use crate::types::BlockStats;
     use mockall::{mock, predicate::*};
 
     use super::*;
@@ -867,7 +867,7 @@ mod tests {
             async fn fetch_block_height(&self) -> BitcoinClientResult<u64>;
             async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
             fn get_network(&self) -> BitcoinNetwork;
-            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
+            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<BlockStats>;
             async fn get_fee_history(
                 &self,
                 from_block_height: usize,

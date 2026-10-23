@@ -1,3 +1,4 @@
+mod provenance;
 mod report;
 mod scan;
 #[cfg(test)]
@@ -20,6 +21,10 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Mode {
+    Provenance {
+        #[command(subcommand)]
+        command: provenance::Command,
+    },
     Check {
         #[arg(long)]
         base: Option<String>,
@@ -260,12 +265,16 @@ fn execute(mode: Mode, temp: &Path, version: &mut String) -> Result<(u8, String)
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let mode = match cli.command {
+        Mode::Provenance { command } => return provenance::run(command),
+        mode => mode,
+    };
     let mut version = "not resolved".to_owned();
     // Explicit close reports cleanup failure; Drop remains the fallback on unwinding.
     // https://docs.rs/tempfile/3.14.0/tempfile/struct.TempDir.html
     let mut result = match tempfile::tempdir() {
         Ok(temp) => {
-            let result = execute(cli.command, temp.path(), &mut version);
+            let result = execute(mode, temp.path(), &mut version);
             match temp.close() {
                 Ok(()) => result,
                 Err(e) => Err(e.into()),

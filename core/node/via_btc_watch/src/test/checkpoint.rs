@@ -1,24 +1,24 @@
 use std::{
-    collections::HashMap,
     sync::{mpsc, Arc, Mutex},
     time::Duration,
 };
 
 use bitcoin::{
     absolute,
-    consensus::encode::serialize_hex,
     hashes::Hash,
     secp256k1::{Keypair, Secp256k1, SecretKey},
     taproot::LeafVersion,
-    transaction, Address, Amount, Block, BlockHash, CompressedPublicKey, Network, OutPoint, ScriptBuf, Transaction,
-    TxIn, TxOut, Txid, Witness,
+    transaction, Address, Amount, BlockHash, CompressedPublicKey, Network, OutPoint, ScriptBuf,
+    Transaction, TxIn, TxOut, Txid, Witness,
 };
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, watch};
 use tokio::time::timeout;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer, types::NodeAuth};
 use via_main_node_reorg_detector::ViaMainNodeReorgDetector;
-use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, inscription::inscription_script};
+use via_test_utils::{
+    bitcoin_rpc::BitcoinRpcServer, chain::Chain as TestChain, inscription::inscription_script,
+};
 use zksync_config::{
     configs::{via_btc_client::ViaBtcClientConfig, via_reorg_detector::ViaReorgDetectorConfig},
     ViaBtcWatchConfig,
@@ -32,13 +32,11 @@ use zksync_types::{
 
 use crate::BtcWatch;
 
-type FetchBarrier = (String, oneshot::Sender<()>, mpsc::Receiver<()>);
+type FetchBarrier = (&'static str, Value, oneshot::Sender<()>, mpsc::Receiver<()>);
 
 #[derive(Default)]
 struct Chain {
-    canonical: HashMap<u32, BlockHash>,
-    blocks: HashMap<String, Block>,
-    transactions: HashMap<String, Transaction>,
+    model: TestChain,
     requests: Vec<Value>,
     barrier: Option<FetchBarrier>,
 }
@@ -104,36 +102,29 @@ impl BitcoinFixture {
         let chain = Arc::new(Mutex::new(Chain::default()));
         let server = {
             let chain = chain.clone();
-            BitcoinRpcServer::new(Some(Duration::from_secs(10)), true, move |actor, mut request| {
-                request["actor"] = json!(actor);
-                let (result, barrier) = {
-                    let mut chain = chain.lock().unwrap();
-                    chain.requests.push(request.clone());
-                    let result = match request["method"].as_str().unwrap() {
-                        "getblockcount" => json!(chain.canonical.keys().max().unwrap()),
-                        "getblockhash" => json!(chain.canonical[&(request["params"][0].as_u64().unwrap() as u32)]),
-                        "getblock" => json!(serialize_hex(&chain.blocks[request["params"][0].as_str().unwrap()])),
-                        "getrawtransaction" => {
-                            json!(serialize_hex(&chain.transactions[request["params"][0].as_str().unwrap()]))
-                        }
-                        method => panic!("unexpected Bitcoin RPC {method}"),
+            BitcoinRpcServer::new_with_errors(
+                Some(Duration::from_secs(10)),
+                true,
+                move |actor, mut request| {
+                    request["actor"] = json!(actor);
+                    let (result, barrier) = {
+                        let mut chain = chain.lock().unwrap();
+                        chain.requests.push(request.clone());
+                        let result = chain.model.rpc(&request);
+                        let matches =
+                            chain.barrier.as_ref().is_some_and(|(method, argument, _, _)| {
+                                request["method"] == *method && request["params"][0] == *argument
+                            });
+                        let barrier = if matches { chain.barrier.take() } else { None };
+                        (result, barrier)
                     };
-                    let barrier = if chain.barrier.as_ref().is_some_and(|(hash, _, _)| {
-                        (request["method"] == "getblock" && request["params"][0] == *hash)
-                            || (request["method"] == "getblockhash" && result == *hash)
-                    }) {
-                        chain.barrier.take()
-                    } else {
-                        None
-                    };
-                    (result, barrier)
-                };
-                if let Some((_, entered, release)) = barrier {
-                    let _ = entered.send(());
-                    release.recv_timeout(Duration::from_secs(45)).unwrap();
-                }
-                result
-            })?
+                    if let Some((_, _, entered, release)) = barrier {
+                        let _ = entered.send(());
+                        release.recv_timeout(Duration::from_secs(45)).unwrap();
+                    }
+                    result
+                },
+            )?
         };
         let key = keypair();
         let sender = Address::p2wpkh(&CompressedPublicKey(key.public_key()), Network::Regtest);
@@ -152,12 +143,7 @@ impl BitcoinFixture {
             BitcoinClient::new(
                 &self.server.url(actor),
                 NodeAuth::None,
-                ViaBtcClientConfig {
-                    network: "regtest".into(),
-                    external_apis: vec![],
-                    fee_strategies: vec![],
-                    use_rpc_for_fee_rate: Some(true),
-                },
+                ViaBtcClientConfig::for_tests(),
             )
             .unwrap(),
         )
@@ -167,14 +153,8 @@ impl BitcoinFixture {
         let mut chain = self.chain.lock().unwrap();
         let mut block = bitcoin::blockdata::constants::genesis_block(Network::Regtest);
         block.header.nonce = height + fork;
-        block.header.prev_blockhash =
-            chain.canonical.get(&height.saturating_sub(1)).copied().unwrap_or_else(BlockHash::all_zeros);
         block.txdata = txdata;
-        block.header.merkle_root = block.compute_merkle_root().unwrap_or_else(bitcoin::TxMerkleNode::all_zeros);
-        let hash = block.block_hash();
-        chain.canonical.insert(height, hash);
-        chain.blocks.insert(hash.to_string(), block);
-        hash
+        chain.model.insert(height, block)
     }
 
     fn deposit(&self) -> Transaction {
@@ -203,7 +183,7 @@ impl BitcoinFixture {
         approval.input[0].previous_output = OutPoint { txid: funding.compute_txid(), vout: 0 };
         let mut chain = self.chain.lock().unwrap();
         for tx in [proposal, funding] {
-            chain.transactions.insert(tx.compute_txid().to_string(), tx);
+            chain.model.transactions.insert(tx.compute_txid().to_string(), tx);
         }
         approval
     }
@@ -223,7 +203,12 @@ impl BitcoinFixture {
             TxOut { value: Amount::ZERO, script_pubkey: ScriptBuf::new_op_return(push(&payload)) },
         ]);
         approval.input[0].previous_output = OutPoint { txid: funding.compute_txid(), vout: 0 };
-        self.chain.lock().unwrap().transactions.insert(funding.compute_txid().to_string(), funding);
+        self.chain
+            .lock()
+            .unwrap()
+            .model
+            .transactions
+            .insert(funding.compute_txid().to_string(), funding);
         (approval, address)
     }
 
@@ -245,14 +230,18 @@ impl BitcoinFixture {
             ],
         );
         let txid = tx.compute_txid();
-        self.chain.lock().unwrap().transactions.insert(txid.to_string(), tx);
+        self.chain.lock().unwrap().model.transactions.insert(txid.to_string(), tx);
         zksync_config::configs::via_consensus::ViaGenesisConfig { bootstrap_txids: vec![txid.to_string()] }
     }
 
     fn pause(&self, hash: BlockHash) -> FetchPause {
+        self.pause_request("getblock", json!(hash))
+    }
+
+    fn pause_request(&self, method: &'static str, argument: Value) -> FetchPause {
         let (entered, receiver) = oneshot::channel();
         let (release, blocked) = mpsc::channel();
-        self.chain.lock().unwrap().barrier = Some((hash.to_string(), entered, blocked));
+        self.chain.lock().unwrap().barrier = Some((method, argument, entered, blocked));
         FetchPause { entered: receiver, release }
     }
 
@@ -268,7 +257,15 @@ impl BitcoinFixture {
             ..ProtocolVersion::default()
         };
         storage.protocol_versions_dal().save_protocol_version_with_tx(&version).await?;
-        let canonical = self.chain.lock().unwrap().canonical.clone();
+        let canonical = self
+            .chain
+            .lock()
+            .unwrap()
+            .model
+            .blocks
+            .iter()
+            .map(|(&height, block)| (height, block.block_hash()))
+            .collect::<Vec<_>>();
         for (height, hash) in canonical {
             storage.via_l1_block_dal().insert_l1_block(i64::from(height), hash.to_string()).await?;
         }
@@ -306,7 +303,7 @@ impl BitcoinFixture {
     }
 
     async fn sync_headers(&self, pool: &ConnectionPool<Core>) -> anyhow::Result<()> {
-        let hash = self.chain.lock().unwrap().canonical[&3];
+        let hash = self.chain.lock().unwrap().model.blocks[&3].block_hash();
         self.detect_until(pool, &format!("SELECT EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=3 AND hash='{hash}')"))
             .await
     }
@@ -340,7 +337,8 @@ const OWNER_WAITER: &str = "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype=
 const SOFT_RECOVERED: &str = "SELECT NOT EXISTS(SELECT 1 FROM via_l1_reorg) AND EXISTS(SELECT 1 FROM via_indexer_metadata WHERE module='via_btc_watch' AND last_indexer_l1_block=1) AND NOT EXISTS(SELECT 1 FROM via_l1_blocks WHERE number>1)";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn scan_finishes_before_soft_recovery_and_replacement_deposit_is_imported() -> anyhow::Result<()> {
+async fn scan_finishes_before_soft_recovery_and_replacement_deposit_is_imported(
+) -> anyhow::Result<()> {
     let fixture = BitcoinFixture::new()?;
     fixture.block(1, 0, vec![]);
     let old = fixture.block(2, 0, vec![]);
@@ -354,7 +352,7 @@ async fn scan_finishes_before_soft_recovery_and_replacement_deposit_is_imported(
         reader.loop_iteration(&mut scan_pool.connection().await?).await?;
         Ok::<_, anyhow::Error>(reader)
     });
-    (&mut pause.entered).await?;
+    tokio::time::timeout(Duration::from_secs(10), &mut pause.entered).await??;
     let deposit = fixture.deposit();
     fixture.block(2, 100, vec![deposit.clone()]);
     fixture.block(3, 100, vec![]);
@@ -384,9 +382,9 @@ async fn detection_owns_unchanged_progress_before_reader_fetches() -> anyhow::Re
     let pool = ConnectionPool::<Core>::test_pool().await;
     fixture.seed(&pool).await?;
     let deposit = fixture.deposit();
-    let replacement = fixture.block(2, 100, vec![deposit.clone()]);
+    fixture.block(2, 100, vec![deposit.clone()]);
     fixture.block(3, 100, vec![]);
-    let mut pause = fixture.pause(replacement);
+    let mut pause = fixture.pause_request("getblockhash", json!(2));
     let (stop, receiver) = watch::channel(false);
     let detector = tokio::spawn(fixture.detector(pool.clone()).run(receiver));
     let wait_timeout = Duration::from_secs(10);
@@ -572,14 +570,14 @@ async fn initialization_seed_and_configured_restart_wait_for_owner() -> anyhow::
     wait_until(&pool, "SELECT EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=3)").await?;
     stop.send(true)?;
     detector.await??;
-    let first_hash = fixture.chain.lock().unwrap().canonical[&1];
+    let first_hash = fixture.chain.lock().unwrap().model.blocks[&1].block_hash();
     assert_eq!(storage.via_l1_block_dal().get_l1_block_hash(1).await?, Some(first_hash.to_string()));
     fixture.seed(&pool).await?;
     let mut reader = fixture.reader(pool.clone()).await?;
     let mut pause = fixture.pause(second);
     let scan_pool = pool.clone();
     let scan = tokio::spawn(async move { reader.loop_iteration(&mut scan_pool.connection().await?).await });
-    (&mut pause.entered).await?;
+    tokio::time::timeout(Duration::from_secs(10), &mut pause.entered).await??;
     let restart = tokio::spawn(ViaMainNodeStorageInitializer::new(
         pool.clone(),
         fixture.client("initializer"),

@@ -218,3 +218,80 @@ impl ViaL1BlockDal<'_, '_> {
         Ok(record.map(|row| (row.l1_block_number, row.l1_batch_number)))
     }
 }
+
+// jscpd:ignore-start Independent database adapters retain concrete SQL transaction ownership.
+impl ViaL1BlockDal<'_, '_> {
+    /// Persist a prepared immutable header; this never updates the canonical index.
+    // Hash-keyed inclusion follows NBXplorer; disconnected ancestry remains addressable.
+    // https://github.com/btcpayserver/NBXplorer/blob/b691999b14eb2a06547ffa708c11574fa323d769/NBXplorer/DBScripts/FullSchema.sql
+    pub async fn retain_header(
+        &mut self,
+        header: via_reorg::chain::Header<bitcoin::BlockHash>,
+    ) -> anyhow::Result<()> {
+        use bitcoin::hashes::Hash;
+        anyhow::ensure!(
+            self.storage.in_transaction(),
+            "header retention requires an effects transaction"
+        );
+        let accepted: Option<Vec<u8>> = sqlx::query_scalar(
+            "INSERT INTO via_btc_headers(hash,height,parent_hash) VALUES ($1,$2,$3) \
+             ON CONFLICT(hash) DO UPDATE SET hash=EXCLUDED.hash \
+             WHERE via_btc_headers.height=EXCLUDED.height AND via_btc_headers.parent_hash=EXCLUDED.parent_hash RETURNING hash",
+        )
+        .bind(header.block_hash.as_byte_array().as_slice()).bind(i64::from(header.height))
+        .bind(header.parent_hash.as_byte_array().as_slice())
+        .instrument("retain_bitcoin_header").fetch_optional(self.storage).await?;
+        anyhow::ensure!(
+            accepted.is_some(),
+            "immutable Bitcoin header payload conflict"
+        );
+        Ok(())
+    }
+
+    pub async fn retained_header(
+        &mut self,
+        hash: bitcoin::BlockHash,
+    ) -> anyhow::Result<Option<via_reorg::chain::Header<bitcoin::BlockHash>>> {
+        use bitcoin::hashes::Hash;
+        use sqlx::Row;
+        let row: Option<(i64, Vec<u8>)> =
+            sqlx::query("SELECT height,parent_hash FROM via_btc_headers WHERE hash=$1")
+                .bind(hash.as_byte_array().as_slice())
+                .try_map(|row: sqlx::postgres::PgRow| {
+                    Ok((row.try_get("height")?, row.try_get("parent_hash")?))
+                })
+                .instrument("retained_bitcoin_header")
+                .fetch_optional(self.storage)
+                .await?;
+        row.map(|(height, parent)| {
+            Ok(via_reorg::chain::Header {
+                block_hash: hash,
+                height: u32::try_from(height)?,
+                parent_hash: bitcoin::BlockHash::from_slice(&parent)?,
+            })
+        })
+        .transpose()
+    }
+
+    /// Legacy canonical rows are parsed as Bitcoin display hashes, never reversed as an SQL string.
+    /// Missing retained ancestry remains unknown until stopped migration proves it.
+    pub async fn canonical_header(
+        &mut self,
+        height: u32,
+    ) -> anyhow::Result<Option<via_reorg::chain::Header<bitcoin::BlockHash>>> {
+        use std::str::FromStr;
+        let header = match self.get_l1_block_hash(i64::from(height)).await? {
+            Some(hash) => self.retained_header(bitcoin::BlockHash::from_str(&hash)?).await?,
+            None => return Ok(None),
+        };
+        if let Some(header) = &header {
+            anyhow::ensure!(
+                header.height == height,
+                "legacy canonical Bitcoin height {height} references retained height {}",
+                header.height
+            );
+        }
+        Ok(header)
+    }
+}
+// jscpd:ignore-end

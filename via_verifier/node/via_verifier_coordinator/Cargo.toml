@@ -49,5 +49,4 @@ zksync_da_clients.workspace = true
 zksync_web3_decl.workspace = true
 zksync_db_connection.workspace = true
 sqlx.workspace = true
-bitcoincore-rpc.workspace = true
 parking_lot = "0.12"

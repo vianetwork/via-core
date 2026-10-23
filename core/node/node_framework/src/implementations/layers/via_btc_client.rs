@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use via_btc_client::client::BitcoinClient;
+use via_btc_client::{client::BitcoinClient, types::NodeAuth};
 use zksync_config::configs::{
     via_btc_client::ViaBtcClientConfig, via_secrets::ViaL1Secrets, via_wallets::ViaWallets,
 };
@@ -67,7 +67,7 @@ impl WiringLayer for BtcClientLayer {
             };
             BitcoinClient::new_with_component(
                 &url,
-                self.secrets.auth_node(),
+                NodeAuth::UserPass(self.secrets.rpc_user.clone(), self.secrets.rpc_password.clone()),
                 self.via_btc_client.clone(),
                 self.component,
             )

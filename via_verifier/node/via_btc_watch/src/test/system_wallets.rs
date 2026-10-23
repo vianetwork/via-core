@@ -1,12 +1,17 @@
 #[cfg(test)]
 mod tests {
     // jscpd:ignore-start Separate wallet processor and DAL schema per node.
-    use std::{str::FromStr, sync::Arc};
+    use std::str::FromStr;
 
-    use via_btc_client::{indexer::BitcoinInscriptionIndexer, types::BitcoinAddress};
+    use via_btc_client::{
+        indexer::BitcoinInscriptionIndexer,
+        types::{BitcoinAddress, FullInscriptionMessage},
+    };
+    use via_test_utils::bitcoin_core::BitcoinCore;
     use via_test_utils::utils::{
-        create_update_bridge_inscription, create_update_governance_inscription, create_update_sequencer_inscription,
-        random_bitcoin_wallet, test_bitcoin_client, test_create_indexer, test_wallets,
+        create_update_bridge_inscription, create_update_governance_inscription,
+        create_update_sequencer_inscription, random_bitcoin_wallet, test_create_indexer,
+        test_wallets,
     };
     use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
     use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails};
@@ -15,7 +20,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_sequencer_wallet() -> anyhow::Result<()> {
-        let (pool, mut indexer, mut processor) = setup().await?;
+        let (pool, mut indexer, mut processor, _core) = setup().await?;
         let new_sequencer_address = random_bitcoin_wallet().1;
         let msg = create_update_sequencer_inscription(new_sequencer_address.clone());
 
@@ -37,7 +42,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_governance_wallet() -> anyhow::Result<()> {
-        let (pool, mut indexer, mut processor) = setup().await?;
+        let (pool, mut indexer, mut processor, _core) = setup().await?;
         let new_governance_address = random_bitcoin_wallet().1;
         let msg = create_update_governance_inscription(new_governance_address.clone());
 
@@ -68,31 +73,28 @@ mod tests {
     }
 
     async fn check_bridge_update(new_verifiers: Vec<BitcoinAddress>) -> anyhow::Result<()> {
-        let (pool, mut indexer, mut processor) = setup().await?;
-        let new_bridge_address =
-            BitcoinAddress::from_str("bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg")?
-                .assume_checked();
+        let (pool, mut indexer, mut processor, _core) = setup().await?;
 
-        let msg = create_update_bridge_inscription(new_bridge_address.clone(), new_verifiers.clone()).await?;
+        let (msg, new_bridge_address) = bridge_update(&_core, new_verifiers.clone()).await?;
 
         let old_wallets = indexer.get_state();
 
         processor.process_messages(&mut pool.connection().await?, vec![msg], &mut indexer).await?;
 
-        let expected_wallets = SystemWallets {
+        assert_eq!(indexer.get_state(), old_wallets);
+        let expected = SystemWallets {
             bridge: new_bridge_address,
             verifiers: new_verifiers,
             ..(*old_wallets).clone()
         };
-
-        assert_eq!(stored_wallets(&pool).await?, expected_wallets);
+        assert_eq!(stored_wallets(&pool).await?, expected);
 
         Ok(())
     }
 
     #[tokio::test]
     async fn test_update_governance_bridge_wallet_and_sequencer() -> anyhow::Result<()> {
-        let (pool, mut indexer, mut processor) = setup().await?;
+        let (pool, mut indexer, mut processor, _core) = setup().await?;
 
         let new_governance_address = random_bitcoin_wallet().1;
         let gov_msg = create_update_governance_inscription(new_governance_address.clone());
@@ -100,9 +102,6 @@ mod tests {
         let new_sequencer_address = random_bitcoin_wallet().1;
         let sequencer_msg = create_update_sequencer_inscription(new_sequencer_address.clone());
 
-        let new_bridge_address =
-            BitcoinAddress::from_str("bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg")?
-                .assume_checked();
 
         let new_verifier_1 = random_bitcoin_wallet().1;
         let new_verifier_2 = random_bitcoin_wallet().1;
@@ -111,34 +110,50 @@ mod tests {
 
         let new_verifiers = vec![new_verifier_1, new_verifier_2, new_verifier_3, new_verifier_4];
 
-        let bridge_msg = create_update_bridge_inscription(new_bridge_address.clone(), new_verifiers.clone()).await?;
+        let (bridge_msg, new_bridge_address) = bridge_update(&_core, new_verifiers.clone()).await?;
 
         processor
             .process_messages(&mut pool.connection().await?, vec![bridge_msg, sequencer_msg, gov_msg], &mut indexer)
             .await?;
 
-        let expected_wallets = SystemWallets {
+        assert_eq!(indexer.get_state(), old_wallets);
+        let expected = SystemWallets {
             bridge: new_bridge_address,
-            verifiers: new_verifiers,
             sequencer: new_sequencer_address,
             governance: new_governance_address,
+            verifiers: new_verifiers,
         };
-
-        assert_eq!(stored_wallets(&pool).await?, expected_wallets);
+        assert_eq!(stored_wallets(&pool).await?, expected);
 
         Ok(())
     }
 
-    async fn setup(
-    ) -> anyhow::Result<(ConnectionPool<Verifier>, BitcoinInscriptionIndexer, SystemWalletProcessor)>
-    {
+    async fn bridge_update(
+        core: &BitcoinCore,
+        verifiers: Vec<BitcoinAddress>,
+    ) -> anyhow::Result<(FullInscriptionMessage, BitcoinAddress)> {
+        let address = BitcoinAddress::from_str(
+            "bcrt1pcx974cg2w66cqhx67zadf85t8k4sd2wp68l8x8agd3aj4tuegsgsz97amg",
+        )?
+        .assume_checked();
+        Ok((create_update_bridge_inscription(core, address.clone(), verifiers).await?, address))
+    }
+
+    async fn setup() -> anyhow::Result<(
+        ConnectionPool<Verifier>,
+        BitcoinInscriptionIndexer,
+        SystemWalletProcessor,
+        BitcoinCore,
+    )> {
+        let core = BitcoinCore::new()?;
         let pool = ConnectionPool::<Verifier>::test_pool().await;
         let wallets = SystemWalletsDetails::try_from(test_wallets())?;
         pool.connection().await?.via_wallet_dal().insert_wallets(&wallets, 0).await?;
         Ok((
             pool,
-            test_create_indexer(),
-            SystemWalletProcessor::new(Arc::new(test_bitcoin_client())),
+            test_create_indexer(&core)?,
+            SystemWalletProcessor::new(core.client()?),
+            core,
         ))
     }
 

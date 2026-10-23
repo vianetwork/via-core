@@ -13,7 +13,7 @@ use bitcoin::{
     Address, Amount, Network, OutPoint, PrivateKey, ScriptBuf, Sequence, TapLeafHash,
     TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use bitcoincore_rpc::Auth;
+use via_btc_client::types::NodeAuth;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use via_btc_client::{client::BitcoinClient, traits::BitcoinOps};
@@ -249,7 +249,7 @@ fn do_finalize(args: &Args) -> Result<()> {
 async fn do_broadcast(args: &Args) -> Result<()> {
     let output: OutputData = read_json(&args.output)?;
 
-    let auth = Auth::UserPass(args.rpc_username.clone(), args.rpc_password.clone());
+    let auth = NodeAuth::UserPass(args.rpc_username.clone(), args.rpc_password.clone());
     let config = ViaBtcClientConfig {
         network: args.network.clone(),
         external_apis: vec![],

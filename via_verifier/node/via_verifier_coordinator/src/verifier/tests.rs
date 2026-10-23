@@ -2,7 +2,7 @@ use bitcoin::{
     absolute, hashes::Hash, key::TweakedPublicKey, transaction, Address, Amount, Block, BlockHash,
     CompressedPublicKey, Network, OutPoint, PrivateKey, TxOut, Txid,
 };
-use bitcoincore_rpc::json::GetBlockStatsResult;
+use via_btc_client::types::BlockStats;
 use parking_lot::Mutex;
 use via_btc_client::{
     inscriber::test_utils::{MockBitcoinOps, MockBitcoinOpsConfig},
@@ -90,7 +90,7 @@ impl BitcoinOps for RecordingBitcoin {
     async fn fetch_block_by_hash(&self, h: &BlockHash) -> BitcoinClientResult<Block> {
         self.inner.fetch_block_by_hash(h).await
     }
-    async fn get_block_stats(&self, n: u64) -> BitcoinClientResult<GetBlockStatsResult> {
+    async fn get_block_stats(&self, n: u64) -> BitcoinClientResult<BlockStats> {
         self.inner.get_block_stats(n).await
     }
     async fn get_fee_history(&self, a: usize, b: usize) -> BitcoinClientResult<Vec<u64>> {

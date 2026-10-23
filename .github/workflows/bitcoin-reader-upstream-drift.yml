@@ -1,0 +1,34 @@
+name: Bitcoin reader upstream drift
+
+on:
+  schedule:
+    - cron: '30 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitcoin-reader-upstream-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    if: github.repository == 'vianetwork/via-core'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install tooling compiler
+        run: rustup toolchain install stable --profile minimal
+      - name: Check retained regions offline
+        run: cargo +stable run --quiet --locked --manifest-path via_duplication/Cargo.toml -- provenance check
+      - name: Report upstream drift without porting code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cargo +stable run --quiet --locked --manifest-path via_duplication/Cargo.toml -- provenance drift --issues-repo "$GITHUB_REPOSITORY"

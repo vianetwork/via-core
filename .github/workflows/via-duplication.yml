@@ -155,6 +155,7 @@ jobs:
       - name: Install test prerequisites
         run: rustup toolchain install stable --profile minimal
       - run: cargo +stable test --locked --manifest-path via_duplication/Cargo.toml
+      - run: cargo +stable run --quiet --locked --manifest-path via_duplication/Cargo.toml -- provenance check
       - run: cargo +stable test --locked --manifest-path via_duplication/Cargo.toml --test native -- --ignored
       - run: node --test .github/scripts/tests/via-duplication-workflows.test.cjs
       - run: bash .github/scripts/tests/via-duplication-ignore-reasons.sh

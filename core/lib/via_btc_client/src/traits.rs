@@ -8,16 +8,18 @@ use bitcoin::{
     secp256k1::{All, Secp256k1},
     Address, Block, BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid,
 };
-use bitcoincore_rpc::{
-    bitcoincore_rpc_json::GetBlockchainInfoResult,
-    json::{GetBlockStatsResult, GetMempoolInfoResult},
-};
 use secp256k1::{
     ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, Message, PublicKey,
 };
 use types::BitcoinRpcResult;
 
-use crate::{types, types::BitcoinClientResult};
+use crate::{
+    types,
+    types::{
+        BitcoinClientResult, BlockStats, BlockHeaderInfo, TransactionInfo, FeeEstimateMode,
+        FeeEstimate, MempoolInfo,
+    },
+};
 
 #[async_trait]
 pub trait BitcoinOps: Send + Sync {
@@ -42,7 +44,7 @@ pub trait BitcoinOps: Send + Sync {
 
     async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
     async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
-    async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
+    async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<BlockStats>;
     async fn get_fee_history(
         &self,
         from_block_height: usize,
@@ -69,22 +71,20 @@ pub trait BitcoinRpc: Send + Sync + Debug {
     async fn get_transaction(&self, tx_id: &Txid) -> BitcoinRpcResult<Transaction>;
     async fn get_block_count(&self) -> BitcoinRpcResult<u64>;
     async fn get_block_hash(&self, height: u64) -> BitcoinRpcResult<BlockHash>;
+    async fn get_block_header(&self, hash: &BlockHash)
+        -> BitcoinRpcResult<Option<BlockHeaderInfo>>;
     async fn get_block_by_height(&self, block_height: u128) -> BitcoinRpcResult<Block>;
 
     async fn get_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinRpcResult<Block>;
     async fn get_best_block_hash(&self) -> BitcoinRpcResult<bitcoin::BlockHash>;
-    async fn get_block_stats(&self, height: u64) -> BitcoinRpcResult<GetBlockStatsResult>;
-    async fn get_raw_transaction_info(
-        &self,
-        txid: &Txid,
-    ) -> BitcoinRpcResult<bitcoincore_rpc::json::GetRawTransactionResult>;
+    async fn get_block_stats(&self, height: u64) -> BitcoinRpcResult<BlockStats>;
+    async fn get_raw_transaction_info(&self, txid: &Txid) -> BitcoinRpcResult<TransactionInfo>;
     async fn estimate_smart_fee(
         &self,
         conf_target: u16,
-        estimate_mode: Option<bitcoincore_rpc::json::EstimateMode>,
-    ) -> BitcoinRpcResult<bitcoincore_rpc::json::EstimateSmartFeeResult>;
-    async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
-    async fn get_mempool_info(&self) -> BitcoinRpcResult<GetMempoolInfoResult>;
+        estimate_mode: Option<FeeEstimateMode>,
+    ) -> BitcoinRpcResult<FeeEstimate>;
+    async fn get_mempool_info(&self) -> BitcoinRpcResult<MempoolInfo>;
 }
 
 pub(crate) trait BitcoinSigner: Send + Sync {

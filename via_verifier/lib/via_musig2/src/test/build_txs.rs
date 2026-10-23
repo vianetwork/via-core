@@ -11,7 +11,7 @@ mod tests {
         Address, Amount, CompressedPublicKey, Network, NetworkKind, OutPoint, PrivateKey,
         ScriptBuf, Transaction, TxOut, Txid,
     };
-    use bitcoincore_rpc::json::GetBlockStatsResult;
+    use via_btc_client::types::BlockStats;
     use mockall::{mock, predicate::*};
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng, RngCore};
     use via_btc_client::{traits::BitcoinOps, types::BitcoinError};
@@ -67,8 +67,8 @@ mod tests {
                 Ok(bitcoin::Block::default())
             }
 
-            async fn get_block_stats(&self, _height: u64) -> Result<GetBlockStatsResult, BitcoinError> {
-                Ok(GetBlockStatsResult::default())
+            async fn get_block_stats(&self, _height: u64) -> Result<BlockStats, BitcoinError> {
+                Ok(BlockStats::default())
             }
 
             async fn get_fee_history(&self, _start: usize, _end: usize) -> Result<Vec<u64>, BitcoinError> {

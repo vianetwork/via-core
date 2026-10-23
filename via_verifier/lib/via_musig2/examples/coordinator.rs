@@ -528,7 +528,7 @@ async fn create_test_withdrawal_builder(
 ) -> anyhow::Result<TransactionBuilder> {
     let rpc_url = "http://localhost:18443";
     let network = BitcoinNetwork::Regtest;
-    let auth = bitcoincore_rpc::Auth::None;
+    let auth = via_btc_client::types::NodeAuth::None;
     let config = ViaBtcClientConfig {
         network: network.to_string(),
         external_apis: vec![],
