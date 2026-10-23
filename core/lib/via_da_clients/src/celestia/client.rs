@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use celestia_rpc::{BlobClient, Client, P2PClient};
 use celestia_types::{nmt::Namespace, Blob, Commitment, TxConfig};
@@ -48,18 +48,12 @@ impl CelestiaClient {
 
     fn parse_blob_id(&self, blob_id: &str) -> anyhow::Result<(Commitment, u64)> {
         // [8]byte block height ++ [32]byte commitment
-        let blob_id_bytes =
-            hex::decode(blob_id).map_err(|error| types::DAError { error: error.into(), is_retriable: false })?;
+        let mut blob_id_bytes = [0; 40];
+        hex::decode_to_slice(blob_id, &mut blob_id_bytes)
+            .with_context(|| format!("Invalid Celestia blob ID {blob_id:?}: expected 40 bytes"))?;
 
-        let block_height =
-            u64::from_be_bytes(blob_id_bytes[..8].try_into().map_err(|_| types::DAError {
-                error: anyhow!("Failed to convert block height"),
-                is_retriable: false,
-            })?);
-
-        let commitment_data: [u8; 32] = blob_id_bytes[8..40]
-            .try_into()
-            .map_err(|_| types::DAError { error: anyhow!("Failed to convert commitment"), is_retriable: false })?;
+        let block_height = u64::from_be_bytes(blob_id_bytes[..8].try_into()?);
+        let commitment_data: [u8; 32] = blob_id_bytes[8..].try_into()?;
         let commitment = Commitment(commitment_data);
 
         Ok((commitment, block_height))
@@ -102,9 +96,13 @@ impl DataAvailabilityClient for CelestiaClient {
         return Ok(types::DispatchResponse { blob_id: blob_id_str });
     }
 
-    async fn get_inclusion_data(&self, blob_id: &str) -> Result<Option<types::InclusionData>, types::DAError> {
-        let (commitment, block_height) =
-            self.parse_blob_id(&blob_id).map_err(|error| types::DAError { error: error.into(), is_retriable: true })?;
+    async fn get_inclusion_data(
+        &self,
+        blob_id: &str,
+    ) -> Result<Option<types::InclusionData>, types::DAError> {
+        let (commitment, block_height) = self
+            .parse_blob_id(blob_id)
+            .map_err(|error| types::DAError { error, is_retriable: false })?;
 
         let blob = self
             .inner
@@ -117,8 +115,8 @@ impl DataAvailabilityClient for CelestiaClient {
                 if blob.chunks == 1 {
                     blob.data
                 } else {
-                    let blob_ids: Vec<String> = deserialize_blob_ids(&blob.data).map_err(|_| types::DAError {
-                        error: anyhow!("Failed to deserialize blob ids"),
+                    let blob_ids: Vec<String> = deserialize_blob_ids(&blob.data).map_err(|error| types::DAError {
+                        error: error.context(format!("Failed to deserialize blob IDs in manifest {blob_id:?}")),
                         is_retriable: false,
                     })?;
                     if blob_ids.len() != blob.chunks {
@@ -134,10 +132,15 @@ impl DataAvailabilityClient for CelestiaClient {
 
                     let mut batch_blob = vec![];
 
-                    for blob_id in blob_ids {
+                    for child_blob_id in blob_ids {
                         let (commitment, block_height) = self
-                            .parse_blob_id(&blob_id)
-                            .map_err(|error| types::DAError { error: error.into(), is_retriable: true })?;
+                            .parse_blob_id(&child_blob_id)
+                            .map_err(|error| types::DAError {
+                                error: error.context(format!(
+                                    "Failed to parse child blob ID {child_blob_id:?} in manifest {blob_id:?}"
+                                )),
+                                is_retriable: false,
+                            })?;
 
                         let blob = self
                             .inner
@@ -240,6 +243,19 @@ mod tests {
             .await
     }
 
+    async fn mock_root_manifest<'a>(server: &'a MockServer, data: &[u8]) -> Mock<'a> {
+        mock_get(server, 0, 0x2122232425262728, std::array::from_fn(|i| 0x40 + i as u8), data).await
+    }
+
+    async fn mock_first_child<'a>(
+        server: &'a MockServer,
+        request_id: u64,
+        data: &[u8],
+    ) -> Mock<'a> {
+        mock_get(server, request_id, 0x0102030405060708, std::array::from_fn(|i| i as u8), data)
+            .await
+    }
+
     #[tokio::test]
     async fn blob_id_golden_layout_and_submitted_commitment() {
         let server = MockServer::start_async().await;
@@ -285,14 +301,7 @@ mod tests {
     async fn multi_chunk_golden_manifest_reassembles_raw_children() {
         let server = MockServer::start_async().await;
         let client = client(&server).await;
-        let root = mock_get(
-            &server,
-            0,
-            0x2122232425262728,
-            std::array::from_fn(|i| 0x40 + i as u8),
-            &hex::decode(ROOT_ENVELOPE).unwrap(),
-        )
-        .await;
+        let root = mock_root_manifest(&server, &hex::decode(ROOT_ENVELOPE).unwrap()).await;
         let mut children = Vec::new();
         for (height, commitment, bytes) in [
             (0x0102030405060708, std::array::from_fn(|i| i as u8), vec![0x00, 0x01, 0x02, 0xff]),
@@ -331,14 +340,7 @@ mod tests {
         let client = client(&server).await;
         let mut data = hex::decode(ROOT_ENVELOPE).unwrap();
         data[0] = 3;
-        let root = mock_get(
-            &server,
-            0,
-            0x2122232425262728,
-            std::array::from_fn(|i| 0x40 + i as u8),
-            &data,
-        )
-        .await;
+        let root = mock_root_manifest(&server, &data).await;
         let error =
             tokio::time::timeout(Duration::from_secs(5), client.get_inclusion_data(ROOT_ID))
                 .await
@@ -354,14 +356,7 @@ mod tests {
         for (stored, expected) in [(SINGLE_ENVELOPE, "000102ff"), ("aabb", "aabb")] {
             let server = MockServer::start_async().await;
             let client = client(&server).await;
-            let get = mock_get(
-                &server,
-                0,
-                0x0102030405060708,
-                std::array::from_fn(|i| i as u8),
-                &hex::decode(stored).unwrap(),
-            )
-            .await;
+            let get = mock_first_child(&server, 0, &hex::decode(stored).unwrap()).await;
             let included =
                 tokio::time::timeout(Duration::from_secs(5), client.get_inclusion_data(CHILD_ZERO))
                     .await
@@ -370,6 +365,120 @@ mod tests {
                     .unwrap();
             assert_eq!(included.data, hex::decode(expected).unwrap());
             get.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_root_blob_ids_are_not_retriable_and_make_no_rpc() {
+        let server = MockServer::start_async().await;
+        let client = client(&server).await;
+        let unexpected = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/");
+                then.status(503);
+            })
+            .await;
+        let mut malformed = vec!["0".to_owned(), "zz".to_owned(), "gg".repeat(40)];
+        for length in [0, 1, 7, 8, 39, 41, 48] {
+            malformed.push("00".repeat(length));
+        }
+        for blob_id in malformed {
+            let error = client.get_inclusion_data(&blob_id).await.err().expect("invalid ID");
+            assert!(!error.is_retriable, "{blob_id:?}: {error}");
+            assert!(error.error.downcast_ref::<hex::FromHexError>().is_some());
+            assert!(format!("{:#}", error.error).contains("40"));
+        }
+        assert_eq!(unexpected.hits_async().await, 0);
+    }
+
+    #[tokio::test]
+    async fn exact_blob_ids_accept_any_hex_case() {
+        for blob_id in [
+            CHILD_ZERO.to_owned(),
+            CHILD_ZERO.to_ascii_uppercase(),
+            CHILD_ZERO.replacen('a', "A", 1),
+        ] {
+            let server = MockServer::start_async().await;
+            let client = client(&server).await;
+            let get = mock_first_child(&server, 0, &[0xaa, 0xbb]).await;
+            let included = client.get_inclusion_data(&blob_id).await.unwrap().unwrap();
+            assert_eq!(included.data, [0xaa, 0xbb]);
+            get.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_child_ids_preserve_context_and_prior_fetches() {
+        for length in [0_u32, 1, 7, 8, 39, 41, 48] {
+            let server = MockServer::start_async().await;
+            let client = client(&server).await;
+            let mut manifest = 40_u32.to_be_bytes().to_vec();
+            manifest.extend_from_slice(&hex::decode(CHILD_ZERO).unwrap());
+            manifest.extend_from_slice(&length.to_be_bytes());
+            manifest.extend_from_slice(&vec![0; length as usize]);
+            let root = mock_root_manifest(&server, &ViaDaBlob::new(2, manifest).to_bytes()).await;
+            let child = mock_first_child(&server, 1, &[0xaa, 0xbb]).await;
+            let error = client.get_inclusion_data(ROOT_ID).await.err().expect("invalid child");
+            assert!(!error.is_retriable, "{length}: {error}");
+            assert!(error.error.downcast_ref::<hex::FromHexError>().is_some());
+            assert!(format!("{:#}", error.error).contains(ROOT_ID));
+            root.assert_async().await;
+            child.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn truncated_manifests_are_not_retriable_and_preserve_context() {
+        for manifest in [
+            vec![0],
+            vec![0, 0],
+            vec![0, 0, 0],
+            vec![0, 0, 0, 40],
+            vec![0, 0, 0, 2, 1],
+            vec![0xff; 4],
+            vec![0, 0, 0, 0, 0],
+        ] {
+            let server = MockServer::start_async().await;
+            let client = client(&server).await;
+            let root = mock_root_manifest(&server, &ViaDaBlob::new(2, manifest).to_bytes()).await;
+            let error = client.get_inclusion_data(ROOT_ID).await.err().expect("truncated manifest");
+            assert!(!error.is_retriable);
+            assert!(error.error.chain().count() > 1);
+            assert!(format!("{:#}", error.error).contains(ROOT_ID));
+            root.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn root_and_child_rpc_failures_remain_retriable() {
+        for child_failure in [false, true] {
+            let server = MockServer::start_async().await;
+            let client = client(&server).await;
+            let root = if child_failure {
+                Some(mock_root_manifest(&server, &hex::decode(ROOT_ENVELOPE).unwrap()).await)
+            } else {
+                None
+            };
+            let (request_id, height, commitment) = if child_failure {
+                (1, 0x0102030405060708_u64, std::array::from_fn(|i| i as u8))
+            } else {
+                (0, 0x2122232425262728_u64, std::array::from_fn(|i| 0x40 + i as u8))
+            };
+            let failed = server
+                .mock_async(|when, then| {
+                    when.method(POST).path("/").json_body(json!({
+                        "jsonrpc": "2.0", "id": request_id, "method": "blob.Get",
+                        "params": [height, namespace(), Commitment(commitment)],
+                    }));
+                    then.status(503);
+                })
+                .await;
+            let error = client.get_inclusion_data(ROOT_ID).await.err().expect("RPC failure");
+            assert!(error.is_retriable);
+            failed.assert_async().await;
+            if let Some(root) = root {
+                root.assert_async().await;
+            }
         }
     }
 }
