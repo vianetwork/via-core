@@ -154,10 +154,9 @@ mod tests {
 
     async fn run_aggregator(pool: ConnectionPool<Verifier>) {
         {
-            let (receiver, stop_task) = stop_after_poll();
-
             let aggregator_test = ViaVoteInscriptionTest::new(pool.clone(), None).await;
 
+            let (receiver, stop_task) = stop_after_poll();
             aggregator_test.aggregator.run(receiver).await.unwrap();
             if let Err(e) = stop_task.await {
                 eprintln!("Toggle task failed: {:?}", e);
@@ -171,11 +170,10 @@ mod tests {
         mock_btc_ops_config: MockBitcoinOpsConfig,
     ) {
         {
-            let (receiver, stop_task) = stop_after_poll();
-
             let inscription_manager_mock =
                 get_inscription_manager_mock(pool.clone(), config.clone(), mock_btc_ops_config).await;
 
+            let (receiver, stop_task) = stop_after_poll();
             inscription_manager_mock.run(receiver).await.unwrap();
             if let Err(e) = stop_task.await {
                 eprintln!("Toggle task failed: {:?}", e);

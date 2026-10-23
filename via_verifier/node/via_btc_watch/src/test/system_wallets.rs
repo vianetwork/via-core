@@ -79,12 +79,13 @@ mod tests {
 
         processor.process_messages(&mut pool.connection().await?, vec![msg], &mut indexer).await?;
 
-        let new_wallets = indexer.get_state();
+        let expected_wallets = SystemWallets {
+            bridge: new_bridge_address,
+            verifiers: new_verifiers,
+            ..(*old_wallets).clone()
+        };
 
-        assert_ne!(new_wallets, old_wallets);
-        assert_eq!(new_wallets.bridge, new_bridge_address);
-
-        assert_eq!(stored_wallets(&pool).await?, *new_wallets);
+        assert_eq!(stored_wallets(&pool).await?, expected_wallets);
 
         Ok(())
     }
@@ -112,19 +113,18 @@ mod tests {
 
         let bridge_msg = create_update_bridge_inscription(new_bridge_address.clone(), new_verifiers.clone()).await?;
 
-        let old_wallets = indexer.get_state();
-
         processor
             .process_messages(&mut pool.connection().await?, vec![bridge_msg, sequencer_msg, gov_msg], &mut indexer)
             .await?;
 
-        let new_wallets = indexer.get_state();
+        let expected_wallets = SystemWallets {
+            bridge: new_bridge_address,
+            verifiers: new_verifiers,
+            sequencer: new_sequencer_address,
+            governance: new_governance_address,
+        };
 
-        assert_ne!(new_wallets, old_wallets);
-        assert_eq!(new_wallets.bridge, new_bridge_address);
-        assert_eq!(new_wallets.sequencer, new_sequencer_address);
-
-        assert_eq!(stored_wallets(&pool).await?, *new_wallets);
+        assert_eq!(stored_wallets(&pool).await?, expected_wallets);
 
         Ok(())
     }
