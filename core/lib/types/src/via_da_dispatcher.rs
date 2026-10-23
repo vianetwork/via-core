@@ -1,3 +1,6 @@
+use std::io::Read;
+
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,19 +38,24 @@ pub fn serialize_blob_ids(hex_vec: &[String]) -> anyhow::Result<Vec<u8>> {
     Ok(result)
 }
 
-pub fn deserialize_blob_ids(data: &[u8]) -> anyhow::Result<Vec<String>> {
-    let mut pos = 0;
+pub fn deserialize_blob_ids(mut data: &[u8]) -> anyhow::Result<Vec<String>> {
     let mut result = Vec::new();
 
-    while pos < data.len() {
+    while !data.is_empty() {
         // Read the 4-byte length prefix
-        let len_bytes: [u8; 4] = data[pos..pos + 4].try_into()?;
+        let mut len_bytes = [0; 4];
+        data.read_exact(&mut len_bytes)
+            .context("Truncated blob ID length prefix")?;
         let len = u32::from_be_bytes(len_bytes) as usize;
-        pos += 4;
 
         // Extract the chunk
-        let chunk = &data[pos..pos + len];
-        pos += len;
+        let chunk = data.get(..len).with_context(|| {
+            format!(
+                "Truncated blob ID body: expected {len} bytes, got {}",
+                data.len()
+            )
+        })?;
+        data = &data[len..];
 
         result.push(hex::encode(chunk));
     }
@@ -105,5 +113,26 @@ mod tests {
         assert!(deserialize_blob_ids(&[]).unwrap().is_empty());
         assert!(serialize_blob_ids(&["0g".to_owned()]).is_err());
         assert!(serialize_blob_ids(&["0".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn child_manifest_rejects_truncated_prefixes_and_bodies() {
+        let entry = [0, 0, 0, 2, 0xab, 0xcd];
+        for end in 1..entry.len() {
+            assert!(deserialize_blob_ids(&entry[..end]).is_err(), "{end}");
+        }
+        assert!(deserialize_blob_ids(&[0xff; 4]).is_err());
+        assert!(deserialize_blob_ids(&[0, 0, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn child_manifest_accepts_complete_arbitrary_length_entries() {
+        assert_eq!(
+            deserialize_blob_ids(&[0, 0, 0, 0, 0, 0, 0, 1, 0xab]).unwrap(),
+            ["", "ab"]
+        );
+        let mut manifest = 41_u32.to_be_bytes().to_vec();
+        manifest.extend_from_slice(&[0xab; 41]);
+        assert_eq!(deserialize_blob_ids(&manifest).unwrap(), ["ab".repeat(41)]);
     }
 }
