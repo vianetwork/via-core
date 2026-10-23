@@ -29,9 +29,10 @@ use zksync_config::{
 use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets};
 
 use crate::{
-    auth::{digest, random_id, Binding, Envelope, MAX_BODY},
+    auth::{random_id, Binding, Envelope, MAX_BODY},
     sessions::withdrawal::WithdrawalSession,
     traits::ISession,
+    transport::{self, TransportVersion},
     types::{NoncePair, PartialSignaturePair, SessionOperation, SigningSessionResponse},
     utils::{decode_nonce, decode_signature, encode_nonce, encode_signature},
 };
@@ -186,7 +187,13 @@ impl ViaWithdrawalVerifier {
         round: [u8; 32],
         content: [u8; 32],
         body: Vec<u8>,
-    ) -> anyhow::Result<Vec<u8>> {
+        version: TransportVersion,
+    ) -> anyhow::Result<(Vec<u8>, TransportVersion)> {
+        let target = if self.verifier_config.withdrawal_compact_transport_writes_enabled {
+            format!("{target}?transport_version=2")
+        } else {
+            target.to_owned()
+        };
         let key = self.secret()?;
         let binding = Binding {
             version: 1,
@@ -195,14 +202,16 @@ impl ViaWithdrawalVerifier {
             principal: PublicKey::from_secret_key(&Secp256k1::new(), &key).to_string(),
             audience: self.verifier_config.coordinator_public_key.clone(),
             method: method.into(),
-            target: target.into(),
+            target: target.clone(),
             round,
             content,
             challenge: random_id(),
             timestamp: chrono::Utc::now().timestamp(),
             status: 0,
         };
+        transport::check_metadata(&binding, &self.verifier_config.coordinator_public_key)?;
         let envelope = Envelope::sign(binding.clone(), body, &key)?;
+        let encoded = transport::encode_envelope(envelope, version, MAX_BODY)?;
         let mut response = self
             .client
             .request(
@@ -218,7 +227,8 @@ impl ViaWithdrawalVerifier {
             .timeout(std::time::Duration::from_secs(u64::from(
                 self.verifier_config.verifier_request_timeout,
             )))
-            .json(&envelope)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(encoded)
             .send()
             .await?;
         let status = response.status();
@@ -230,7 +240,7 @@ impl ViaWithdrawalVerifier {
             );
             bytes.extend_from_slice(&chunk);
         }
-        let reply: Envelope = serde_json::from_slice(&bytes).with_context(|| {
+        let (reply, version) = transport::decode_envelope(&bytes).with_context(|| {
             format!(
                 "Invalid authenticated coordinator response for {method} {target}: HTTP {status}"
             )
@@ -247,15 +257,18 @@ impl ViaWithdrawalVerifier {
             "Coordinator rejected request: {}",
             String::from_utf8_lossy(&reply.body)
         );
-        Ok(reply.body)
+        Ok((reply.body, version))
     }
 
     async fn snapshot(&self) -> anyhow::Result<SigningSessionResponse> {
-        Ok(serde_json::from_slice(
-            &self
-                .request("GET", "/session/", [0; 32], [0; 32], Vec::new())
-                .await?,
-        )?)
+        let (bytes, version) = self
+            .request("GET", "/session/", [0; 32], [0; 32], Vec::new(), TransportVersion::Legacy)
+            .await?;
+        let mut snapshot = transport::decode_snapshot(&bytes, version)?;
+        if !self.verifier_config.withdrawal_compact_transport_writes_enabled {
+            snapshot.transport = TransportVersion::Legacy;
+        }
+        Ok(snapshot)
     }
 
     async fn iteration(
@@ -307,6 +320,7 @@ impl ViaWithdrawalVerifier {
                 snapshot.round_id,
                 snapshot.content_hash,
                 Vec::new(),
+                snapshot.transport,
             )
             .await?;
             snapshot = self.snapshot().await?;
@@ -337,8 +351,7 @@ impl ViaWithdrawalVerifier {
             return Ok(());
         }
         anyhow::ensure!(
-            snapshot.round_id != [0; 32]
-                && digest(&snapshot.authorized_content) == snapshot.content_hash,
+            snapshot.round_id != [0; 32],
             "Invalid proposal commitment"
         );
         anyhow::ensure!(
@@ -473,6 +486,7 @@ impl ViaWithdrawalVerifier {
                 snapshot.round_id,
                 snapshot.content_hash,
                 nonce_bytes.clone(),
+                snapshot.transport,
             )
             .await?;
             return Ok(());
@@ -567,6 +581,7 @@ impl ViaWithdrawalVerifier {
                 snapshot.round_id,
                 snapshot.content_hash,
                 serde_json::to_vec(&cached.shares)?,
+                snapshot.transport,
             )
             .await?;
             return Ok(());
@@ -740,3 +755,6 @@ fn contains_batch(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod legacy;

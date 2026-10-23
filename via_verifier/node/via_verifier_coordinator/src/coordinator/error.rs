@@ -26,6 +26,8 @@ pub enum ApiError {
     ResponseTooLarge,
     #[error("Authentication envelope metadata exceeds supported capacity")]
     RequestTooLarge,
+    #[error("Invalid transport encoding: {0}")]
+    InvalidTransportEncoding(String),
 }
 
 impl From<anyhow::Error> for ApiError {
@@ -49,6 +51,10 @@ impl From<ParseProtocolSemanticVersionError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, error_response) = match self {
+            ApiError::InvalidTransportEncoding(ref message) => (
+                StatusCode::BAD_REQUEST,
+                ErrorResponse::coded("invalid_transport_encoding", message),
+            ),
             ApiError::SigningRoundTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 ErrorResponse::coded("signing_round_too_large", &self),

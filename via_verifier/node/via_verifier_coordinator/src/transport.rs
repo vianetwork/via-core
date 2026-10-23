@@ -3,12 +3,16 @@ use std::collections::BTreeMap;
 use anyhow::Context;
 use jsonrpsee::core::server::BoundedWriter;
 use serde::Serialize;
-use via_btc_client::traits::Serializable;
 
 use crate::{
     auth::{Binding, Envelope, MAX_BODY},
-    types::{SessionOperation, SigningSession, SigningSessionResponse},
+    types::{AdmittedContent, SessionOperation, SigningSession, SigningSessionResponse},
     utils::{encode_nonce, encode_signature},
+};
+
+mod wire;
+pub(crate) use wire::{
+    decode_envelope, decode_snapshot, encode_envelope, encode_snapshot, TransportVersion,
 };
 
 /// Supported empty-body envelope size, including delimiters, binding and signature.
@@ -22,30 +26,42 @@ pub(crate) fn bounded_json<T: Serialize + ?Sized>(
     limit: usize,
 ) -> serde_json::Result<Vec<u8>> {
     let mut writer = BoundedWriter::new(limit);
-    serde_json::to_writer(&mut &mut writer, value)?;
+    serde_json::to_writer(&mut writer, value)?;
     Ok(writer.into_bytes())
 }
 
-fn empty_snapshot(session: &SigningSession, required_signers: usize) -> SigningSessionResponse {
-    SigningSessionResponse {
+fn empty_snapshot(
+    session: &SigningSession,
+    required_signers: usize,
+    version: TransportVersion,
+) -> anyhow::Result<SigningSessionResponse> {
+    let session_op =
+        if version == TransportVersion::Legacy && !session.authorized_content.is_empty() {
+            bincode::deserialize::<AdmittedContent>(&session.authorized_content)?.proposal
+        } else {
+            Vec::new()
+        };
+    Ok(SigningSessionResponse {
+        transport: version,
         round_id: session.round_id,
         content_hash: session.content_hash,
         authorized_content: session.authorized_content.clone(),
         nonces: BTreeMap::new(),
         signatures: BTreeMap::new(),
-        session_op: session.session_op.as_ref().map(Serializable::to_bytes).unwrap_or_default(),
+        session_op,
         required_signers,
         received_nonces: BTreeMap::new(),
         received_partial_signatures: BTreeMap::new(),
         created_at: session.created_at,
-    }
+    })
 }
 
 pub(crate) fn snapshot(
     session: &SigningSession,
     required_signers: usize,
+    version: TransportVersion,
 ) -> anyhow::Result<SigningSessionResponse> {
-    let mut response = empty_snapshot(session, required_signers);
+    let mut response = empty_snapshot(session, required_signers, version)?;
     for (input, values) in &session.received_nonces {
         response.nonces.insert(
             *input,
@@ -101,8 +117,12 @@ fn counts_size(inputs: usize, signers: usize) -> Option<usize> {
 // snapshot above is the actual serving schema; only four future maps are calculated.
 // Public nonce/share encodings remain 88/44 characters, and tests use real values.
 // https://github.com/stacks-sbtc/sbtc/blob/fb469a32a48f47d2a6e46e13e72c944ab2c96755/signer/src/bitcoin/packaging.rs
-fn future_inner_bytes(session: &SigningSession, signers: usize) -> anyhow::Result<usize> {
-    let empty = bounded_json(&empty_snapshot(session, signers), MAX_BODY)?.len();
+fn future_inner_bytes(
+    session: &SigningSession,
+    signers: usize,
+    version: TransportVersion,
+) -> anyhow::Result<usize> {
+    let empty = encode_snapshot(empty_snapshot(session, signers, version)?, version)?.len();
     let Some(SessionOperation::Withdrawal(_, messages, _)) = &session.session_op else {
         return Ok(empty);
     };
@@ -118,15 +138,32 @@ fn future_inner_bytes(session: &SigningSession, signers: usize) -> anyhow::Resul
 }
 
 pub(crate) fn check_round_size(session: &SigningSession, signers: usize) -> anyhow::Result<()> {
-    let inner = future_inner_bytes(session, signers)?;
-    // Each numeric byte needs at most three digits and one comma. H includes [].
-    let final_bound = inner
-        .checked_mul(4)
+    // Until legacy retirement, recent traffic and writer flags cannot establish
+    // that every required signer can download compact-only admitted capacity.
+    for version in [TransportVersion::Legacy, TransportVersion::Compact] {
+        check_round_size_in(session, signers, version)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn check_round_size_in(
+    session: &SigningSession,
+    signers: usize,
+    version: TransportVersion,
+) -> anyhow::Result<()> {
+    let inner = future_inner_bytes(session, signers, version)?;
+    let body = match version {
+        TransportVersion::Legacy => inner.checked_mul(4),
+        TransportVersion::Compact => {
+            inner.checked_add(2).map(|bytes| bytes / 3).and_then(|groups| groups.checked_mul(4))
+        }
+    };
+    let final_bound = body
         .and_then(|bytes| bytes.checked_add(MAX_ENVELOPE_OVERHEAD))
         .context("Signing envelope size overflow")?;
     anyhow::ensure!(
         final_bound <= MAX_BODY,
-        "Full signing envelope bound {final_bound} exceeds {MAX_BODY}"
+        "Full {version:?} signing envelope bound {final_bound} exceeds {MAX_BODY}"
     );
     Ok(())
 }
@@ -147,9 +184,12 @@ pub(crate) fn response_binding(
 
 pub(crate) fn check_metadata(binding: &Binding, coordinator: &str) -> anyhow::Result<()> {
     for binding in [binding.clone(), response_binding(binding, coordinator, u16::MAX, i64::MIN)] {
-        let envelope = Envelope { binding, body: Vec::new(), signature: "A".repeat(88) };
-        bounded_json(&envelope, MAX_ENVELOPE_OVERHEAD)
-            .context("Unsupported authentication envelope metadata")?;
+        for version in [TransportVersion::Legacy, TransportVersion::Compact] {
+            let envelope =
+                Envelope { binding: binding.clone(), body: Vec::new(), signature: "A".repeat(88) };
+            encode_envelope(envelope, version, MAX_ENVELOPE_OVERHEAD)
+                .context("Unsupported authentication envelope metadata")?;
+        }
     }
     Ok(())
 }

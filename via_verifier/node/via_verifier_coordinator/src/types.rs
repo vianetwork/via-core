@@ -45,9 +45,7 @@ impl SessionOperation {
 
     pub fn get_unsigned_bridge_tx(&self) -> UnsignedBridgeTx {
         match self {
-            Self::Withdrawal(unsigned_tx, _, _) => {
-                return unsigned_tx.clone();
-            }
+            Self::Withdrawal(unsigned_tx, _, _) => unsigned_tx.clone(),
         }
     }
 
@@ -105,7 +103,11 @@ pub struct PartialSignaturePair {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct SigningSessionResponse {
+    /// Verified HTTP preference; never serialized or persisted as signing authority.
+    #[serde(skip)]
+    pub(crate) transport: crate::transport::TransportVersion,
     pub round_id: [u8; 32],
     pub content_hash: [u8; 32],
     pub authorized_content: Vec<u8>,

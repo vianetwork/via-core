@@ -149,6 +149,11 @@ a durable signing round does not authenticate the HTTP request.
 | S5 — Invalid contribution | Distinguish unauthenticated malformed traffic from an authenticated invalid contribution to the frozen round. Prefer aborting that exact round while preserving payment evidence; a delayed failure must not reset its successor. Select attribution and recovery rules. |
 | S6 — Coherent activation | Transport binding and durable signing are separate boundaries. Migrate each boundary's real consumers together and retire incompatible active rounds before activating the combined lifecycle. Select version, key-set, and recovery ownership rather than adding parallel APIs. |
 
+The accepted [HTTP transport boundary](../../adr/0017-bound-signing-transport-without-changing-admitted-evidence.md)
+bounds new exposure and final replies, preserves admitted/authentication bytes and uses reader-before-writer
+negotiation for mixed peers. [Its evidence](../../research/bounded-signing-transport.md) includes exact-size
+HTTP, frozen old-peer and public recovery tests. Broader lifecycle activation retains its existing approval.
+
 **Proof needed:** mutate request operation, audience, principal, body, round, and key order; retry
 identical and conflicting batches; fail the last element; interrupt before and after retaining shares;
 restore stale state; and deliver a delayed failure after a successor round begins. Keep irreversible

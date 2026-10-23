@@ -16,6 +16,7 @@ bridge_address_merkle_root = "0e45879bc42970c9b60ddeafa369472405ab87293380e79c4a
 
 # Remains disabled until complete history, recovery and coordinated cutover are approved.
 withdrawal_signing_enabled = false
+withdrawal_compact_transport_writes_enabled = false
 # Set the coordinator's verifier public key before enabling authenticated signing.
 coordinator_public_key = ""
 # Fulfillment is disabled until an explicit inclusion policy is selected.

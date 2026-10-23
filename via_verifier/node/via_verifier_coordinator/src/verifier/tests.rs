@@ -98,7 +98,7 @@ impl BitcoinOps for RecordingBitcoin {
     }
 }
 
-fn withdrawal_client() -> WithdrawalClient {
+pub(super) fn withdrawal_client() -> WithdrawalClient {
     WithdrawalClient::new(
         Box::new(zksync_da_clients::no_da::NoDAClient),
         Network::Bitcoin,
@@ -199,15 +199,28 @@ async fn seed(
 // Requires the same isolated PostgreSQL test template as verifier_dal tests.
 #[tokio::test]
 async fn actual_iterations_retry_exact_nonces_and_recover_public_only_over_http() {
-    run_actual_iterations(false).await;
+    run_actual_iterations(false, PeerMode::Reader, [PeerMode::Reader; 2], false, false).await;
 }
 
 #[tokio::test]
 async fn bounded_signing_valid_heavy_parent_downloads_signs_and_recovers() {
-    run_actual_iterations(true).await;
+    run_actual_iterations(
+        true,
+        PeerMode::Writer,
+        [PeerMode::Writer, PeerMode::Legacy],
+        false,
+        false,
+    )
+    .await;
 }
 
-async fn run_actual_iterations(heavy: bool) {
+async fn run_actual_iterations(
+    heavy: bool,
+    coordinator_mode: PeerMode,
+    signer_modes: [PeerMode; 2],
+    historical: bool,
+    lose_acks: bool,
+) {
     let secp = Secp256k1::new();
     let (keys, public, wallets) = fixture_wallets(2);
     let addresses = &wallets.verifiers;
@@ -236,6 +249,7 @@ async fn run_actual_iterations(heavy: bool) {
     } else {
         (None, parent)
     };
+    let funding_parent = parent.clone();
     let btc = Arc::new(RecordingBitcoin {
         inner: MockBitcoinOps::new(MockBitcoinOpsConfig {
             utxos: parent
@@ -291,7 +305,8 @@ async fn run_actual_iterations(heavy: bool) {
         seed(pool, &wallets, &batch).await;
     }
     let coordinator =
-        TestCoordinator::start(pools[0].clone(), btc.clone(), &public, &keys[0]).await;
+        TestCoordinator::start(pools[0].clone(), btc.clone(), &public, &keys[0], coordinator_mode)
+            .await;
     let config = coordinator.config.clone();
     let session = coordinator.session.clone();
     let bridge_config = ViaBridgeConfig {
@@ -300,6 +315,8 @@ async fn run_actual_iterations(heavy: bool) {
     };
     let make_verifier = |index: usize| {
         let mut config = config.clone();
+        config.withdrawal_compact_transport_writes_enabled =
+            signer_modes[index] == PeerMode::Writer;
         config.role = if index == 0 {
             ViaNodeRole::Coordinator
         } else {
@@ -333,7 +350,103 @@ async fn run_actual_iterations(heavy: bool) {
         .unwrap());
     // Exercises the real GET /session/ route and signed response binding.
     assert!(first.snapshot().await.unwrap().session_op.is_empty());
-    if heavy {
+    if historical {
+        first.withdrawal_session.prepare_session().await.unwrap();
+        let operation = first.withdrawal_session.session().await.unwrap().unwrap();
+        let SessionOperation::Withdrawal(tx, messages, _) = operation;
+        let operation = SessionOperation::Withdrawal(tx, messages, vec![funding_parent.clone()]);
+        let expected = first.withdrawal_session.authorize_withdrawal(&operation).await.unwrap();
+        let content = bincode::serialize(&AdmittedContent {
+            proposal: via_btc_client::traits::Serializable::to_bytes(&operation),
+            network: Network::Bitcoin,
+            chain_id: 270,
+            wallet: wallet.clone(),
+            participants: public.clone(),
+            tweak: None,
+            expected: expected.clone(),
+        })
+        .unwrap();
+        let round_id = random_id();
+        owner_a
+            .via_withdrawal_dal()
+            .expose_withdrawal_proposal(
+                &wallet,
+                &round_id,
+                &content,
+                &expected,
+                &operation.get_unsigned_bridge_tx().utxos,
+            )
+            .await
+            .unwrap();
+        *session.write().await = crate::types::SigningSession {
+            round_id,
+            content_hash: crate::auth::digest(&content),
+            authorized_content: content.clone(),
+            session_op: Some(operation),
+            created_at: crate::utils::seconds_since_epoch(),
+            ..Default::default()
+        };
+        let old = TestCoordinator::start(
+            pools[0].clone(),
+            btc.clone(),
+            &public,
+            &keys[0],
+            PeerMode::Legacy,
+        )
+        .await;
+        *old.session.write().await = session.read().await.clone();
+        let (request, response) = old
+            .call(
+                &keys[0],
+                "GET",
+                "/session/?transport_version=2",
+                TransportVersion::Legacy,
+                Vec::new(),
+            )
+            .await;
+        assert_eq!(response.status().as_u16(), 200);
+        let bytes = response.bytes().await.unwrap();
+        assert!(bytes.len() > MAX_BODY, "legacy final envelope must cross the real receive cap");
+        let body =
+            super::legacy::reply_body(&request, &bytes, &keys[0].public_key(&secp).inner, 200)
+                .unwrap();
+        let old_snapshot: super::legacy::SigningSessionResponse =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(old_snapshot.authorized_content, content);
+        let url = first.verifier_config.coordinator_http_url.clone();
+        first.verifier_config.coordinator_http_url = old.config.coordinator_http_url.clone();
+        assert!(first
+            .snapshot()
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Oversized coordinator response"));
+        first.verifier_config.coordinator_http_url = url;
+        let (request, response) = coordinator
+            .call(&keys[0], "GET", "/session/", TransportVersion::Legacy, Vec::new())
+            .await;
+        let (reply, _, status, _) = verified_reply(&request, response, &public[0]).await;
+        assert_eq!(status, 503);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&reply.body).unwrap()["error"],
+            "signing_round_unservable"
+        );
+        assert_eq!(
+            owner_a
+                .via_withdrawal_dal()
+                .get_withdrawal_attempt(&wallet, &round_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .content,
+            content
+        );
+        assert_eq!(
+            owner_a.via_withdrawal_dal().held_withdrawal_inputs(&wallet).await.unwrap().len(),
+            2
+        );
+    }
+    if heavy && !historical {
         for fault in [1, 2] {
             btc.parent_fault.store(fault, std::sync::atomic::Ordering::SeqCst);
             assert!(first.iteration(&mut owner_a, &wallet).await.is_err());
@@ -366,6 +479,15 @@ async fn run_actual_iterations(heavy: bool) {
     assert_eq!(failed.state, WithdrawalAttemptState::Admitted);
     assert!(failed.public_nonces.is_none());
     assert!(first.snapshot().await.unwrap().nonces.is_empty());
+    if lose_acks {
+        use std::sync::atomic::Ordering;
+        coordinator.faults.mask.store(3, Ordering::SeqCst);
+        let posts = coordinator.faults.nonces.load(Ordering::SeqCst);
+        assert!(first.iteration(&mut owner_a, &wallet).await.is_err());
+        assert_eq!(coordinator.faults.nonces.load(Ordering::SeqCst), posts + 1);
+        assert_eq!(first.live.as_ref().unwrap().public_nonces, pending_a);
+        assert!(!first.snapshot().await.unwrap().nonces.is_empty());
+    }
     first.iteration(&mut owner_a, &wallet).await.unwrap();
     assert_eq!(
         owner_a
@@ -385,7 +507,37 @@ async fn run_actual_iterations(heavy: bool) {
     assert_eq!(stalled.round_id, round);
     assert_eq!(stalled.authorized_content, failed.content);
     assert_eq!(first.live.as_ref().unwrap().public_nonces, pending_a);
-    if heavy {
+    if heavy && !historical {
+        let original = session.read().await.clone();
+        for change_payment in [false, true] {
+            let mut substituted = original.clone();
+            let mut admitted: AdmittedContent =
+                bincode::deserialize(&substituted.authorized_content).unwrap();
+            if change_payment {
+                let mut operation: SessionOperation =
+                    bincode::deserialize(&admitted.proposal).unwrap();
+                let SessionOperation::Withdrawal(tx, _, _) = &mut operation;
+                tx.tx.output[0].value += Amount::from_sat(1);
+                tx.txid = tx.tx.compute_txid();
+                admitted.proposal = via_btc_client::traits::Serializable::to_bytes(&operation);
+                substituted.session_op = Some(operation);
+            } else {
+                admitted.expected[0].amount += Amount::from_sat(1);
+            }
+            substituted.authorized_content = bincode::serialize(&admitted).unwrap();
+            substituted.content_hash = crate::auth::digest(&substituted.authorized_content);
+            *session.write().await = substituted;
+            let error = second.iteration(&mut owner_b, &wallet).await.unwrap_err();
+            assert!(!error.to_string().contains("Invalid proposal commitment"));
+            assert!(second.live.is_none());
+            assert!(owner_b
+                .via_withdrawal_dal()
+                .get_withdrawal_attempt(&wallet, &round)
+                .await
+                .unwrap()
+                .is_none());
+        }
+        *session.write().await = original;
         let before = btc.parent_fetches.load(std::sync::atomic::Ordering::SeqCst);
         for fault in [1, 2] {
             btc.parent_fault.store(fault, std::sync::atomic::Ordering::SeqCst);
@@ -419,7 +571,10 @@ async fn run_actual_iterations(heavy: bool) {
     second.iteration(&mut owner_b, &wallet).await.unwrap();
     let snapshot = first.snapshot().await.unwrap();
     let op: SessionOperation = bincode::deserialize(&snapshot.session_op).unwrap();
-    assert!(op.get_parent_transactions().is_empty());
+    assert_eq!(
+        op.get_parent_transactions().is_empty(),
+        coordinator_mode != PeerMode::Legacy && !historical
+    );
     if let Some(core) = &core {
         let parent =
             btc.inner.get_transaction(&op.get_unsigned_bridge_tx().utxos[0].0.txid).await.unwrap();
@@ -444,7 +599,36 @@ async fn run_actual_iterations(heavy: bool) {
     assert!(complete(&snapshot.nonces, 2, 2));
     let own_b = serde_json::from_slice(&pending_b).unwrap();
     assert!(contains_batch(&snapshot.nonces, &own_b, 1).unwrap());
-    first.iteration(&mut owner_a, &wallet).await.unwrap();
+    if lose_acks {
+        use std::sync::atomic::Ordering;
+        let posts = coordinator.faults.shares.load(Ordering::SeqCst);
+        assert!(first.iteration(&mut owner_a, &wallet).await.is_err());
+        assert_eq!(coordinator.faults.shares.load(Ordering::SeqCst), posts + 1);
+        assert!(first.live.as_ref().unwrap().signers.is_none());
+        let cached = owner_a
+            .via_withdrawal_dal()
+            .get_withdrawal_attempt(&wallet, &round)
+            .await
+            .unwrap()
+            .unwrap()
+            .public_signatures
+            .unwrap();
+        first.iteration(&mut owner_a, &wallet).await.unwrap();
+        assert_eq!(
+            owner_a
+                .via_withdrawal_dal()
+                .get_withdrawal_attempt(&wallet, &round)
+                .await
+                .unwrap()
+                .unwrap()
+                .public_signatures
+                .unwrap(),
+            cached
+        );
+        assert_eq!(coordinator.faults.shares.load(Ordering::SeqCst), posts + 1);
+    } else {
+        first.iteration(&mut owner_a, &wallet).await.unwrap();
+    }
     second.iteration(&mut owner_b, &wallet).await.unwrap();
     for owner in [&mut owner_a, &mut owner_b] {
         let record = owner
@@ -458,6 +642,14 @@ async fn run_actual_iterations(heavy: bool) {
         assert!(record.finalized_transaction.is_none());
     }
     assert!(complete(&first.snapshot().await.unwrap().signatures, 2, 2));
+    let durable_shares = owner_a
+        .via_withdrawal_dal()
+        .get_withdrawal_attempt(&wallet, &round)
+        .await
+        .unwrap()
+        .unwrap()
+        .public_signatures
+        .unwrap();
     assert!(btc.broadcasts.lock().is_empty());
 
     // Lose every secret nonce and the coordinator's in-memory public transcript.
@@ -506,8 +698,17 @@ async fn run_actual_iterations(heavy: bool) {
         .unwrap()
         .unwrap();
     assert_eq!(finalized.state, WithdrawalAttemptState::Finalized);
+    assert_eq!(finalized.content, failed.content);
+    assert_eq!(finalized.public_signatures.as_ref(), Some(&durable_shares));
     let bytes = finalized.finalized_transaction.unwrap();
     let tx: Transaction = bitcoin::consensus::deserialize(&bytes).unwrap();
+    if let Some(core) = &core {
+        let accepted: Vec<serde_json::Value> = core
+            .client
+            .call("testmempoolaccept", &[serde_json::json!([hex::encode(&bytes)])])
+            .unwrap();
+        assert_eq!(accepted[0]["allowed"], true, "{accepted:?}");
+    }
     let unsigned = op.get_unsigned_bridge_tx().tx;
     assert_eq!(tx.compute_txid(), unsigned.compute_txid());
     let mut stripped = tx.clone();
@@ -557,10 +758,11 @@ async fn run_actual_iterations(heavy: bool) {
     second.iteration(&mut owner_b, &wallet).await.unwrap();
     first.iteration(&mut owner_a, &wallet).await.unwrap();
     assert!(first.snapshot().await.unwrap().session_op.is_empty());
-    let broadcasts = btc.broadcasts.lock();
-    assert!(broadcasts.len() >= 3);
-    assert!(broadcasts.iter().all(|broadcast| broadcast == &bytes));
-    drop(broadcasts);
+    {
+        let broadcasts = btc.broadcasts.lock();
+        assert!(broadcasts.len() >= 3);
+        assert!(broadcasts.iter().all(|broadcast| broadcast == &bytes));
+    }
     let other = owner_b
         .via_withdrawal_dal()
         .get_withdrawal_attempt(&wallet, &round)
@@ -715,7 +917,12 @@ async fn bounded_signing_admission_refuses_before_reserving_real_requests_and_in
         auth::Envelope,
         metrics::{SigningSizeLabel, SigningSizeStage, METRICS},
     };
-    for (inputs, accepted) in [(150usize, true), (400, false)] {
+    for (mode, inputs, accepted) in [
+        (PeerMode::Reader, 150usize, true),
+        (PeerMode::Reader, 400, false),
+        (PeerMode::Writer, 150, true),
+        (PeerMode::Writer, 400, false),
+    ] {
         let (keys, public, wallets) = fixture_wallets(50);
         let wallet = wallets.bridge.script_pubkey().into_bytes();
         let parent = Transaction {
@@ -767,7 +974,7 @@ async fn bounded_signing_admission_refuses_before_reserving_real_requests_and_in
             }],
         };
         seed(&pool, &wallets, &batch).await;
-        let coordinator = TestCoordinator::start(pool.clone(), btc, &public, &keys[0]).await;
+        let coordinator = TestCoordinator::start(pool.clone(), btc, &public, &keys[0], mode).await;
         let config = &coordinator.config;
         let session = &coordinator.session;
         let binding = Binding {
@@ -837,6 +1044,7 @@ struct TestCoordinator {
     config: ViaVerifierConfig,
     session: Arc<tokio::sync::RwLock<crate::types::SigningSession>>,
     server: tokio::task::JoinHandle<()>,
+    faults: Arc<ReplyFaults>,
 }
 
 impl TestCoordinator {
@@ -845,30 +1053,657 @@ impl TestCoordinator {
         btc: Arc<dyn BitcoinOps>,
         public: &[String],
         key: &PrivateKey,
+        mode: PeerMode,
+    ) -> Self {
+        Self::start_routes(pool, btc, public, key, mode, ProbeRoutes::Normal).await
+    }
+
+    async fn start_routes(
+        pool: ConnectionPool<Verifier>,
+        btc: Arc<dyn BitcoinOps>,
+        public: &[String],
+        key: &PrivateKey,
+        mode: PeerMode,
+        routes: ProbeRoutes,
     ) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mut config = ViaVerifierConfig::for_tests();
         config.coordinator_http_url = format!("http://{}", listener.local_addr().unwrap());
         config.coordinator_public_key = public[0].clone();
         config.withdrawal_signing_enabled = true;
+        config.withdrawal_compact_transport_writes_enabled = mode == PeerMode::Writer;
         let api = crate::coordinator::api_decl::RestApi::new(
             config.clone(),
             pool,
-            btc,
+            btc.clone(),
             withdrawal_client(),
             public.to_vec(),
             key.to_wif(),
         )
         .unwrap();
         let session = api.state.signing_session.clone();
-        let server =
-            tokio::spawn(async move { axum::serve(listener, api.into_router()).await.unwrap() });
-        Self { config, session, server }
+        let faults = Arc::new(ReplyFaults::default());
+        let router = match routes {
+            ProbeRoutes::Normal if mode == PeerMode::Legacy => super::legacy::router(api, btc),
+            ProbeRoutes::Normal => api.into_router(),
+            ProbeRoutes::Bounded => bounded_probe_router(api, faults.clone()),
+            ProbeRoutes::Chunked => chunked_probe_router(api),
+            ProbeRoutes::Corrupt => corrupt_snapshot_router(api),
+        };
+        let response_faults = faults.clone();
+        let router = router.layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                let faults = response_faults.clone();
+                async move {
+                    use std::sync::atomic::Ordering;
+                    let bit = match request.uri().path() {
+                        "/session/nonce" => {
+                            faults.nonces.fetch_add(1, Ordering::SeqCst);
+                            1
+                        }
+                        "/session/signature" => {
+                            faults.shares.fetch_add(1, Ordering::SeqCst);
+                            2
+                        }
+                        _ => 0,
+                    };
+                    let response = next.run(request).await;
+                    if response.status().is_success()
+                        && faults.mask.fetch_and(!bit, Ordering::SeqCst) & bit != 0
+                    {
+                        return axum::response::Response::new(axum::body::Body::from(
+                            "lost acknowledgment",
+                        ));
+                    }
+                    response
+                }
+            },
+        ));
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        Self { config, session, server, faults }
     }
 }
 
 impl Drop for TestCoordinator {
     fn drop(&mut self) {
         self.server.abort();
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PeerMode {
+    Legacy,
+    Reader,
+    Writer,
+}
+
+#[tokio::test]
+async fn bounded_signing_all_nine_peer_directions_sign_and_recover_over_http() {
+    for coordinator in [PeerMode::Legacy, PeerMode::Reader, PeerMode::Writer] {
+        for signer in [PeerMode::Legacy, PeerMode::Reader, PeerMode::Writer] {
+            run_actual_iterations(false, coordinator, [signer; 2], false, false).await;
+        }
+    }
+}
+
+impl TestCoordinator {
+    async fn call(
+        &self,
+        key: &PrivateKey,
+        method: &str,
+        target: &str,
+        version: TransportVersion,
+        body: Vec<u8>,
+    ) -> (Binding, reqwest::Response) {
+        let session = self.session.read().await;
+        let binding = Binding {
+            version: 1,
+            sequencer_version: via_verifier_types::protocol_version::get_sequencer_version()
+                .to_string(),
+            principal: key.public_key(&Secp256k1::new()).to_string(),
+            audience: self.config.coordinator_public_key.clone(),
+            method: method.to_owned(),
+            target: target.to_owned(),
+            round: if method == "GET" { [0; 32] } else { session.round_id },
+            content: if method == "GET" { [0; 32] } else { session.content_hash },
+            challenge: random_id(),
+            timestamp: chrono::Utc::now().timestamp(),
+            status: 0,
+        };
+        drop(session);
+        let envelope = Envelope::sign(binding.clone(), body, &key.inner).unwrap();
+        let bytes = transport::encode_envelope(envelope, version, MAX_BODY).unwrap();
+        let response = reqwest::Client::new()
+            .request(
+                reqwest::Method::from_bytes(method.as_bytes()).unwrap(),
+                format!("{}{}", self.config.coordinator_http_url, target),
+            )
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|error| error.without_url())
+            .unwrap();
+        (binding, response)
+    }
+}
+
+async fn verified_reply(
+    request: &Binding,
+    response: reqwest::Response,
+    coordinator: &str,
+) -> (Envelope, TransportVersion, u16, usize) {
+    let status = response.status().as_u16();
+    let bytes = response.bytes().await.unwrap();
+    assert!(bytes.len() <= MAX_BODY);
+    let (envelope, version) = transport::decode_envelope(&bytes).unwrap();
+    envelope
+        .verify_response(
+            request,
+            &PublicKey::from_str(coordinator).unwrap(),
+            status,
+            chrono::Utc::now().timestamp(),
+            30,
+        )
+        .unwrap();
+    (envelope, version, status, bytes.len())
+}
+
+#[tokio::test]
+async fn bounded_signing_historical_parent_bytes_recover_compactly_and_keep_legacy_holds() {
+    run_actual_iterations(true, PeerMode::Writer, [PeerMode::Writer; 2], true, false).await;
+}
+
+#[derive(Default)]
+struct ReplyFaults {
+    mask: std::sync::atomic::AtomicU8,
+    nonces: std::sync::atomic::AtomicUsize,
+    shares: std::sync::atomic::AtomicUsize,
+    responses: std::sync::atomic::AtomicUsize,
+}
+
+#[tokio::test]
+async fn bounded_signing_lost_ack_does_not_reencode_replay_or_regenerate_secrets() {
+    run_actual_iterations(false, PeerMode::Writer, [PeerMode::Writer; 2], false, true).await;
+}
+
+#[tokio::test]
+async fn bounded_signing_http_selects_each_reply_and_binds_the_offer() {
+    for mode in [PeerMode::Reader, PeerMode::Writer] {
+        let network = TestNetwork::empty().await;
+        let server = network.coordinator(mode, ProbeRoutes::Normal).await;
+        let (keys, public) = (&network.keys, &network.public);
+        for request_version in [TransportVersion::Legacy, TransportVersion::Compact] {
+            for offer in ["", "?transport_version=2"] {
+                let expected = if mode == PeerMode::Writer && !offer.is_empty() {
+                    TransportVersion::Compact
+                } else {
+                    TransportVersion::Legacy
+                };
+                for (method, path, status) in [
+                    ("GET", "/session/", 200),
+                    ("POST", "/session/new", 401),
+                    ("POST", "/session/nonce", 400),
+                    ("POST", "/session/signature", 400),
+                ] {
+                    let (request, response) = server
+                        .call(
+                            &keys[1],
+                            method,
+                            &format!("{path}{offer}"),
+                            request_version,
+                            b"{}".to_vec(),
+                        )
+                        .await;
+                    let (_, version, actual_status, _) =
+                        verified_reply(&request, response, &public[0]).await;
+                    assert_eq!(version, expected);
+                    assert_eq!(actual_status, status);
+                }
+            }
+        }
+        for offer in [
+            "transport_version=1",
+            "transport_version=3",
+            "transport_version=x",
+            "transport_version=2&transport_version=2",
+        ] {
+            let (request, response) = server
+                .call(
+                    &keys[1],
+                    "POST",
+                    &format!("/session/nonce?{offer}"),
+                    TransportVersion::Compact,
+                    b"{}".to_vec(),
+                )
+                .await;
+            let (reply, version, status, _) = verified_reply(&request, response, &public[0]).await;
+            assert_eq!(status, 400);
+            assert_eq!(version, TransportVersion::Legacy);
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&reply.body).unwrap()["error"],
+                "invalid_transport_encoding"
+            );
+        }
+        let (binding, response) = server
+            .call(
+                &keys[1],
+                "GET",
+                &format!("/session/?transport_version={}2", "0".repeat(65_300)),
+                TransportVersion::Legacy,
+                Vec::new(),
+            )
+            .await;
+        assert_eq!(response.status().as_u16(), 413);
+        assert_eq!(
+            response.json::<serde_json::Value>().await.unwrap()["error"],
+            "request_too_large"
+        );
+        let envelope = Envelope::sign(binding, Vec::new(), &keys[1].inner).unwrap();
+        let mut malformed: serde_json::Value = serde_json::from_slice(
+            &transport::encode_envelope(envelope, TransportVersion::Compact, MAX_BODY).unwrap(),
+        )
+        .unwrap();
+        malformed["body"] = serde_json::json!("!");
+        let response = reqwest::Client::new()
+            .get(format!("{}/session/", server.config.coordinator_http_url))
+            .json(&malformed)
+            .send()
+            .await
+            .map_err(|error| error.without_url())
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 400);
+        assert_eq!(
+            response.json::<serde_json::Value>().await.unwrap()["error"],
+            "invalid_transport_encoding"
+        );
+        // Re-signing is deliberately omitted: the offer is part of the auth target.
+        let (mut binding, response) =
+            server.call(&keys[1], "GET", "/session/", TransportVersion::Legacy, Vec::new()).await;
+        assert_eq!(response.status().as_u16(), 200);
+        binding.challenge = random_id();
+        let envelope = Envelope::sign(binding, Vec::new(), &keys[1].inner).unwrap();
+        let response = reqwest::Client::new()
+            .get(format!("{}/session/?transport_version=2", server.config.coordinator_http_url,))
+            .json(&envelope)
+            .send()
+            .await
+            .map_err(|error| error.without_url())
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 401);
+        assert!(server.session.read().await.session_op.is_none());
+        assert!(network
+            .pool
+            .connection()
+            .await
+            .unwrap()
+            .via_withdrawal_dal()
+            .list_recoverable_withdrawal_attempts(&[])
+            .await
+            .unwrap()
+            .is_empty());
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ProbeRoutes {
+    Normal,
+    Bounded,
+    Chunked,
+    Corrupt,
+}
+
+#[derive(Deserialize, Serialize)]
+struct Probe {
+    final_bytes: usize,
+    status: u16,
+}
+
+fn probe_body(request: &Binding, version: TransportVersion, probe: &Probe) -> Vec<u8> {
+    let binding = transport::response_binding(
+        request,
+        &request.audience,
+        probe.status,
+        chrono::Utc::now().timestamp(),
+    );
+    let mut body = br#"{"probe":true}"#.to_vec();
+    let encoded = transport::encode_envelope(
+        Envelope { binding: binding.clone(), body: body.clone(), signature: "A".repeat(88) },
+        version,
+        MAX_BODY + 16,
+    )
+    .unwrap();
+    match version {
+        TransportVersion::Legacy => {
+            let extra = probe.final_bytes - encoded.len();
+            // Spaces cost three numeric-array bytes; tabs cost two.
+            let tabs = match extra % 3 {
+                0 => 0,
+                1 => 2,
+                _ => 1,
+            };
+            body.resize(body.len() + (extra - 2 * tabs) / 3, b' ');
+            body.extend(std::iter::repeat(b'\t').take(tabs));
+        }
+        TransportVersion::Compact => {
+            let overhead = transport::encode_envelope(
+                Envelope { binding, body: Vec::new(), signature: "A".repeat(88) },
+                version,
+                MAX_BODY,
+            )
+            .unwrap()
+            .len();
+            assert_eq!((probe.final_bytes - overhead) % 4, 0);
+            body.resize((probe.final_bytes - overhead) / 4 * 3, b' ');
+        }
+    }
+    body
+}
+
+fn bounded_probe_router(
+    api: crate::coordinator::api_decl::RestApi,
+    faults: Arc<ReplyFaults>,
+) -> axum::Router {
+    use crate::coordinator::auth_middleware::{auth_middleware, AuthenticatedRequest};
+    let state = Arc::new(api);
+    let router = axum::Router::new().route(
+        "/session/",
+        axum::routing::get(
+            move |axum::Extension(auth): axum::Extension<AuthenticatedRequest>,
+                  axum::Json(probe): axum::Json<Probe>| {
+                let faults = faults.clone();
+                async move {
+                    faults.responses.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let body = probe_body(&auth.binding, auth.transport, &probe);
+                    axum::response::Response::builder()
+                        .status(probe.status)
+                        .body(axum::body::Body::from(body))
+                        .unwrap()
+                }
+            },
+        ),
+    );
+    router
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .with_state(state)
+}
+
+fn chunked_probe_router(api: crate::coordinator::api_decl::RestApi) -> axum::Router {
+    let key = api.response_key;
+    axum::Router::new().route(
+        "/session/",
+        axum::routing::get(move |axum::Json(request): axum::Json<Envelope>| async move {
+            let probe: Probe = serde_json::from_slice(&request.body).unwrap();
+            let binding = transport::response_binding(
+                &request.binding,
+                &request.binding.audience,
+                200,
+                chrono::Utc::now().timestamp(),
+            );
+            let version =
+                TransportVersion::negotiate(&request.binding.target.parse().unwrap(), true)
+                    .unwrap();
+            let envelope = Envelope::sign(binding, b"{}".to_vec(), &key).unwrap();
+            let mut bytes = transport::encode_envelope(envelope, version, MAX_BODY).unwrap();
+            // Outside-JSON whitespace is unsigned transport framing and still counts
+            // against the receiver's actual body limit. Stream with no Content-Length.
+            bytes.resize(probe.final_bytes, b' ');
+            let chunks: Vec<_> =
+                bytes.chunks(4096).map(|chunk| Ok::<_, std::io::Error>(chunk.to_vec())).collect();
+            axum::response::Response::new(axum::body::Body::from_stream(tokio_stream::iter(chunks)))
+        }),
+    )
+}
+
+#[tokio::test]
+async fn bounded_signing_actual_http_final_limit_and_signed_size_fallback() {
+    for mode in [PeerMode::Reader, PeerMode::Writer] {
+        let network = TestNetwork::empty().await;
+        let server = network.coordinator(mode, ProbeRoutes::Bounded).await;
+        let (keys, public) = (&network.keys, &network.public);
+        let version = if mode == PeerMode::Writer {
+            TransportVersion::Compact
+        } else {
+            TransportVersion::Legacy
+        };
+        for status in [200, 400] {
+            for final_bytes in [MAX_BODY - 1, MAX_BODY, MAX_BODY + 1] {
+                let mut target = "/session/".to_owned();
+                if version == TransportVersion::Compact {
+                    // Fixed-size Base64 IDs make H independent of random challenge values.
+                    for zeros in 0..4 {
+                        let candidate =
+                            format!("/session/?transport_version={}2", "0".repeat(zeros));
+                        let binding = Binding {
+                            version: 1,
+                            sequencer_version:
+                                via_verifier_types::protocol_version::get_sequencer_version()
+                                    .to_string(),
+                            principal: public[0].clone(),
+                            audience: public[1].clone(),
+                            method: "GET".into(),
+                            target: candidate.clone(),
+                            round: [0; 32],
+                            content: [0; 32],
+                            challenge: [0; 32],
+                            timestamp: chrono::Utc::now().timestamp(),
+                            status,
+                        };
+                        let overhead = transport::encode_envelope(
+                            Envelope { binding, body: Vec::new(), signature: "A".repeat(88) },
+                            version,
+                            MAX_BODY,
+                        )
+                        .unwrap()
+                        .len();
+                        if (final_bytes - overhead) % 4 == 0 {
+                            target = candidate;
+                            break;
+                        }
+                    }
+                    assert!(target.contains('?'));
+                }
+                let probe = Probe { final_bytes, status };
+                let (request, response) = server
+                    .call(
+                        &keys[1],
+                        "GET",
+                        &target,
+                        TransportVersion::Legacy,
+                        serde_json::to_vec(&probe).unwrap(),
+                    )
+                    .await;
+                let (reply, actual_version, actual_status, len) =
+                    verified_reply(&request, response, &public[0]).await;
+                assert_eq!(actual_version, version);
+                if final_bytes <= MAX_BODY {
+                    assert_eq!(len, final_bytes);
+                    assert_eq!(actual_status, status);
+                    assert_eq!(
+                        serde_json::from_slice::<serde_json::Value>(&reply.body).unwrap()["probe"],
+                        true
+                    );
+                } else {
+                    assert_eq!(actual_status, 503);
+                    assert_eq!(
+                        serde_json::from_slice::<serde_json::Value>(&reply.body).unwrap()["error"],
+                        "response_too_large",
+                    );
+                }
+            }
+        }
+        assert_eq!(server.faults.responses.load(std::sync::atomic::Ordering::SeqCst), 6);
+    }
+}
+
+#[tokio::test]
+async fn bounded_signing_actual_client_counts_chunked_bytes_before_decode() {
+    let network = TestNetwork::empty().await;
+    let server = network.coordinator(PeerMode::Writer, ProbeRoutes::Chunked).await;
+    let verifier = network.writer(&server);
+    let (keys, public) = (&network.keys, &network.public);
+    let (request, response) = server
+        .call(
+            &keys[1],
+            "GET",
+            "/session/?transport_version=2",
+            TransportVersion::Legacy,
+            serde_json::to_vec(&Probe { final_bytes: MAX_BODY - 1, status: 200 }).unwrap(),
+        )
+        .await;
+    assert!(response.headers().get(reqwest::header::CONTENT_LENGTH).is_none());
+    assert_eq!(response.headers().get(reqwest::header::TRANSFER_ENCODING).unwrap(), "chunked");
+    verified_reply(&request, response, &public[0]).await;
+    for final_bytes in [MAX_BODY - 1, MAX_BODY, MAX_BODY + 1] {
+        let body = serde_json::to_vec(&Probe { final_bytes, status: 200 }).unwrap();
+        let result = verifier
+            .request("GET", "/session/", [0; 32], [0; 32], body, TransportVersion::Legacy)
+            .await;
+        if final_bytes <= MAX_BODY {
+            assert_eq!(result.unwrap().0, b"{}");
+        } else {
+            assert!(result.unwrap_err().to_string().contains("Oversized coordinator response"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn bounded_signing_writer_disable_and_old_binary_rebootstrap_preserve_authentication() {
+    use std::sync::atomic::Ordering;
+    let network = TestNetwork::empty().await;
+    let writer = network.coordinator(PeerMode::Writer, ProbeRoutes::Normal).await;
+    let reader = network.coordinator(PeerMode::Reader, ProbeRoutes::Normal).await;
+    let old = network.coordinator(PeerMode::Legacy, ProbeRoutes::Normal).await;
+    let mut client = network.writer(&writer);
+    let snapshot = client.snapshot().await.unwrap();
+    assert_eq!(snapshot.transport, TransportVersion::Compact);
+    client.verifier_config.coordinator_http_url = reader.config.coordinator_http_url.clone();
+    let error = client
+        .request("POST", "/session/nonce", [0; 32], [0; 32], b"{}".to_vec(), snapshot.transport)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("No active round"));
+    assert_eq!(client.snapshot().await.unwrap().transport, TransportVersion::Legacy);
+    client.verifier_config.coordinator_http_url = old.config.coordinator_http_url.clone();
+    let before = old.faults.nonces.load(Ordering::SeqCst);
+    assert!(client
+        .request("POST", "/session/nonce", [0; 32], [0; 32], b"{}".to_vec(), snapshot.transport,)
+        .await
+        .is_err());
+    assert_eq!(old.faults.nonces.load(Ordering::SeqCst), before + 1);
+    assert_eq!(client.snapshot().await.unwrap().transport, TransportVersion::Legacy);
+    assert_eq!(old.faults.nonces.load(Ordering::SeqCst), before + 1);
+    assert!(client.live.is_none());
+}
+
+fn corrupt_snapshot_router(api: crate::coordinator::api_decl::RestApi) -> axum::Router {
+    use base64::Engine;
+    let key = api.response_key;
+    axum::Router::new().route(
+        "/session/",
+        axum::routing::get(move |axum::Json(request): axum::Json<Envelope>| async move {
+            let body = serde_json::to_vec(&serde_json::json!({
+                "transport_version": 2,
+                "round_id": base64::engine::general_purpose::STANDARD.encode([1; 32]),
+                "content_hash": base64::engine::general_purpose::STANDARD.encode([2; 32]),
+                "authorized_content": "AA==",
+                "nonces": {}, "signatures": {}, "required_signers": 2,
+                "received_nonces": {}, "received_partial_signatures": {}, "created_at": 1,
+            }))
+            .unwrap();
+            let binding = transport::response_binding(
+                &request.binding,
+                &request.binding.audience,
+                200,
+                chrono::Utc::now().timestamp(),
+            );
+            let envelope = Envelope::sign(binding, body, &key).unwrap();
+            axum::body::Body::from(
+                transport::encode_envelope(envelope, TransportVersion::Compact, MAX_BODY).unwrap(),
+            )
+        }),
+    )
+}
+
+#[tokio::test]
+async fn bounded_signing_digest_precedes_bincode_and_real_signer_admission() {
+    let network = TestNetwork::empty().await;
+    let server = network.coordinator(PeerMode::Writer, ProbeRoutes::Corrupt).await;
+    let mut client = network.writer(&server);
+    let (pool, wallets) = (&network.pool, &network.wallets);
+    let mut owner = pool.connection().await.unwrap();
+    owner
+        .via_wallet_dal()
+        .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 1)
+        .await
+        .unwrap();
+    owner.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+    let wallet = wallets.bridge.script_pubkey().into_bytes();
+    assert!(owner.via_withdrawal_dal().acquire_withdrawal_signer_lock(&wallet).await.unwrap());
+    let error = client.iteration(&mut owner, &wallet).await.unwrap_err();
+    assert!(error.to_string().contains("Invalid proposal commitment"), "{error:#}");
+    assert!(client.live.is_none());
+    let counts: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM via_withdrawal_attempts), \
+         (SELECT count(*) FROM via_withdrawal_request_reservations), \
+         (SELECT count(*) FROM via_withdrawal_input_reservations)",
+    )
+    .fetch_one(owner.conn())
+    .await
+    .unwrap();
+    assert_eq!(counts, (0, 0, 0));
+    owner.via_withdrawal_dal().release_withdrawal_signer_lock(&wallet).await.unwrap();
+}
+
+struct TestNetwork {
+    keys: Vec<PrivateKey>,
+    public: Vec<String>,
+    wallets: SystemWallets,
+    pool: ConnectionPool<Verifier>,
+    btc: Arc<MockBitcoinOps>,
+}
+
+impl TestNetwork {
+    async fn empty() -> Self {
+        let (keys, public, wallets) = fixture_wallets(2);
+        Self {
+            keys,
+            public,
+            wallets,
+            pool: ConnectionPool::<Verifier>::test_pool().await,
+            btc: Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig::default())),
+        }
+    }
+
+    async fn coordinator(&self, mode: PeerMode, routes: ProbeRoutes) -> TestCoordinator {
+        TestCoordinator::start_routes(
+            self.pool.clone(),
+            self.btc.clone(),
+            &self.public,
+            &self.keys[0],
+            mode,
+            routes,
+        )
+        .await
+    }
+
+    fn writer(&self, coordinator: &TestCoordinator) -> ViaWithdrawalVerifier {
+        let mut config = coordinator.config.clone();
+        config.withdrawal_compact_transport_writes_enabled = true;
+        config.role = ViaNodeRole::Verifier;
+        config.wallet_address = self.wallets.verifiers[1].to_string();
+        ViaWithdrawalVerifier::new(
+            config,
+            ViaWallet::new(self.wallets.verifiers[1].to_string(), self.keys[1].to_wif()),
+            self.pool.clone(),
+            self.btc.clone(),
+            withdrawal_client(),
+            ViaBridgeConfig {
+                verifiers_pub_keys: self.public.clone(),
+                bridge_address: self.wallets.bridge.to_string(),
+            },
+            ViaBtcWatchConfig::for_tests(),
+        )
+        .unwrap()
     }
 }
