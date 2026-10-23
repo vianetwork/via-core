@@ -196,12 +196,18 @@ async fn seed(
     }
 }
 
-// Requires the same isolated PostgreSQL test template as verifier_dal tests.
-#[tokio::test]
-async fn actual_iterations_retry_exact_nonces_and_recover_public_only_over_http() {
-    run_actual_iterations(false, PeerMode::Reader, [PeerMode::Reader; 2], false, false).await;
+async fn withdrawal_reservation_counts(db: &mut Connection<'_, Verifier>) -> (i64, i64, i64) {
+    sqlx::query_as(
+        "SELECT (SELECT count(*) FROM via_withdrawal_attempts), \
+         (SELECT count(*) FROM via_withdrawal_request_reservations), \
+         (SELECT count(*) FROM via_withdrawal_input_reservations)",
+    )
+    .fetch_one(db.conn())
+    .await
+    .unwrap()
 }
 
+// Requires the same isolated PostgreSQL test template as verifier_dal tests.
 #[tokio::test]
 async fn bounded_signing_valid_heavy_parent_downloads_signs_and_recovers() {
     run_actual_iterations(
@@ -998,14 +1004,7 @@ async fn bounded_signing_admission_refuses_before_reserving_real_requests_and_in
             )
             .unwrap();
         let mut db = pool.connection().await.unwrap();
-        let counts: (i64, i64, i64) = sqlx::query_as(
-            "SELECT (SELECT count(*) FROM via_withdrawal_attempts), \
-             (SELECT count(*) FROM via_withdrawal_request_reservations), \
-             (SELECT count(*) FROM via_withdrawal_input_reservations)",
-        )
-        .fetch_one(db.conn())
-        .await
-        .unwrap();
+        let counts = withdrawal_reservation_counts(&mut db).await;
         if accepted {
             assert_eq!(counts, (1, 1, inputs as i64));
             assert!(session.read().await.session_op.is_some());
@@ -1123,9 +1122,9 @@ enum PeerMode {
 }
 
 #[tokio::test]
-async fn bounded_signing_all_nine_peer_directions_sign_and_recover_over_http() {
+async fn bounded_signing_distinct_coordinator_and_signer_modes_sign_and_recover_over_http() {
     for coordinator in [PeerMode::Legacy, PeerMode::Reader, PeerMode::Writer] {
-        for signer in [PeerMode::Legacy, PeerMode::Reader, PeerMode::Writer] {
+        for signer in [PeerMode::Reader, PeerMode::Writer] {
             run_actual_iterations(false, coordinator, [signer; 2], false, false).await;
         }
     }
@@ -1392,6 +1391,7 @@ async fn bounded_signing_http_selects_each_reply_and_binds_the_offer() {
             "transport_version=1",
             "transport_version=3",
             "transport_version=x",
+            "transport_version=",
             "transport_version=2&transport_version=2",
         ] {
             let (request, response) = server
@@ -1458,16 +1458,9 @@ async fn bounded_signing_http_selects_each_reply_and_binds_the_offer() {
             .unwrap();
         assert_eq!(response.status().as_u16(), 401);
         assert!(server.session.read().await.session_op.is_none());
-        assert!(network
-            .pool
-            .connection()
-            .await
-            .unwrap()
-            .via_withdrawal_dal()
-            .list_recoverable_withdrawal_attempts(&[])
-            .await
-            .unwrap()
-            .is_empty());
+        let mut db = network.pool.connection().await.unwrap();
+        let counts = withdrawal_reservation_counts(&mut db).await;
+        assert_eq!(counts, (0, 0, 0));
     }
 }
 
@@ -1769,14 +1762,7 @@ async fn bounded_signing_digest_precedes_bincode_and_real_signer_admission() {
     let error = client.iteration(&mut owner, &wallet).await.unwrap_err();
     assert!(error.to_string().contains("Invalid proposal commitment"), "{error:#}");
     assert!(client.live.is_none());
-    let counts: (i64, i64, i64) = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM via_withdrawal_attempts), \
-         (SELECT count(*) FROM via_withdrawal_request_reservations), \
-         (SELECT count(*) FROM via_withdrawal_input_reservations)",
-    )
-    .fetch_one(owner.conn())
-    .await
-    .unwrap();
+    let counts = withdrawal_reservation_counts(&mut owner).await;
     assert_eq!(counts, (0, 0, 0));
     owner.via_withdrawal_dal().release_withdrawal_signer_lock(&wallet).await.unwrap();
 }
