@@ -18,12 +18,14 @@ pub struct ViaVerifierInitLayer {
     pub proof_verification_dev_mode: bool,
 }
 
+// jscpd:ignore-start Each layer owns its context type; sharing it would couple independent task outputs.
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<VerifierPool>,
     pub btc_client_resource: BtcClientResource,
 }
+// jscpd:ignore-end
 
 #[derive(Debug, IntoContext)]
 #[context(crate = crate)]

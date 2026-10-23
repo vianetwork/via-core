@@ -119,7 +119,7 @@ impl ViaTransactionsDal<'_, '_> {
         .bind(withdrawal.timestamp)
         .bind(withdrawal.block_number)
         .instrument("insert_withdrawal")
-        .execute(&mut self.storage)
+        .execute(self.storage)
         .await?;
 
         Ok(())

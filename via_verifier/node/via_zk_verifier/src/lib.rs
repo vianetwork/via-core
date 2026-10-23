@@ -77,11 +77,13 @@ impl ViaVerifier {
         let mut timer = tokio::time::interval(self.config.polling_interval());
         let pool = self.pool.clone();
 
+        // jscpd:ignore-start Each actor owns polling and cancellation; verifier work has an additional cancellation boundary.
         while !*stop_receiver.borrow_and_update() {
             tokio::select! {
                 _ = timer.tick() => { /* continue iterations */ }
                 _ = stop_receiver.changed() => break,
             }
+            // jscpd:ignore-end
 
             let mut storage = tokio::select! {
                 biased;

@@ -9,12 +9,14 @@ use zksync_types::{Execute, H256, U256};
 ///
 /// - Each dir in `/contracts` translates into a module with the same name (just with `-` chars replaced with `_`).
 /// - Each contract in all files in this dir produces a `RawContract` constant with the same name as the contract.
+///
 // mod raw {
 //     #![allow(unused, non_upper_case_globals)]
 //     include!(concat!(env!("OUT_DIR"), "/raw_contracts.rs"));
 // }
 
 /// Raw contracts produced by the build script.
+///
 // #[derive(Debug, Clone, Copy)]
 // pub(crate) struct RawContract {
 //     pub abi: &'static str,

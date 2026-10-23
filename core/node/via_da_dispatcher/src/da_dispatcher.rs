@@ -318,18 +318,8 @@ impl ViaDataAvailabilityDispatcher {
             return Ok(());
         };
 
-        let inclusion_data = if self.config.use_dummy_inclusion_data() {
-            self.client.get_inclusion_data(blob_info.blob_id.as_str()).await.with_context(|| {
-                format!(
-                    "failed to get inclusion data for blob_id: {}, batch_number: {}",
-                    blob_info.blob_id, blob_info.l1_batch_number
-                )
-            })?
-        } else {
-            // If the inclusion verification is disabled, we don't need to wait for the inclusion
-            // data before committing the batch, so simply return an empty vector.
-            Some(InclusionData { data: vec![] })
-        };
+        let inclusion_data =
+            self.inclusion_data(&blob_info.blob_id, blob_info.l1_batch_number, "blob_id").await?;
 
         let Some(inclusion_data) = inclusion_data else {
             return Ok(());
@@ -366,6 +356,23 @@ impl ViaDataAvailabilityDispatcher {
         Ok(())
     }
 
+    async fn inclusion_data(
+        &self,
+        blob_id: &str,
+        batch: L1BatchNumber,
+        field: &str,
+    ) -> anyhow::Result<Option<InclusionData>> {
+        if self.config.use_dummy_inclusion_data() {
+            self.client.get_inclusion_data(blob_id).await.with_context(|| {
+                format!(
+                    "failed to get inclusion data for {field}: {blob_id}, batch_number: {batch}"
+                )
+            })
+        } else {
+            Ok(Some(InclusionData { data: vec![] }))
+        }
+    }
+
     async fn poll_for_inclusion_proof(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 
@@ -377,18 +384,9 @@ impl ViaDataAvailabilityDispatcher {
             return Ok(());
         };
 
-        let inclusion_data = if self.config.use_dummy_inclusion_data() {
-            self.client.get_inclusion_data(proof_info.blob_id.as_str()).await.with_context(|| {
-                format!(
-                    "failed to get inclusion data for proof_blob_url: {}, batch_number: {}",
-                    proof_info.blob_id, proof_info.l1_batch_number
-                )
-            })?
-        } else {
-            // If the inclusion verification is disabled, we don't need to wait for the inclusion
-            // data before committing the batch, so simply return an empty vector.
-            Some(InclusionData { data: vec![] })
-        };
+        let inclusion_data = self
+            .inclusion_data(&proof_info.blob_id, proof_info.l1_batch_number, "proof_blob_url")
+            .await?;
 
         let Some(inclusion_data) = inclusion_data else {
             return Ok(());
