@@ -216,7 +216,7 @@ impl ConsistencyChecker {
         let mut parser = MessageParser::new(self.btc_client.config.network());
         let inscriptions = parser.parse_system_transaction(&tx, 0, None);
 
-        for inscription in inscriptions {
+        if let Some(inscription) = inscriptions.into_iter().next() {
             if let FullInscriptionMessage::L1BatchDAReference(msg) = inscription {
                 if msg.common.p2wpkh_address != Some(self.sequencer_address.clone()) {
                     let err = anyhow::anyhow!(

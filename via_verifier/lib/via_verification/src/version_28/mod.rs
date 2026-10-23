@@ -21,6 +21,7 @@ pub mod types;
 pub mod utils;
 pub mod verification;
 
+// jscpd:ignore-start V28 has distinct proof, verification-key and serialized-package types; verify within that version.
 pub async fn verify_proof(proof_data: ProveBatches) -> anyhow::Result<bool> {
     // `should_verify` stays decodable for old packages but never selects the outcome.
     // The external-node DA path rewrites it from the serving node's current config.
@@ -61,3 +62,4 @@ pub async fn verify_proof(proof_data: ProveBatches) -> anyhow::Result<bool> {
 
     Ok(is_valid)
 }
+// jscpd:ignore-end

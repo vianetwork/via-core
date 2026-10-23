@@ -27,7 +27,7 @@ impl ViaIndexerStorageInitializer {
         if let Some(system_wallets) = self.fetch_indexer_wallets_from_db().await? {
             return Ok(system_wallets);
         }
-        Ok(self.init_indexer_wallets().await?)
+        self.init_indexer_wallets().await
     }
 
     pub async fn init_indexer_wallets(&self) -> anyhow::Result<SystemWallets> {

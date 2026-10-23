@@ -164,12 +164,24 @@ async fn a_failing_proof_has_no_verdict_even_in_development_mode() {
 
 /// A store whose every read fails, as a broken credential or backend does.
 #[derive(Debug)]
-struct FailingStore;
+enum TestProofStore {
+    Failing,
+    Waiting(Arc<tokio::sync::Notify>),
+}
 
 #[async_trait::async_trait]
-impl ObjectStore for FailingStore {
+impl ObjectStore for TestProofStore {
     async fn get_raw(&self, _: Bucket, _: &str) -> Result<Vec<u8>, ObjectStoreError> {
-        Err(ObjectStoreError::Other { source: "permission denied".into(), is_retriable: false })
+        match self {
+            Self::Failing => Err(ObjectStoreError::Other {
+                source: "permission denied".into(),
+                is_retriable: false,
+            }),
+            Self::Waiting(entered) => {
+                entered.notify_one();
+                std::future::pending().await
+            }
+        }
     }
 
     async fn put_raw(&self, _: Bucket, _: &str, _: Vec<u8>) -> Result<(), ObjectStoreError> {
@@ -189,7 +201,7 @@ impl ObjectStore for FailingStore {
 async fn a_failing_store_is_not_absence_even_in_development_mode() {
     let mut data = v28();
     data.proofs.clear();
-    let outcome = check(&FailingStore, true, &data, &inscribed(&data)).await;
+    let outcome = check(&TestProofStore::Failing, true, &data, &inscribed(&data)).await;
     assert_eq!(reason(outcome), NoVerdictReason::ProofStoreError);
 }
 
@@ -695,10 +707,7 @@ async fn missing_proof_retries_the_same_persisted_batch_then_approves() {
             .map(|row| row.0),
         Some(10)
     );
-    assert_eq!(
-        storage.via_votes_dal().get_verifier_vote_status(1).await.unwrap().map(|row| row.0),
-        Some(true)
-    );
+    assert_eq!(recorded_vote_status(&mut storage).await, Some(true));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -802,27 +811,11 @@ async fn a_development_reorg_rolls_back_the_marker_and_deposit_effects() {
     assert_eq!(durable_effects(&mut storage).await, before);
 }
 
-#[derive(Debug)]
-struct WaitingStore(Arc<tokio::sync::Notify>);
-
-#[async_trait::async_trait]
-impl ObjectStore for WaitingStore {
-    async fn get_raw(&self, _: Bucket, _: &str) -> Result<Vec<u8>, ObjectStoreError> {
-        self.0.notify_one();
-        std::future::pending().await
-    }
-
-    async fn put_raw(&self, _: Bucket, _: &str, _: Vec<u8>) -> Result<(), ObjectStoreError> {
-        unreachable!()
-    }
-
-    async fn remove_raw(&self, _: Bucket, _: &str) -> Result<(), ObjectStoreError> {
-        unreachable!()
-    }
-
-    fn storage_prefix_raw(&self, _: Bucket) -> String {
-        String::new()
-    }
+fn start_verifier(
+    verifier: ViaVerifier,
+) -> (watch::Sender<bool>, impl Future<Output = anyhow::Result<()>>) {
+    let (stop, receiver) = watch::channel(false);
+    (stop, verifier.run(receiver))
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -831,9 +824,8 @@ async fn stop_interrupts_a_yielding_proof_fetch_without_a_verdict() {
     let mut observer = fixture.verifier.pool.connection().await.unwrap();
     let before = durable_effects(&mut observer).await;
     let entered = Arc::new(tokio::sync::Notify::new());
-    fixture.verifier.blob_store = Arc::new(WaitingStore(entered.clone()));
-    let (stop, receiver) = watch::channel(false);
-    let run = fixture.verifier.run(receiver);
+    fixture.verifier.blob_store = Arc::new(TestProofStore::Waiting(entered.clone()));
+    let (stop, run) = start_verifier(fixture.verifier);
     tokio::pin!(run);
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         tokio::select! {
@@ -860,8 +852,7 @@ async fn stop_interrupts_connection_acquisition() {
     let mut held = pool.connection().await.unwrap();
     let before = durable_effects(&mut held).await;
     fixture.verifier.pool = pool;
-    let (stop, receiver) = watch::channel(false);
-    let run = fixture.verifier.run(receiver);
+    let (stop, run) = start_verifier(fixture.verifier);
     tokio::pin!(run);
     std::future::poll_fn(|cx| {
         assert!(run.as_mut().poll(cx).is_pending());
@@ -895,8 +886,7 @@ async fn stop_during_a_post_marker_database_wait_rolls_back_all_effects() {
         .fetch_all(lock.conn())
         .await
         .unwrap();
-    let (stop, receiver) = watch::channel(false);
-    let run = fixture.verifier.run(receiver);
+    let (stop, run) = start_verifier(fixture.verifier);
     tokio::pin!(run);
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
@@ -957,10 +947,7 @@ async fn initialized_development_store_reopens_but_refuses_a_strict_process() {
     assert!(initialize(restarted.clone(), fixture.client.clone(), false).await.is_err());
     let mut storage = restarted.connection().await.unwrap();
     assert_eq!(durable_effects(&mut storage).await, before);
-    assert_eq!(
-        storage.via_votes_dal().get_verifier_vote_status(1).await.unwrap().map(|row| row.0),
-        Some(true)
-    );
+    assert_eq!(recorded_vote_status(&mut storage).await, Some(true));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1008,4 +995,8 @@ async fn failed_bootstrap_keeps_the_committed_strict_designation() {
         )
     );
     assert!(initialize(pool, fixture.client.clone(), true).await.is_err());
+}
+
+async fn recorded_vote_status(storage: &mut Connection<'_, Verifier>) -> Option<bool> {
+    storage.via_votes_dal().get_verifier_vote_status(1).await.unwrap().map(|row| row.0)
 }

@@ -27,21 +27,7 @@ async fn test_via_vote_workflow() {
     let (l1_batch_number, proof_reveal_tx_id, verifier_address, vote) = mock_via_vote();
 
     // First insert a votable transaction
-    storage
-        .via_votes_dal()
-        .insert_votable_transaction(
-            l1_batch_number,
-            H256::random(),
-            H256::random(),
-            "test_da_id".to_string(),
-            proof_reveal_tx_id,
-            "test_blob_id".to_string(),
-            "test_pubdata_tx_id".to_string(),
-            "test_pubdata_blob_id".to_string(),
-            None,
-        )
-        .await
-        .unwrap();
+    insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
     let votable_transaction_id = 1;
 
     // Test inserting a vote
@@ -399,12 +385,7 @@ async fn development_store_restarts_after_its_own_verdicts() {
     let dev = store_mode(true, "regtest", "g");
     storage.via_store_mode_dal().ensure_proof_verification_mode(&dev).await.unwrap();
     let proof_reveal_tx_id = H256::random();
-    insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
-    let id = storage
-        .via_votes_dal()
-        .verify_votable_transaction(1, proof_reveal_tx_id, true)
-        .await
-        .unwrap();
+    let id = complete_test_verdict(&mut storage, proof_reveal_tx_id).await;
 
     storage.via_votes_dal().mark_unverified_dev(id).await.unwrap();
     drop(storage);
@@ -430,6 +411,11 @@ async fn development_store_restarts_after_its_own_verdicts() {
     .await
     .unwrap();
     assert_eq!(persisted, (true, true));
+}
+
+async fn complete_test_verdict(storage: &mut Connection<'_, Verifier>, proof: H256) -> i64 {
+    insert_test_votable_transaction(storage, proof).await;
+    storage.via_votes_dal().verify_votable_transaction(1, proof, true).await.unwrap()
 }
 
 async fn insert_test_votable_transaction(
@@ -462,12 +448,7 @@ async fn unverified_dev_marker_is_recorded_with_the_verdict() {
         .await
         .unwrap();
     let proof_reveal_tx_id = H256::random();
-    insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
-    let id = storage
-        .via_votes_dal()
-        .verify_votable_transaction(1, proof_reveal_tx_id, true)
-        .await
-        .unwrap();
+    let id = complete_test_verdict(&mut storage, proof_reveal_tx_id).await;
     storage.via_votes_dal().mark_unverified_dev(id).await.unwrap();
     assert!(storage.via_votes_dal().mark_unverified_dev(id + 1).await.is_err());
 
@@ -489,12 +470,7 @@ async fn strict_store_refuses_the_unverified_dev_marker() {
         .await
         .unwrap();
     let proof_reveal_tx_id = H256::random();
-    insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
-    let id = storage
-        .via_votes_dal()
-        .verify_votable_transaction(1, proof_reveal_tx_id, true)
-        .await
-        .unwrap();
+    let id = complete_test_verdict(&mut storage, proof_reveal_tx_id).await;
     assert!(storage.via_votes_dal().mark_unverified_dev(id).await.is_err());
 }
 
