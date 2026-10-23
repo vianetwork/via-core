@@ -26,6 +26,10 @@ pub struct AuthenticatedRequest {
     pub transport: transport::TransportVersion,
 }
 
+/// Final snapshot overflow retains the round-specific refusal and its active holds.
+#[derive(Clone)]
+pub(super) struct SigningSnapshot;
+
 pub async fn auth_middleware(
     State(state): State<Arc<RestApi>>,
     request: Request,
@@ -133,15 +137,18 @@ pub async fn auth_middleware(
     let bytes = match encoded {
         Ok(bytes) => bytes,
         Err(error) => {
-            METRICS.signing_size_refusals[&SigningSizeLabel { stage: SigningSizeStage::Response }]
-                .inc();
+            let (stage, refusal) = if parts.extensions.remove::<SigningSnapshot>().is_some() {
+                (SigningSizeStage::Serving, ApiError::SigningRoundUnservable)
+            } else {
+                (SigningSizeStage::Response, ApiError::ResponseTooLarge)
+            };
+            METRICS.signing_size_refusals[&SigningSizeLabel { stage }].inc();
             tracing::warn!("Authenticated reply refused: {error:#}");
             parts.status = axum::http::StatusCode::SERVICE_UNAVAILABLE;
-            let fallback =
-                body::to_bytes(ApiError::ResponseTooLarge.into_response().into_body(), MAX_BODY)
-                    .await
-                    .map_err(anyhow::Error::from)?
-                    .to_vec();
+            let fallback = body::to_bytes(refusal.into_response().into_body(), MAX_BODY)
+                .await
+                .map_err(anyhow::Error::from)?
+                .to_vec();
             encode(parts.status.as_u16(), fallback)?
         }
     };

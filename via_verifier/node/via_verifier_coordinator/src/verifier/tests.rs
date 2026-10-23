@@ -244,7 +244,8 @@ async fn run_actual_iterations(
         ],
     };
     let (core, parent) = if heavy {
-        let (node, parent) = heavy_parent(&bridge.script_pubkey());
+        let (node, parent) = heavy_parent(&bridge.script_pubkey(), 790);
+        assert!((390_000..400_000).contains(&bitcoin::consensus::serialize(&parent).len()));
         (Some(node), parent)
     } else {
         (None, parent)
@@ -252,20 +253,7 @@ async fn run_actual_iterations(
     let funding_parent = parent.clone();
     let btc = Arc::new(RecordingBitcoin {
         inner: MockBitcoinOps::new(MockBitcoinOpsConfig {
-            utxos: parent
-                .output
-                .iter()
-                .enumerate()
-                .map(|(vout, output)| {
-                    (
-                        OutPoint {
-                            txid: parent.compute_txid(),
-                            vout: vout as u32,
-                        },
-                        output.clone(),
-                    )
-                })
-                .collect(),
+            utxos: parent_utxos(&parent),
             transaction: Some(parent),
             fee_rate: 2,
             block_height: 1,
@@ -288,14 +276,7 @@ async fn run_actual_iterations(
         pubdata: vec![1, 2, 3],
         receipts: vec![],
         nonpayable: vec![],
-        withdrawals: vec![WithdrawalRequest {
-            id: "08080808080808080000".into(),
-            receiver: addresses[1].clone(),
-            amount: Amount::from_sat(150_000),
-            l2_sender: zksync_types::Address::repeat_byte(7),
-            l2_tx_hash: H256::repeat_byte(8),
-            l2_tx_log_index: 0,
-        }],
+        withdrawals: vec![fixture_withdrawal(&addresses[1], 150_000)],
     };
     let pools = [
         ConnectionPool::<Verifier>::test_pool().await,
@@ -425,12 +406,7 @@ async fn run_actual_iterations(
         let (request, response) = coordinator
             .call(&keys[0], "GET", "/session/", TransportVersion::Legacy, Vec::new())
             .await;
-        let (reply, _, status, _) = verified_reply(&request, response, &public[0]).await;
-        assert_eq!(status, 503);
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&reply.body).unwrap()["error"],
-            "signing_round_unservable"
-        );
+        assert_unservable_reply(&request, response, &public[0]).await;
         assert_eq!(
             owner_a
                 .via_withdrawal_dal()
@@ -785,7 +761,7 @@ async fn run_actual_iterations(
 // The process owner is the established corepc library; this scenario stays local to
 // this test file. TaprootBuilder supplies the actual commitment and control block.
 // https://git.rust-bitcoin.org/rust-bitcoin/corepc/src/commit/eca585605f6fbf79a1c8ce81ce86e2e4205cdf31/bitcoind/src/lib.rs
-fn heavy_parent(bridge: &bitcoin::Script) -> (bitcoind::BitcoinD, Transaction) {
+fn heavy_parent(bridge: &bitcoin::Script, pushes: u32) -> (bitcoind::BitcoinD, Transaction) {
     use bitcoin::{
         hashes::sha256,
         opcodes::all,
@@ -820,7 +796,7 @@ fn heavy_parent(bridge: &bitcoin::Script) -> (bitcoind::BitcoinD, Transaction) {
     let secp = Secp256k1::new();
     let internal = SecretKey::from_slice(&[9; 32]).unwrap().x_only_public_key(&secp).0;
     let mut script = Builder::new().push_int(0).push_opcode(all::OP_IF);
-    for index in 0..790u32 {
+    for index in 0..pushes {
         let mut bytes = [0u8; 500];
         for (part, chunk) in bytes.chunks_mut(32).enumerate() {
             let hash =
@@ -863,7 +839,6 @@ fn heavy_parent(bridge: &bitcoin::Script) -> (bitcoind::BitcoinD, Transaction) {
         ],
     };
     let bytes = bitcoin::consensus::serialize(&parent);
-    assert!((390_000..400_000).contains(&bytes.len()));
     assert!(parent.weight().to_wu() < 400_000);
     let accepted: Vec<Value> =
         node.client.call("testmempoolaccept", &[json!([hex::encode(&bytes)])]).unwrap();
@@ -911,6 +886,28 @@ fn fixture_wallets(signers: usize) -> (Vec<PrivateKey>, Vec<String>, SystemWalle
     (keys, public, wallets)
 }
 
+fn parent_utxos(parent: &Transaction) -> Vec<(OutPoint, TxOut)> {
+    parent
+        .output
+        .iter()
+        .enumerate()
+        .map(|(vout, output)| {
+            (OutPoint { txid: parent.compute_txid(), vout: vout as u32 }, output.clone())
+        })
+        .collect()
+}
+
+fn fixture_withdrawal(receiver: &Address, amount: u64) -> WithdrawalRequest {
+    WithdrawalRequest {
+        id: "08080808080808080000".into(),
+        receiver: receiver.clone(),
+        amount: Amount::from_sat(amount),
+        l2_sender: zksync_types::Address::repeat_byte(7),
+        l2_tx_hash: H256::repeat_byte(8),
+        l2_tx_log_index: 0,
+    }
+}
+
 #[tokio::test]
 async fn bounded_signing_admission_refuses_before_reserving_real_requests_and_inputs() {
     use crate::{
@@ -938,14 +935,7 @@ async fn bounded_signing_admission_refuses_before_reserving_real_requests_and_in
             ],
         };
         let btc = Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig {
-            utxos: parent
-                .output
-                .iter()
-                .enumerate()
-                .map(|(vout, output)| {
-                    (OutPoint { txid: parent.compute_txid(), vout: vout as u32 }, output.clone())
-                })
-                .collect(),
+            utxos: parent_utxos(&parent),
             transaction: Some(parent),
             fee_rate: 2,
             block_height: 1,
@@ -964,14 +954,10 @@ async fn bounded_signing_admission_refuses_before_reserving_real_requests_and_in
             pubdata: vec![1, 2, 3],
             receipts: Vec::new(),
             nonpayable: Vec::new(),
-            withdrawals: vec![WithdrawalRequest {
-                id: "08080808080808080000".into(),
-                receiver: wallets.verifiers[1].clone(),
-                amount: Amount::from_sat(inputs as u64 * 100_000 - 50_000),
-                l2_sender: zksync_types::Address::repeat_byte(7),
-                l2_tx_hash: H256::repeat_byte(8),
-                l2_tx_log_index: 0,
-            }],
+            withdrawals: vec![fixture_withdrawal(
+                &wallets.verifiers[1],
+                inputs as u64 * 100_000 - 50_000,
+            )],
         };
         seed(&pool, &wallets, &batch).await;
         let coordinator = TestCoordinator::start(pool.clone(), btc, &public, &keys[0], mode).await;
@@ -1209,9 +1195,150 @@ async fn verified_reply(
     (envelope, version, status, bytes.len())
 }
 
+async fn assert_unservable_reply(
+    request: &Binding,
+    response: reqwest::Response,
+    coordinator: &str,
+) {
+    let (reply, _, status, _) = verified_reply(request, response, coordinator).await;
+    assert_eq!(status, 503);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&reply.body).unwrap()["error"],
+        "signing_round_unservable"
+    );
+}
+
 #[tokio::test]
 async fn bounded_signing_historical_parent_bytes_recover_compactly_and_keep_legacy_holds() {
     run_actual_iterations(true, PeerMode::Writer, [PeerMode::Writer; 2], true, false).await;
+}
+
+#[tokio::test]
+async fn bounded_signing_fitting_historical_round_serves_by_actual_size_over_http() {
+    use via_musig2::types::{TransactionBuilderConfig, TransactionOutput};
+
+    let (keys, public, wallets) = fixture_wallets(2);
+    let (_core, parent) = heavy_parent(&wallets.bridge.script_pubkey(), 590);
+    assert_eq!(bitcoin::consensus::serialize(&parent).len(), 296_953);
+    let utxos = parent_utxos(&parent);
+    let btc = Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig {
+        utxos: utxos.clone(),
+        transaction: Some(parent.clone()),
+        fee_rate: 2,
+        ..Default::default()
+    }));
+    let builder = TransactionBuilder::new(btc.clone()).unwrap();
+    let unsigned = builder
+        .build_fixed_bridge_tx(
+            &utxos,
+            vec![TransactionOutput {
+                output: TxOut {
+                    value: Amount::from_sat(150_000),
+                    script_pubkey: wallets.verifiers[1].script_pubkey(),
+                },
+                op_return_data: Some(hex::decode("08080808080808080000").unwrap()),
+            }],
+            &TransactionBuilderConfig::withdrawal(wallets.bridge.clone()),
+            2,
+        )
+        .unwrap();
+    let messages = builder.get_tr_sighashes(&unsigned).unwrap();
+    assert_eq!(messages.len(), 2);
+    let operation = SessionOperation::Withdrawal(unsigned, messages, vec![parent]);
+    let proposal = via_btc_client::traits::Serializable::to_bytes(&operation);
+    let content = bincode::serialize(&AdmittedContent {
+        proposal: proposal.clone(),
+        network: Network::Bitcoin,
+        chain_id: 270,
+        wallet: wallets.bridge.script_pubkey().into_bytes(),
+        participants: public.clone(),
+        tweak: None,
+        expected: vec![fixture_withdrawal(&wallets.verifiers[1], 150_000)],
+    })
+    .unwrap();
+    let mut retained = crate::types::SigningSession {
+        round_id: [1; 32],
+        content_hash: crate::auth::digest(&content),
+        authorized_content: content.clone(),
+        session_op: Some(operation),
+        created_at: 1,
+        ..Default::default()
+    };
+    let mut signer = get_signer_with_merkle_root(&keys[0].to_wif(), public.clone(), None).unwrap();
+    let nonce = signer.start_signing_session(vec![7; 32]).unwrap();
+    let signature = musig2::PartialSignature::from_slice(&[1; 32]).unwrap();
+    for input in 0..2 {
+        for slot in 0..2 {
+            retained.received_nonces.entry(input).or_default().insert(slot, nonce.clone());
+            retained.received_sigs.entry(input).or_default().insert(slot, signature);
+        }
+    }
+    assert!(transport::check_round_size_in(&retained, 2, TransportVersion::Legacy).is_err());
+    // Repeated parent evidence isolates inner encoding overflow from final-envelope overflow.
+    let mut oversized = retained.clone();
+    let SessionOperation::Withdrawal(_, _, parents) = oversized.session_op.as_mut().unwrap();
+    let parent = parents[0].clone();
+    parents.resize(22, parent);
+    let mut admitted: AdmittedContent = bincode::deserialize(&content).unwrap();
+    admitted.proposal =
+        via_btc_client::traits::Serializable::to_bytes(oversized.session_op.as_ref().unwrap());
+    oversized.authorized_content = bincode::serialize(&admitted).unwrap();
+    oversized.content_hash = crate::auth::digest(&oversized.authorized_content);
+    for version in [TransportVersion::Legacy, TransportVersion::Compact] {
+        let snapshot = transport::snapshot(&oversized, 2, version).unwrap();
+        assert!(transport::encode_snapshot(snapshot, version).is_err());
+    }
+    let pool = ConnectionPool::<Verifier>::test_pool().await;
+    for mode in [PeerMode::Reader, PeerMode::Writer] {
+        let server =
+            TestCoordinator::start(pool.clone(), btc.clone(), &public, &keys[0], mode).await;
+        *server.session.write().await = retained.clone();
+        for target in ["/session/", "/session/?transport_version=2"] {
+            let expected = if mode == PeerMode::Writer && target.ends_with("=2") {
+                TransportVersion::Compact
+            } else {
+                TransportVersion::Legacy
+            };
+            let (request, response) =
+                server.call(&keys[1], "GET", target, TransportVersion::Legacy, Vec::new()).await;
+            let (envelope, version, status, len) =
+                verified_reply(&request, response, &public[0]).await;
+            assert_eq!(status, 200, "{mode:?}, {target}");
+            assert_eq!(version, expected);
+            if version == TransportVersion::Legacy {
+                assert!((6_000_000..MAX_BODY).contains(&len));
+                let old: super::legacy::SigningSessionResponse =
+                    serde_json::from_slice(&envelope.body).unwrap();
+                assert_eq!(old.authorized_content, content);
+                assert_eq!(old.session_op, proposal);
+            }
+            let snapshot = transport::decode_snapshot(&envelope.body, version).unwrap();
+            assert_eq!(snapshot.authorized_content, content);
+            assert_eq!(snapshot.content_hash, retained.content_hash);
+            assert_eq!(snapshot.round_id, retained.round_id);
+            assert_eq!(snapshot.session_op, proposal);
+            assert_eq!(snapshot.required_signers, 2);
+            assert_eq!(snapshot.nonces.len(), 2);
+            assert_eq!(snapshot.signatures.len(), 2);
+            for input in 0..2 {
+                assert_eq!(snapshot.nonces[&input].len(), 2);
+                assert_eq!(snapshot.signatures[&input].len(), 2);
+                assert_eq!(snapshot.received_nonces[&input], 2);
+                assert_eq!(snapshot.received_partial_signatures[&input], 2);
+            }
+            assert_eq!(server.session.read().await.authorized_content, content);
+        }
+        *server.session.write().await = oversized.clone();
+        for target in ["/session/", "/session/?transport_version=2"] {
+            let (request, response) =
+                server.call(&keys[1], "GET", target, TransportVersion::Legacy, Vec::new()).await;
+            assert_unservable_reply(&request, response, &public[0]).await;
+            assert_eq!(
+                server.session.read().await.authorized_content,
+                oversized.authorized_content
+            );
+        }
+    }
 }
 
 #[derive(Default)]
