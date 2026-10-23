@@ -193,8 +193,7 @@ fn bounded_signing_compact_http_preserves_auth_and_admitted_bytes() {
     }
 }
 
-// Adapt the pinned serde_with padding/alphabet cases at the real HTTP boundary.
-// https://github.com/jonasbb/serde_with/blob/8c59954436b139b238dc23830946f04a3e331862/serde_with/tests/base64.rs
+// serde_with's padding and alphabet cases, run at real HTTP boundary: https://github.com/jonasbb/serde_with/blob/8c59954436b139b238dc23830946f04a3e331862/serde_with/tests/base64.rs
 #[test]
 fn bounded_signing_base64_rejects_invalid_and_hybrid_fields() {
     let envelope =
@@ -221,8 +220,7 @@ fn bounded_signing_base64_rejects_invalid_and_hybrid_fields() {
     assert!(decode_envelope(&valid[..valid.len() - 1]).is_err());
 }
 
-// Port the borrowed RawValue whitespace/roundtrip cases to the envelope probe.
-// https://github.com/serde-rs/json/blob/0903de449c52c1b4a2271e909b7afb18909dc379/tests/test.rs
+// serde_json's borrowed RawValue whitespace and roundtrip cases, applied to envelope probe: https://github.com/serde-rs/json/blob/0903de449c52c1b4a2271e909b7afb18909dc379/tests/test.rs
 #[test]
 fn bounded_signing_borrowed_probe_preserves_legacy_body_whitespace() {
     let envelope =
@@ -298,7 +296,7 @@ fn bounded_signing_binary_goldens_are_independent_of_http_adapters() {
             )
             .unwrap();
     }
-    // Independently assembled from baseline bincode's LE field layout, not a new serializer run.
+    // Built by hand from baseline bincode's little-endian field layout, not by new serializer.
     let bytes = hex::decode(concat!(
         "03000000000000000001ff040000000e01000000000000010000000000000051",
         "0100000000000000420000000000000030323032303230323032303230323032",

@@ -1,5 +1,5 @@
-// Frozen old-peer oracle; only state imports/downcast paths are adapted.
-// https://github.com/vianetwork/via-core/blob/ab8e9166426b23df14ec2fbe32524136a4a08c6c/via_verifier/node/via_verifier_coordinator/src/sessions/withdrawal.rs
+// Frozen legacy coordinator code, kept as old-peer test oracle.
+// Only state imports and downcast paths differ from original.
 // jscpd:ignore-start Immutable baseline protocol fixture required to exercise a real old coordinator path.
 use std::{any::Any, collections::HashSet, sync::Arc};
 

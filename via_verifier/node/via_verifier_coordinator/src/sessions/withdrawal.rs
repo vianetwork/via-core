@@ -268,9 +268,9 @@ impl ISession for WithdrawalSession {
             return Ok(None);
         };
         let messages = self.transaction_builder.get_tr_sighashes(&transaction)?;
-        // Taproot ALL commits every prevout; authorize_withdrawal independently fetches
-        // and verifies the parents. Keep admitted historical parent bytes unchanged.
-        // https://github.com/bitcoin/bitcoin/blob/152a55397e451fed9c10041bddf01aa6839847d5/src/psbt.cpp
+        // Taproot ALL commits every prevout. New proposals omit parent transactions.
+        // authorize_withdrawal fetches and verifies each parent. Admitted historical bytes stay unchanged.
+        // Bitcoin Core's PSBT code relies on same Taproot rule: https://github.com/bitcoin/bitcoin/blob/152a55397e451fed9c10041bddf01aa6839847d5/src/psbt.cpp
         Ok(Some(SessionOperation::Withdrawal(
             transaction,
             messages,

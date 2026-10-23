@@ -1,5 +1,4 @@
-// Frozen baseline envelope and authentication preimage; no current wire adapters.
-// https://github.com/vianetwork/via-core/blob/ab8e9166426b23df14ec2fbe32524136a4a08c6c/via_verifier/node/via_verifier_coordinator/src/auth.rs
+// Frozen legacy envelope and authentication preimage, without current wire adapters.
 // jscpd:ignore-start Immutable authentication oracle for a real old coordinator.
 use base64::Engine;
 use bitcoin::secp256k1::{

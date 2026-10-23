@@ -19,17 +19,16 @@ pub(crate) enum TransportVersion {
 }
 
 impl TransportVersion {
-    // Missing offers retain the oldest supported writer; input decoding is independent.
-    // Via's offer is in the signed target, rather than an unsigned Accept header.
-    // https://github.com/kubernetes/apiserver/blob/62c14eb1e5291f23d56d4610bba00c41b6a3b771/pkg/endpoints/handlers/negotiation/negotiate.go
+    // Without offer, oldest supported writer answers. Input decoding does not depend on it.
+    // Unlike unsigned Accept header, Via's offer sits in signed target.
+    // Writer selection follows Kubernetes media negotiation: https://github.com/kubernetes/apiserver/blob/62c14eb1e5291f23d56d4610bba00c41b6a3b771/pkg/endpoints/handlers/negotiation/negotiate.go
     pub(crate) fn negotiate(uri: &Uri, writes_enabled: bool) -> anyhow::Result<Self> {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Offer {
             transport_version: Option<u8>,
         }
-        // Adopt the documented typed Query extractor unchanged.
-        // https://github.com/tokio-rs/axum/blob/9983bc1da460becd3a0f08c513d610411e84dd43/axum/src/extract/query.rs
+        // Axum's typed Query extractor, unchanged: https://github.com/tokio-rs/axum/blob/9983bc1da460becd3a0f08c513d610411e84dd43/axum/src/extract/query.rs
         let Query(offer) = Query::<Offer>::try_from_uri(uri)?;
         match offer.transport_version {
             None => Ok(Self::Legacy),
@@ -40,10 +39,9 @@ impl TransportVersion {
     }
 }
 
-// This mirror is HTTP-only: serde's remote derive leaves Binding's own bincode
-// serializer and the via-withdrawal-http-v1 authentication domain untouched.
-// Base64 is the unchanged pinned adapter, including its fixed-array length check.
-// https://github.com/jonasbb/serde_with/blob/8c59954436b139b238dc23830946f04a3e331862/serde_with/src/base64.rs
+// HTTP-only mirror of Binding. Serde's remote derive leaves Binding's bincode serializer untouched.
+// via-withdrawal-http-v1 authentication domain stays unchanged too.
+// Base64 uses serde_with's adapter unchanged, fixed-array length check included: https://github.com/jonasbb/serde_with/blob/8c59954436b139b238dc23830946f04a3e331862/serde_with/src/base64.rs
 #[serde_as]
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "Binding", deny_unknown_fields)]
@@ -75,10 +73,9 @@ struct CompactEnvelope {
     signature: String,
 }
 
-// Nearly verbatim borrowed RawValue pattern; payload is body and other fields
-// are also borrowed so duplicate/unknown envelope fields fail before a typed decode.
-// No untagged Content buffer is allocated for a potentially large legacy array.
-// https://github.com/serde-rs/json/blob/0903de449c52c1b4a2271e909b7afb18909dc379/src/raw.rs
+// Every field is borrowed: duplicate or unknown envelope fields fail before typed decoding.
+// No untagged Content buffer is allocated for large legacy array.
+// Borrowed RawValue pattern, nearly verbatim from serde_json: https://github.com/serde-rs/json/blob/0903de449c52c1b4a2271e909b7afb18909dc379/src/raw.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EnvelopeProbe<'a> {
@@ -171,8 +168,8 @@ pub(crate) fn encode_snapshot(
     }
 }
 
-/// Call only after authenticating the exact body. Both representations normalize
-/// to the one admitted proposal; the temporary legacy duplicate is never authority.
+/// Call only after authenticating the exact body.
+/// Both formats normalize to the one admitted proposal. The legacy duplicate is never authority.
 pub(crate) fn decode_snapshot(
     bytes: &[u8],
     version: TransportVersion,
