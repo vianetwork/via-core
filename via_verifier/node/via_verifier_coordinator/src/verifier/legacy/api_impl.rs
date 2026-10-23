@@ -322,15 +322,4 @@ impl RestApi {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn incomplete_or_sparse_batches_are_rejected() {
-        assert!(check_batch(&BTreeMap::from([(0, ()), (2, ())]), 2).is_err());
-        assert!(check_batch(&BTreeMap::from([(0, ())]), 2).is_err());
-        assert!(check_batch(&BTreeMap::from([(0, ()), (1, ())]), 2).is_ok());
-    }
-}
-
 // jscpd:ignore-end

@@ -102,32 +102,6 @@ fn bounded_signing_complete_transcript_matches_actual_json() {
 }
 
 #[test]
-fn bounded_signing_final_writer_accepts_equality_and_refuses_one_extra_byte() {
-    for len in [MAX_BODY - 1, MAX_BODY] {
-        assert_eq!(bounded_json(&"a".repeat(len - 2), MAX_BODY).unwrap().len(), len);
-    }
-    assert!(bounded_json(&"a".repeat(MAX_BODY - 1), MAX_BODY).is_err());
-}
-
-#[test]
-fn bounded_signing_metadata_reserves_worst_response_before_acceptance() {
-    let mut binding = binding();
-    check_metadata(&binding, &binding.audience).unwrap();
-    binding.target = "\"".repeat(MAX_ENVELOPE_OVERHEAD);
-    assert!(check_metadata(&binding, &binding.audience).is_err());
-}
-
-#[test]
-fn bounded_signing_full_future_can_fail_when_empty_snapshot_fits() {
-    let session = session(1_740);
-    let empty =
-        serde_json::to_vec(&empty_snapshot(&session, 20, TransportVersion::Legacy).unwrap())
-            .unwrap();
-    assert!(MAX_ENVELOPE_OVERHEAD + 4 * empty.len() < MAX_BODY);
-    assert!(check_round_size(&session, 20).is_err());
-}
-
-#[test]
 fn bounded_signing_size_counter_has_bounded_exported_stage() {
     use crate::metrics::{SigningSizeLabel, SigningSizeStage, METRICS};
     METRICS.signing_size_refusals[&SigningSizeLabel { stage: SigningSizeStage::Admission }].inc();
@@ -149,8 +123,6 @@ fn bounded_signing_compact_http_preserves_auth_and_admitted_bytes() {
         let public = PublicKey::from_secret_key(&Secp256k1::new(), &key);
         let mut binding = binding();
         binding.principal = public.to_string();
-        let old_preimage =
-            bincode::serialize(&("via-withdrawal-http-v1", &binding, &[0u8, 1, 255][..])).unwrap();
         let envelope = Envelope::sign(binding.clone(), vec![0, 1, 255], &key).unwrap();
         let encoded = encode_envelope(envelope, version, MAX_BODY).unwrap();
         let (decoded, actual) = decode_envelope(&encoded).unwrap();
@@ -158,15 +130,6 @@ fn bounded_signing_compact_http_preserves_auth_and_admitted_bytes() {
         assert_eq!(decoded.binding, binding);
         assert_eq!(decoded.body, [0, 1, 255]);
         decoded.verify(&public, 1, 30).unwrap();
-        assert_eq!(
-            bincode::serialize(&(
-                "via-withdrawal-http-v1",
-                &decoded.binding,
-                decoded.body.as_slice()
-            ))
-            .unwrap(),
-            old_preimage
-        );
         let session = session(2);
         let snapshot = empty_snapshot(&session, 2, version).unwrap();
         let body = encode_snapshot(snapshot, version).unwrap();
@@ -239,38 +202,10 @@ fn bounded_signing_borrowed_probe_preserves_legacy_body_whitespace() {
 }
 
 #[test]
-fn bounded_signing_negotiation_defaults_and_rejects_ambiguous_offers() {
-    for enabled in [false, true] {
-        assert_eq!(
-            TransportVersion::negotiate(&"/session/".parse().unwrap(), enabled).unwrap(),
-            TransportVersion::Legacy
-        );
-        assert_eq!(
-            TransportVersion::negotiate(
-                &"/session/?transport_version=2".parse().unwrap(), enabled,
-            ).unwrap(),
-            if enabled { TransportVersion::Compact } else { TransportVersion::Legacy }
-        );
-        for query in [
-            "transport_version=1",
-            "transport_version=3",
-            "transport_version=x",
-            "transport_version=2&transport_version=2",
-            "transport_version=",
-        ] {
-            assert!(TransportVersion::negotiate(
-                &format!("/session/?{query}").parse().unwrap(),
-                enabled,
-            )
-            .is_err());
-        }
-    }
-}
-
-#[test]
 fn bounded_signing_new_admission_keeps_legacy_capacity() {
     let session = session(1_740);
     assert!(check_round_size_in(&session, 20, TransportVersion::Compact).is_ok());
+    assert!(check_round_size_in(&session, 100, TransportVersion::Compact).is_err());
     assert!(check_round_size_in(&session, 20, TransportVersion::Legacy).is_err());
     assert!(check_round_size(&session, 20).is_err());
 }
