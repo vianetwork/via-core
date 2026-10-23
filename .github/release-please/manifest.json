@@ -2,5 +2,5 @@
   "core": "28.1.0",
   "prover": "17.2.0",
   "via_indexer": "1.1.0",
-  "via_verifier": "1.2.0"
+  "via_verifier": "1.3.0"
 }
