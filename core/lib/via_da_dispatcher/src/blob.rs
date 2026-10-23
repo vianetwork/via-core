@@ -69,10 +69,7 @@ mod tests {
     async fn the_first_allowed_version_holding_a_proof_wins() {
         let store = MockObjectStore::arc();
         for p in [0, 1] {
-            store
-                .put((BATCH, patch(p)), &Proof(format!("patch {p}")))
-                .await
-                .unwrap();
+            store.put((BATCH, patch(p)), &Proof(format!("patch {p}"))).await.unwrap();
         }
         let found =
             find_wrapped_proof::<Proof>(&*store, BATCH, &[patch(2), patch(1), patch(0)]).await;
@@ -84,10 +81,7 @@ mod tests {
         let store = MockObjectStore::arc();
         let legacy = bincode::serialize(&Proof("legacy".into())).unwrap();
         let key = format!("l1_batch_proof_{BATCH}.bin");
-        store
-            .put_raw(Bucket::ProofsFri, &key, legacy)
-            .await
-            .unwrap();
+        store.put_raw(Bucket::ProofsFri, &key, legacy).await.unwrap();
 
         let found = find_wrapped_proof::<Proof>(&*store, BATCH, &[patch(1)]).await;
         assert_eq!(found.unwrap(), None);

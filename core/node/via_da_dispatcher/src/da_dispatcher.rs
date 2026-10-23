@@ -34,8 +34,11 @@ pub struct ViaDataAvailabilityDispatcher {
 
 impl ViaDataAvailabilityDispatcher {
     pub fn new(
-        pool: ConnectionPool<Core>, config: DADispatcherConfig, client: Box<dyn DataAvailabilityClient>,
-        blob_store: Arc<dyn ObjectStore>, dispatch_real_proof: bool,
+        pool: ConnectionPool<Core>,
+        config: DADispatcherConfig,
+        client: Box<dyn DataAvailabilityClient>,
+        blob_store: Arc<dyn ObjectStore>,
+        dispatch_real_proof: bool,
     ) -> Self {
         Self { pool, config, client, blob_store, dispatch_real_proof }
     }
@@ -75,7 +78,10 @@ impl ViaDataAvailabilityDispatcher {
                 }
             }
 
-            if tokio::time::timeout(self.config.polling_interval(), stop_receiver.changed()).await.is_ok() {
+            if tokio::time::timeout(self.config.polling_interval(), stop_receiver.changed())
+                .await
+                .is_ok()
+            {
                 break;
             }
         }
@@ -184,7 +190,11 @@ impl ViaDataAvailabilityDispatcher {
     }
 
     async fn _dispatch_chunks(
-        &self, l1_batch_number: L1BatchNumber, chunks: Vec<Vec<u8>>, is_proof: bool, tag: &'static str,
+        &self,
+        l1_batch_number: L1BatchNumber,
+        chunks: Vec<Vec<u8>>,
+        is_proof: bool,
+        tag: &'static str,
     ) -> anyhow::Result<()> {
         let mut blobs: Vec<String> = vec![];
         let mut index = 0;
@@ -265,17 +275,18 @@ impl ViaDataAvailabilityDispatcher {
         let (mut prove_batches, allowed_versions) =
             storage.via_data_availability_dal().get_proof_data(batch_to_prove).await?;
 
-        let proof = match find_wrapped_proof(&*self.blob_store, batch_to_prove, &allowed_versions).await {
-            Ok(Some(proof)) => proof,
-            Ok(None) => {
-                tracing::error!("Failed to load proof for batch {}", batch_to_prove);
-                return None;
-            }
-            Err(err) => {
-                tracing::error!("Failed to load proof for batch {batch_to_prove}: {err}");
-                return None;
-            }
-        };
+        let proof =
+            match find_wrapped_proof(&*self.blob_store, batch_to_prove, &allowed_versions).await {
+                Ok(Some(proof)) => proof,
+                Ok(None) => {
+                    tracing::error!("Failed to load proof for batch {}", batch_to_prove);
+                    return None;
+                }
+                Err(err) => {
+                    tracing::error!("Failed to load proof for batch {batch_to_prove}: {err}");
+                    return None;
+                }
+            };
 
         prove_batches.proofs.push(proof);
         prove_batches.should_verify = true;
@@ -283,10 +294,14 @@ impl ViaDataAvailabilityDispatcher {
         serialize_prove_batches(&prove_batches)
     }
 
-    async fn prepare_dummy_proof_operation(&self, batch_to_prove: L1BatchNumber) -> Option<Vec<u8>> {
+    async fn prepare_dummy_proof_operation(
+        &self,
+        batch_to_prove: L1BatchNumber,
+    ) -> Option<Vec<u8>> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
-        let (mut prove_batches, _) = storage.via_data_availability_dal().get_proof_data(batch_to_prove).await?;
+        let (mut prove_batches, _) =
+            storage.via_data_availability_dal().get_proof_data(batch_to_prove).await?;
         prove_batches.should_verify = false;
 
         serialize_prove_batches(&prove_batches)
@@ -295,7 +310,8 @@ impl ViaDataAvailabilityDispatcher {
     /// Polls the data availability layer for inclusion data, and saves it in the database.
     async fn poll_for_inclusion_l1_batch(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
-        let blob_info = conn.via_data_availability_dal().get_first_da_blob_awaiting_inclusion().await?;
+        let blob_info =
+            conn.via_data_availability_dal().get_first_da_blob_awaiting_inclusion().await?;
         drop(conn);
 
         let Some(blob_info) = blob_info else {
@@ -353,7 +369,8 @@ impl ViaDataAvailabilityDispatcher {
     async fn poll_for_inclusion_proof(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 
-        let proof_info = conn.via_data_availability_dal().get_first_proof_blob_awaiting_inclusion().await?;
+        let proof_info =
+            conn.via_data_availability_dal().get_first_proof_blob_awaiting_inclusion().await?;
         drop(conn);
 
         let Some(proof_info) = proof_info else {
@@ -409,7 +426,9 @@ impl ViaDataAvailabilityDispatcher {
             return Ok(true);
         }
 
-        if let Some(l1_batch_number) = conn.via_blocks_dal().get_reverted_batch_by_verifier_network().await? {
+        if let Some(l1_batch_number) =
+            conn.via_blocks_dal().get_reverted_batch_by_verifier_network().await?
+        {
             tracing::warn!(
                 "Can not dispatch data to DA, the l1 batch: {} is invalid. Roll back process should be executed on the Sequencer",
                 l1_batch_number.0,
@@ -449,7 +468,11 @@ fn serialize_prove_batches(prove_batches: &ProveBatches) -> Option<Vec<u8>> {
     Some([prev_l1_batch_bytes, l1_batches_bytes, proofs_bytes, should_verify].concat())
 }
 
-async fn retry<T, Fut, F>(max_retries: u16, batch_number: L1BatchNumber, mut f: F) -> Result<T, DAError>
+async fn retry<T, Fut, F>(
+    max_retries: u16,
+    batch_number: L1BatchNumber,
+    mut f: F,
+) -> Result<T, DAError>
 where
     Fut: Future<Output = Result<T, DAError>>,
     F: FnMut() -> Fut,

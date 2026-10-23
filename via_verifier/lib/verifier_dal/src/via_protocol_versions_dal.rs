@@ -129,10 +129,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
                 .await?;
         Ok(patches
             .into_iter()
-            .map(|patch| ProtocolSemanticVersion {
-                minor,
-                patch: VersionPatch(patch as u32),
-            })
+            .map(|patch| ProtocolSemanticVersion { minor, patch: VersionPatch(patch as u32) })
             .collect())
     }
 

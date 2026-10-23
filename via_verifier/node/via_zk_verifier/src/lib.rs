@@ -351,14 +351,8 @@ async fn verify_batch_proof(
     // zkSync's Executor matches the whole submitted batch records against stored hashes, commitments included.
     // The inscription carries no commitment, so Via compares only these fields and the commitments stay unbound:
     // https://github.com/matter-labs/era-contracts/blob/df2c3baabd8bf1ea7b82fb6aafa5ae550c0f9b80/l1-contracts/contracts/state-transition/chain-deps/facets/Executor.sol#L484-L500
-    let claimed = (
-        prove_batch_data.claimed_batch(),
-        prove_batch_data.protocol_version_id(),
-    );
-    let expected = (
-        (batch, inscribed.l1_batch_hash, inscribed.prev_l1_batch_hash),
-        Some(minor),
-    );
+    let claimed = (prove_batch_data.claimed_batch(), prove_batch_data.protocol_version_id());
+    let expected = ((batch, inscribed.l1_batch_hash, inscribed.prev_l1_batch_hash), Some(minor));
     if claimed != expected {
         return Err(no_verdict(
             NoVerdictReason::MalformedPackage,
@@ -411,18 +405,10 @@ async fn verify_batch_proof(
                 ))
             }
             Err(err @ ObjectStoreError::Serialization(_)) => {
-                return Err(no_verdict(
-                    NoVerdictReason::MalformedPackage,
-                    number,
-                    err.into(),
-                ))
+                return Err(no_verdict(NoVerdictReason::MalformedPackage, number, err.into()))
             }
             Err(err) => {
-                return Err(no_verdict(
-                    NoVerdictReason::ProofStoreError,
-                    number,
-                    err.into(),
-                ))
+                return Err(no_verdict(NoVerdictReason::ProofStoreError, number, err.into()))
             }
         }
     }
@@ -446,10 +432,7 @@ async fn verify_batch_proof(
 /// zkSync's house keeper likewise reports stage watermarks from the database, not from the workers:
 /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/house_keeper/src/blocks_state_reporter.rs#L34-L81
 async fn report_watermarks(storage: &mut Connection<'_, Verifier>) -> anyhow::Result<(u32, u32)> {
-    let (indexed, valid) = storage
-        .via_votes_dal()
-        .get_verification_watermarks()
-        .await?;
+    let (indexed, valid) = storage.via_votes_dal().get_verification_watermarks().await?;
     METRICS.last_indexed_l1_batch.set(indexed as usize);
     METRICS.last_valid_l1_batch.set(valid as usize);
     Ok((indexed, valid))
@@ -476,10 +459,7 @@ async fn record_approval(
         .await?;
 
     if approval == Approval::DevAccepted {
-        transaction
-            .via_votes_dal()
-            .mark_unverified_dev(votable_transaction_id)
-            .await?;
+        transaction.via_votes_dal().mark_unverified_dev(votable_transaction_id).await?;
     }
 
     transaction
@@ -498,10 +478,7 @@ async fn record_approval(
             .await?;
     }
 
-    transaction
-        .via_votes_dal()
-        .delete_invalid_votable_transactions_if_exists()
-        .await?;
+    transaction.via_votes_dal().delete_invalid_votable_transactions_if_exists().await?;
 
     if let Some(upgrade_tx_hash) = upgrade_tx_hash {
         transaction
@@ -511,12 +488,7 @@ async fn record_approval(
     }
 
     // Dropping the transaction on a reorg rolls every write above back.
-    if transaction
-        .via_l1_block_dal()
-        .has_reorg_in_progress()
-        .await?
-        .is_some()
-    {
+    if transaction.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
         return Ok(false);
     }
 
@@ -535,11 +507,8 @@ async fn verify_op_priority_id(
     pubdata: &Pubdata,
 ) -> anyhow::Result<Vec<(H256, bool)>> {
     let bootloader = H160::from_str(L2_BOOTLOADER_CONTRACT_ADDR)?;
-    let deposit_logs: Vec<_> = pubdata
-        .user_logs
-        .iter()
-        .filter(|log| log.sender == bootloader)
-        .collect();
+    let deposit_logs: Vec<_> =
+        pubdata.user_logs.iter().filter(|log| log.sender == bootloader).collect();
 
     let txs = storage
         .via_transactions_dal()
@@ -586,11 +555,7 @@ struct NoVerdict {
 
 impl std::fmt::Display for NoVerdict {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "no verdict for l1 batch {}: {:?}",
-            self.l1_batch_number, self.reason
-        )
+        write!(f, "no verdict for l1 batch {}: {:?}", self.l1_batch_number, self.reason)
     }
 }
 
@@ -599,10 +564,7 @@ impl std::fmt::Display for NoVerdict {
 /// Via retries through the existing first-unverified selection without a separate queue:
 /// https://github.com/chainwayxyz/citrea/blob/f11527f94344d5dc4576ccb9589d5713fb8f7238/crates/fullnode/src/da_block_handler.rs#L941-L1000
 fn no_verdict(reason: NoVerdictReason, l1_batch_number: i64, err: anyhow::Error) -> anyhow::Error {
-    err.context(NoVerdict {
-        reason,
-        l1_batch_number,
-    })
+    err.context(NoVerdict { reason, l1_batch_number })
 }
 
 /// A transaction always parses to the same messages, so anything but the one expected message never changes on a later poll.

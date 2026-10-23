@@ -55,33 +55,18 @@ async fn check(
 ) -> anyhow::Result<Approval> {
     let bytes = bincode::serialize(data).unwrap();
     let allowed = v28_patches(&[1, 0]);
-    verify_batch_proof(
-        store,
-        dev_mode,
-        input,
-        &allowed,
-        ProtocolVersionId::Version28,
-        &bytes,
-    )
-    .await
+    verify_batch_proof(store, dev_mode, input, &allowed, ProtocolVersionId::Version28, &bytes).await
 }
 
 fn reason(outcome: anyhow::Result<Approval>) -> NoVerdictReason {
-    outcome
-        .unwrap_err()
-        .downcast_ref::<NoVerdict>()
-        .expect("a no-verdict error")
-        .reason
+    outcome.unwrap_err().downcast_ref::<NoVerdict>().expect("a no-verdict error").reason
 }
 
 /// Moves the embedded proof into the store under `version` and returns the package without it.
 async fn omit_proof(store: &dyn ObjectStore, version: ProtocolSemanticVersion) -> ProveBatchesV28 {
     let mut data = v28();
     let proof = data.proofs.pop().unwrap();
-    store
-        .put((data.l1_batches[0].header.number, version), &proof)
-        .await
-        .unwrap();
+    store.put((data.l1_batches[0].header.number, version), &proof).await.unwrap();
     data
 }
 
@@ -89,9 +74,7 @@ async fn omit_proof(store: &dyn ObjectStore, version: ProtocolSemanticVersion) -
 async fn embedded_genuine_proofs_are_verified() {
     let store = MockObjectStore::arc();
     let data = v28();
-    let approval = check(&*store, false, &data, &inscribed(&data))
-        .await
-        .unwrap();
+    let approval = check(&*store, false, &data, &inscribed(&data)).await.unwrap();
     assert_eq!(approval, Approval::Verified);
 
     let v27: ProveBatchesV27 = bincode::deserialize(&fixture("data_batch_18_0_27_0.bin")).unwrap();
@@ -103,16 +86,10 @@ async fn embedded_genuine_proofs_are_verified() {
         prev_l1_batch_hash: v27.prev_l1_batch.metadata.root_hash,
     };
     let bytes = bincode::serialize(&v27).unwrap();
-    let approval = verify_batch_proof(
-        &*store,
-        false,
-        &input,
-        &[],
-        ProtocolVersionId::Version27,
-        &bytes,
-    )
-    .await
-    .unwrap();
+    let approval =
+        verify_batch_proof(&*store, false, &input, &[], ProtocolVersionId::Version27, &bytes)
+            .await
+            .unwrap();
     assert_eq!(approval, Approval::Verified);
 }
 
@@ -136,9 +113,7 @@ async fn a_package_for_another_batch_or_version_has_no_verdict() {
 async fn an_omitted_proof_is_found_under_an_older_patch() {
     let store = MockObjectStore::arc();
     let data = omit_proof(&*store, v28_patches(&[0])[0]).await;
-    let approval = check(&*store, false, &data, &inscribed(&data))
-        .await
-        .unwrap();
+    let approval = check(&*store, false, &data, &inscribed(&data)).await.unwrap();
     assert_eq!(approval, Approval::Verified);
 }
 
@@ -156,15 +131,8 @@ async fn an_absent_proof_waits_unless_development_mode_accepts_it() {
 
     // Without a registered patch the lookup never ran, so absence is not established.
     let bytes = bincode::serialize(&data).unwrap();
-    let outcome = verify_batch_proof(
-        &*store,
-        true,
-        &input,
-        &[],
-        ProtocolVersionId::Version28,
-        &bytes,
-    )
-    .await;
+    let outcome =
+        verify_batch_proof(&*store, true, &input, &[], ProtocolVersionId::Version28, &bytes).await;
     assert_eq!(reason(outcome), NoVerdictReason::ProofUnavailable);
 }
 
@@ -178,10 +146,7 @@ async fn an_undecodable_stored_proof_has_no_verdict() {
         batch,
         v28_patches(&[1])[0],
     ));
-    store
-        .put_raw(Bucket::ProofsFri, &key, vec![1, 2, 3])
-        .await
-        .unwrap();
+    store.put_raw(Bucket::ProofsFri, &key, vec![1, 2, 3]).await.unwrap();
 
     let outcome = check(&*store, true, &data, &inscribed(&data)).await;
     assert_eq!(reason(outcome), NoVerdictReason::MalformedPackage);
@@ -204,10 +169,7 @@ struct FailingStore;
 #[async_trait::async_trait]
 impl ObjectStore for FailingStore {
     async fn get_raw(&self, _: Bucket, _: &str) -> Result<Vec<u8>, ObjectStoreError> {
-        Err(ObjectStoreError::Other {
-            source: "permission denied".into(),
-            is_retriable: false,
-        })
+        Err(ObjectStoreError::Other { source: "permission denied".into(), is_retriable: false })
     }
 
     async fn put_raw(&self, _: Bucket, _: &str, _: Vec<u8>) -> Result<(), ObjectStoreError> {
@@ -239,12 +201,7 @@ async fn approval_fixture(
     dev_mode: bool,
     mismatch: bool,
 ) -> (Connection<'static, Verifier>, H256, H256, Pubdata) {
-    approval_fixture_in(
-        ConnectionPool::<Verifier>::test_pool().await,
-        dev_mode,
-        mismatch,
-    )
-    .await
+    approval_fixture_in(ConnectionPool::<Verifier>::test_pool().await, dev_mode, mismatch).await
 }
 
 async fn approval_fixture_in(
@@ -333,51 +290,28 @@ async fn persisted(
 async fn an_approval_records_the_batch_and_its_deposits() {
     for (dev_mode, approval) in [(false, Approval::Verified), (true, Approval::DevAccepted)] {
         let (mut storage, tx_id, deposit, pubdata) = approval_fixture(dev_mode, false).await;
-        let committed = record_approval(&mut storage, BATCH, tx_id, approval, &pubdata, None, 1)
-            .await
-            .unwrap();
+        let committed =
+            record_approval(&mut storage, BATCH, tx_id, approval, &pubdata, None, 1).await.unwrap();
         assert!(committed);
         let marked = approval == Approval::DevAccepted;
-        assert_eq!(
-            persisted(&mut storage, deposit).await,
-            (Some(true), marked, Some(true))
-        );
+        assert_eq!(persisted(&mut storage, deposit).await, (Some(true), marked, Some(true)));
     }
 }
 
 #[tokio::test]
 async fn a_deposit_mismatch_writes_nothing() {
     let (mut storage, tx_id, deposit, pubdata) = approval_fixture(false, true).await;
-    let outcome = record_approval(
-        &mut storage,
-        BATCH,
-        tx_id,
-        Approval::Verified,
-        &pubdata,
-        None,
-        1,
-    )
-    .await;
-    assert_eq!(
-        reason(outcome.map(|_| Approval::Verified)),
-        NoVerdictReason::DepositMismatch
-    );
+    let outcome =
+        record_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1).await;
+    assert_eq!(reason(outcome.map(|_| Approval::Verified)), NoVerdictReason::DepositMismatch);
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
 }
 
 #[tokio::test]
 async fn a_strict_store_rolls_back_a_development_approval() {
     let (mut storage, tx_id, deposit, pubdata) = approval_fixture(false, false).await;
-    let outcome = record_approval(
-        &mut storage,
-        BATCH,
-        tx_id,
-        Approval::DevAccepted,
-        &pubdata,
-        None,
-        1,
-    )
-    .await;
+    let outcome =
+        record_approval(&mut storage, BATCH, tx_id, Approval::DevAccepted, &pubdata, None, 1).await;
     assert!(outcome.is_err());
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
 }
@@ -385,22 +319,11 @@ async fn a_strict_store_rolls_back_a_development_approval() {
 #[tokio::test]
 async fn a_reorg_before_commit_writes_nothing() {
     let (mut storage, tx_id, deposit, pubdata) = approval_fixture(false, false).await;
-    storage
-        .via_l1_block_dal()
-        .insert_reorg_metadata(1, BATCH)
-        .await
-        .unwrap();
-    let committed = record_approval(
-        &mut storage,
-        BATCH,
-        tx_id,
-        Approval::Verified,
-        &pubdata,
-        None,
-        1,
-    )
-    .await
-    .unwrap();
+    storage.via_l1_block_dal().insert_reorg_metadata(1, BATCH).await.unwrap();
+    let committed =
+        record_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1)
+            .await
+            .unwrap();
     assert!(!committed);
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
 }
@@ -411,17 +334,9 @@ async fn watermarks_come_from_the_database_and_follow_a_reorg() {
     // A fresh process sees the pending batch without having processed anything.
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (1, 0));
 
-    record_approval(
-        &mut storage,
-        BATCH,
-        tx_id,
-        Approval::Verified,
-        &pubdata,
-        None,
-        1,
-    )
-    .await
-    .unwrap();
+    record_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1)
+        .await
+        .unwrap();
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (1, 1));
 
     // A reorg removes the batch, and both watermarks fall back with it.
@@ -549,11 +464,7 @@ async fn lifecycle_fixture_with_genesis(
         .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 1)
         .await
         .unwrap();
-    storage
-        .via_indexer_dal()
-        .init_indexer_metadata("via_btc_watch", 1)
-        .await
-        .unwrap();
+    storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
     let version = v28_patches(&[0])[0];
     storage
         .via_protocol_versions_dal()
@@ -615,11 +526,7 @@ async fn lifecycle_fixture_with_genesis(
         .await
         .unwrap()
         .unwrap();
-    storage
-        .via_votes_dal()
-        .insert_vote(id, &address.to_string(), true, None)
-        .await
-        .unwrap();
+    storage.via_votes_dal().insert_vote(id, &address.to_string(), true, None).await.unwrap();
     storage
         .via_protocol_versions_dal()
         .save_protocol_version(
@@ -634,14 +541,8 @@ async fn lifecycle_fixture_with_genesis(
     drop(storage);
 
     let transactions = std::collections::HashMap::from([
-        (
-            batch_tx.compute_txid().to_string(),
-            serialize_hex(&batch_tx),
-        ),
-        (
-            proof_tx.compute_txid().to_string(),
-            serialize_hex(&proof_tx),
-        ),
+        (batch_tx.compute_txid().to_string(), serialize_hex(&batch_tx)),
+        (proof_tx.compute_txid().to_string(), serialize_hex(&proof_tx)),
     ]);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
@@ -726,14 +627,7 @@ async fn lifecycle_fixture_with_genesis(
     )
     .await
     .unwrap();
-    LifecycleFixture {
-        verifier,
-        store,
-        deposit,
-        rpc: RpcServer(rpc),
-        client,
-        endpoint,
-    }
+    LifecycleFixture { verifier, store, deposit, rpc: RpcServer(rpc), client, endpoint }
 }
 
 async fn lifecycle_state(fixture: &LifecycleFixture) -> (Option<bool>, bool, Option<bool>, i64) {
@@ -765,10 +659,7 @@ async fn missing_proof_retries_the_same_persisted_batch_then_approves() {
     assert_eq!(selected.as_ref().map(|batch| batch.0), Some(9));
     let before = durable_effects(&mut storage).await;
     let result = fixture.verifier.loop_iteration(&mut storage).await;
-    assert_eq!(
-        reason(result.map(|_| Approval::Verified)),
-        NoVerdictReason::ProofUnavailable
-    );
+    assert_eq!(reason(result.map(|_| Approval::Verified)), NoVerdictReason::ProofUnavailable);
     assert_eq!(lifecycle_state(&fixture).await, (None, false, None, 1));
     assert_eq!(durable_effects(&mut storage).await, before);
     assert_eq!(
@@ -793,10 +684,7 @@ async fn missing_proof_retries_the_same_persisted_batch_then_approves() {
         .await
         .unwrap();
     fixture.verifier.loop_iteration(&mut storage).await.unwrap();
-    assert_eq!(
-        lifecycle_state(&fixture).await,
-        (Some(true), false, Some(true), 1)
-    );
+    assert_eq!(lifecycle_state(&fixture).await, (Some(true), false, Some(true), 1));
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (10, 9));
     assert_eq!(
         storage
@@ -808,12 +696,7 @@ async fn missing_proof_retries_the_same_persisted_batch_then_approves() {
         Some(10)
     );
     assert_eq!(
-        storage
-            .via_votes_dal()
-            .get_verifier_vote_status(1)
-            .await
-            .unwrap()
-            .map(|row| row.0),
+        storage.via_votes_dal().get_verifier_vote_status(1).await.unwrap().map(|row| row.0),
         Some(true)
     );
 }
@@ -824,10 +707,7 @@ async fn development_absence_does_not_bypass_deposit_mismatch() {
     let mut storage = fixture.verifier.pool.connection().await.unwrap();
     let before = durable_effects(&mut storage).await;
     let result = fixture.verifier.loop_iteration(&mut storage).await;
-    assert_eq!(
-        reason(result.map(|_| Approval::Verified)),
-        NoVerdictReason::DepositMismatch
-    );
+    assert_eq!(reason(result.map(|_| Approval::Verified)), NoVerdictReason::DepositMismatch);
     assert_eq!(lifecycle_state(&fixture).await, (None, false, None, 1));
     assert_eq!(durable_effects(&mut storage).await, before);
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (10, 8));
@@ -846,12 +726,7 @@ async fn durable_effects(storage: &mut Connection<'_, Verifier>) -> Vec<serde_js
         let query = format!(
             "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb) FROM {table} t"
         );
-        state.push(
-            sqlx::query_scalar(&query)
-                .fetch_one(storage.conn())
-                .await
-                .unwrap(),
-        );
+        state.push(sqlx::query_scalar(&query).fetch_one(storage.conn()).await.unwrap());
     }
     state
 }
@@ -871,11 +746,7 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
         )
         .await
         .unwrap();
-    storage
-        .via_votes_dal()
-        .insert_vote(1, "verifier", true, None)
-        .await
-        .unwrap();
+    storage.via_votes_dal().insert_vote(1, "verifier", true, None).await.unwrap();
     sqlx::query(
         "ALTER TABLE protocol_versions ADD CONSTRAINT fixture_upgrade_failure CHECK (NOT executed)",
     )
@@ -883,17 +754,9 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
     .await
     .unwrap();
     let before = durable_effects(&mut storage).await;
-    record_approval(
-        &mut storage,
-        BATCH,
-        tx_id,
-        Approval::DevAccepted,
-        &pubdata,
-        Some(upgrade),
-        1,
-    )
-    .await
-    .unwrap_err();
+    record_approval(&mut storage, BATCH, tx_id, Approval::DevAccepted, &pubdata, Some(upgrade), 1)
+        .await
+        .unwrap_err();
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
     assert_eq!(durable_effects(&mut storage).await, before);
 
@@ -912,10 +775,7 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
     )
     .await
     .unwrap());
-    assert_eq!(
-        persisted(&mut storage, deposit).await,
-        (Some(true), true, Some(true))
-    );
+    assert_eq!(persisted(&mut storage, deposit).await, (Some(true), true, Some(true)));
     let finalized: bool =
         sqlx::query_scalar("SELECT is_finalized FROM via_votable_transactions WHERE id = 1")
             .fetch_one(storage.conn())
@@ -923,11 +783,7 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
             .unwrap();
     assert!(finalized);
     assert_eq!(
-        storage
-            .via_protocol_versions_dal()
-            .get_in_progress_upgrade_tx_hash()
-            .await
-            .unwrap(),
+        storage.via_protocol_versions_dal().get_in_progress_upgrade_tx_hash().await.unwrap(),
         None
     );
 }
@@ -935,23 +791,13 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
 #[tokio::test]
 async fn a_development_reorg_rolls_back_the_marker_and_deposit_effects() {
     let (mut storage, tx_id, deposit, pubdata) = approval_fixture(true, false).await;
-    storage
-        .via_l1_block_dal()
-        .insert_reorg_metadata(1, BATCH)
-        .await
-        .unwrap();
+    storage.via_l1_block_dal().insert_reorg_metadata(1, BATCH).await.unwrap();
     let before = durable_effects(&mut storage).await;
-    assert!(!record_approval(
-        &mut storage,
-        BATCH,
-        tx_id,
-        Approval::DevAccepted,
-        &pubdata,
-        None,
-        1,
-    )
-    .await
-    .unwrap());
+    assert!(
+        !record_approval(&mut storage, BATCH, tx_id, Approval::DevAccepted, &pubdata, None, 1,)
+            .await
+            .unwrap()
+    );
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
     assert_eq!(durable_effects(&mut storage).await, before);
 }
@@ -999,10 +845,7 @@ async fn stop_interrupts_a_yielding_proof_fetch_without_a_verdict() {
     .unwrap();
     assert_eq!(report_watermarks(&mut observer).await.unwrap(), (10, 8));
     stop.send(true).unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), &mut run)
-        .await
-        .unwrap()
-        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), &mut run).await.unwrap().unwrap();
     assert_eq!(durable_effects(&mut observer).await, before);
     drop(fixture.rpc);
 }
@@ -1033,10 +876,7 @@ async fn stop_interrupts_connection_acquisition() {
         _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
     }
     stop.send(true).unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), &mut run)
-        .await
-        .unwrap()
-        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), &mut run).await.unwrap().unwrap();
     assert_eq!(durable_effects(&mut held).await, before);
     drop(fixture.rpc);
 }
@@ -1047,10 +887,8 @@ async fn stop_during_a_post_marker_database_wait_rolls_back_all_effects() {
     let pool = fixture.verifier.pool.clone();
     let mut observer = pool.connection().await.unwrap();
     let mut blocker = pool.connection().await.unwrap();
-    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(blocker.conn())
-        .await
-        .unwrap();
+    let blocker_pid: i32 =
+        sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(blocker.conn()).await.unwrap();
     let before = durable_effects(&mut observer).await;
     let mut lock = blocker.start_transaction().await.unwrap();
     sqlx::query("SELECT canonical_tx_hash FROM via_transactions FOR UPDATE")
@@ -1074,10 +912,7 @@ async fn stop_during_a_post_marker_database_wait_rolls_back_all_effects() {
         }
     }).await.unwrap();
     stop.send(true).unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), &mut run)
-        .await
-        .unwrap()
-        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), &mut run).await.unwrap().unwrap();
     lock.commit().await.unwrap();
     // Wait for the cancelled write and queued rollback to release their row lock.
     tokio::time::timeout(
@@ -1113,32 +948,17 @@ async fn initialized_development_store_reopens_but_refuses_a_strict_process() {
     let database_url = fixture.verifier.pool.database_url().clone();
     let mut storage = fixture.verifier.pool.connection().await.unwrap();
     fixture.verifier.loop_iteration(&mut storage).await.unwrap();
-    assert_eq!(
-        lifecycle_state(&fixture).await,
-        (Some(true), true, Some(true), 1)
-    );
+    assert_eq!(lifecycle_state(&fixture).await, (Some(true), true, Some(true), 1));
     let before = durable_effects(&mut storage).await;
     drop(storage);
     drop(fixture.verifier);
-    let restarted = ConnectionPool::<Verifier>::singleton(database_url)
-        .build()
-        .await
-        .unwrap();
-    initialize(restarted.clone(), fixture.client.clone(), true)
-        .await
-        .unwrap();
-    assert!(initialize(restarted.clone(), fixture.client.clone(), false)
-        .await
-        .is_err());
+    let restarted = ConnectionPool::<Verifier>::singleton(database_url).build().await.unwrap();
+    initialize(restarted.clone(), fixture.client.clone(), true).await.unwrap();
+    assert!(initialize(restarted.clone(), fixture.client.clone(), false).await.is_err());
     let mut storage = restarted.connection().await.unwrap();
     assert_eq!(durable_effects(&mut storage).await, before);
     assert_eq!(
-        storage
-            .via_votes_dal()
-            .get_verifier_vote_status(1)
-            .await
-            .unwrap()
-            .map(|row| row.0),
+        storage.via_votes_dal().get_verifier_vote_status(1).await.unwrap().map(|row| row.0),
         Some(true)
     );
 }
@@ -1151,12 +971,8 @@ async fn initializer_checks_actual_genesis_and_network_before_designating_the_st
         let mut config = fixture.client.config.clone();
         config.network = network.into();
         let client = Arc::new(
-            BitcoinClient::new(
-                &fixture.endpoint,
-                via_btc_client::types::NodeAuth::None,
-                config,
-            )
-            .unwrap(),
+            BitcoinClient::new(&fixture.endpoint, via_btc_client::types::NodeAuth::None, config)
+                .unwrap(),
         );
         assert!(initialize(pool.clone(), client, true).await.is_err());
         let mut storage = pool.connection().await.unwrap();
@@ -1167,20 +983,16 @@ async fn initializer_checks_actual_genesis_and_network_before_designating_the_st
         assert_eq!(count, 0);
     }
     // The configured regtest endpoint now serves Bitcoin genesis, even for an initialized store.
-    assert!(
-        initialize(fixture.verifier.pool.clone(), fixture.client.clone(), false)
-            .await
-            .is_err()
-    );
+    assert!(initialize(fixture.verifier.pool.clone(), fixture.client.clone(), false)
+        .await
+        .is_err());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn failed_bootstrap_keeps_the_committed_strict_designation() {
     let fixture = lifecycle_fixture(false, false).await;
     let pool = ConnectionPool::<Verifier>::test_pool().await;
-    initialize(pool.clone(), fixture.client.clone(), false)
-        .await
-        .unwrap_err();
+    initialize(pool.clone(), fixture.client.clone(), false).await.unwrap_err();
     let mut storage = pool.connection().await.unwrap();
     let mode: (bool, String, String) = sqlx::query_as(
         "SELECT proof_verification_dev_mode, bitcoin_network, bitcoin_genesis_hash FROM via_verifier_store_mode",
@@ -1195,7 +1007,5 @@ async fn failed_bootstrap_keeps_the_committed_strict_designation() {
                 .to_string()
         )
     );
-    assert!(initialize(pool, fixture.client.clone(), true)
-        .await
-        .is_err());
+    assert!(initialize(pool, fixture.client.clone(), true).await.is_err());
 }
