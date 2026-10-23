@@ -1,5 +1,5 @@
-//! Original coordinator handlers, middleware, withdrawal producer and DTO from the
-//! fixed pre-change commit. Keep the old JSON/auth path executable over real TCP.
+//! Legacy coordinator handlers, middleware, withdrawal producer and DTO, frozen as a test oracle.
+//! They keep the old JSON and authentication path executable over real TCP.
 
 use std::{ops::Deref, sync::Arc};
 

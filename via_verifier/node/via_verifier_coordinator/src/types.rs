@@ -105,7 +105,7 @@ pub struct PartialSignaturePair {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct SigningSessionResponse {
-    /// Verified HTTP preference; never serialized or persisted as signing authority.
+    /// Verified HTTP preference. Never serialized or persisted as signing authority.
     #[serde(skip)]
     pub(crate) transport: crate::transport::TransportVersion,
     pub round_id: [u8; 32],

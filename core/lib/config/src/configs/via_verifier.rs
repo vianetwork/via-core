@@ -48,7 +48,7 @@ pub struct ViaVerifierConfig {
     #[serde(default)]
     pub withdrawal_signing_enabled: bool,
 
-    /// Enable compact HTTP writes only after the fleet has dual readers.
+    /// Compact HTTP writes need every coordinator and signer to read both formats first.
     #[serde(default)]
     pub withdrawal_compact_transport_writes_enabled: bool,
 

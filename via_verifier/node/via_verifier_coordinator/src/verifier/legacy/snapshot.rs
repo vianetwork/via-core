@@ -1,5 +1,4 @@
-// Frozen legacy HTTP schema; transport fields must not be inferred from the new DTO.
-// https://github.com/vianetwork/via-core/blob/ab8e9166426b23df14ec2fbe32524136a4a08c6c/via_verifier/node/via_verifier_coordinator/src/types.rs
+// Frozen legacy HTTP schema. Never infer its transport fields from new DTO.
 // jscpd:ignore-start Immutable old snapshot oracle for rolling-compatibility tests.
 use std::collections::BTreeMap;
 

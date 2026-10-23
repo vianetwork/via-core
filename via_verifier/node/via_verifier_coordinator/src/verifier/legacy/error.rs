@@ -1,5 +1,4 @@
-// Frozen baseline error contract.
-// https://github.com/vianetwork/via-core/blob/ab8e9166426b23df14ec2fbe32524136a4a08c6c/via_verifier/node/via_verifier_coordinator/src/coordinator/error.rs
+// Frozen legacy HTTP error contract.
 // jscpd:ignore-start Immutable old HTTP error oracle for compatibility tests.
 use axum::{
     http::StatusCode,

@@ -19,8 +19,7 @@ pub(crate) use wire::{
 /// Admission reserves this much for any accepted request's worst-width reply.
 pub(crate) const MAX_ENVELOPE_OVERHEAD: usize = 65_536;
 
-// Adopt the workspace-pinned public writer; count the final JSON, including its wrapper.
-// https://github.com/paritytech/jsonrpsee/blob/c6344f9ee57229ca182956c408b0f84d49ba56ea/core/src/server/helpers.rs
+// Unchanged jsonrpsee BoundedWriter counts final JSON, wrapper included: https://github.com/paritytech/jsonrpsee/blob/c6344f9ee57229ca182956c408b0f84d49ba56ea/core/src/server/helpers.rs
 pub(crate) fn bounded_json<T: Serialize + ?Sized>(
     value: &T,
     limit: usize,
@@ -113,10 +112,9 @@ fn counts_size(inputs: usize, signers: usize) -> Option<usize> {
     1usize.checked_add(index_digits(inputs)?)?.checked_add(inputs.checked_mul(4 + width)?)
 }
 
-// Own Via schema arithmetic, using sBTC's signed-wrapper budgeting pattern. The empty
-// snapshot above is the actual serving schema; only four future maps are calculated.
-// Public nonce/share encodings remain 88/44 characters, and tests use real values.
-// https://github.com/stacks-sbtc/sbtc/blob/fb469a32a48f47d2a6e46e13e72c944ab2c96755/signer/src/bitcoin/packaging.rs
+// Empty snapshot above is real serving schema. Only four future maps are computed.
+// Public nonce and share encodings stay 88 and 44 characters, and tests use real values.
+// Signed-wrapper budgeting follows sBTC: https://github.com/stacks-sbtc/sbtc/blob/fb469a32a48f47d2a6e46e13e72c944ab2c96755/signer/src/bitcoin/packaging.rs
 fn future_inner_bytes(
     session: &SigningSession,
     signers: usize,
@@ -138,8 +136,8 @@ fn future_inner_bytes(
 }
 
 pub(crate) fn check_round_size(session: &SigningSession, signers: usize) -> anyhow::Result<()> {
-    // Until legacy retirement, recent traffic and writer flags cannot establish
-    // that every required signer can download compact-only admitted capacity.
+    // New round must fit both formats while any required signer may read only legacy.
+    // Recent traffic and write flags cannot prove that every signer reads compact.
     for version in [TransportVersion::Legacy, TransportVersion::Compact] {
         check_round_size_in(session, signers, version)?;
     }

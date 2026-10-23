@@ -758,9 +758,8 @@ async fn run_actual_iterations(
         .unwrap();
 }
 
-// The process owner is the established corepc library; this scenario stays local to
-// this test file. TaprootBuilder supplies the actual commitment and control block.
-// https://git.rust-bitcoin.org/rust-bitcoin/corepc/src/commit/eca585605f6fbf79a1c8ce81ce86e2e4205cdf31/bitcoind/src/lib.rs
+// TaprootBuilder supplies real commitment and control block.
+// corepc bitcoind crate owns Core process: https://git.rust-bitcoin.org/rust-bitcoin/corepc/src/commit/eca585605f6fbf79a1c8ce81ce86e2e4205cdf31/bitcoind/src/lib.rs
 fn heavy_parent(bridge: &bitcoin::Script, pushes: u32) -> (bitcoind::BitcoinD, Transaction) {
     use bitcoin::{
         hashes::sha256,
@@ -1444,7 +1443,7 @@ async fn bounded_signing_http_selects_each_reply_and_binds_the_offer() {
             response.json::<serde_json::Value>().await.unwrap()["error"],
             "invalid_transport_encoding"
         );
-        // Re-signing is deliberately omitted: the offer is part of the auth target.
+        // No re-signing: offer is part of authentication target.
         let (mut binding, response) =
             server.call(&keys[1], "GET", "/session/", TransportVersion::Legacy, Vec::new()).await;
         assert_eq!(response.status().as_u16(), 200);
@@ -1503,7 +1502,7 @@ fn probe_body(request: &Binding, version: TransportVersion, probe: &Probe) -> Ve
     match version {
         TransportVersion::Legacy => {
             let extra = probe.final_bytes - encoded.len();
-            // Spaces cost three numeric-array bytes; tabs cost two.
+            // Space costs three numeric-array bytes, tab two.
             let tabs = match extra % 3 {
                 0 => 0,
                 1 => 2,
@@ -1572,8 +1571,8 @@ fn chunked_probe_router(api: crate::coordinator::api_decl::RestApi) -> axum::Rou
                     .unwrap();
             let envelope = Envelope::sign(binding, b"{}".to_vec(), &key).unwrap();
             let mut bytes = transport::encode_envelope(envelope, version, MAX_BODY).unwrap();
-            // Outside-JSON whitespace is unsigned transport framing and still counts
-            // against the receiver's actual body limit. Stream with no Content-Length.
+            // Whitespace outside JSON is unsigned framing, yet counts against body limit.
+            // Body streams without Content-Length.
             bytes.resize(probe.final_bytes, b' ');
             let chunks: Vec<_> =
                 bytes.chunks(4096).map(|chunk| Ok::<_, std::io::Error>(chunk.to_vec())).collect();
