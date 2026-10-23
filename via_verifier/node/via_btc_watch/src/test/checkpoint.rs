@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
@@ -10,19 +9,17 @@ use std::{
 use bitcoin::{
     absolute,
     block::Header,
-    consensus::encode::serialize_hex,
     hashes::Hash,
     secp256k1::{Keypair, Secp256k1, SecretKey},
     taproot::LeafVersion,
     transaction, Address, Block, BlockHash, CompressedPublicKey, Network, Transaction, TxIn, TxMerkleNode, Witness,
 };
-use serde_json::json;
 use via_btc_client::{
     client::BitcoinClient,
     indexer::BitcoinInscriptionIndexer,
     types::{InscriptionMessage, L1BatchDAReferenceInput, NodeAuth, ProofDAReferenceInput},
 };
-use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, inscription::inscription_script};
+use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, chain::Chain, inscription::inscription_script};
 use via_verifier_block_reverter::ViaVerifierBlockReverter;
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal, BTC_WATCH_OWNER_LOCK_KEY};
 use zksync_config::{
@@ -60,7 +57,7 @@ async fn withdrawal_scan_advances_and_records_once() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn withdrawal_reorg_retains_holds_and_replays_new_inclusion() -> anyhow::Result<()> {
     let (fixture, pool, mut watcher) = BitcoinFixture::with_withdrawal().await?;
-    let txid = fixture.blocks.lock().unwrap()[&2].txdata[1].compute_txid();
+    let txid = fixture.chain.lock().unwrap().blocks[&2].txdata[1].compute_txid();
     let mut storage = pool.connection().await?;
     watcher.loop_iteration(&mut storage).await?;
     recover(&pool, 2).await?;
@@ -76,10 +73,10 @@ async fn withdrawal_reorg_retains_holds_and_replays_new_inclusion() -> anyhow::R
             .await?
     );
     let replacement_hash = {
-        let mut blocks = fixture.blocks.lock().unwrap();
-        let block = blocks.get_mut(&2).unwrap();
+        let mut chain = fixture.chain.lock().unwrap();
+        let mut block = chain.blocks[&2].clone();
         block.header.nonce += 1;
-        block.block_hash()
+        chain.insert(2, block)
     };
     fixture.seed(&mut storage, Some(1)).await?;
     watcher.loop_iteration(&mut storage).await?;
@@ -98,8 +95,7 @@ async fn withdrawal_reorg_retains_holds_and_replays_new_inclusion() -> anyhow::R
 
 struct BitcoinFixture {
     client: Arc<BitcoinClient>,
-    blocks: Arc<Mutex<HashMap<u32, Block>>>,
-    transactions: Arc<Mutex<HashMap<String, Transaction>>>,
+    chain: Arc<Mutex<Chain>>,
     requests: Arc<AtomicUsize>,
     fetch_barrier: Arc<Mutex<Option<FetchBarrier>>>,
     _server: BitcoinRpcServer,
@@ -164,7 +160,7 @@ impl BitcoinFixture {
         );
         let expected = payment_height
             .map(|height| {
-                let txid = self.blocks.lock().unwrap()[&height].txdata[1]
+                let txid = self.chain.lock().unwrap().blocks[&height].txdata[1]
                     .compute_txid()
                     .to_byte_array()
                     .to_vec();
@@ -221,7 +217,10 @@ impl BitcoinFixture {
             .tx;
         let txid = payment.compute_txid();
         self.add_block(height, None);
-        self.blocks.lock().unwrap().get_mut(&height).unwrap().txdata = vec![parent, payment];
+        let mut chain = self.chain.lock().unwrap();
+        let mut block = chain.blocks[&height].clone();
+        block.txdata = vec![parent, payment];
+        chain.insert(height, block);
         Ok(txid)
     }
 
@@ -236,51 +235,33 @@ impl BitcoinFixture {
     }
 
     fn new() -> anyhow::Result<Self> {
-        let blocks = Arc::new(Mutex::new(HashMap::<u32, Block>::new()));
-        let transactions = Arc::new(Mutex::new(HashMap::<String, Transaction>::new()));
+        let chain = Arc::new(Mutex::new(Chain::default()));
         let requests = Arc::new(AtomicUsize::new(0));
         let fetch_barrier = Arc::new(Mutex::new(None::<FetchBarrier>));
         let server = {
-            let blocks = blocks.clone();
-            let transactions = transactions.clone();
+            let chain = chain.clone();
             let requests = requests.clone();
             let fetch_barrier = fetch_barrier.clone();
-            BitcoinRpcServer::new(Some(Duration::from_secs(5)), false, move |_, request| {
-                requests.fetch_add(1, Ordering::SeqCst);
-                match request["method"].as_str().unwrap() {
-                    "getblockcount" => json!(blocks.lock().unwrap().keys().max().copied().unwrap()),
-                    "getblockhash" => json!(blocks.lock().unwrap()[&(request["params"][0].as_u64().unwrap() as u32)]
-                        .block_hash()
-                        .to_string()),
-                    "getblock" => {
+            BitcoinRpcServer::new_with_errors(
+                Some(Duration::from_secs(5)),
+                false,
+                move |_, request| {
+                    requests.fetch_add(1, Ordering::SeqCst);
+                    if request["method"] == "getblock" {
                         let barrier = fetch_barrier.lock().unwrap().take();
                         if let Some((entered, release)) = barrier {
                             entered.send(()).unwrap();
                             release.recv().unwrap();
                         }
-                        let blocks = blocks.lock().unwrap();
-                        let block = blocks
-                            .values()
-                            .find(|block| block.block_hash().to_string() == request["params"][0].as_str().unwrap())
-                            .unwrap();
-                        json!(serialize_hex(block))
                     }
-                    "getrawtransaction" => {
-                        json!(serialize_hex(&transactions.lock().unwrap()[request["params"][0].as_str().unwrap()]))
-                    }
-                    method => panic!("unexpected Bitcoin fixture method {method}"),
-                }
-            })?
+                    chain.lock().unwrap().rpc(&request)
+                },
+            )?
         };
         let client = Arc::new(BitcoinClient::new(
             &server.url(""),
             NodeAuth::None,
-            ViaBtcClientConfig {
-                network: "regtest".into(),
-                external_apis: vec![],
-                fee_strategies: vec![],
-                use_rpc_for_fee_rate: Some(true),
-            },
+            ViaBtcClientConfig::for_tests(),
         )?);
         let sender = Address::p2wpkh(&CompressedPublicKey(keypair().public_key()), Network::Regtest);
         let wallets = SystemWallets {
@@ -289,7 +270,7 @@ impl BitcoinFixture {
             governance: sender.clone(),
             verifiers: vec![sender],
         };
-        Ok(Self { client, blocks, transactions, requests, fetch_barrier, _server: server, wallets })
+        Ok(Self { client, chain, requests, fetch_barrier, _server: server, wallets })
     }
 
     fn add_block(&self, height: u32, proof: Option<(u32, H256, H256)>) -> BlockHash {
@@ -313,7 +294,7 @@ impl BitcoinFixture {
                     }),
                     height,
                 );
-                self.transactions.lock().unwrap().insert(batch.compute_txid().to_string(), batch);
+                self.chain.lock().unwrap().transactions.insert(batch.compute_txid().to_string(), batch);
                 vec![proof]
             })
             .unwrap_or_default();
@@ -328,9 +309,7 @@ impl BitcoinFixture {
             },
             txdata,
         };
-        let hash = block.block_hash();
-        self.blocks.lock().unwrap().insert(height, block);
-        hash
+        self.chain.lock().unwrap().insert(height, block)
     }
 
     fn watcher(
@@ -343,13 +322,23 @@ impl BitcoinFixture {
         VerifierBtcWatch::new(config, indexer, client, pool)
     }
 
-    async fn seed(&self, storage: &mut Connection<'_, Verifier>, cursor: Option<u32>) -> anyhow::Result<()> {
+    async fn seed(
+        &self,
+        storage: &mut Connection<'_, Verifier>,
+        cursor: Option<u32>,
+    ) -> anyhow::Result<()> {
         storage.via_wallet_dal().insert_wallets(&SystemWalletsDetails::try_from(self.wallets.clone())?, 1).await?;
         if let Some(cursor) = cursor {
             storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", cursor).await?;
         }
-        let blocks =
-            self.blocks.lock().unwrap().iter().map(|(&height, block)| (height, block.block_hash())).collect::<Vec<_>>();
+        let blocks = self
+            .chain
+            .lock()
+            .unwrap()
+            .blocks
+            .iter()
+            .map(|(&height, block)| (height, block.block_hash()))
+            .collect::<Vec<_>>();
         for (height, hash) in blocks {
             storage.via_l1_block_dal().insert_l1_block(i64::from(height), hash.to_string()).await?;
         }
@@ -378,7 +367,8 @@ async fn recover(pool: &ConnectionPool<Verifier>, divergence: i64) -> anyhow::Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn recovery_above_lagging_cursor_imports_the_previously_skipped_proof() -> anyhow::Result<()> {
+async fn recovery_above_lagging_cursor_imports_the_previously_skipped_proof() -> anyhow::Result<()>
+{
     let fixture = BitcoinFixture::new()?;
     fixture.add_block(156450, None);
     fixture.add_block(156451, Some((266, H256::from_low_u64_be(266), H256::from_low_u64_be(265))));
@@ -397,7 +387,7 @@ async fn recovery_above_lagging_cursor_imports_the_previously_skipped_proof() ->
     }
     recover(&pool, 156456).await?;
     assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 156449);
-    fixture.blocks.lock().unwrap().remove(&156456);
+    fixture.chain.lock().unwrap().blocks.remove(&156456);
     let mut watcher = fixture.watcher(pool.clone()).await?;
     watcher.loop_iteration(&mut storage).await?;
     assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 156451);
@@ -424,10 +414,14 @@ async fn gap_rolls_back_all_effects_and_pauses_retries() -> anyhow::Result<()> {
     assert_eq!((gap.expected_batch, gap.observed_batch), (2, 3));
     assert_eq!(gap.canonical_parent, Some(H256::repeat_byte(1)));
     assert_eq!(gap.observed_parent, H256::repeat_byte(2));
-    let mut proof_txid = fixture.blocks.lock().unwrap()[&3].txdata[0].compute_txid().to_byte_array();
+    let mut proof_txid =
+        fixture.chain.lock().unwrap().blocks[&3].txdata[0].compute_txid().to_byte_array();
     proof_txid.reverse();
     assert_eq!(gap.proof_txid, H256(proof_txid));
-    assert_eq!((gap.source_height, gap.source_hash), (3, fixture.blocks.lock().unwrap()[&3].block_hash()));
+    assert_eq!(
+        (gap.source_height, gap.source_hash),
+        (3, fixture.chain.lock().unwrap().blocks[&3].block_hash())
+    );
     assert_eq!(METRICS.proof_continuity_blocked.get(), 1);
     assert_eq!(storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?, 1);
     assert_eq!(storage.via_votes_dal().get_last_batch_in_canonical_chain().await?, None);

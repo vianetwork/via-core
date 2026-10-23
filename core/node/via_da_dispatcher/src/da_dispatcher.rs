@@ -4,7 +4,7 @@ use anyhow::Context;
 use chrono::Utc;
 use rand::Rng;
 use tokio::sync::watch::Receiver;
-use via_da_dispatcher_lib::blob::load_wrapped_fri_proofs_for_range;
+use via_da_dispatcher_lib::blob::find_wrapped_proof;
 use zksync_config::DADispatcherConfig;
 use zksync_da_client::{
     types::{DAError, InclusionData},
@@ -40,13 +40,7 @@ impl ViaDataAvailabilityDispatcher {
         blob_store: Arc<dyn ObjectStore>,
         dispatch_real_proof: bool,
     ) -> Self {
-        Self {
-            pool,
-            config,
-            client,
-            blob_store,
-            dispatch_real_proof,
-        }
+        Self { pool, config, client, blob_store, dispatch_real_proof }
     }
 
     pub async fn run(self, mut stop_receiver: Receiver<bool>) -> anyhow::Result<()> {
@@ -110,19 +104,12 @@ impl ViaDataAvailabilityDispatcher {
         drop(conn);
 
         for batch in batches {
-            let chunks: Vec<Vec<u8>> = batch
-                .pubdata
-                .clone()
-                .chunks(BLOB_CHUNK_SIZE)
-                .map(|chunk| chunk.to_vec())
-                .collect();
+            let chunks: Vec<Vec<u8>> =
+                batch.pubdata.clone().chunks(BLOB_CHUNK_SIZE).map(|chunk| chunk.to_vec()).collect();
 
-            self._dispatch_chunks(batch.l1_batch_number, chunks, false, "da_dispatcher")
-                .await?;
+            self._dispatch_chunks(batch.l1_batch_number, chunks, false, "da_dispatcher").await?;
 
-            METRICS
-                .last_dispatched_l1_batch
-                .set(batch.l1_batch_number.0 as usize);
+            METRICS.last_dispatched_l1_batch.set(batch.l1_batch_number.0 as usize);
             METRICS.blob_size.observe(batch.pubdata.len());
         }
 
@@ -145,9 +132,7 @@ impl ViaDataAvailabilityDispatcher {
 
         let batches = conn
             .via_data_availability_dal()
-            .get_ready_for_dummy_proof_dispatch_l1_batches(
-                self.config.max_rows_to_dispatch() as usize
-            )
+            .get_ready_for_dummy_proof_dispatch_l1_batches(self.config.max_rows_to_dispatch() as usize)
             .await?;
 
         drop(conn);
@@ -156,24 +141,13 @@ impl ViaDataAvailabilityDispatcher {
             let dummy_proof = self
                 .prepare_dummy_proof_operation(l1_batch_number)
                 .await
-                .with_context(|| {
-                    format!(
-                        "failed to prepare a dummy proof for batch_number: {}",
-                        l1_batch_number
-                    )
-                })?;
+                .with_context(|| format!("failed to prepare a dummy proof for batch_number: {}", l1_batch_number))?;
 
-            let chunks: Vec<Vec<u8>> = dummy_proof
-                .chunks(BLOB_CHUNK_SIZE)
-                .map(|chunk| chunk.to_vec())
-                .collect();
+            let chunks: Vec<Vec<u8>> = dummy_proof.chunks(BLOB_CHUNK_SIZE).map(|chunk| chunk.to_vec()).collect();
 
-            self._dispatch_chunks(l1_batch_number, chunks, true, "dummy_proof_dispatcher")
-                .await?;
+            self._dispatch_chunks(l1_batch_number, chunks, true, "dummy_proof_dispatcher").await?;
 
-            METRICS
-                .last_dispatched_proof_batch
-                .set(l1_batch_number.0 as usize);
+            METRICS.last_dispatched_proof_batch.set(l1_batch_number.0 as usize);
 
             METRICS.blob_size.observe(dummy_proof.len());
         }
@@ -205,17 +179,11 @@ impl ViaDataAvailabilityDispatcher {
                 }
             };
 
-            let chunks: Vec<Vec<u8>> = final_proof
-                .chunks(BLOB_CHUNK_SIZE)
-                .map(|chunk| chunk.to_vec())
-                .collect();
+            let chunks: Vec<Vec<u8>> = final_proof.chunks(BLOB_CHUNK_SIZE).map(|chunk| chunk.to_vec()).collect();
 
-            self._dispatch_chunks(proof.l1_batch_number, chunks, true, "real_proof_dispatcher")
-                .await?;
+            self._dispatch_chunks(proof.l1_batch_number, chunks, true, "real_proof_dispatcher").await?;
 
-            METRICS
-                .last_dispatched_proof_batch
-                .set(proof.l1_batch_number.0 as usize);
+            METRICS.last_dispatched_proof_batch.set(proof.l1_batch_number.0 as usize);
             METRICS.blob_size.observe(final_proof.len());
         }
         Ok(())
@@ -304,24 +272,21 @@ impl ViaDataAvailabilityDispatcher {
     async fn load_real_proof_operation(&self, batch_to_prove: L1BatchNumber) -> Option<Vec<u8>> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
-        let (mut prove_batches, allowed_versions) = storage
-            .via_data_availability_dal()
-            .get_proof_data(batch_to_prove)
-            .await?;
+        let (mut prove_batches, allowed_versions) =
+            storage.via_data_availability_dal().get_proof_data(batch_to_prove).await?;
 
-        let proof = match load_wrapped_fri_proofs_for_range(
-            self.blob_store.clone(),
-            batch_to_prove,
-            &allowed_versions,
-        )
-        .await
-        {
-            Some(proof) => proof,
-            None => {
-                tracing::error!("Failed to load proof for batch {}", batch_to_prove);
-                return None;
-            }
-        };
+        let proof =
+            match find_wrapped_proof(&*self.blob_store, batch_to_prove, &allowed_versions).await {
+                Ok(Some(proof)) => proof,
+                Ok(None) => {
+                    tracing::error!("Failed to load proof for batch {}", batch_to_prove);
+                    return None;
+                }
+                Err(err) => {
+                    tracing::error!("Failed to load proof for batch {batch_to_prove}: {err}");
+                    return None;
+                }
+            };
 
         prove_batches.proofs.push(proof);
         prove_batches.should_verify = true;
@@ -335,10 +300,8 @@ impl ViaDataAvailabilityDispatcher {
     ) -> Option<Vec<u8>> {
         let mut storage = self.pool.connection_tagged("da_dispatcher").await.ok()?;
 
-        let (mut prove_batches, _) = storage
-            .via_data_availability_dal()
-            .get_proof_data(batch_to_prove)
-            .await?;
+        let (mut prove_batches, _) =
+            storage.via_data_availability_dal().get_proof_data(batch_to_prove).await?;
         prove_batches.should_verify = false;
 
         serialize_prove_batches(&prove_batches)
@@ -347,31 +310,16 @@ impl ViaDataAvailabilityDispatcher {
     /// Polls the data availability layer for inclusion data, and saves it in the database.
     async fn poll_for_inclusion_l1_batch(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
-        let blob_info = conn
-            .via_data_availability_dal()
-            .get_first_da_blob_awaiting_inclusion()
-            .await?;
+        let blob_info =
+            conn.via_data_availability_dal().get_first_da_blob_awaiting_inclusion().await?;
         drop(conn);
 
         let Some(blob_info) = blob_info else {
             return Ok(());
         };
 
-        let inclusion_data = if self.config.use_dummy_inclusion_data() {
-            self.client
-                .get_inclusion_data(blob_info.blob_id.as_str())
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to get inclusion data for blob_id: {}, batch_number: {}",
-                        blob_info.blob_id, blob_info.l1_batch_number
-                    )
-                })?
-        } else {
-            // If the inclusion verification is disabled, we don't need to wait for the inclusion
-            // data before committing the batch, so simply return an empty vector.
-            Some(InclusionData { data: vec![] })
-        };
+        let inclusion_data =
+            self.inclusion_data(&blob_info.blob_id, blob_info.l1_batch_number, "blob_id").await?;
 
         let Some(inclusion_data) = inclusion_data else {
             return Ok(());
@@ -391,9 +339,7 @@ impl ViaDataAvailabilityDispatcher {
         if let Ok(latency) = inclusion_latency.to_std() {
             METRICS.inclusion_latency.observe(latency);
         }
-        METRICS
-            .last_included_l1_batch
-            .set(blob_info.l1_batch_number.0 as usize);
+        METRICS.last_included_l1_batch.set(blob_info.l1_batch_number.0 as usize);
 
         tracing::info!(
             "Received inclusion data for batch_number: {}, inclusion_latency_seconds: {}",
@@ -410,34 +356,37 @@ impl ViaDataAvailabilityDispatcher {
         Ok(())
     }
 
+    async fn inclusion_data(
+        &self,
+        blob_id: &str,
+        batch: L1BatchNumber,
+        field: &str,
+    ) -> anyhow::Result<Option<InclusionData>> {
+        if self.config.use_dummy_inclusion_data() {
+            self.client.get_inclusion_data(blob_id).await.with_context(|| {
+                format!(
+                    "failed to get inclusion data for {field}: {blob_id}, batch_number: {batch}"
+                )
+            })
+        } else {
+            Ok(Some(InclusionData { data: vec![] }))
+        }
+    }
+
     async fn poll_for_inclusion_proof(&self) -> anyhow::Result<()> {
         let mut conn = self.pool.connection_tagged("da_dispatcher").await?;
 
-        let proof_info = conn
-            .via_data_availability_dal()
-            .get_first_proof_blob_awaiting_inclusion()
-            .await?;
+        let proof_info =
+            conn.via_data_availability_dal().get_first_proof_blob_awaiting_inclusion().await?;
         drop(conn);
 
         let Some(proof_info) = proof_info else {
             return Ok(());
         };
 
-        let inclusion_data = if self.config.use_dummy_inclusion_data() {
-            self.client
-                .get_inclusion_data(proof_info.blob_id.as_str())
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to get inclusion data for proof_blob_url: {}, batch_number: {}",
-                        proof_info.blob_id, proof_info.l1_batch_number
-                    )
-                })?
-        } else {
-            // If the inclusion verification is disabled, we don't need to wait for the inclusion
-            // data before committing the batch, so simply return an empty vector.
-            Some(InclusionData { data: vec![] })
-        };
+        let inclusion_data = self
+            .inclusion_data(&proof_info.blob_id, proof_info.l1_batch_number, "proof_blob_url")
+            .await?;
 
         let Some(inclusion_data) = inclusion_data else {
             return Ok(());
@@ -459,9 +408,7 @@ impl ViaDataAvailabilityDispatcher {
             METRICS.inclusion_latency.observe(latency);
         }
 
-        METRICS
-            .last_included_proof_batch
-            .set(proof_info.l1_batch_number.0 as usize);
+        METRICS.last_included_proof_batch.set(proof_info.l1_batch_number.0 as usize);
 
         tracing::info!(
             "Received inclusion data for proof batch_number: {}, inclusion_latency_seconds: {}",
@@ -473,19 +420,12 @@ impl ViaDataAvailabilityDispatcher {
     }
 
     async fn is_rollback_required(&self, conn: &mut Connection<'_, Core>) -> anyhow::Result<bool> {
-        if conn
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some()
-        {
+        if conn.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
             return Ok(true);
         }
 
-        if let Some(l1_batch_number) = conn
-            .via_blocks_dal()
-            .get_reverted_batch_by_verifier_network()
-            .await?
+        if let Some(l1_batch_number) =
+            conn.via_blocks_dal().get_reverted_batch_by_verifier_network().await?
         {
             tracing::warn!(
                 "Can not dispatch data to DA, the l1 batch: {} is invalid. Roll back process should be executed on the Sequencer",
@@ -523,15 +463,7 @@ fn serialize_prove_batches(prove_batches: &ProveBatches) -> Option<Vec<u8>> {
         })
         .ok()?;
 
-    Some(
-        [
-            prev_l1_batch_bytes,
-            l1_batches_bytes,
-            proofs_bytes,
-            should_verify,
-        ]
-        .concat(),
-    )
+    Some([prev_l1_batch_bytes, l1_batches_bytes, proofs_bytes, should_verify].concat())
 }
 
 async fn retry<T, Fut, F>(
@@ -557,8 +489,7 @@ where
                 }
 
                 retries += 1;
-                let sleep_duration = Duration::from_secs(backoff_secs)
-                    .mul_f32(rand::thread_rng().gen_range(0.8..1.2));
+                let sleep_duration = Duration::from_secs(backoff_secs).mul_f32(rand::thread_rng().gen_range(0.8..1.2));
                 tracing::warn!(%err, "Failed DA dispatch request {retries}/{max_retries} for batch {batch_number}, retrying in {} milliseconds.", sleep_duration.as_millis());
                 tokio::time::sleep(sleep_duration).await;
 

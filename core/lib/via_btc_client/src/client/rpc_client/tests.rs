@@ -82,6 +82,141 @@ async fn respond((mut stream, _, request): Request, result: Value, error: Value)
     stream.write_all(response.as_bytes()).await.unwrap();
 }
 
+fn header_response(block: &Block, height: u64, confirmations: i32) -> Value {
+    serde_json::to_value(bitcoincore_rpc::json::GetBlockHeaderResult {
+        hash: block.block_hash(),
+        confirmations,
+        height: usize::try_from(height).unwrap(),
+        version: block.header.version,
+        version_hex: Some(block.header.version.to_consensus().to_be_bytes().to_vec()),
+        merkle_root: block.header.merkle_root,
+        time: block.header.time as usize,
+        median_time: None,
+        nonce: block.header.nonce,
+        bits: format!("{:08x}", block.header.bits.to_consensus()),
+        difficulty: 1.0,
+        chainwork: vec![0],
+        n_tx: block.txdata.len(),
+        previous_block_hash: if height == 0 { None } else { Some(block.header.prev_blockhash) },
+        next_block_hash: None,
+    })
+    .unwrap()
+}
+
+#[tokio::test]
+async fn header_membership_never_wraps_signed_confirmations() {
+    let block = bitcoin::blockdata::constants::genesis_block(Network::Regtest);
+    for confirmations in [6, -1, 0, -2] {
+        let mut server = RpcServer::new().await;
+        let client = BitcoinRpcClient::new(&server.url, NodeAuth::None, "membership_test").unwrap();
+        let hash = block.block_hash();
+        let call = tokio::spawn(async move { client.get_block_header(&hash).await });
+        for _ in 0..if confirmations == 0 || confirmations < -1 { 4 } else { 1 } {
+            let request = server.next().await;
+            assert_eq!(request.2["method"], "getblockheader");
+            assert_eq!(request.2["params"][0], json!(hash));
+            respond(request, header_response(&block, 0, confirmations), Value::Null).await;
+        }
+        let result = call.await.unwrap();
+        match confirmations {
+            6 => assert_eq!(
+                result.unwrap().unwrap().membership,
+                HeaderMembership::Canonical(std::num::NonZeroU32::new(6).unwrap())
+            ),
+            -1 => assert_eq!(result.unwrap().unwrap().membership, HeaderMembership::Noncanonical),
+            _ => assert!(result.unwrap_err().to_string().contains("invalid confirmations")),
+        }
+    }
+}
+
+#[tokio::test]
+async fn unknown_hash_and_unavailable_source_have_distinct_results() {
+    for code in [-5, -28] {
+        let mut server = RpcServer::new().await;
+        let client = BitcoinRpcClient::new(&server.url, NodeAuth::None, "unknown_test").unwrap();
+        let call =
+            tokio::spawn(async move { client.get_block_header(&BlockHash::all_zeros()).await });
+        for _ in 0..if code == -5 { 1 } else { 4 } {
+            respond(
+                server.next().await,
+                Value::Null,
+                json!({"code": code, "message": "fixture source failure"}),
+            )
+            .await;
+        }
+        if code == -5 {
+            assert_eq!(call.await.unwrap().unwrap(), None);
+        } else {
+            let error = call.await.unwrap().unwrap_err().to_string();
+            assert!(error.contains("getblockheader"));
+            assert!(error.contains("fixture source failure"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn malformed_header_identity_height_and_parent_are_rejected() {
+    let block = bitcoin::blockdata::constants::genesis_block(Network::Regtest);
+    let mut wrong_hash = header_response(&block, 0, 1);
+    wrong_hash["hash"] = json!(BlockHash::all_zeros());
+    let oversized = header_response(&block, u64::from(u32::MAX) + 1, 1);
+    let mut missing_parent = header_response(&block, 1, 1);
+    missing_parent["previousblockhash"] = Value::Null;
+    for (response, reason) in [
+        (wrong_hash, "hash mismatch"),
+        (oversized, "height exceeds u32"),
+        (missing_parent, "genesis/parent"),
+    ] {
+        let mut server = RpcServer::new().await;
+        let client =
+            BitcoinRpcClient::new(&server.url, NodeAuth::None, "malformed_header_test").unwrap();
+        let hash = block.block_hash();
+        let call = tokio::spawn(async move { client.get_block_header(&hash).await });
+        for _ in 0..4 {
+            respond(server.next().await, response.clone(), Value::Null).await;
+        }
+        let error = call.await.unwrap().unwrap_err().to_string();
+        assert!(error.contains(reason), "expected {reason}, got {error}");
+    }
+}
+
+#[tokio::test]
+async fn checked_body_uses_the_hash_and_rejects_header_parent_and_merkle_mismatches() {
+    let block = bitcoin::blockdata::constants::genesis_block(Network::Regtest);
+    let header = BlockHeaderInfo {
+        hash: block.block_hash(),
+        parent_hash: block.header.prev_blockhash,
+        height: 0,
+        membership: HeaderMembership::Canonical(std::num::NonZeroU32::new(1).unwrap()),
+    };
+    let mut wrong_block = block.clone();
+    wrong_block.header.nonce += 1;
+    let mut wrong_transactions = block.clone();
+    wrong_transactions.txdata.clear();
+    for (checked, body, succeeds) in [
+        (header, block.clone(), true),
+        (header, wrong_block, false),
+        (header, wrong_transactions, false),
+        (
+            BlockHeaderInfo { parent_hash: BlockHash::from_byte_array([1; 32]), ..header },
+            block.clone(),
+            false,
+        ),
+    ] {
+        let mut server = RpcServer::new().await;
+        let client =
+            BitcoinClient::new(&server.url, NodeAuth::None, ViaBtcClientConfig::for_tests())
+                .unwrap();
+        let call = tokio::spawn(async move { client.checked_block(&checked).await });
+        let request = server.next().await;
+        assert_eq!(request.2["method"], "getblock");
+        assert_eq!(request.2["params"][0], json!(header.hash));
+        respond(request, json!(bitcoin::consensus::encode::serialize_hex(&body)), Value::Null)
+            .await;
+        assert_eq!(call.await.unwrap().is_ok(), succeeds);
+    }
+}
+
 fn exported_metrics() -> String {
     let registry = MetricsCollection::lazy().collect();
     let mut text = String::new();

@@ -16,7 +16,7 @@ mod tests {
     static MUTEX: EnvMutex = EnvMutex::new();
 
     #[test]
-    fn withdrawal_compact_transport_writes_enabled_is_off_unless_set() {
+    fn optional_verifier_modes_are_off_unless_set() {
         let mut lock = MUTEX.lock();
         lock.set_env(
             r#"
@@ -50,6 +50,17 @@ mod tests {
             !ViaVerifierConfig::from_env()
                 .unwrap()
                 .withdrawal_signing_enabled
+        );
+        assert!(
+            !ViaVerifierConfig::from_env()
+                .unwrap()
+                .proof_verification_dev_mode
+        );
+        lock.set_env("VIA_VERIFIER_PROOF_VERIFICATION_DEV_MODE=true");
+        assert!(
+            ViaVerifierConfig::from_env()
+                .unwrap()
+                .proof_verification_dev_mode
         );
     }
 }

@@ -577,7 +577,7 @@ mod tests {
         absolute, block::Header, hashes::Hash, transaction, Address, Amount, Block, Network,
         OutPoint, ScriptBuf, Transaction, TxIn, TxMerkleNode, TxOut,
     };
-    use bitcoincore_rpc::json::GetBlockStatsResult;
+    use crate::types::BlockStats;
     use mockall::{mock, predicate::*};
     use zksync_types::{
         protocol_version::{ProtocolSemanticVersion, VersionPatch},
@@ -601,7 +601,7 @@ mod tests {
             async fn fetch_block_height(&self) -> BitcoinClientResult<u64>;
             async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
             fn get_network(&self) -> Network;
-            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
+            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<BlockStats>;
             async fn get_fee_history(
                 &self,
                 from_block_height: usize,

@@ -10,7 +10,6 @@ use bitcoin::{
     hashes::FromSliceError, script::PushBytesBuf, taproot::Signature as TaprootSignature, Amount,
     OutPoint, Transaction, TxIn, TxOut, Txid,
 };
-pub use bitcoincore_rpc::Auth as NodeAuth;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -24,6 +23,80 @@ use crate::{
     indexer::withdrawal::{L1Withdrawal, WithdrawalVersion},
     traits::Serializable,
 };
+
+#[derive(Clone)]
+pub enum NodeAuth {
+    None,
+    UserPass(String, String),
+    CookieFile(std::path::PathBuf),
+}
+
+impl std::fmt::Debug for NodeAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::None => "NodeAuth::None",
+            Self::UserPass(_, _) => "NodeAuth::UserPass(<redacted>)",
+            Self::CookieFile(_) => "NodeAuth::CookieFile(<redacted>)",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BlockStats {
+    pub height: u64,
+    pub time: u64,
+    pub min_fee_rate: Amount,
+}
+
+#[derive(Debug, Clone)]
+pub struct TransactionInfo {
+    pub confirmations: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FeeEstimate {
+    pub fee_rate: Option<Amount>,
+    pub errors: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FeeEstimateMode {
+    Unset,
+    Economical,
+    Conservative,
+}
+
+#[derive(Debug, Clone)]
+pub struct MempoolInfo {
+    pub mempool_min_fee: Amount,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeaderMembership {
+    Canonical(std::num::NonZeroU32),
+    Noncanonical,
+}
+
+/// The source answered about this exact hash. A missing hash is `None`; source failure is an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockHeaderInfo {
+    pub hash: bitcoin::BlockHash,
+    pub parent_hash: bitcoin::BlockHash,
+    pub height: u32,
+    pub membership: HeaderMembership,
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum HeaderValidationError {
+    #[error("response hash mismatch")]
+    HashMismatch,
+    #[error("height exceeds u32")]
+    HeightOutOfRange,
+    #[error("invalid confirmations {0}")]
+    InvalidConfirmations(i32),
+    #[error("inconsistent genesis/parent")]
+    ParentMismatch,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {
@@ -396,6 +469,12 @@ pub struct InscriberOutput {
 
 #[derive(Debug, Error, Clone)]
 pub enum BitcoinError {
+    #[error("getblockheader {hash}: {reason}")]
+    InvalidBlockHeader { hash: bitcoin::BlockHash, reason: HeaderValidationError },
+
+    #[error("getblock {0}: body/header identity mismatch")]
+    InvalidBlockBody(bitcoin::BlockHash),
+
     #[error("RPC error: {0}")]
     Rpc(String),
 
@@ -443,12 +522,6 @@ pub type Result<T> = std::result::Result<T, BitcoinError>;
 
 pub type BitcoinClientResult<T> = Result<T>;
 pub type BitcoinRpcResult<T> = Result<T>;
-
-impl From<bitcoincore_rpc::Error> for BitcoinError {
-    fn from(error: bitcoincore_rpc::Error) -> Self {
-        BitcoinError::Rpc(error.to_string())
-    }
-}
 
 impl From<bitcoin::address::ParseError> for BitcoinError {
     fn from(error: bitcoin::address::ParseError) -> Self {

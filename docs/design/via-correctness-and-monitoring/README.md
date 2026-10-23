@@ -68,6 +68,14 @@ project demonstrates a mechanism, not that its trust assumptions or policy trans
   execution and resources, current and fresh observations, and unavailable evidence distinct from
   healthy zero. It does not choose a metric representation or prove activation.
 
+- **Proof approval cannot come from the package's skip flag.**
+  [ADR 0016](../../adr/0016-record-only-completed-proof-verdicts.md) accepts no verdict for missing evidence or
+  malformed evidence without conclusive invalidity, preserves holds and finalization, and requires verifier-configured
+  isolated proof-free development with durable `unverified-dev` results and normal local voting. Binding remains
+  required before historical trust claims or withdrawal activation. The
+  [verifier guide](../../../via_verifier/README.md#proof-verification-outcomes) describes the ADR 0016 implementation
+  contract; it is not proof of deployment or historical clearance.
+
 These are accepted planning contracts, not assertions about current implementation. Preserve the
 existing withdrawal fee policy and the selected signing guarantee; ADR 0004 adds neither a mandatory
 fresh `gettxout` call nor a guarantee that preserved facts remain canonical when signing begins.
@@ -161,31 +169,41 @@ signing outside automatically retried database closures.
 
 ## Say what verification actually established
 
-A stored approval and a newly installed verifier answer different questions. The approval is a
-historical fact about a previous process. The new binary determines future behavior. Neither alone
-establishes which historical proof bytes were checked against which batch statement and key.
+A stored approval and a newly installed verifier answer different questions. The approval is a historical fact about a
+previous process. The new binary determines future behavior. Neither alone establishes which historical proof bytes were
+checked against which batch statement and key.
 
-The [proof research](../../research/proof-verification-and-history.md) distinguishes completed valid
-verification, completed invalid verification, a skipped check, and unavailable or malformed evidence.
-A combined batch-policy result must also say whether non-proof prerequisites were complete. RISC Zero
-checks the expected program and public journal; SP1 binds the verification key, public values, and
-circuit version. Ethereum's Engine API distinguishes incomplete processing from `VALID`. These
-comparisons explain result meaning; they do not select Via's consensus or historical recovery policy.
+The [proof research](../../research/proof-verification-and-history.md) distinguishes completed valid verification,
+completed invalid verification, a skipped check, and unavailable or malformed evidence. A combined batch-policy result
+must also say whether non-proof prerequisites were complete. RISC Zero checks the expected program and public journal;
+SP1 binds the verification key, public values, and circuit version. Ethereum's Engine API distinguishes incomplete
+processing from `VALID`. These comparisons explain result meaning; they do not select Via's consensus or historical
+recovery policy.
 
-Prefer preserving these meanings through callers, persistence, votes, and restart. A richer enum is
-useful only if consumers retain its distinctions. A smaller `Result<bool>` can be adequate when a
-successful boolean means a completed verdict and errors remain non-verdicts throughout the path.
+The verdict and development policies are now accepted in
+[ADR 0016](../../adr/0016-record-only-completed-proof-verdicts.md). The verifier, not the package, selects isolated
+development mode. Its proof-free results vote normally only locally and retain their `unverified-dev` identity across
+restart; production has no bypass. Missing evidence does not create a vote or invalidation, and existing holds remain.
+The finalization rule is unchanged. [#397’s statement-binding decision](https://github.com/vianetwork/via-core/blob/caa3000e57a5e8ccafe5a9741bb774204063d4ce/docs/adr/0008-bind-proofs-by-chaining-verified-commitments.md) accepts
+commitment chaining with root openings, but its sufficiency still requires offline proof. The
+[binding research](../../research/proof-statement-binding.md) separates future rejection and anchor choices from
+parent-root, batch-identity, authorized metadata, consumed-data and persistence obligations. Historical clearance and
+activation remain unresolved.
 
-| Choice | Alternatives and recommendation; reason it remains open |
-| --- | --- |
-| P1 — Durable verdict meaning | Retain the existing result shape with explicit errors, or introduce a richer outcome where consumers need it. Prefer the smallest representation that preserves completed checks, missing prerequisites, and non-verdicts through storage and outgoing votes. Consensus-threshold policy is a separate choice. |
-| P2 — Development execution | Remove proof-free execution or isolate it in a development path without production storage or vote publication. Prefer no production bypass. If simulation remains necessary, its results must remain identifiable after restart. |
-| P3 — Historical trust | Re-verify an explicitly bounded history, or adopt a separately approved trusted boundary with stated limits. Prefer joined proof, batch, key, process, and stored-result evidence. Missing objects and unsupported history remain unknown, not cleared. |
-| P4 — Recovery and activation | Keep source correction, historical disposition, and activation separately authorized. Re-verification, checkpointing, replay, and republishing have different consequences. Prefer preserving evidence and holding affected activation until the selected recovery policy is satisfied. |
+Prefer preserving these meanings through callers, persistence, votes, and restart. A richer enum is useful only if
+consumers retain its distinctions. A smaller `Result<bool>` can be adequate when a successful boolean means a completed
+verdict and errors remain non-verdicts throughout the path.
 
-**Proof needed:** genuine supported proof formats, changed commitments, invalid proofs, unavailable
-objects, incomplete prerequisites, persisted verdict and vote replay, restart, and already-finalized
-cases. Clearing a database row does not retract an attestation already published on Bitcoin.
+| Choice                       | Accepted boundary and remaining work                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1 — Durable verdict meaning | Accepted: no package-controlled approval; missing, malformed, failed-proof or deposit-mismatch evidence gives no new rejection under ADR 0016. Preserve holds and current finalization. The verifier guide describes the implementation contract. Commitment chaining and root openings remain unimplemented; binding alone does not establish conclusive negative evidence. |
+| P2 — Development execution   | Accepted: verifier-configured proof-free development restricted to regtest/development stores, with normal local voting and durable `unverified-dev` origin. The verifier guide owns fencing and restore instructions. Source implementation does not prove deployment, exclude old writers or clear historical results.                                                     |
+| P3 — Historical trust        | Still open: select and justify bounded historical trust and any recovery. Sufficient proof-to-batch binding is a required follow-up before clearance. Missing objects and unsupported history remain unknown, not cleared; no checkpoint is selected.                                                                                                                        |
+| P4 — Recovery and activation | Still open: keep source correction, historical disposition and activation separately authorized. Binding is required before withdrawal activation. Re-verification, checkpointing, replay and republishing have different consequences; none is selected here.                                                                                                               |
+
+**Proof needed:** genuine supported proof formats, changed commitments, invalid proofs, unavailable objects, incomplete
+prerequisites, persisted verdict and vote replay, restart, and already-finalized cases. Clearing a database row does not
+retract an attestation already published on Bitcoin.
 
 ## Make one deposit decision from one transaction
 

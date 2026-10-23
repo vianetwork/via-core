@@ -1,0 +1,12 @@
+# Scope and narrow-exclusion structure adapted from rust-bitcoin; Via tests use the project compiler.
+# https://github.com/rust-bitcoin/rust-bitcoin/blob/53ee132ca2737466f942f8b7db33a9871bdd4f7b/.cargo/mutants.toml
+# Exclude ignored build outputs from scratch copies; this does not exclude source mutants.
+gitignore = true
+additional_cargo_args = ["--locked"]
+examine_globs = ["core/lib/via_reorg/src/**/*.rs"]
+exclude_globs = []
+exclude_re = []
+test_package = ["via_reorg"]
+minimum_test_timeout = 5.0
+timeout_multiplier = 5.0
+build_timeout_multiplier = 3.0

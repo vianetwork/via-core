@@ -107,28 +107,7 @@ jobs:
         run: |
           verifier=$(cargo metadata --locked --no-deps --format-version 1 | jq -r --arg root "$PWD/via_verifier/" \
             '[.packages[] | select(.manifest_path | startswith($root)) | "package(=" + .name + ")"] | join(" | ")')
-          # Only real-Core cases are deferred to R1; new packages and integration tests run by default.
-          eligible='package(/^via/) - (
-            (package(=via_btc_client) & binary(=deposit_integration_test) &
-              (test(=integration_tests::test_inscriber_deposit_with_container_user) |
-               test(=integration_tests::test_inscriber_deposit_with_real_bitcoin_node) |
-               test(=integration_tests::test_inscriber_multiple_users_different_amounts) |
-               test(=integration_tests::test_insufficient_funds_deposit_failure) |
-               test(=integration_tests::test_opreturn_deposit_multiple_amounts) |
-               test(=integration_tests::test_opreturn_deposit_with_real_bitcoin_node) |
-               test(=integration_tests::test_opreturn_insufficient_funds_deposit_failure)))
-            | ((package(=via_btc_watch) | package(=via_verifier_btc_watch)) &
-              (test(=test::system_wallets::tests::test_update_bridge_wallet_with_4_new_verifiers_when_old_3) |
-               test(=test::system_wallets::tests::test_update_bridge_wallet_with_2_new_verifiers_when_old_3) |
-               test(=test::system_wallets::tests::test_update_governance_bridge_wallet_and_sequencer)))
-            | (package(=via_verifier_btc_watch) &
-              (test(=test::verifier::tests::test_insert_first_batch) |
-               test(=test::verifier::tests::test_insert_two_times_first_batch) |
-               test(=test::verifier::tests::test_insert_multiple_batches) |
-               test(=test::verifier::tests::test_should_fail_to_insert_batch_with_invalid_prev_batch_hash) |
-               test(=test::verifier::tests::test_should_not_insert_batch_zero) |
-               test(=test::verifier::tests::test_should_insert_new_valid_batch_with_same_block_number_after_it_was_rejected)))
-          )'
+          eligible='package(/^via/)'
           test_result=0
           cargo nextest run --locked -p 'via*' --tests --no-tests=fail --no-fail-fast --test-threads=4 \
             -E "$eligible & not ($verifier)" || test_result=1

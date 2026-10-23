@@ -22,7 +22,6 @@ zksync_shared_metrics.workspace = true
 zksync_types.workspace = true
 via_btc_client.workspace = true
 bitcoin.workspace = true
-bitcoincore-rpc.workspace = true
 
 anyhow.workspace = true
 serde.workspace = true

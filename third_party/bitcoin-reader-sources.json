@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "ldk-walk",
+      "repo": "lightningdevkit/rust-lightning",
+      "tracked_ref": "main",
+      "baseline_commit": "d7a980641c6325ddda5072a0f470ef8392676cf5",
+      "upstream_path": "lightning-block-sync/src/lib.rs",
+      "baseline_blob": "b5d76e3bd06775334696b4800d97db85c5c7f49e",
+      "upstream_region": "find_difference_from_header traversal loop",
+      "local_path": "core/lib/via_reorg/src/chain.rs",
+      "start_marker": "// provenance:ldk-walk:start",
+      "end_marker": "// provenance:ldk-walk:end",
+      "retained_text": "\t\tloop {\n\t\t\t// Found the common ancestor.\n\t\t\tif current.block_hash == previous.block_hash {\n\t\t\t\tbreak;\n\t\t\t}\n\n\t\t\t// Walk back the chain, finding blocks needed to connect and disconnect. Only walk back\n\t\t\t// the header with the greater height, or both if equal heights.\n\t\t\tlet current_height = current.height;\n\t\t\tlet previous_height = previous.height;\n\t\t\tif current_height <= previous_height {\n\t\t\t\tprevious = self.look_up_previous_header(chain_poller, &previous).await?;\n\t\t\t}\n\t\t\tif current_height >= previous_height {\n\t\t\t\tconnected_blocks.push(current);\n\t\t\t\tcurrent = self.look_up_previous_header(chain_poller, &current).await?;\n\t\t\t}\n\t\t}\n",
+      "changes": "Literal loop unchanged; Via header lookup, identity checks, budgets and ordered output surround it."
+    }
+  ]
+}

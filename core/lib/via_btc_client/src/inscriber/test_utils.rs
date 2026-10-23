@@ -11,7 +11,7 @@ use bitcoin::{
     Address, Amount, Block, BlockHash, CompressedPublicKey, Network, OutPoint, PrivateKey,
     ScriptBuf, Transaction, TxOut, Txid,
 };
-use bitcoincore_rpc::json::{FeeRatePercentiles, GetBlockStatsResult};
+use crate::types::BlockStats;
 
 use super::Inscriber;
 use crate::{
@@ -142,44 +142,8 @@ impl BitcoinOps for MockBitcoinOps {
         BitcoinClientResult::Ok(self.fee_history.clone())
     }
 
-    async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult> {
-        BitcoinClientResult::Ok(GetBlockStatsResult {
-            avg_fee: Amount::ZERO,
-            avg_fee_rate: Amount::ZERO,
-            avg_tx_size: 0,
-            block_hash: BlockHash::all_zeros(),
-            fee_rate_percentiles: FeeRatePercentiles {
-                fr_10th: Amount::ZERO,
-                fr_25th: Amount::ZERO,
-                fr_50th: Amount::ZERO,
-                fr_75th: Amount::ZERO,
-                fr_90th: Amount::ZERO,
-            },
-            height,
-            ins: 0,
-            max_fee: Amount::ZERO,
-            max_fee_rate: Amount::ZERO,
-            max_tx_size: 0,
-            median_fee: Amount::ZERO,
-            median_time: 0,
-            median_tx_size: 0,
-            min_fee: Amount::ZERO,
-            min_fee_rate: Amount::ZERO,
-            min_tx_size: 0,
-            outs: 0,
-            subsidy: Amount::ZERO,
-            sw_total_size: 0,
-            sw_total_weight: 0,
-            sw_txs: 0,
-            time: 0,
-            total_out: Amount::ZERO,
-            total_size: 0,
-            total_weight: 0,
-            total_fee: Amount::ZERO,
-            txs: 0,
-            utxo_increase: 0,
-            utxo_size_inc: 0,
-        })
+    async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<BlockStats> {
+        BitcoinClientResult::Ok(BlockStats { height, ..BlockStats::default() })
     }
 }
 

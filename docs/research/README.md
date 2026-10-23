@@ -14,7 +14,7 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
   continuity](verifier-checkpoint-and-proof-continuity.md): why a reorg made
   the verifier skip the proof for batch 265, what established software does
   instead, and why a missing proof must stop the reader.
-  [ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) accepts
+  [ADR 0016](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) accepts
   the fix. Replaying already skipped history remains open.
 - [Bitcoin reorg handling](bitcoin-reorg-handling.md): how Bitcoin Core
   exposes reorgs, measured reorg depths per network, where Via's current reader
@@ -43,7 +43,9 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
 - [Withdrawal authorization](withdrawal-authorization-and-refork.md): signer checks, exact proposals,
   expected obligations, and comparable bridge implementations.
 - [Proof verification and historical evidence](proof-verification-and-history.md): verification
-  inputs, result handling, and historical trust.
+  inputs, result handling, historical trust, and the pinned references behind the ADR 0016 implementation.
+- [Proof-statement binding](proof-statement-binding.md): binding a verified proof to the inscribed batch, inspected
+  implementations and their engineering patterns.
 - [Bounded signing transport](bounded-signing-transport.md): parent references, complete-future
   envelope bounds, mixed-version negotiation, exact evidence and legacy removal.
 - [Coordinator request authentication](coordinator-request-authentication.md): signed content,

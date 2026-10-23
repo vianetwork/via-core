@@ -40,6 +40,7 @@ musig2 = "0.2.0"
 
 
 [dev-dependencies]
+via_test_utils.workspace = true
 zksync_health_check.workspace = true
 mockall = "0.13.0"
 musig2 = "0.2.0"

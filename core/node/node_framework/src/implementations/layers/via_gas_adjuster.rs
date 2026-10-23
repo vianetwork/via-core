@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use via_btc_client::client::BitcoinClient;
+use via_btc_client::{client::BitcoinClient, types::NodeAuth};
 use via_fee_model::ViaGasAdjuster;
 use zksync_config::{
     configs::{via_btc_client::ViaBtcClientConfig, via_secrets::ViaL1Secrets},
@@ -65,7 +65,7 @@ impl WiringLayer for ViaGasAdjusterLayer {
         let btc_client = Arc::new(
             BitcoinClient::new(
                 self.secrets.rpc_url.expose_str(),
-                self.secrets.auth_node(),
+                NodeAuth::UserPass(self.secrets.rpc_user.clone(), self.secrets.rpc_password.clone()),
                 self.via_btc_client,
             )
             .unwrap(),

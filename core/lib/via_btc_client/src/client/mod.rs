@@ -3,7 +3,6 @@ use std::sync::Arc;
 use anyhow::Context;
 use async_trait::async_trait;
 use bitcoin::{Address, Block, BlockHash, Network, OutPoint, Transaction, TxOut, Txid};
-use bitcoincore_rpc::json::{EstimateMode, GetBlockStatsResult};
 use futures::future::join_all;
 use tracing::{debug, error, instrument};
 use zksync_config::configs::via_btc_client::ViaBtcClientConfig;
@@ -15,7 +14,10 @@ use crate::{
     client::{fee_limits::FeeRateLimits, rpc_client::BitcoinRpcClient},
     metrics::{RpcMethodLabel, METRICS},
     traits::{BitcoinOps, BitcoinRpc},
-    types::{BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth},
+    types::{
+        BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth, BlockStats, BlockHeaderInfo,
+        FeeEstimateMode,
+    },
 };
 
 #[derive(Debug)]
@@ -25,6 +27,32 @@ pub struct BitcoinClient {
 }
 
 impl BitcoinClient {
+    pub async fn block_hash_at_height(&self, height: u32) -> BitcoinClientResult<BlockHash> {
+        self.rpc.get_block_hash(u64::from(height)).await
+    }
+
+    pub async fn best_block_hash(&self) -> BitcoinClientResult<BlockHash> {
+        self.rpc.get_best_block_hash().await
+    }
+
+    pub async fn header_by_hash(
+        &self,
+        hash: &BlockHash,
+    ) -> BitcoinClientResult<Option<BlockHeaderInfo>> {
+        self.rpc.get_block_header(hash).await
+    }
+
+    /// Fetch by the checked hash and validate the body before parsing or opening a write transaction.
+    pub async fn checked_block(&self, header: &BlockHeaderInfo) -> BitcoinClientResult<Block> {
+        let block = self.rpc.get_block_by_hash(&header.hash).await?;
+        if block.block_hash() != header.hash
+            || block.header.prev_blockhash != header.parent_hash
+            || block.compute_merkle_root() != Some(block.header.merkle_root)
+        {
+            return Err(BitcoinError::InvalidBlockBody(header.hash));
+        }
+        Ok(block)
+    }
     #[instrument(skip(auth, rpc_url), target = "bitcoin_client")]
     pub fn new(
         rpc_url: &str,
@@ -155,7 +183,7 @@ impl BitcoinOps for BitcoinClient {
         if self.config.use_rpc_for_fee_rate() {
             let estimation_result = self
                 .rpc
-                .estimate_smart_fee(conf_target, Some(EstimateMode::Economical))
+                .estimate_smart_fee(conf_target, Some(FeeEstimateMode::Economical))
                 .await;
 
             fee_rate_sat_kb = match estimation_result {
@@ -275,7 +303,7 @@ impl BitcoinOps for BitcoinClient {
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
-    async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult> {
+    async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<BlockStats> {
         debug!("Fetching block by hash");
         self.rpc.get_block_stats(height).await
     }
@@ -324,11 +352,8 @@ impl Clone for BitcoinClient {
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin::{absolute::LockTime, hashes::Hash, transaction::Version, Amount, Wtxid};
-    use bitcoincore_rpc::{
-        bitcoincore_rpc_json::GetBlockchainInfoResult,
-        json::{EstimateSmartFeeResult, GetMempoolInfoResult, GetRawTransactionResult},
-    };
+    use bitcoin::{absolute::LockTime, hashes::Hash, transaction::Version, Amount};
+    use crate::types::{FeeEstimate, MempoolInfo, TransactionInfo};
     use mockall::{mock, predicate::*};
 
     use super::*;
@@ -346,6 +371,7 @@ mod tests {
             async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
             async fn get_block_count(&self) -> BitcoinClientResult<u64>;
+            async fn get_block_header(&self, hash: &BlockHash) -> BitcoinRpcResult<Option<BlockHeaderInfo>>;
             async fn get_block_by_height(&self, block_height: u128) -> BitcoinClientResult<Block>;
             fn get_block_hash<'life0, 'async_trait>(
                 &'life0 self,
@@ -356,11 +382,10 @@ mod tests {
                 Self: 'async_trait;
             async fn get_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
             async fn get_best_block_hash(&self) -> BitcoinClientResult<BlockHash>;
-            async fn get_raw_transaction_info(&self, txid: &Txid) -> BitcoinClientResult<GetRawTransactionResult>;
-            async fn estimate_smart_fee(&self, conf_target: u16, estimate_mode: Option<EstimateMode>) -> BitcoinClientResult<EstimateSmartFeeResult>;
-            async fn get_blockchain_info(&self) -> BitcoinRpcResult<GetBlockchainInfoResult>;
-            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
-            async fn get_mempool_info(&self) -> BitcoinRpcResult<GetMempoolInfoResult>;
+            async fn get_raw_transaction_info(&self, txid: &Txid) -> BitcoinClientResult<TransactionInfo>;
+            async fn estimate_smart_fee(&self, conf_target: u16, estimate_mode: Option<FeeEstimateMode>) -> BitcoinClientResult<FeeEstimate>;
+            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<BlockStats>;
+            async fn get_mempool_info(&self) -> BitcoinRpcResult<MempoolInfo>;
         }
     }
 
@@ -529,23 +554,7 @@ mod tests {
     async fn test_check_tx_confirmation() {
         let mut mock_rpc = MockBitcoinRpc::new();
         mock_rpc.expect_get_raw_transaction_info().return_once(|_| {
-            Ok(GetRawTransactionResult {
-                in_active_chain: None,
-                hex: vec![],
-                txid: Txid::all_zeros(),
-                hash: Wtxid::all_zeros(),
-                size: 0,
-                vsize: 0,
-                version: 0,
-                locktime: 0,
-                vin: vec![],
-                vout: vec![],
-                blockhash: None,
-                confirmations: Some(3),
-
-                time: None,
-                blocktime: None,
-            })
+            Ok(TransactionInfo { confirmations: Some(3) })
         });
 
         let client = get_client_with_mock(mock_rpc);
@@ -571,26 +580,13 @@ mod tests {
         for (mempool_min_fee, expected_rate) in [(1000, 2), (5000, 5)] {
             let mut mock_rpc = MockBitcoinRpc::new();
             mock_rpc.expect_estimate_smart_fee().return_once(|_, _| {
-                Ok(EstimateSmartFeeResult {
+                Ok(FeeEstimate {
                     fee_rate: Some(Amount::from_sat(1000)),
                     errors: None,
-                    blocks: 0,
                 })
             });
             mock_rpc.expect_get_mempool_info().return_once(move || {
-                Ok(GetMempoolInfoResult {
-                    loaded: Some(true),
-                    size: 0,
-                    bytes: 0,
-                    usage: 0,
-                    total_fee: None,
-                    max_mempool: 0,
-                    mempool_min_fee: Amount::from_sat(mempool_min_fee),
-                    min_relay_tx_fee: Amount::ZERO,
-                    incremental_relay_fee: None,
-                    unbroadcast_count: None,
-                    full_rbf: None,
-                })
+                Ok(MempoolInfo { mempool_min_fee: Amount::from_sat(mempool_min_fee) })
             });
 
             let client = get_client_with_mock(mock_rpc);
