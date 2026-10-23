@@ -429,10 +429,7 @@ impl ViaVotesDal<'_, '_> {
         .instrument("get_verification_watermarks")
         .fetch_one(self.storage)
         .await?;
-        Ok((
-            row.indexed.unwrap_or(0) as u32,
-            row.approved.unwrap_or(0) as u32,
-        ))
+        Ok((row.indexed.unwrap_or(0) as u32, row.approved.unwrap_or(0) as u32))
     }
 
     pub async fn verify_votable_transaction(

@@ -27,16 +27,10 @@ pub async fn verify_proof(proof_data: ProveBatches) -> anyhow::Result<bool> {
     // Upstream zkSync uses the flag only to encode a submission, one batch with one proof or an empty proof, and its verifier judges what arrives:
     // https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/l1_contract_interface/src/i_executor/methods/prove_batches.rs#L46-L136
     let [batch] = proof_data.l1_batches.as_slice() else {
-        anyhow::bail!(
-            "Expected exactly one L1 batch, got {}",
-            proof_data.l1_batches.len()
-        );
+        anyhow::bail!("Expected exactly one L1 batch, got {}", proof_data.l1_batches.len());
     };
     let [wrapped_proof] = proof_data.proofs.as_slice() else {
-        anyhow::bail!(
-            "Expected exactly one proof, got {}",
-            proof_data.proofs.len()
-        );
+        anyhow::bail!("Expected exactly one proof, got {}", proof_data.proofs.len());
     };
 
     let recursion_scheduler_level_vk_hash: H256 =
@@ -59,10 +53,8 @@ pub async fn verify_proof(proof_data: ProveBatches) -> anyhow::Result<bool> {
     .await?;
 
     let mut proof = wrapped_proof.scheduler_proof.clone();
-    proof.inputs = generate_inputs(
-        &proof_data.prev_l1_batch.metadata.commitment,
-        &batch.metadata.commitment,
-    );
+    proof.inputs =
+        generate_inputs(&proof_data.prev_l1_batch.metadata.commitment, &batch.metadata.commitment);
     let is_valid = ViaZKProof { proof }.verify(vk_inner)?;
 
     tracing::info!("Proof verification result: {}", is_valid);

@@ -343,9 +343,8 @@ async fn store_mode_is_designated_once_and_enforced() {
     dal.ensure_proof_verification_mode(&dev).await.unwrap();
     dal.ensure_proof_verification_mode(&dev).await.unwrap();
 
-    let reopened_strict = dal
-        .ensure_proof_verification_mode(&store_mode(false, "regtest", "regtest-genesis"))
-        .await;
+    let reopened_strict =
+        dal.ensure_proof_verification_mode(&store_mode(false, "regtest", "regtest-genesis")).await;
     assert!(reopened_strict.is_err());
     assert!(dal
         .ensure_proof_verification_mode(&store_mode(true, "regtest", "other-genesis"))
@@ -358,10 +357,7 @@ async fn store_mode_is_designated_once_and_enforced() {
     .fetch_one(storage.conn())
     .await
     .unwrap();
-    assert_eq!(
-        persisted,
-        (true, "regtest".into(), "regtest-genesis".into())
-    );
+    assert_eq!(persisted, (true, "regtest".into(), "regtest-genesis".into()));
 }
 
 #[tokio::test]
@@ -369,13 +365,8 @@ async fn strict_store_rejects_development_mode() {
     let mut storage = create_test_connection().await;
     let mut dal = storage.via_store_mode_dal();
 
-    dal.ensure_proof_verification_mode(&store_mode(false, "regtest", "g"))
-        .await
-        .unwrap();
-    assert!(dal
-        .ensure_proof_verification_mode(&store_mode(true, "regtest", "g"))
-        .await
-        .is_err());
+    dal.ensure_proof_verification_mode(&store_mode(false, "regtest", "g")).await.unwrap();
+    assert!(dal.ensure_proof_verification_mode(&store_mode(true, "regtest", "g")).await.is_err());
 }
 
 #[tokio::test]
@@ -383,11 +374,7 @@ async fn development_designation_refuses_a_store_with_verdicts() {
     let mut storage = create_test_connection().await;
     let proof_reveal_tx_id = H256::random();
     insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
-    storage
-        .via_votes_dal()
-        .verify_votable_transaction(1, proof_reveal_tx_id, true)
-        .await
-        .unwrap();
+    storage.via_votes_dal().verify_votable_transaction(1, proof_reveal_tx_id, true).await.unwrap();
 
     let designated = storage
         .via_store_mode_dal()
@@ -407,16 +394,10 @@ async fn development_store_restarts_after_its_own_verdicts() {
     let pool = ConnectionPool::<Verifier>::test_pool().await;
     let database_url = pool.database_url().clone();
     let mut storage = pool.connection().await.unwrap();
-    let old_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(storage.conn())
-        .await
-        .unwrap();
+    let old_pid: i32 =
+        sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(storage.conn()).await.unwrap();
     let dev = store_mode(true, "regtest", "g");
-    storage
-        .via_store_mode_dal()
-        .ensure_proof_verification_mode(&dev)
-        .await
-        .unwrap();
+    storage.via_store_mode_dal().ensure_proof_verification_mode(&dev).await.unwrap();
     let proof_reveal_tx_id = H256::random();
     insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
     let id = storage
@@ -425,30 +406,17 @@ async fn development_store_restarts_after_its_own_verdicts() {
         .await
         .unwrap();
 
-    storage
-        .via_votes_dal()
-        .mark_unverified_dev(id)
-        .await
-        .unwrap();
+    storage.via_votes_dal().mark_unverified_dev(id).await.unwrap();
     drop(storage);
     drop(pool);
 
     // A new pool cannot reuse the old process's physical database connection.
-    let restarted_pool = ConnectionPool::<Verifier>::singleton(database_url)
-        .build()
-        .await
-        .unwrap();
+    let restarted_pool = ConnectionPool::<Verifier>::singleton(database_url).build().await.unwrap();
     let mut storage = restarted_pool.connection().await.unwrap();
-    let new_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(storage.conn())
-        .await
-        .unwrap();
+    let new_pid: i32 =
+        sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(storage.conn()).await.unwrap();
     assert_ne!(old_pid, new_pid);
-    storage
-        .via_store_mode_dal()
-        .ensure_proof_verification_mode(&dev)
-        .await
-        .unwrap();
+    storage.via_store_mode_dal().ensure_proof_verification_mode(&dev).await.unwrap();
     assert!(storage
         .via_store_mode_dal()
         .ensure_proof_verification_mode(&store_mode(false, "regtest", "g"))
@@ -500,16 +468,8 @@ async fn unverified_dev_marker_is_recorded_with_the_verdict() {
         .verify_votable_transaction(1, proof_reveal_tx_id, true)
         .await
         .unwrap();
-    storage
-        .via_votes_dal()
-        .mark_unverified_dev(id)
-        .await
-        .unwrap();
-    assert!(storage
-        .via_votes_dal()
-        .mark_unverified_dev(id + 1)
-        .await
-        .is_err());
+    storage.via_votes_dal().mark_unverified_dev(id).await.unwrap();
+    assert!(storage.via_votes_dal().mark_unverified_dev(id + 1).await.is_err());
 
     let marked: bool =
         sqlx::query_scalar("SELECT unverified_dev FROM via_votable_transactions WHERE id = $1")
@@ -535,11 +495,7 @@ async fn strict_store_refuses_the_unverified_dev_marker() {
         .verify_votable_transaction(1, proof_reveal_tx_id, true)
         .await
         .unwrap();
-    assert!(storage
-        .via_votes_dal()
-        .mark_unverified_dev(id)
-        .await
-        .is_err());
+    assert!(storage.via_votes_dal().mark_unverified_dev(id).await.is_err());
 }
 
 async fn wait_for_database_lock(observer: &mut Connection<'_, Verifier>, pid: i32) {
@@ -567,42 +523,23 @@ async fn concurrent_store_admission(second_mode: StoreMode) {
     let mut first = pool.connection().await.unwrap();
     let mut second = pool.connection().await.unwrap();
     let mut observer = pool.connection().await.unwrap();
-    let second_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(second.conn())
-        .await
-        .unwrap();
+    let second_pid: i32 =
+        sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(second.conn()).await.unwrap();
     let winner = store_mode(true, "regtest", "g");
     let same_mode = second_mode == winner;
     let mut first_tx = first.start_transaction().await.unwrap();
-    first_tx
-        .via_store_mode_dal()
-        .ensure_proof_verification_mode(&winner)
-        .await
-        .unwrap();
+    first_tx.via_store_mode_dal().ensure_proof_verification_mode(&winner).await.unwrap();
     let contender = tokio::spawn(async move {
-        second
-            .via_store_mode_dal()
-            .ensure_proof_verification_mode(&second_mode)
-            .await
+        second.via_store_mode_dal().ensure_proof_verification_mode(&second_mode).await
     });
     wait_for_database_lock(&mut observer, second_pid).await;
     let proof = H256::random();
     insert_test_votable_transaction(&mut first_tx, proof).await;
-    let id = first_tx
-        .via_votes_dal()
-        .verify_votable_transaction(1, proof, true)
-        .await
-        .unwrap();
-    first_tx
-        .via_votes_dal()
-        .mark_unverified_dev(id)
-        .await
-        .unwrap();
+    let id = first_tx.via_votes_dal().verify_votable_transaction(1, proof, true).await.unwrap();
+    first_tx.via_votes_dal().mark_unverified_dev(id).await.unwrap();
     first_tx.commit().await.unwrap();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(10), contender)
-        .await
-        .unwrap()
-        .unwrap();
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(10), contender).await.unwrap().unwrap();
     assert_eq!(result.is_ok(), same_mode);
     let designation: (bool, String, String) = sqlx::query_as(
         "SELECT proof_verification_dev_mode, bitcoin_network, bitcoin_genesis_hash \
@@ -645,10 +582,8 @@ async fn rollback_waits_for_admission_and_preserves_development_approval() {
     let mut observer = pool.connection().await.unwrap();
     let proof_reveal_tx_id = H256::random();
     insert_test_votable_transaction(&mut admission, proof_reveal_tx_id).await;
-    let rollback_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(rollback.conn())
-        .await
-        .unwrap();
+    let rollback_pid: i32 =
+        sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(rollback.conn()).await.unwrap();
     let mut admission_tx = admission.start_transaction().await.unwrap();
     admission_tx
         .via_store_mode_dal()
@@ -674,19 +609,13 @@ async fn rollback_waits_for_admission_and_preserves_development_approval() {
         .verify_votable_transaction(1, proof_reveal_tx_id, true)
         .await
         .unwrap();
-    admission_tx
-        .via_votes_dal()
-        .mark_unverified_dev(id)
-        .await
-        .unwrap();
+    admission_tx.via_votes_dal().mark_unverified_dev(id).await.unwrap();
     admission_tx.commit().await.unwrap();
-    assert!(
-        tokio::time::timeout(std::time::Duration::from_secs(10), rollback_task)
-            .await
-            .unwrap()
-            .unwrap()
-            .is_err()
-    );
+    assert!(tokio::time::timeout(std::time::Duration::from_secs(10), rollback_task)
+        .await
+        .unwrap()
+        .unwrap()
+        .is_err());
     let persisted: (bool, bool, bool) = sqlx::query_as(
         "SELECT m.proof_verification_dev_mode, v.l1_batch_status, v.unverified_dev \
          FROM via_verifier_store_mode m CROSS JOIN via_votable_transactions v \
@@ -710,15 +639,10 @@ async fn rollback_winning_before_admission_cannot_erase_a_development_result() {
     let mut rollback = pool.connection().await.unwrap();
     let mut admission = pool.connection().await.unwrap();
     let mut observer = pool.connection().await.unwrap();
-    let admission_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(admission.conn())
-        .await
-        .unwrap();
+    let admission_pid: i32 =
+        sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(admission.conn()).await.unwrap();
     let mut rollback_tx = rollback.start_transaction().await.unwrap();
-    sqlx::raw_sql(STORE_MODE_DOWN)
-        .execute(rollback_tx.conn())
-        .await
-        .unwrap();
+    sqlx::raw_sql(STORE_MODE_DOWN).execute(rollback_tx.conn()).await.unwrap();
     let admission_task = tokio::spawn(async move {
         admission
             .via_store_mode_dal()
@@ -727,19 +651,14 @@ async fn rollback_winning_before_admission_cannot_erase_a_development_result() {
     });
     wait_for_database_lock(&mut observer, admission_pid).await;
     rollback_tx.commit().await.unwrap();
-    assert!(
-        tokio::time::timeout(std::time::Duration::from_secs(10), admission_task)
-            .await
-            .unwrap()
-            .unwrap()
-            .is_err()
-    );
+    assert!(tokio::time::timeout(std::time::Duration::from_secs(10), admission_task)
+        .await
+        .unwrap()
+        .unwrap()
+        .is_err());
     // Reapplying the schema cannot expose a development result with its origin erased.
     let mut restore = observer.start_transaction().await.unwrap();
-    sqlx::raw_sql(STORE_MODE_UP)
-        .execute(restore.conn())
-        .await
-        .unwrap();
+    sqlx::raw_sql(STORE_MODE_UP).execute(restore.conn()).await.unwrap();
     restore.commit().await.unwrap();
     observer
         .via_store_mode_dal()
@@ -758,14 +677,7 @@ async fn rollback_winning_before_admission_cannot_erase_a_development_result() {
 #[tokio::test]
 async fn verification_watermarks_exclude_rejections_and_forks_but_are_not_a_prefix() {
     let mut storage = create_test_connection().await;
-    assert_eq!(
-        storage
-            .via_votes_dal()
-            .get_verification_watermarks()
-            .await
-            .unwrap(),
-        (0, 0)
-    );
+    assert_eq!(storage.via_votes_dal().get_verification_watermarks().await.unwrap(), (0, 0));
     for batch in 1..=5_u32 {
         storage
             .via_votes_dal()
@@ -792,35 +704,14 @@ async fn verification_watermarks_exclude_rejections_and_forks_but_are_not_a_pref
     .unwrap();
     sqlx::query("UPDATE via_votable_transactions SET l1_batch_status = TRUE, is_finalized = FALSE WHERE l1_batch_number = 5")
         .execute(storage.conn()).await.unwrap();
-    assert_eq!(
-        storage
-            .via_votes_dal()
-            .get_verification_watermarks()
-            .await
-            .unwrap(),
-        (4, 0)
-    );
+    assert_eq!(storage.via_votes_dal().get_verification_watermarks().await.unwrap(), (4, 0));
     // Legacy and development approvals count despite the unresolved lower batch.
     sqlx::query("UPDATE via_votable_transactions SET l1_batch_status = TRUE, is_finalized = TRUE WHERE l1_batch_number = 3")
         .execute(storage.conn()).await.unwrap();
-    assert_eq!(
-        storage
-            .via_votes_dal()
-            .get_verification_watermarks()
-            .await
-            .unwrap(),
-        (4, 3)
-    );
+    assert_eq!(storage.via_votes_dal().get_verification_watermarks().await.unwrap(), (4, 3));
     sqlx::query("UPDATE via_votable_transactions SET l1_batch_status = TRUE, unverified_dev = TRUE WHERE l1_batch_number = 4")
         .execute(storage.conn()).await.unwrap();
-    assert_eq!(
-        storage
-            .via_votes_dal()
-            .get_verification_watermarks()
-            .await
-            .unwrap(),
-        (4, 4)
-    );
+    assert_eq!(storage.via_votes_dal().get_verification_watermarks().await.unwrap(), (4, 4));
 }
 
 #[tokio::test]
@@ -828,34 +719,16 @@ async fn strict_rollback_and_reapply_preserve_historical_verdicts() {
     let mut storage = create_test_connection().await;
     let proof = H256::random();
     insert_test_votable_transaction(&mut storage, proof).await;
-    storage
-        .via_votes_dal()
-        .verify_votable_transaction(1, proof, true)
-        .await
-        .unwrap();
+    storage.via_votes_dal().verify_votable_transaction(1, proof, true).await.unwrap();
     let strict = store_mode(false, "regtest", "g");
-    assert!(storage
-        .via_store_mode_dal()
-        .ensure_proof_verification_mode(&strict)
-        .await
-        .unwrap());
+    assert!(storage.via_store_mode_dal().ensure_proof_verification_mode(&strict).await.unwrap());
     let mut rollback = storage.start_transaction().await.unwrap();
-    sqlx::raw_sql(STORE_MODE_DOWN)
-        .execute(rollback.conn())
-        .await
-        .unwrap();
+    sqlx::raw_sql(STORE_MODE_DOWN).execute(rollback.conn()).await.unwrap();
     rollback.commit().await.unwrap();
     let mut restore = storage.start_transaction().await.unwrap();
-    sqlx::raw_sql(STORE_MODE_UP)
-        .execute(restore.conn())
-        .await
-        .unwrap();
+    sqlx::raw_sql(STORE_MODE_UP).execute(restore.conn()).await.unwrap();
     restore.commit().await.unwrap();
-    assert!(storage
-        .via_store_mode_dal()
-        .ensure_proof_verification_mode(&strict)
-        .await
-        .unwrap());
+    assert!(storage.via_store_mode_dal().ensure_proof_verification_mode(&strict).await.unwrap());
     let persisted: (bool, bool, i64) = sqlx::query_as(
         "SELECT v.l1_batch_status, v.unverified_dev, m.designated_after_votable_id \
          FROM via_votable_transactions v CROSS JOIN via_verifier_store_mode m WHERE v.id = 1",

@@ -7,15 +7,8 @@ use via_verification::{
 use zksync_types::H256;
 
 fn fixture(name: &str) -> Vec<u8> {
-    std::env::set_var(
-        "VIA_VK_KEY_PATH",
-        concat!(env!("CARGO_MANIFEST_DIR"), "/keys"),
-    );
-    std::fs::read(format!(
-        "{}/examples/data/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .unwrap()
+    std::env::set_var("VIA_VK_KEY_PATH", concat!(env!("CARGO_MANIFEST_DIR"), "/keys"));
+    std::fs::read(format!("{}/examples/data/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()
 }
 
 fn v27() -> ProveBatchesV27 {
@@ -34,10 +27,7 @@ async fn both(
     let (mut a, mut b) = (v27(), v28());
     mutate27(&mut a);
     mutate28(&mut b);
-    [
-        verify_proof(ProveBatchData::V27(a)).await,
-        verify_proof(ProveBatchData::V28(b)).await,
-    ]
+    [verify_proof(ProveBatchData::V27(a)).await, verify_proof(ProveBatchData::V28(b)).await]
 }
 
 #[tokio::test]
@@ -99,11 +89,8 @@ async fn malformed_packages_are_not_verdicts() {
     for outcome in both(|d| d.proofs.clear(), |d| d.proofs.clear()).await {
         assert!(outcome.is_err());
     }
-    let outcomes = both(
-        |d| d.proofs.push(d.proofs[0].clone()),
-        |d| d.proofs.push(d.proofs[0].clone()),
-    )
-    .await;
+    let outcomes =
+        both(|d| d.proofs.push(d.proofs[0].clone()), |d| d.proofs.push(d.proofs[0].clone())).await;
     for outcome in outcomes {
         assert!(outcome.is_err());
     }
