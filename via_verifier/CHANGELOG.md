@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.3.0](https://github.com/vianetwork/via-core/compare/via_verifier-v1.2.0...via_verifier-v1.3.0) (2026-10-23)
+
+
+### Features
+
+* **via-verifier:** implement the durable withdrawal lifecycle ([666dc9e](https://github.com/vianetwork/via-core/commit/666dc9e8124502dbbbd109ea3a18712d51db68a8))
+
+
+### Bug Fixes
+
+* **via-btc:** serialize main-node Bitcoin recovery ([#404](https://github.com/vianetwork/via-core/issues/404)) ([813fddd](https://github.com/vianetwork/via-core/commit/813fddd858c3db3408e9cd9a216785b2a48bdbff))
+* **via-btc:** stop Bitcoin RPC from blocking async workers and fetch only block hashes ([ba71528](https://github.com/vianetwork/via-core/commit/ba71528609d7b3551f61ca7eb6704d4d8c68b6f3))
+* **via-reorg:** stop reorg recovery from skipping unread Bitcoin blocks ([#401](https://github.com/vianetwork/via-core/issues/401)) ([d264d26](https://github.com/vianetwork/via-core/commit/d264d2661595fc2550743df55e61757f9c66e397))
+* **via-verifier:** bound new withdrawal signing rounds ([305f257](https://github.com/vianetwork/via-core/commit/305f257990ae4ed84d6b2650c95e876656d32989))
+* **via-verifier:** check withdrawal wallet before reconciliation ([c352a64](https://github.com/vianetwork/via-core/commit/c352a64cf44202009227b075280359f3356b11c8))
+* **via-verifier:** compact authenticated signing snapshots ([b685036](https://github.com/vianetwork/via-core/commit/b685036325e6587986e9e65798c46cd6bbdc0f33))
+* **via-verifier:** let withdrawal observations join the scan transaction ([ab8e916](https://github.com/vianetwork/via-core/commit/ab8e9166426b23df14ec2fbe32524136a4a08c6c))
+* **via-verifier:** serve retained signing rounds by their actual size ([e4b8761](https://github.com/vianetwork/via-core/commit/e4b8761b255e174fb05bfcd82f060c5242368daa))
+
 ## [1.2.0](https://github.com/vianetwork/via-core/compare/via_verifier-v1.1.2...via_verifier-v1.2.0) (2026-05-28)
 
 
