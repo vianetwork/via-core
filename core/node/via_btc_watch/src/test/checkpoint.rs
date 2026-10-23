@@ -15,6 +15,7 @@ use bitcoin::{
 };
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, watch};
+use tokio::time::timeout;
 use via_btc_client::{client::BitcoinClient, indexer::BitcoinInscriptionIndexer, types::NodeAuth};
 use via_main_node_reorg_detector::ViaMainNodeReorgDetector;
 use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, inscription::inscription_script};
@@ -117,9 +118,10 @@ impl BitcoinFixture {
                         }
                         method => panic!("unexpected Bitcoin RPC {method}"),
                     };
-                    let barrier = if request["method"] == "getblock"
-                        && chain.barrier.as_ref().is_some_and(|(hash, _, _)| request["params"][0] == *hash)
-                    {
+                    let barrier = if chain.barrier.as_ref().is_some_and(|(hash, _, _)| {
+                        (request["method"] == "getblock" && request["params"][0] == *hash)
+                            || (request["method"] == "getblockhash" && result == *hash)
+                    }) {
                         chain.barrier.take()
                     } else {
                         None
@@ -387,7 +389,8 @@ async fn detection_owns_unchanged_progress_before_reader_fetches() -> anyhow::Re
     let mut pause = fixture.pause(replacement);
     let (stop, receiver) = watch::channel(false);
     let detector = tokio::spawn(fixture.detector(pool.clone()).run(receiver));
-    (&mut pause.entered).await?;
+    let wait_timeout = Duration::from_secs(10);
+    timeout(wait_timeout, &mut pause.entered).await.expect("block hash barrier timed out")?;
     let requests =
         fixture.chain.lock().unwrap().requests.iter().filter(|request| request["actor"] == "/reader").count();
     let mut reader = fixture.reader(pool.clone()).await?;
@@ -404,9 +407,9 @@ async fn detection_owns_unchanged_progress_before_reader_fetches() -> anyhow::Re
     drop(pause);
     wait_until(&pool, SOFT_RECOVERED).await?;
     stop.send(true)?;
-    detector.await??;
-    let mut reader = scan.await??;
-    fixture.sync_headers(&pool).await?;
+    timeout(wait_timeout, detector).await.expect("detector shutdown timed out")??;
+    let mut reader = timeout(wait_timeout, scan).await.expect("reader scan timed out")??;
+    timeout(wait_timeout, fixture.sync_headers(&pool)).await.expect("header sync timed out")?;
     let mut storage = pool.connection().await?;
     reader.loop_iteration(&mut storage).await?;
     assert_deposit(&mut storage, deposit.compute_txid(), 3).await
