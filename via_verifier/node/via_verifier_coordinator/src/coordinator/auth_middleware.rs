@@ -4,13 +4,15 @@ use axum::{
     body::{self, Body},
     extract::{OriginalUri, Request, State},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use via_verifier_dal::VerifierDal;
 
 use crate::{
     auth::{Binding, Envelope, MAX_BODY},
     coordinator::{api_decl::RestApi, error::ApiError},
+    metrics::{SigningSizeLabel, SigningSizeStage, METRICS},
+    transport,
 };
 
 /// Carry the verified key's signer slot to handlers, never a caller-asserted slot.
@@ -40,6 +42,8 @@ pub async fn auth_middleware(
         .map_err(|_| ApiError::BadRequest("Oversized authentication body".into()))?;
     let envelope: Envelope = serde_json::from_slice(&bytes)
         .map_err(|_| ApiError::Unauthorized("Missing authenticated envelope".into()))?;
+    transport::check_metadata(&envelope.binding, &state.config.coordinator_public_key)
+        .map_err(|_| ApiError::RequestTooLarge)?;
     let signer = state
         .state
         .verifiers_pub_keys
@@ -101,18 +105,35 @@ pub async fn auth_middleware(
         .run(Request::from_parts(parts, Body::from(envelope.body)))
         .await;
     let (mut parts, body) = response.into_parts();
-    let bytes = body::to_bytes(body, MAX_BODY)
-        .await
-        .map_err(|_| ApiError::InternalServerError("Oversized response".into()))?;
-    let mut response_binding = binding;
-    response_binding.audience = response_binding.principal;
-    response_binding.principal = state.config.coordinator_public_key.clone();
-    response_binding.status = parts.status.as_u16();
-    response_binding.timestamp = chrono::Utc::now().timestamp();
-    let reply = Envelope::sign(response_binding, bytes.to_vec(), &state.response_key)?;
+    let encode = |status: u16, body: Vec<u8>| -> anyhow::Result<Vec<u8>> {
+        let response_binding = transport::response_binding(
+            &binding,
+            &state.config.coordinator_public_key,
+            status,
+            chrono::Utc::now().timestamp(),
+        );
+        let reply = Envelope::sign(response_binding, body, &state.response_key)?;
+        Ok(transport::bounded_json(&reply, MAX_BODY)?)
+    };
+    let encoded = match body::to_bytes(body, MAX_BODY).await {
+        Ok(bytes) => encode(parts.status.as_u16(), bytes.to_vec()),
+        Err(error) => Err(error.into()),
+    };
+    let bytes = match encoded {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            METRICS.signing_size_refusals[&SigningSizeLabel { stage: SigningSizeStage::Response }]
+                .inc();
+            tracing::warn!("Authenticated reply refused: {error:#}");
+            parts.status = axum::http::StatusCode::SERVICE_UNAVAILABLE;
+            let fallback =
+                body::to_bytes(ApiError::ResponseTooLarge.into_response().into_body(), MAX_BODY)
+                    .await
+                    .map_err(anyhow::Error::from)?
+                    .to_vec();
+            encode(parts.status.as_u16(), fallback)?
+        }
+    };
     parts.headers.remove(axum::http::header::CONTENT_LENGTH);
-    Ok(Response::from_parts(
-        parts,
-        Body::from(serde_json::to_vec(&reply).map_err(anyhow::Error::from)?),
-    ))
+    Ok(Response::from_parts(parts, Body::from(bytes)))
 }

@@ -18,6 +18,14 @@ pub enum ApiError {
     Unauthorized(String),
     #[error("Unexpected error: {0}")]
     InternalServerError(String),
+    #[error("New signing round exceeds supported transport capacity")]
+    SigningRoundTooLarge,
+    #[error("Retained signing round requires size reconciliation; holds remain active")]
+    SigningRoundUnservable,
+    #[error("Authenticated response exceeds supported transport capacity")]
+    ResponseTooLarge,
+    #[error("Authentication envelope metadata exceeds supported capacity")]
+    RequestTooLarge,
 }
 
 impl From<anyhow::Error> for ApiError {
@@ -41,6 +49,22 @@ impl From<ParseProtocolSemanticVersionError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, error_response) = match self {
+            ApiError::SigningRoundTooLarge => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                ErrorResponse::coded("signing_round_too_large", &self),
+            ),
+            ApiError::SigningRoundUnservable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorResponse::coded("signing_round_unservable", &self),
+            ),
+            ApiError::ResponseTooLarge => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorResponse::coded("response_too_large", &self),
+            ),
+            ApiError::RequestTooLarge => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                ErrorResponse::coded("request_too_large", &self),
+            ),
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, ErrorResponse::new(&msg)),
             ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, ErrorResponse::new(&msg)),
             ApiError::InternalServerError(msg) => {
@@ -61,6 +85,10 @@ struct ErrorResponse {
 }
 
 impl ErrorResponse {
+    fn coded(code: &str, message: &impl std::fmt::Display) -> Self {
+        Self { error: code.to_owned(), message: message.to_string() }
+    }
+
     fn new<E: std::fmt::Display>(message: &E) -> Self {
         Self {
             error: "Coordinator API Error".to_string(),

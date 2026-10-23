@@ -4,6 +4,7 @@ pub mod verifier;
 
 mod auth;
 mod metrics;
+mod transport;
 mod types;
 mod utils;
 

@@ -268,28 +268,13 @@ impl ISession for WithdrawalSession {
             return Ok(None);
         };
         let messages = self.transaction_builder.get_tr_sighashes(&transaction)?;
-        let client = self.transaction_builder.utxo_manager.get_btc_client();
-        let mut parents = Vec::with_capacity(transaction.utxos.len());
-        let mut seen = HashSet::with_capacity(transaction.utxos.len());
-        for (outpoint, _) in &transaction.utxos {
-            if seen.insert(outpoint.txid) {
-                let parent = client
-                    .get_transaction(&outpoint.txid)
-                    .await
-                    .with_context(|| {
-                        format!("Required proposal parent {} unavailable", outpoint.txid)
-                    })?;
-                anyhow::ensure!(
-                    parent.compute_txid() == outpoint.txid,
-                    "Proposal parent identity mismatch"
-                );
-                parents.push(parent);
-            }
-        }
+        // Taproot ALL commits every prevout; authorize_withdrawal independently fetches
+        // and verifies the parents. Keep admitted historical parent bytes unchanged.
+        // https://github.com/bitcoin/bitcoin/blob/152a55397e451fed9c10041bddf01aa6839847d5/src/psbt.cpp
         Ok(Some(SessionOperation::Withdrawal(
             transaction,
             messages,
-            parents,
+            Vec::new(),
         )))
     }
 
