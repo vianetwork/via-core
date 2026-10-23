@@ -12,6 +12,19 @@ pub struct VerifierErrorLabel {
     pub kind: ErrorKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EncodeLabelValue)]
+#[metrics(rename_all = "snake_case")]
+pub enum SigningSizeStage {
+    Admission,
+    Serving,
+    Response,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, EncodeLabelSet)]
+pub struct SigningSizeLabel {
+    pub stage: SigningSizeStage,
+}
+
 #[derive(Debug, Metrics)]
 #[metrics(prefix = "via_verifier_coordinator")]
 pub struct ViaVerifierCoordinatorMetrics {
@@ -23,6 +36,9 @@ pub struct ViaVerifierCoordinatorMetrics {
 
     /// Verifier signatures error
     pub verifier_errors: Family<VerifierErrorLabel, Counter>,
+
+    /// Signing size refusals, with a bounded stage label and no round/key labels.
+    pub signing_size_refusals: Family<SigningSizeLabel, Counter>,
 }
 
 #[vise::register]

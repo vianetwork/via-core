@@ -69,6 +69,17 @@ jobs:
           echo "c6b7546820f23febfda09d8a9df487abef4a3177673a830fa1b01258fd16e00d  $RUNNER_TEMP/sqlx.tar.gz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/sqlx.tar.gz" -C "$HOME/.cargo/bin"
           cargo sqlx --version
+      - name: Provision pinned Bitcoin Core
+        run: |
+          pin=.github/test-fixtures/bitcoin-core.json
+          archive="$RUNNER_TEMP/bitcoin-core.tar.gz"
+          curl -fsSL "$(jq -r .archive_url "$pin")" -o "$archive"
+          echo "$(jq -r .archive_sha256 "$pin")  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" --wildcards '*/bin/bitcoind'
+          executable="$RUNNER_TEMP/bitcoin-$(jq -r .version "$pin")/bin/bitcoind"
+          echo "$(jq -r .executable_sha256 "$pin")  $executable" | sha256sum --check
+          "$executable" --version
+          echo "VIA_TEST_BITCOIND=$executable" >> "$GITHUB_ENV"
       - name: Prepare isolated database templates
         run: |
           pg_isready -h localhost -p 5433 -U postgres

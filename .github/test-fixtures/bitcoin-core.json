@@ -1,0 +1,6 @@
+{
+  "version": "28.2",
+  "archive_url": "https://bitcoincore.org/bin/bitcoin-core-28.2/bitcoin-28.2-x86_64-linux-gnu.tar.gz",
+  "archive_sha256": "98add5f220c01b387343b70edeb6273403fe081e22cd85fda132704cdcaa98aa",
+  "executable_sha256": "79011d54248a80c76bf2865f91f540963c83634e170365139180372a4410f3b1"
+}

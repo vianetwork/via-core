@@ -177,6 +177,23 @@ hold established before payout.** There is no automatic census of arbitrary no-m
 A sweep of inputs is not proof that an obligation was paid; an unmarked payout can leave that obligation apparently
 payable. Do not treat the governance example or an out-of-band transfer as reconciliation.
 
+#### Signing transport capacity
+
+New proposals omit full Bitcoin parents; coordinator and signers independently fetch and verify them through
+existing authorization. Historical admitted proposal bytes, hashes and public recovery records stay exact.
+Before exposing a new round or reserving its requests/inputs, the coordinator bounds the complete future public
+transcript and authenticated envelope. The final body limit is 8,388,608 bytes, inclusive; accepted authentication
+metadata must fit a 65,536-byte empty-body envelope, including syntax and signature.
+
+A new oversized candidate returns signed `signing_round_too_large` (413) without exposure. A retained round
+that cannot be served returns signed `signing_round_unservable` (503) and requires reconciliation; its holds
+remain. Any other oversized accepted reply becomes a short signed `response_too_large` (503). Oversized request
+metadata returns `request_too_large` (413) before handler mutation. No refusal changes selection, fees or risk.
+
+The bounded counter `via_verifier_coordinator_signing_size_refusals` has only `stage` labels (`admission`,
+`serving`, `response`). Alert on `sum(increase(via_verifier_coordinator_signing_size_refusals[5m])) > 0`.
+Deployment monitoring must install and exercise the alert; a source counter does not prove it is active.
+
 #### Signing and recovery
 
 The signer retains a dedicated database connection owning its wallet lock; loss of ownership stops the task.

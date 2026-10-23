@@ -8,8 +8,10 @@ use via_verifier_dal::VerifierDal;
 use super::{api_decl::RestApi, auth_middleware::AuthenticatedRequest, error::ApiError};
 use crate::{
     auth::{digest, random_id},
-    types::{NoncePair, PartialSignaturePair, SigningSession, SigningSessionResponse},
-    utils::{decode_nonce, decode_signature, encode_nonce, encode_signature, seconds_since_epoch},
+    metrics::{SigningSizeLabel, SigningSizeStage, METRICS},
+    transport,
+    types::{NoncePair, PartialSignaturePair, SigningSession},
+    utils::{decode_nonce, decode_signature, seconds_since_epoch},
 };
 
 fn ok_json<T: serde::Serialize>(data: T) -> Result<Response<String>, ApiError> {
@@ -187,7 +189,18 @@ impl RestApi {
             };
             next.authorized_content =
                 bincode::serialize(&authorized).map_err(anyhow::Error::from)?;
-            let crate::types::SessionOperation::Withdrawal(candidate, ..) = &op;
+            next.content_hash = digest(&next.authorized_content);
+            next.session_op = Some(op);
+            next.created_at = seconds_since_epoch();
+            if let Err(error) = transport::check_round_size(&next, this.state.verifiers_pub_keys.len()) {
+                METRICS.signing_size_refusals[&SigningSizeLabel {
+                    stage: SigningSizeStage::Admission,
+                }].inc();
+                tracing::warn!(round = %hex::encode(next.round_id), "Signing admission refused: {error:#}");
+                return Err(ApiError::SigningRoundTooLarge);
+            }
+            let crate::types::SessionOperation::Withdrawal(candidate, ..) =
+                next.session_op.as_ref().unwrap();
             this.master_connection_pool
                 .connection()
                 .await?
@@ -200,70 +213,22 @@ impl RestApi {
                     &candidate.utxos,
                 )
                 .await?;
-            next.content_hash = digest(&next.authorized_content);
-            next.session_op = Some(op);
-            next.created_at = seconds_since_epoch();
         }
         *this.state.signing_session.write().await = next;
         ok_json("")
     }
 
     pub async fn get_session(State(this): State<Arc<Self>>) -> Result<Response<String>, ApiError> {
-        let session = this.state.signing_session.read().await;
-        let nonces = session
-            .received_nonces
-            .iter()
-            .map(|(input, values)| {
-                Ok((
-                    *input,
-                    values
-                        .iter()
-                        .map(|(signer, nonce)| {
-                            Ok((*signer, encode_nonce(*signer, nonce.clone())?.nonce))
-                        })
-                        .collect::<anyhow::Result<_>>()?,
-                ))
-            })
-            .collect::<anyhow::Result<_>>()?;
-        let signatures = session
-            .received_sigs
-            .iter()
-            .map(|(input, values)| {
-                Ok((
-                    *input,
-                    values
-                        .iter()
-                        .map(|(signer, sig)| {
-                            Ok((*signer, encode_signature(*signer, *sig)?.signature))
-                        })
-                        .collect::<anyhow::Result<_>>()?,
-                ))
-            })
-            .collect::<anyhow::Result<_>>()?;
-        ok_json(SigningSessionResponse {
-            round_id: session.round_id,
-            content_hash: session.content_hash,
-            authorized_content: session.authorized_content.clone(),
-            nonces,
-            signatures,
-            session_op: session
-                .session_op
-                .as_ref()
-                .map(Serializable::to_bytes)
-                .unwrap_or_default(),
-            required_signers: this.state.verifiers_pub_keys.len(),
-            received_nonces: session
-                .received_nonces
-                .iter()
-                .map(|(i, m)| (*i, m.len()))
-                .collect(),
-            received_partial_signatures: session
-                .received_sigs
-                .iter()
-                .map(|(i, m)| (*i, m.len()))
-                .collect(),
-            created_at: session.created_at,
-        })
+        let session = this.state.signing_session.read().await.clone();
+        if let Err(error) =
+            transport::check_round_size(&session, this.state.verifiers_pub_keys.len())
+        {
+            METRICS.signing_size_refusals[&SigningSizeLabel { stage: SigningSizeStage::Serving }]
+                .inc();
+            tracing::warn!(round = %hex::encode(session.round_id), "Retained signing round unservable: {error:#}");
+            return Err(ApiError::SigningRoundUnservable);
+        }
+        ok_json(transport::snapshot(&session, this.state.verifiers_pub_keys.len())?)
     }
 
     pub async fn submit_nonce(
