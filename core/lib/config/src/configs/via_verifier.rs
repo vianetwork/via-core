@@ -48,6 +48,10 @@ pub struct ViaVerifierConfig {
     #[serde(default)]
     pub withdrawal_signing_enabled: bool,
 
+    /// Enable compact HTTP writes only after the fleet has dual readers.
+    #[serde(default)]
+    pub withdrawal_compact_transport_writes_enabled: bool,
+
     /// Authenticated coordinator identity; must be a configured verifier public key.
     #[serde(default)]
     pub coordinator_public_key: String,
@@ -92,6 +96,7 @@ impl ViaVerifierConfig {
             max_tx_weight: None,
             bridge_address_merkle_root: None,
             withdrawal_signing_enabled: false,
+            withdrawal_compact_transport_writes_enabled: false,
             coordinator_public_key: String::new(),
             withdrawal_fulfillment_confirmations: None,
         }
@@ -126,4 +131,23 @@ pub struct ViaGeneralVerifierConfig {
     pub core_object_store: ObjectStoreConfig,
     pub secrets: ViaSecrets,
     pub wallets: ViaWallets,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_transport_writes_default_off_independently_of_signing() {
+        let mut json = serde_json::to_value(ViaVerifierConfig::for_tests()).unwrap();
+        json.as_object_mut()
+            .unwrap()
+            .remove("withdrawal_compact_transport_writes_enabled");
+        let config: ViaVerifierConfig = serde_json::from_value(json.clone()).unwrap();
+        assert!(!config.withdrawal_compact_transport_writes_enabled);
+        json["withdrawal_compact_transport_writes_enabled"] = serde_json::json!(true);
+        let config: ViaVerifierConfig = serde_json::from_value(json).unwrap();
+        assert!(config.withdrawal_compact_transport_writes_enabled);
+        assert!(!config.withdrawal_signing_enabled);
+    }
 }

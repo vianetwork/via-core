@@ -23,6 +23,7 @@ use crate::{
 pub struct AuthenticatedRequest {
     pub signer: usize,
     pub binding: Binding,
+    pub transport: transport::TransportVersion,
 }
 
 pub async fn auth_middleware(
@@ -40,8 +41,11 @@ pub async fn auth_middleware(
     let bytes = body::to_bytes(body, MAX_BODY)
         .await
         .map_err(|_| ApiError::BadRequest("Oversized authentication body".into()))?;
-    let envelope: Envelope = serde_json::from_slice(&bytes)
-        .map_err(|_| ApiError::Unauthorized("Missing authenticated envelope".into()))?;
+    if bytes.is_empty() {
+        return Err(ApiError::Unauthorized("Missing authenticated envelope".into()));
+    }
+    let (envelope, _) = transport::decode_envelope(&bytes)
+        .map_err(|error| ApiError::InvalidTransportEncoding(error.to_string()))?;
     transport::check_metadata(&envelope.binding, &state.config.coordinator_public_key)
         .map_err(|_| ApiError::RequestTooLarge)?;
     let signer = state
@@ -92,18 +96,25 @@ pub async fn auth_middleware(
         }
     }
     let binding = envelope.binding;
+    let selected = transport::TransportVersion::negotiate(
+        &target.parse::<axum::http::Uri>().map_err(anyhow::Error::from)?,
+        state.config.withdrawal_compact_transport_writes_enabled,
+    );
+    let response_version = selected.as_ref().copied().unwrap_or_default();
     parts.extensions.insert(AuthenticatedRequest {
         signer,
         binding: binding.clone(),
+        transport: response_version,
     });
     parts.headers.insert(
         axum::http::header::CONTENT_TYPE,
         axum::http::HeaderValue::from_static("application/json"),
     );
     parts.headers.remove(axum::http::header::CONTENT_LENGTH);
-    let response = next
-        .run(Request::from_parts(parts, Body::from(envelope.body)))
-        .await;
+    let response = match selected {
+        Ok(_) => next.run(Request::from_parts(parts, Body::from(envelope.body))).await,
+        Err(error) => ApiError::InvalidTransportEncoding(error.to_string()).into_response(),
+    };
     let (mut parts, body) = response.into_parts();
     let encode = |status: u16, body: Vec<u8>| -> anyhow::Result<Vec<u8>> {
         let response_binding = transport::response_binding(
@@ -113,7 +124,7 @@ pub async fn auth_middleware(
             chrono::Utc::now().timestamp(),
         );
         let reply = Envelope::sign(response_binding, body, &state.response_key)?;
-        Ok(transport::bounded_json(&reply, MAX_BODY)?)
+        Ok(transport::encode_envelope(reply, response_version, MAX_BODY)?)
     };
     let encoded = match body::to_bytes(body, MAX_BODY).await {
         Ok(bytes) => encode(parts.status.as_u16(), bytes.to_vec()),

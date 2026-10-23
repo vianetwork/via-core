@@ -218,17 +218,26 @@ impl RestApi {
         ok_json("")
     }
 
-    pub async fn get_session(State(this): State<Arc<Self>>) -> Result<Response<String>, ApiError> {
+    pub async fn get_session(
+        State(this): State<Arc<Self>>,
+        Extension(auth): Extension<AuthenticatedRequest>,
+    ) -> Result<Response, ApiError> {
         let session = this.state.signing_session.read().await.clone();
-        if let Err(error) =
-            transport::check_round_size(&session, this.state.verifiers_pub_keys.len())
-        {
+        if let Err(error) = transport::check_round_size_in(
+            &session,
+            this.state.verifiers_pub_keys.len(),
+            auth.transport,
+        ) {
             METRICS.signing_size_refusals[&SigningSizeLabel { stage: SigningSizeStage::Serving }]
                 .inc();
             tracing::warn!(round = %hex::encode(session.round_id), "Retained signing round unservable: {error:#}");
             return Err(ApiError::SigningRoundUnservable);
         }
-        ok_json(transport::snapshot(&session, this.state.verifiers_pub_keys.len())?)
+        let snapshot =
+            transport::snapshot(&session, this.state.verifiers_pub_keys.len(), auth.transport)?;
+        Ok(Response::new(axum::body::Body::from(
+            transport::encode_snapshot(snapshot, auth.transport).map_err(anyhow::Error::from)?,
+        )))
     }
 
     pub async fn submit_nonce(

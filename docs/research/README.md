@@ -44,6 +44,8 @@ boundaries. Topic notes retain detailed evidence; ADRs own accepted consequentia
   expected obligations, and comparable bridge implementations.
 - [Proof verification and historical evidence](proof-verification-and-history.md): verification
   inputs, result handling, and historical trust.
+- [Bounded signing transport](bounded-signing-transport.md): parent references, complete-future
+  envelope bounds, mixed-version negotiation, exact evidence and legacy removal.
 - [Coordinator request authentication](coordinator-request-authentication.md): signed content,
   request identity, retries, and signing-session conflicts.
 - [Deposit compatibility evidence](deposit-compatibility-evidence.md): historical interpretation

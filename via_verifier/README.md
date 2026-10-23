@@ -76,6 +76,7 @@ Under `[via_verifier]` in [`etc/env/base/via_verifier.toml`](../etc/env/base/via
 | Setting | Default / requirement |
 | --- | --- |
 | `withdrawal_signing_enabled` | `false`; the signer and coordinator server wait without signing / serving rounds |
+| `withdrawal_compact_transport_writes_enabled` | `false`; readers accept both formats, writes stay legacy until explicitly enabled |
 | `coordinator_public_key` | Empty; before enabling, set the coordinator's exact configured verifier public key |
 | `withdrawal_fulfillment_confirmations` | Unset; fulfillment stays off until an explicitly approved positive depth is supplied |
 
@@ -193,6 +194,38 @@ metadata returns `request_too_large` (413) before handler mutation. No refusal c
 The bounded counter `via_verifier_coordinator_signing_size_refusals` has only `stage` labels (`admission`,
 `serving`, `response`). Alert on `sum(increase(via_verifier_coordinator_signing_size_refusals[5m])) > 0`.
 Deployment monitoring must install and exercise the alert; a source counter does not prove it is active.
+
+#### Compact transport rollout
+
+Compact HTTP uses standard Base64 byte fields and carries the proposal once inside exact admitted content.
+Both formats retain the current authentication version/domain and binary/persisted representations. New readers
+check the admitted digest before decoding and compare the redundant legacy proposal exactly.
+
+Ship dual readers with withdrawal_compact_transport_writes_enabled=false first. After the configured fleet,
+including offline/standby and rollback images, is capable, enable writes deliberately using
+VIA_VERIFIER_WITHDRAWAL_COMPACT_TRANSPORT_WRITES_ENABLED=true. This never enables withdrawal signing.
+Verify that the actual proxy path preserves the signed query before enabling writes.
+Each snapshot starts with a legacy request and a transport_version=2 offer in the signed query; old
+coordinators answer legacy. New coordinators return compact only when offered and enabled. The verified
+compact snapshot selects compact requests for that iteration. Response format is per request, so concurrent
+old and new signers can share the same admitted round.
+
+Every NEW round must fit both full-future budgets until legacy removal. Compact-fit rounds can therefore still
+be refused. Historical compact-only records may recover through capable peers while legacy peers receive
+signing_round_unservable; preserve all holds. Upgrading a signer does not make an oversized reply from an
+unchanged old coordinator downloadable. Invalid Base64/ambiguous transport offers yield
+invalid_transport_encoding before handler mutation.
+
+Never automatically retry a mutation in another encoding after timeout, parse/auth failure or 415. The next
+normal iteration bootstraps in legacy with a fresh challenge and existing exact cached nonce/share handling.
+Disabling writes retains dual readers for in-flight compact requests. A truly old binary during an RPC may
+fail that RPC; the next iteration recovers the legacy preference.
+
+Remove the temporary legacy HTTP DTO/decoder/writer, write flag/fallback and legacy admission budget together
+in a later reviewed PR, after no old image can re-enter without explicit operator action, legacy work has
+drained, and every active/public recovery record is compact-servable or explicitly reconciled with holds kept.
+Match participant/wallet configuration and rehearse mixed operation plus rollback. Traffic absence or elapsed
+time is insufficient. Persisted historical decoders stay. See [the evidence and compatibility matrix](../docs/research/bounded-signing-transport.md).
 
 #### Signing and recovery
 
