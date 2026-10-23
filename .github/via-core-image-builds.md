@@ -48,14 +48,15 @@ toolchains, and the image pipeline keeps them separate (see §3).
 ## 2. The one idea behind the image pipeline
 
 Compiling the Rust workspace from scratch costs roughly **8 minutes (snapshots-creator)
-to ~25 minutes (server / external-node) per image**, and CI must prove on **every PR**
-that the production images still build. A full cold compile per image per PR is not
-affordable.
+to ~25 minutes (server / external-node) per image**. CI checks production images on
+ready PRs and skips those builds during draft iteration. The `ready_for_review`
+event starts image validation when a draft becomes ready, even without a new push.
+A full cold compile per image per ready PR is not affordable.
 
 So the entire pipeline is organized around a single idea:
 
 > **Separate the work that rarely changes from the work that changes every PR, cache the
-> rarely-changing work once on trusted refs, and let every PR reuse it — so a PR only
+> rarely-changing work once on trusted refs, and let ready PRs reuse it — so a ready PR only
 > pays to compile what it actually changed.**
 
 Almost every design decision in this path is one lever pulling on that idea. Hold this
@@ -64,7 +65,7 @@ in mind and the rest of the doc is just details:
 | The cost | The lever | Where |
 |---|---|---|
 | Recompiling all third-party dependencies on every source edit | **cargo-chef** splits dependency compilation from source compilation into separately cached Docker stages | the five Dockerfiles |
-| Recomputing that dependency layer in every PR's runner | **A shared BuildKit cache** computed once on trusted refs and *read* by all PRs | `cache-from`/`cache-to` + `export_build_cache` |
+| Recomputing that dependency layer in every ready PR's runner | **A shared BuildKit cache** computed once on trusted refs and *read* by ready PRs | `cache-from`/`cache-to` + `export_build_cache` |
 | The final link, which reruns on every source change | **mold** runs the final build without changing Cargo fingerprints | the five Dockerfiles |
 | Shipping a noisy build context that destabilizes cache keys | **A deny-all `.dockerignore` allowlist** of just the compile inputs | `.dockerignore` |
 | Mixing the Solidity/JS toolchain into the hot Rust path | **Contracts built once, outside Docker, injected as an artifact** | `prepare-contracts` job |
@@ -103,11 +104,18 @@ The pipeline has three phases:
    This produces six platform images and five release manifests.
 
    Two mutually exclusive jobs implement this:
-   - **`build-images`** (`action != "push"`): PRs, merge queue, and build-only branch
+   - **`build-images`** (`action != "push"`): ready PRs, merge queue, and build-only branch
      pushes such as `main`, `staging`, and `trying`. Builds
      with `load: true` so the image exists locally for validation. **Never the publish path.**
    - **`build-and-push-images`** (`action == "push"`): tag/release publishing. Uses
      **Buildx direct push** and refuses to start if `image_tag_suffix` is empty.
+
+   The PR caller skips the entire reusable image workflow while the PR is a draft,
+   including contract preparation. Native Rust tests and other PR checks keep their
+   existing triggers. Ready PR pushes and the `ready_for_review` transition run the
+   image workflow when its existing source-path filters match. Non-PR callers are
+   unchanged. The draft gate follows
+   [Polkadot SDK's draft/ready workflow pattern](https://github.com/paritytech/polkadot-sdk/blob/477b53f040f1a45f3567fb37435e2c0ef7476221/.github/workflows/build-publish-images.yml).
 
 3. **`create_manifest`** (publish only) — assembles a multi-arch manifest from the
    per-platform tags with `docker manifest create`. This is why Buildx `provenance` is
@@ -223,7 +231,7 @@ so it can never be cached.
 The shared dependency cache lives in the GitHub Actions cache under scopes
 `core-<component>-<platform>`. The read/write split is **deliberately asymmetric**:
 
-- **Readers (`cache-from`, import-only):** pull requests, merge queue, and pushes to
+- **Readers (`cache-from`, import-only):** ready pull requests, merge queue, and pushes to
   `staging` / `trying`. They benefit from the cache but never write it.
 - **Writers (`cache-to: type=gha,mode=max,ignore-error=true`):**
   - pushes to **`main`** — `ci.yml` sets `export_build_cache` only when the ref is
@@ -238,7 +246,7 @@ repo-owned refs means PRs ride on a clean shared cache instead of fighting over 
 
 **Operator consequences — read these before debugging a "slow build":**
 
-1. A PR that changes dependency metadata (`Cargo.toml` / `Cargo.lock`) will get **cold
+1. A ready PR that changes dependency metadata (`Cargo.toml` / `Cargo.lock`) will get **cold
    `cargo chef cook` builds** until the change lands on `main`, a release publishes, or
    the weekly warmer runs. That is the intended trade-off, not a regression.
 2. Each component/platform pair has its own cache scope. The verifier and indexer add
@@ -258,7 +266,8 @@ changed-files filter. When you add, rename, or remove a core image, update **bot
   **and** `create_manifest`), and
 - the `core` file list in `ci.yml`.
 
-Otherwise a Dockerfile-only PR can pass without building the image it changed.
+Otherwise a ready Dockerfile-only PR can pass without building the image it changed.
+Draft PRs intentionally skip image builds regardless of the changed paths.
 
 Two facts about that filter today:
 
@@ -275,10 +284,12 @@ Two facts about that filter today:
 
 For any change to this path, verify:
 
-- Dockerfile-only changes under active image dirs actually run the core build in CI.
+- Draft PR pushes skip the core image workflow, including contract preparation.
+- The `ready_for_review` event and ready PR pushes run image checks when source-path
+  filters match, including Dockerfile-only changes under active image directories.
 - `cargo chef cook` is cached on warm builds when dependency metadata didn't change.
 - The final `cargo build` does not rebuild dependency crates unexpectedly.
-- PR builds stay **import-only**; only `main` / tag / scheduled callers set
+- Ready PR builds stay **import-only**; only `main` / tag / scheduled callers set
   `export_build_cache`.
 - Runners stay GitHub-hosted (`ubuntu-24.04` / `ubuntu-24.04-arm`).
 - Any new workspace path the build needs is allow-listed in `.dockerignore`.

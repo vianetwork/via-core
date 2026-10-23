@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   push:
     branches:
@@ -128,7 +129,12 @@ jobs:
   build-core-images:
     name: Build core images
     needs: changed_files
-    if: ${{ (needs.changed_files.outputs.core == 'true' || needs.changed_files.outputs.all == 'true') && !contains(github.ref_name, 'release-please--branches') }}
+    # Drafts defer image checks until the PR is ready for review.
+    # https://github.com/paritytech/polkadot-sdk/blob/477b53f040f1a45f3567fb37435e2c0ef7476221/.github/workflows/build-publish-images.yml
+    if: >-
+      ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) &&
+          (needs.changed_files.outputs.core == 'true' || needs.changed_files.outputs.all == 'true') &&
+          !contains(github.ref_name, 'release-please--branches') }}
     uses: ./.github/workflows/build-core-template.yml
     with:
       action: "build"
