@@ -120,6 +120,11 @@ suggestions against source and tests.
 
 ## Validation
 
+For local edit, build, and test loops, select the touched packages with `-p`
+and keep incremental compilation enabled. Run one Cargo command per checkout
+at a time. Broaden validation when shared code, dependency changes, or the
+required checks below need it.
+
 Before pushing, run `git diff --check` and relevant existing checks. Format Rust
 as [docs/formatting.md](docs/formatting.md) describes:
 
