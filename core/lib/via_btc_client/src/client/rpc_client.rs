@@ -17,7 +17,10 @@ use tracing::{debug, instrument};
 use crate::{
     traits::BitcoinRpc,
     metrics::{RpcCallLabels, RpcMethodLabel, METRICS},
-    types::{BitcoinError, BitcoinRpcResult, NodeAuth},
+    types::{
+        BitcoinError, BitcoinRpcResult, NodeAuth, BlockHeaderInfo, HeaderMembership,
+        HeaderValidationError,
+    },
 };
 
 const RPC_MAX_RETRIES: u8 = 3;
@@ -302,6 +305,66 @@ impl BitcoinRpc for BitcoinRpcClient {
     async fn get_block_hash(&self, height: u64) -> BitcoinRpcResult<BlockHash> {
         self.retry_rpc("getblockhash", move |client| {
             client.get_block_hash(height).map_err(Into::into)
+        })
+        .await
+    }
+
+    #[instrument(skip(self), target = "bitcoin_client::rpc_client")]
+    async fn get_block_header(
+        &self,
+        hash: &BlockHash,
+    ) -> BitcoinRpcResult<Option<BlockHeaderInfo>> {
+        use bitcoin::hashes::Hash;
+
+        let hash = *hash;
+        self.retry_rpc("getblockheader", move |client| {
+            // Core's -1 is authoritative non-membership; -5 means this source does not know the hash.
+            // https://github.com/bitcoin/bitcoin/blob/e8e7e91a1144c378dff4da2e2a562eb0f3f2e1d6/src/rpc/blockchain.cpp
+            let header = match client.get_block_header_info(&hash) {
+                Ok(header) => header,
+                Err(bitcoincore_rpc::Error::JsonRpc(jsonrpc::Error::Rpc(error)))
+                    if error.code == -5 =>
+                {
+                    return Ok(None)
+                }
+                Err(error) => {
+                    return Err(BitcoinError::Rpc(format!("getblockheader {hash}: {error}")))
+                }
+            };
+            if header.hash != hash {
+                return Err(BitcoinError::InvalidBlockHeader {
+                    hash,
+                    reason: HeaderValidationError::HashMismatch,
+                });
+            }
+            let height =
+                u32::try_from(header.height).map_err(|_| BitcoinError::InvalidBlockHeader {
+                    hash,
+                    reason: HeaderValidationError::HeightOutOfRange,
+                })?;
+            let membership = match header.confirmations {
+                -1 => HeaderMembership::Noncanonical,
+                positive if positive > 0 => {
+                    HeaderMembership::Canonical(std::num::NonZeroU32::new(positive as u32).unwrap())
+                }
+                other => {
+                    return Err(BitcoinError::InvalidBlockHeader {
+                        hash,
+                        reason: HeaderValidationError::InvalidConfirmations(other),
+                    })
+                }
+            };
+            let parent_hash = match header.previous_block_hash {
+                Some(parent) if height > 0 => parent,
+                None if height == 0 => BlockHash::all_zeros(),
+                _ => {
+                    return Err(BitcoinError::InvalidBlockHeader {
+                        hash,
+                        reason: HeaderValidationError::ParentMismatch,
+                    })
+                }
+            };
+            Ok(Some(BlockHeaderInfo { hash, parent_hash, height, membership }))
         })
         .await
     }

@@ -90,6 +90,57 @@ fn exported_metrics() -> String {
 }
 
 #[tokio::test]
+async fn checked_header_distinguishes_orphan_unknown_and_malformed_source() {
+    use crate::types::{HeaderMembership, HeaderValidationError};
+
+    let mut server = RpcServer::new().await;
+    let rpc = BitcoinRpcClient::new(&server.url, NodeAuth::None, "header_test").unwrap();
+    let hash = BlockHash::from_byte_array([7; 32]);
+    let parent = BlockHash::from_byte_array([6; 32]);
+    let header = json!({
+        "hash":hash,"height":7,"confirmations":2,"version":1,"merkleroot":"00".repeat(32),
+        "time":1,"nonce":0,"bits":"207fffff","difficulty":1.0,"chainwork":"00",
+        "nTx":1,"previousblockhash":parent,
+    });
+    for (field, value, expected) in [
+        ("confirmations", json!(2), None),
+        ("confirmations", json!(-1), None),
+        ("hash", json!(parent), Some(HeaderValidationError::HashMismatch)),
+        ("confirmations", json!(0), Some(HeaderValidationError::InvalidConfirmations(0))),
+        ("previousblockhash", Value::Null, Some(HeaderValidationError::ParentMismatch)),
+        ("unknown", Value::Null, None),
+    ] {
+        let rpc = rpc.clone();
+        let mut task = tokio::spawn(async move { rpc.get_block_header(&hash).await });
+        let mut response = header.clone();
+        response[field] = value.clone();
+        let error = if field == "unknown" {
+            response = Value::Null;
+            json!({"code":-5,"message":"Block not found"})
+        } else {
+            Value::Null
+        };
+        let result = loop {
+            tokio::select! {
+                result = &mut task => break result.unwrap(),
+                request = server.next() => respond(request, response.clone(), error.clone()).await,
+            }
+        };
+        if field == "unknown" {
+            assert_eq!(result.unwrap(), None);
+        } else if let Some(expected) = expected {
+            assert!(
+                matches!(result, Err(BitcoinError::InvalidBlockHeader { reason, .. }) if reason == expected)
+            );
+        } else {
+            let result = result.unwrap().unwrap();
+            assert_eq!((result.hash, result.height, result.parent_hash), (hash, 7, parent));
+            assert_eq!(matches!(result.membership, HeaderMembership::Noncanonical), value == -1);
+        }
+    }
+}
+
+#[tokio::test]
 async fn hash_window_runs_in_parallel_while_health_and_metrics_stay_responsive() {
     let mut server = RpcServer::new().await;
     let client = BitcoinClient::new_with_component(

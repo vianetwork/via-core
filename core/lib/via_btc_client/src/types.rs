@@ -25,6 +25,37 @@ use crate::{
     traits::Serializable,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeaderMembership {
+    Canonical(std::num::NonZeroU32),
+    Noncanonical,
+}
+
+/// The source answered about this exact hash. A missing hash is `None`; source failure is an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockHeaderInfo {
+    pub hash: bitcoin::BlockHash,
+    pub parent_hash: bitcoin::BlockHash,
+    pub height: u32,
+    pub membership: HeaderMembership,
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum HeaderValidationError {
+    #[error("response hash mismatch")]
+    HashMismatch,
+    #[error("response height mismatch")]
+    HeightMismatch,
+    #[error("header is no longer canonical")]
+    Noncanonical,
+    #[error("height exceeds u32")]
+    HeightOutOfRange,
+    #[error("invalid confirmations {0}")]
+    InvalidConfirmations(i32),
+    #[error("inconsistent genesis/parent")]
+    ParentMismatch,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Vote {
     Ok,
@@ -396,6 +427,12 @@ pub struct InscriberOutput {
 
 #[derive(Debug, Error, Clone)]
 pub enum BitcoinError {
+    #[error("getblockheader {hash}: {reason}")]
+    InvalidBlockHeader { hash: bitcoin::BlockHash, reason: HeaderValidationError },
+
+    #[error("getblock {0}: body/header identity mismatch")]
+    InvalidBlockBody(bitcoin::BlockHash),
+
     #[error("RPC error: {0}")]
     Rpc(String),
 

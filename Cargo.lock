@@ -12351,6 +12351,11 @@ dependencies = [
 [[package]]
 name = "via_reorg"
 version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "tokio",
+ "via_test_utils",
+]
 
 [[package]]
 name = "via_server"
@@ -12422,7 +12427,9 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bitcoin",
+ "bitcoind",
  "rand 0.8.5",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

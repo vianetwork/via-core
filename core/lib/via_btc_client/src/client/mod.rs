@@ -15,7 +15,10 @@ use crate::{
     client::{fee_limits::FeeRateLimits, rpc_client::BitcoinRpcClient},
     metrics::{RpcMethodLabel, METRICS},
     traits::{BitcoinOps, BitcoinRpc},
-    types::{BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth},
+    types::{
+        BitcoinClientResult, BitcoinError, BitcoinNetwork, NodeAuth, BlockHeaderInfo,
+        HeaderMembership, HeaderValidationError,
+    },
 };
 
 #[derive(Debug)]
@@ -25,6 +28,48 @@ pub struct BitcoinClient {
 }
 
 impl BitcoinClient {
+    pub async fn best_block_hash(&self) -> BitcoinClientResult<BlockHash> {
+        self.rpc.get_best_block_hash().await
+    }
+
+    pub async fn header_by_hash(
+        &self,
+        hash: &BlockHash,
+    ) -> BitcoinClientResult<Option<BlockHeaderInfo>> {
+        self.rpc.get_block_header(hash).await
+    }
+
+    /// Fetch by the checked hash and validate the body before parsing or opening a write transaction.
+    pub async fn checked_block(&self, header: &BlockHeaderInfo) -> BitcoinClientResult<Block> {
+        let block = self.rpc.get_block_by_hash(&header.hash).await?;
+        if block.block_hash() != header.hash
+            || block.header.prev_blockhash != header.parent_hash
+            || block.compute_merkle_root() != Some(block.header.merkle_root)
+        {
+            return Err(BitcoinError::InvalidBlockBody(header.hash));
+        }
+        Ok(block)
+    }
+
+    /// Core may change its selected chain between the hash and header calls. Retry without progress.
+    pub async fn canonical_header_at(&self, height: u32) -> BitcoinClientResult<BlockHeaderInfo> {
+        let hash = self.rpc.get_block_hash(u64::from(height)).await?;
+        let header = self.header_by_hash(&hash).await?.ok_or_else(|| {
+            BitcoinError::Rpc(format!("Core does not know selected header {height}/{hash}"))
+        })?;
+        let reason = if header.height != height {
+            Some(HeaderValidationError::HeightMismatch)
+        } else if !matches!(header.membership, HeaderMembership::Canonical(_)) {
+            Some(HeaderValidationError::Noncanonical)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            return Err(BitcoinError::InvalidBlockHeader { hash, reason });
+        }
+        Ok(header)
+    }
+
     #[instrument(skip(auth, rpc_url), target = "bitcoin_client")]
     pub fn new(
         rpc_url: &str,
@@ -346,6 +391,7 @@ mod tests {
             async fn list_unspent(&self, address: &Address) -> BitcoinClientResult<Vec<OutPoint>>;
             async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
             async fn get_block_count(&self) -> BitcoinClientResult<u64>;
+            async fn get_block_header(&self, hash: &BlockHash) -> BitcoinRpcResult<Option<BlockHeaderInfo>>;
             async fn get_block_by_height(&self, block_height: u128) -> BitcoinClientResult<Block>;
             fn get_block_hash<'life0, 'async_trait>(
                 &'life0 self,
@@ -368,6 +414,37 @@ mod tests {
         BitcoinClient {
             rpc: Arc::new(mock_bitcoin_rpc),
             config: ViaBtcClientConfig::for_tests(),
+        }
+    }
+
+    #[tokio::test]
+    async fn canonical_header_at_rejects_height_mismatch_and_chain_change() {
+        for (height, membership, expected) in [
+            (
+                8,
+                HeaderMembership::Canonical(1.try_into().unwrap()),
+                Some(HeaderValidationError::HeightMismatch),
+            ),
+            (7, HeaderMembership::Noncanonical, Some(HeaderValidationError::Noncanonical)),
+            (7, HeaderMembership::Canonical(1.try_into().unwrap()), None),
+        ] {
+            let hash = BlockHash::from_byte_array([7; 32]);
+            let mut rpc = MockBitcoinRpc::new();
+            rpc.expect_get_block_hash().returning(move |_| Box::pin(async move { Ok(hash) }));
+            rpc.expect_get_block_header().returning(move |_| {
+                Ok(Some(BlockHeaderInfo {
+                    hash,
+                    parent_hash: BlockHash::from_byte_array([6; 32]),
+                    height,
+                    membership,
+                }))
+            });
+            let result = get_client_with_mock(rpc).canonical_header_at(7).await;
+            match expected {
+                Some(expected) => assert!(matches!(result,
+                    Err(BitcoinError::InvalidBlockHeader { reason, .. }) if reason == expected)),
+                None => assert_eq!(result.unwrap().height, 7),
+            }
         }
     }
 

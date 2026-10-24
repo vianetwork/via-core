@@ -69,6 +69,10 @@ pub trait BitcoinRpc: Send + Sync + Debug {
     async fn get_transaction(&self, tx_id: &Txid) -> BitcoinRpcResult<Transaction>;
     async fn get_block_count(&self) -> BitcoinRpcResult<u64>;
     async fn get_block_hash(&self, height: u64) -> BitcoinRpcResult<BlockHash>;
+    async fn get_block_header(
+        &self,
+        hash: &BlockHash,
+    ) -> BitcoinRpcResult<Option<types::BlockHeaderInfo>>;
     async fn get_block_by_height(&self, block_height: u128) -> BitcoinRpcResult<Block>;
 
     async fn get_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinRpcResult<Block>;

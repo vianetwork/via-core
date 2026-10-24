@@ -16,6 +16,13 @@
 
 use std::collections::HashMap;
 
+pub mod chain;
+pub mod maturity;
+pub mod votes;
+
+#[cfg(test)]
+mod tests;
+
 /// Result of comparing local `via_l1_blocks` rows against canonical Bitcoin blocks by height.
 ///
 /// [`Self::SparseAt`] is different from [`Self::ReorgAt`]:
@@ -67,7 +74,7 @@ pub fn reorg_window_start(tip: i64, window: i64) -> i64 {
 }
 
 #[cfg(test)]
-mod tests {
+mod legacy_tests {
     use std::collections::HashMap;
 
     use super::{reorg_window_start, scan_for_reorg, ReorgScan};
