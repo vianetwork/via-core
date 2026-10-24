@@ -9,7 +9,7 @@ use crate::{
     FromContext, IntoContext,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ViaIndexerLayer {}
 
 #[derive(Debug, FromContext)]

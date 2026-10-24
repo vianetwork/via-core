@@ -19,7 +19,10 @@ mod tests {
     fn celestia_client_from_env() {
         let mut lock = MUTEX.lock();
         let config = r#"
+            VIA_CELESTIA_CLIENT_DA_BACKEND=celestia
+            VIA_CELESTIA_CLIENT_API_NODE_URL=""
             VIA_CELESTIA_CLIENT_BLOB_SIZE_LIMIT=1973786
+            VIA_CELESTIA_CLIENT_PROOF_SENDING_MODE=SkipEveryProof
         "#;
 
         lock.set_env(config);

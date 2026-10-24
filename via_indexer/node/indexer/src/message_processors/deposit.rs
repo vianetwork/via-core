@@ -84,11 +84,12 @@ impl L1ToL2MessageProcessor {
         tx_id: H256,
         msg: &L1ToL2Message,
     ) -> anyhow::Result<Option<Deposit>> {
+        // jscpd:ignore-start Indexer decorates these protocol fields. Execution queues retain their transaction owner.
         let deposit = ViaL1Deposit {
-            l2_receiver_address: msg.input.receiver_l2_address.clone(),
-            amount: msg.amount.to_sat().clone(),
+            l2_receiver_address: msg.input.receiver_l2_address,
+            amount: msg.amount.to_sat(),
             calldata: msg.input.call_data.clone(),
-            l1_block_number: msg.common.block_height.clone() as u64,
+            l1_block_number: msg.common.block_height as u64,
             tx_index: msg
                 .common
                 .tx_index
@@ -99,6 +100,7 @@ impl L1ToL2MessageProcessor {
                 .ok_or_else(|| anyhow::anyhow!("deposit missing output_vout"))?,
         };
 
+        // jscpd:ignore-end
         if let Some(l1_tx) = deposit.l1_tx() {
             tracing::info!(
                 "Created L1 transaction with serial id {:?} (block {}) with deposit amount {} and tx hash {}",

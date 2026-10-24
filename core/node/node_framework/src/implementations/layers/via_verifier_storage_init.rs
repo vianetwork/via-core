@@ -15,14 +15,17 @@ use crate::{
 pub struct ViaVerifierInitLayer {
     pub via_genesis_config: ViaGenesisConfig,
     pub via_btc_watch_config: ViaBtcWatchConfig,
+    pub proof_verification_dev_mode: bool,
 }
 
+// jscpd:ignore-start Each layer owns its context type. Sharing it would couple independent task outputs.
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {
     pub master_pool: PoolResource<VerifierPool>,
     pub btc_client_resource: BtcClientResource,
 }
+// jscpd:ignore-end
 
 #[derive(Debug, IntoContext)]
 #[context(crate = crate)]
@@ -46,6 +49,7 @@ impl WiringLayer for ViaVerifierInitLayer {
             client,
             self.via_genesis_config,
             self.via_btc_watch_config,
+            self.proof_verification_dev_mode,
         )
         .await?;
 

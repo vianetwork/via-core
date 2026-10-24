@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 
+use sqlx::{postgres::PgRow, Row};
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
 use zksync_types::{
     protocol_version::{ProtocolSemanticVersion, VersionPatch},
@@ -83,8 +84,20 @@ impl ViaProtocolVersionsDal<'_, '_> {
         Ok(())
     }
 
+    async fn latest_version(&mut self, query: &str) -> DalResult<Option<ProtocolSemanticVersion>> {
+        let record: Option<(i32, i32)> = sqlx::query(query)
+            .try_map(|row: PgRow| Ok((row.try_get("minor")?, row.try_get("patch")?)))
+            .instrument("latest_semantic_version")
+            .fetch_optional(self.storage)
+            .await?;
+        Ok(record.map(|(minor, patch)| ProtocolSemanticVersion {
+            minor: (minor as u16).try_into().unwrap(),
+            patch: VersionPatch(patch as u32),
+        }))
+    }
+
     pub async fn latest_semantic_version(&mut self) -> DalResult<Option<ProtocolSemanticVersion>> {
-        let record_opt = sqlx::query!(
+        self.latest_version(
             r#"
             SELECT
                 minor,
@@ -96,25 +109,36 @@ impl ViaProtocolVersionsDal<'_, '_> {
                 patch DESC
             LIMIT
                 1
-            "#
+            "#,
         )
-        .instrument("latest_semantic_version")
-        .fetch_optional(self.storage)
-        .await?;
+        .await
+    }
 
-        if let Some(record) = record_opt {
-            return Ok(Some(ProtocolSemanticVersion {
-                minor: (record.minor as u16).try_into().unwrap(),
-                patch: VersionPatch(record.patch as u32),
-            }));
-        }
-        Ok(None)
+    /// All registered patches of one minor version, newest first.
+    /// Upstream zkSync lists a minor's patches the same way but keeps only those matching the L1-authorized key.
+    /// Via keeps one verification key per minor, so every patch is returned:
+    /// https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/dal/src/protocol_versions_dal.rs#L320-L347
+    pub async fn semantic_versions_of_minor(
+        &mut self,
+        minor: ProtocolVersionId,
+    ) -> DalResult<Vec<ProtocolSemanticVersion>> {
+        let patches =
+            sqlx::query("SELECT patch FROM protocol_patches WHERE minor = $1 ORDER BY patch DESC")
+                .bind(minor as i32)
+                .map(|row: PgRow| row.get::<i32, _>("patch"))
+                .instrument("semantic_versions_of_minor")
+                .fetch_all(self.storage)
+                .await?;
+        Ok(patches
+            .into_iter()
+            .map(|patch| ProtocolSemanticVersion { minor, patch: VersionPatch(patch as u32) })
+            .collect())
     }
 
     pub async fn latest_protocol_semantic_version(
         &mut self,
     ) -> DalResult<Option<ProtocolSemanticVersion>> {
-        let record_opt = sqlx::query!(
+        self.latest_version(
             r#"
             SELECT
                 minor,
@@ -129,19 +153,9 @@ impl ViaProtocolVersionsDal<'_, '_> {
                 patch DESC
             LIMIT
                 1
-            "#
+            "#,
         )
-        .instrument("latest_semantic_version")
-        .fetch_optional(self.storage)
-        .await?;
-
-        if let Some(record) = record_opt {
-            return Ok(Some(ProtocolSemanticVersion {
-                minor: (record.minor as u16).try_into().unwrap(),
-                patch: VersionPatch(record.patch as u32),
-            }));
-        }
-        Ok(None)
+        .await
     }
 
     pub async fn get_recursion_scheduler_level_vk_hash(
