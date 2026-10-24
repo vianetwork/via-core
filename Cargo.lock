@@ -12088,7 +12088,7 @@ dependencies = [
 
 [[package]]
 name = "via_external_node"
-version = "28.1.0"
+version = "28.2.0"
 dependencies = [
  "anyhow",
  "assert_matches",
