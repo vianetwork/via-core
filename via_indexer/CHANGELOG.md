@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/vianetwork/via-core/compare/via_indexer-v1.1.0...via_indexer-v1.2.0) (2026-10-24)
+
+
+### Features
+
+* **via-verifier:** implement the durable withdrawal lifecycle ([666dc9e](https://github.com/vianetwork/via-core/commit/666dc9e8124502dbbbd109ea3a18712d51db68a8))
+
 ## [1.1.0](https://github.com/vianetwork/via-core/compare/via_indexer-v1.0.0...via_indexer-v1.1.0) (2025-12-05)
 
 
