@@ -192,6 +192,26 @@
         "ordinal": 37,
         "name": "timestamp_asserter_range_end",
         "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 38,
+        "name": "bitcoin_height",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 39,
+        "name": "bitcoin_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 40,
+        "name": "bitcoin_vout",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 41,
+        "name": "bitcoin_payload",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -236,6 +256,10 @@
       true,
       true,
       false,
+      true,
+      true,
+      true,
+      true,
       true,
       true,
       true,

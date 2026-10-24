@@ -39,7 +39,9 @@ impl BitcoinClient {
         self.rpc.get_block_header(hash).await
     }
 
-    /// Fetch by the checked hash and validate the body before parsing or opening a write transaction.
+    /// checked_block fetches block by checked hash, then verifies hash, parent, merkle root and witness commitment.
+    /// Corrupt or substituted body fails here, before parsing and before any SQL write.
+    /// Idea only from BDK bitcoind_rpc Emitter, which fetches by hash and rechecks hash before emitting: https://github.com/bitcoindevkit/bdk/blob/5dc6e959379982a1661e8f57c3ee7af334627ca5/crates/bitcoind_rpc/src/lib.rs
     pub async fn checked_block(&self, header: &BlockHeaderInfo) -> BitcoinClientResult<Block> {
         let block = self.rpc.get_block_by_hash(&header.hash).await?;
         if block.block_hash() != header.hash
@@ -51,7 +53,9 @@ impl BitcoinClient {
         Ok(block)
     }
 
-    /// Core may change its selected chain between the hash and header calls. Retry without progress.
+    /// canonical_header_at resolves height to hash, then verifies header height and canonical membership.
+    /// Core may switch chains between calls, so mismatch returns error and caller retries without progress.
+    /// Idea only from BDK bitcoind_rpc Emitter, which compares get_block_hash twice around each fetch: https://github.com/bitcoindevkit/bdk/blob/5dc6e959379982a1661e8f57c3ee7af334627ca5/crates/bitcoind_rpc/src/lib.rs
     pub async fn canonical_header_at(&self, height: u32) -> BitcoinClientResult<BlockHeaderInfo> {
         let hash = self.rpc.get_block_hash(u64::from(height)).await?;
         let header = self.header_by_hash(&hash).await?.ok_or_else(|| {

@@ -73,17 +73,71 @@ impl ViaVotesDal<'_, '_> {
         pubdata_reveal_tx_id: String,
         pubdata_blob_id: String,
         source_inclusion: Option<(u32, BlockHash)>,
-    ) -> DalResult<()> {
+    ) -> anyhow::Result<()> {
         let mut tx = self.storage.start_transaction().await?;
         lock_source(&mut tx, source_inclusion).await?;
+        let source_hash = source_inclusion.map(|(_, hash)| hash.to_string());
+        let old = sqlx::query(
+            "SELECT * FROM via_votable_transactions WHERE proof_reveal_tx_id=$1
+            AND (proof_l1_block_hash IS NOT DISTINCT FROM $2 OR proof_l1_block_hash IS NULL
+                OR EXISTS(SELECT 1 FROM via_l1_blocks h WHERE h.number=proof_l1_block_number AND h.hash=proof_l1_block_hash))
+            ORDER BY proof_l1_block_hash IS NULL LIMIT 1 FOR UPDATE",
+        )
+        .bind(proof_reveal_tx_id.as_bytes())
+        .bind(&source_hash)
+        .instrument("proof_payload_replay")
+        .fetch_optional(&mut tx)
+        .await?;
+        if let Some(old) = old {
+            let hash: Vec<u8> = old.try_get("l1_batch_hash")?;
+            let parent: Vec<u8> = old.try_get("prev_l1_batch_hash")?;
+            let saved = (
+                old.try_get::<i64, _>("l1_batch_number")?,
+                hash.as_slice(),
+                parent.as_slice(),
+                old.try_get::<&str, _>("da_identifier")?,
+                old.try_get::<&str, _>("proof_blob_id")?,
+                old.try_get::<&str, _>("pubdata_reveal_tx_id")?,
+                old.try_get::<&str, _>("pubdata_blob_id")?,
+            );
+            let incoming = (
+                i64::from(l1_batch_number),
+                l1_batch_hash.as_bytes(),
+                prev_l1_batch_hash.as_bytes(),
+                da_identifier.as_str(),
+                proof_blob_id.as_str(),
+                pubdata_reveal_tx_id.as_str(),
+                pubdata_blob_id.as_str(),
+            );
+            via_btc_client::indexer::replay::compare_fields([
+                ("l1_batch_number", incoming.0 == saved.0),
+                ("l1_batch_hash", incoming.1 == saved.1),
+                ("prev_l1_batch_hash", incoming.2 == saved.2),
+                ("da_identifier", incoming.3 == saved.3),
+                ("proof_blob_id", incoming.4 == saved.4),
+                ("pubdata_reveal_tx_id", incoming.5 == saved.5),
+                ("pubdata_blob_id", incoming.6 == saved.6),
+            ])?;
+            if let (Some(saved), Some(incoming)) =
+                (old.try_get::<Option<String>, _>("proof_l1_block_hash")?, source_hash)
+            {
+                anyhow::ensure!(
+                    saved == incoming,
+                    via_btc_client::indexer::replay::ReplayConflict {
+                        field: "duplicate_canonical_inclusion"
+                    }
+                );
+            }
+            tx.commit().await?;
+            return Ok(());
+        }
         sqlx::query(
             "INSERT INTO via_votable_transactions (
                 l1_batch_number,l1_batch_hash,prev_l1_batch_hash,proof_reveal_tx_id,
                 da_identifier,proof_blob_id,pubdata_reveal_tx_id,pubdata_blob_id,
                 source_l1_block_number,source_l1_block_hash,
                 proof_l1_block_number,proof_l1_block_hash
-             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,$10)
-             ON CONFLICT (l1_batch_hash) DO NOTHING",
+             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,$10)",
         )
         .bind(i64::from(l1_batch_number))
         .bind(l1_batch_hash.as_bytes())
@@ -619,22 +673,6 @@ impl ViaVotesDal<'_, '_> {
         });
 
         Ok(result)
-    }
-
-    /// Delete all the votable_transactions that are invalid and behind the last finalized valid l1_batch
-    pub async fn delete_invalid_votable_transactions_if_exists(&mut self) -> DalResult<()> {
-        sqlx::query!(
-            r#"
-            DELETE FROM via_votable_transactions
-            WHERE
-                l1_batch_status = FALSE
-                AND is_finalized = FALSE
-            "#
-        )
-        .instrument("delete_invalid_votable_transactions")
-        .fetch_optional(self.storage)
-        .await?;
-        Ok(())
     }
 
     /// Get the first rejected l1 batch (failed zk proof).

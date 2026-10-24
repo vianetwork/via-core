@@ -330,7 +330,15 @@ async fn bitcoin_recovery_caps_completed_progress_with_one_connection(
         .unwrap();
         storage
             .via_transactions_dal()
-            .insert_transaction_l1(&deposit, deposit.eth_block(), H256::from_low_u64_be(height))
+            .insert_transaction_l1(&deposit, deposit.eth_block(), H256::from_low_u64_be(height),
+                &via_btc_client::indexer::replay::DepositOrigin {
+                    height: height as u32, hash: format!("{height:064x}").parse().unwrap(), vout: 0,
+                }, &via_btc_client::indexer::replay::DepositPayload {
+                    input: (via_btc_client::types::L1ToL2MessageInput {
+                        receiver_l2_address: Address::repeat_byte(7), l2_contract_address: Address::repeat_byte(7),
+                        call_data: vec![],
+                    }, 50_000), public_key: vec![], signature: vec![], sender_script: None,
+                })
             .await
             .unwrap();
     }

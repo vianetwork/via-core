@@ -1,5 +1,9 @@
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
-use zksync_types::H256;
+use zksync_types::{H256, Address, PriorityOpId};
+use via_btc_client::indexer::replay::{
+    DepositOrigin, DepositPayload, DepositReplay, ReplayConflict, compare_deposit_replay,
+    retained_deposit_operation,
+};
 
 use crate::Verifier;
 
@@ -20,7 +24,67 @@ pub struct ViaTransactionsDal<'a, 'c> {
 }
 
 impl ViaTransactionsDal<'_, '_> {
-    pub async fn insert_transaction(&mut self, tx: L1ToL2Transaction) -> DalResult<()> {
+    pub async fn insert_transaction(
+        &mut self,
+        tx: L1ToL2Transaction,
+        origin: &DepositOrigin,
+        payload: &DepositPayload,
+    ) -> anyhow::Result<bool> {
+        let source_hash = origin.hash.to_string();
+        let old = sqlx::query!(
+            "SELECT * FROM via_transactions WHERE tx_id=$1 AND COALESCE(bitcoin_vout, priority_id & 65535)=$2",
+            tx.tx_id.as_bytes(),
+            i64::from(origin.vout)
+        )
+        .instrument("verifier_deposit_replay")
+        .fetch_optional(self.storage)
+        .await?;
+        let json_payload = serde_json::to_value(payload)?;
+        if let Some(mut old) = old {
+            let attached = old.status.is_some() || old.l1_batch_number.is_some();
+            if let DepositReplay::NeedsRetainedCheck = compare_deposit_replay(
+                payload,
+                &source_hash,
+                old.bitcoin_hash.as_deref(),
+                old.bitcoin_payload.take(),
+                attached,
+            )? {
+                anyhow::ensure!(
+                    old.value >= 0 && old.value as u64 == payload.input.1,
+                    ReplayConflict { field: "amount" }
+                );
+                let receiver = match old.receiver.parse::<Address>() {
+                    Ok(receiver) => receiver,
+                    Err(_)
+                        if old.receiver.contains('…')
+                            && old.receiver == payload.input.0.receiver_l2_address.to_string() =>
+                    {
+                        payload.input.0.receiver_l2_address
+                    }
+                    Err(_) => return Err(ReplayConflict { field: "receiver" }.into()),
+                };
+                retained_deposit_operation(
+                    PriorityOpId(old.priority_id as u64),
+                    receiver,
+                    payload.input.1,
+                    H256::from_slice(&old.canonical_tx_hash),
+                )?;
+            }
+            sqlx::query!(
+                "UPDATE via_transactions SET bitcoin_height=$3, bitcoin_hash=$4,
+                bitcoin_payload=$5, bitcoin_vout=$2 WHERE tx_id=$1 AND COALESCE(bitcoin_vout, priority_id & 65535)=$2",
+                &old.tx_id,
+                i64::from(origin.vout),
+                i64::from(origin.height),
+                source_hash,
+                json_payload
+            )
+            .instrument("verifier_deposit_reconcile_origin")
+            .execute(self.storage)
+            .await?;
+            return Ok(false);
+        }
+
         let L1ToL2Transaction {
             priority_id,
             tx_id,
@@ -30,7 +94,7 @@ impl ViaTransactionsDal<'_, '_> {
             canonical_tx_hash,
             l1_block_number,
         } = tx;
-        sqlx::query!(
+        let inserted = sqlx::query!(
             r#"
             INSERT INTO
             via_transactions (
@@ -40,11 +104,11 @@ impl ViaTransactionsDal<'_, '_> {
                 value,
                 calldata,
                 canonical_tx_hash,
-                l1_block_number
+                l1_block_number, bitcoin_height, bitcoin_hash, bitcoin_vout, bitcoin_payload
             )
             VALUES
-            ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (tx_id) DO NOTHING
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT DO NOTHING RETURNING tx_id
             "#,
             priority_id,
             tx_id.as_bytes(),
@@ -52,13 +116,14 @@ impl ViaTransactionsDal<'_, '_> {
             value,
             calldata,
             canonical_tx_hash.as_bytes(),
-            l1_block_number,
+            l1_block_number, i64::from(origin.height), source_hash, i64::from(origin.vout), json_payload,
         )
         .instrument("insert_transaction")
         .fetch_optional(self.storage)
         .await?;
 
-        Ok(())
+        anyhow::ensure!(inserted.is_some(), ReplayConflict { field: "outpoint" });
+        Ok(true)
     }
 
     pub async fn get_last_priority_id(&mut self) -> DalResult<i64> {

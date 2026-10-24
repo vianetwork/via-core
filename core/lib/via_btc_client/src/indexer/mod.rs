@@ -17,6 +17,7 @@ use crate::{
     },
 };
 
+pub mod replay;
 pub mod withdrawal;
 
 /// Controls withdrawal provenance work independently of deposit and system-message ingestion.
@@ -249,6 +250,11 @@ impl BitcoinInscriptionIndexer {
             valid_messages.len(),
             block_height
         );
+        for message in &mut valid_messages {
+            if let FullInscriptionMessage::L1ToL2Message(deposit) = message {
+                deposit.common.block_hash = Some(block_hash);
+            }
+        }
         Ok(valid_messages)
     }
 

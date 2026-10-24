@@ -40,6 +40,96 @@ fn input(id: u8) -> (OutPoint, TxOut) {
     )
 }
 
+#[tokio::test]
+async fn reader_reset_keeps_completed_verdict_and_signed_risk_parent_closure() {
+    let (pool, batch, proof) = imported(vec![request(1)]).await;
+    let mut db = pool.connection().await.unwrap();
+    let bridge = wallet();
+    db.via_store_mode_dal()
+        .ensure_proof_verification_mode(&crate::via_store_mode_dal::StoreMode {
+            proof_verification_dev_mode: false,
+            bitcoin_network: "regtest".into(),
+            bitcoin_genesis_hash: "00".repeat(32),
+        })
+        .await
+        .unwrap();
+    db.via_withdrawal_dal()
+        .admit_withdrawal_attempt(
+            bridge.as_bytes(),
+            &[1; 32],
+            b"reset-risk",
+            &batch.withdrawals,
+            &[input(4)],
+        )
+        .await
+        .unwrap();
+    db.via_withdrawal_dal()
+        .persist_withdrawal_nonces(bridge.as_bytes(), &[1; 32], b"reset-risk", b"retained-nonces")
+        .await
+        .unwrap();
+    db.via_withdrawal_dal()
+        .mark_withdrawal_may_have_signed(bridge.as_bytes(), &[1; 32], b"reset-risk")
+        .await
+        .unwrap();
+    let tables = [
+        "via_verifier_store_mode",
+        "via_votable_transactions",
+        "via_withdrawal_attempts",
+        "via_withdrawal_request_reservations",
+        "via_withdrawal_input_reservations",
+        "via_withdrawal_expected",
+        "via_withdrawal_origins",
+        "via_withdrawal_batches",
+        "via_withdrawal_authority_domain",
+        "via_withdrawal_active_wallet",
+    ];
+    let mut before = Vec::new();
+    for table in tables {
+        before.push(
+            sqlx::query_scalar::<_, serde_json::Value>(&format!(
+                "SELECT jsonb_agg(to_jsonb(t)) FROM {table} t"
+            ))
+            .instrument("reset_kept_before")
+            .fetch_one(&mut db)
+            .await
+            .unwrap(),
+        );
+    }
+    let mut reset = db.start_transaction().await.unwrap();
+    reset.via_indexer_dal().delete_reader_suffix(0).await.unwrap();
+    reset.commit().await.unwrap();
+    for (table, expected) in tables.into_iter().zip(before) {
+        let actual = sqlx::query_scalar::<_, serde_json::Value>(&format!(
+            "SELECT jsonb_agg(to_jsonb(t)) FROM {table} t"
+        ))
+        .instrument("reset_kept_after")
+        .fetch_one(&mut db)
+        .await
+        .unwrap();
+        assert_eq!(actual, expected, "{table}");
+    }
+    assert!(db
+        .via_withdrawal_dal()
+        .admit_withdrawal_attempt(
+            bridge.as_bytes(),
+            &[2; 32],
+            b"replacement",
+            &batch.withdrawals,
+            &[input(5)]
+        )
+        .await
+        .is_err());
+    let verdict = sqlx::query_scalar::<_, bool>(
+        "SELECT l1_batch_status FROM via_votable_transactions WHERE proof_reveal_tx_id=$1",
+    )
+    .bind(proof)
+    .instrument("reset_kept_verdict")
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert!(verdict);
+}
+
 fn batch(number: u32, requests: Vec<WithdrawalRequest>) -> CompleteWithdrawalBatch {
     CompleteWithdrawalBatch {
         batch_number: number,
@@ -2254,7 +2344,7 @@ async fn proof_at(
     storage: &mut Connection<'_, Verifier>,
     batch: &CompleteWithdrawalBatch,
     inclusion: Option<(u32, BlockHash)>,
-) -> zksync_db_connection::error::DalResult<()> {
+) -> anyhow::Result<()> {
     let proof = H256::from_low_u64_be(u64::from(batch.batch_number));
     storage
         .via_votes_dal()
@@ -2321,10 +2411,12 @@ async fn vote_reorg_rebuilds_tip_from_out_of_order_canonical_votes() {
         .insert_vote(id, "retained", true, Some((15, retained_hash)))
         .await
         .unwrap();
-    // A duplicate does not move either immutable inclusion anchor.
-    proof_at(&mut db, &candidate, Some((20, reverted_hash)))
-        .await
-        .unwrap();
+    // One transaction cannot occur twice on the selected Bitcoin chain.
+    let conflict = proof_at(&mut db, &candidate, Some((20, reverted_hash))).await.unwrap_err();
+    assert_eq!(
+        conflict.downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>().unwrap().field,
+        "duplicate_canonical_inclusion"
+    );
     db.via_votes_dal()
         .insert_vote(id, "retained", false, Some((20, reverted_hash)))
         .await

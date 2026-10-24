@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use via_btc_client::indexer::replay::transaction_hash;
 use via_btc_client::{
     client::BitcoinClient,
     indexer::BitcoinInscriptionIndexer,
@@ -37,13 +38,11 @@ impl MessageProcessor for L1ToL2MessageProcessor {
 
         for msg in msgs {
             if let FullInscriptionMessage::L1ToL2Message(l1_to_l2_msg) = msg {
-                let mut tx_id_bytes = l1_to_l2_msg.common.tx_id.as_raw_hash()[..].to_vec();
-                tx_id_bytes.reverse();
-                let tx_id = H256::from_slice(&tx_id_bytes);
+                let tx_id = transaction_hash(l1_to_l2_msg.common.tx_id);
 
                 if storage
                     .via_transactions_dal()
-                    .deposit_exists(&tx_id_bytes)
+                    .deposit_exists(tx_id.as_bytes())
                     .await?
                 {
                     tracing::warn!(
@@ -84,23 +83,7 @@ impl L1ToL2MessageProcessor {
         tx_id: H256,
         msg: &L1ToL2Message,
     ) -> anyhow::Result<Option<Deposit>> {
-        // jscpd:ignore-start Indexer decorates these protocol fields. Execution queues retain their transaction owner.
-        let deposit = ViaL1Deposit {
-            l2_receiver_address: msg.input.receiver_l2_address,
-            amount: msg.amount.to_sat(),
-            calldata: msg.input.call_data.clone(),
-            l1_block_number: msg.common.block_height as u64,
-            tx_index: msg
-                .common
-                .tx_index
-                .ok_or_else(|| anyhow::anyhow!("deposit missing tx_index"))?,
-            output_vout: msg
-                .common
-                .output_vout
-                .ok_or_else(|| anyhow::anyhow!("deposit missing output_vout"))?,
-        };
-
-        // jscpd:ignore-end
+        let deposit = ViaL1Deposit::try_from(msg)?;
         if let Some(l1_tx) = deposit.l1_tx() {
             tracing::info!(
                 "Created L1 transaction with serial id {:?} (block {}) with deposit amount {} and tx hash {}",

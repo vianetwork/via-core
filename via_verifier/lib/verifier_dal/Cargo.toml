@@ -11,6 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+via_btc_client.workspace = true
+via_btc_storage.workspace = true
 anyhow.workspace = true
 zksync_db_connection.workspace = true
 zksync_basic_types.workspace = true

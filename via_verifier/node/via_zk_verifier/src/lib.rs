@@ -477,8 +477,6 @@ async fn record_approval(
             .await?;
     }
 
-    transaction.via_votes_dal().delete_invalid_votable_transactions_if_exists().await?;
-
     if let Some(upgrade_tx_hash) = upgrade_tx_hash {
         transaction
             .via_protocol_versions_dal()

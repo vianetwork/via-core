@@ -22,8 +22,33 @@ impl ViaProtocolVersionsDal<'_, '_> {
         default_account_code_hash: &[u8],
         upgrade_tx_hash: &[u8],
         recursion_scheduler_level_vk_hash: &[u8],
-    ) -> DalResult<()> {
+    ) -> anyhow::Result<()> {
+        use via_btc_client::indexer::replay::ReplayConflict;
         let mut db_transaction = self.storage.start_transaction().await?;
+        if let Some(saved) = sqlx::query!(
+            "SELECT bootloader_code_hash, default_account_code_hash,
+            upgrade_tx_hash, recursion_scheduler_level_vk_hash FROM protocol_versions WHERE id=$1",
+            version.minor as i32
+        )
+        .instrument("protocol_version_replay")
+        .fetch_optional(&mut db_transaction)
+        .await?
+        {
+            for (field, equal) in [
+                ("bootloader_code_hash", saved.bootloader_code_hash == bootloader_code_hash),
+                (
+                    "default_account_code_hash",
+                    saved.default_account_code_hash == default_account_code_hash,
+                ),
+                ("upgrade_tx_hash", saved.upgrade_tx_hash == upgrade_tx_hash),
+                (
+                    "recursion_scheduler_level_vk_hash",
+                    saved.recursion_scheduler_level_vk_hash == recursion_scheduler_level_vk_hash,
+                ),
+            ] {
+                anyhow::ensure!(equal, ReplayConflict { field });
+            }
+        }
 
         sqlx::query!(
             r#"
@@ -39,11 +64,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
             )
             VALUES
             ($1, $2, $3, $4, $5, FALSE, NOW())
-            ON CONFLICT (id) DO
-            UPDATE
-            SET
-            upgrade_tx_hash = excluded.upgrade_tx_hash,
-            executed = FALSE;
+            ON CONFLICT (id) DO NOTHING;
             "#,
             version.minor as i32,
             bootloader_code_hash,
@@ -283,6 +304,50 @@ impl ViaProtocolVersionsDal<'_, '_> {
         .instrument("mark_upgrade_as_executed")
         .fetch_optional(self.storage)
         .await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ConnectionPool, VerifierDal};
+
+    #[tokio::test]
+    async fn replay_preserves_executed_upgrade_and_rejects_changed_payload() -> anyhow::Result<()> {
+        let pool = ConnectionPool::<Verifier>::test_pool().await;
+        let mut connection = pool.connection().await?;
+        let version =
+            ProtocolSemanticVersion { minor: ProtocolVersionId::Version28, patch: VersionPatch(0) };
+        connection
+            .via_protocol_versions_dal()
+            .save_protocol_version(version, &[1; 32], &[2; 32], &[3; 32], &[4; 32])
+            .await?;
+        connection.via_protocol_versions_dal().mark_upgrade_as_executed(&[3; 32]).await?;
+        connection
+            .via_protocol_versions_dal()
+            .save_protocol_version(version, &[1; 32], &[2; 32], &[3; 32], &[4; 32])
+            .await?;
+        assert_eq!(
+            connection.via_protocol_versions_dal().latest_protocol_semantic_version().await?,
+            Some(version)
+        );
+        let conflict = connection
+            .via_protocol_versions_dal()
+            .save_protocol_version(version, &[9; 32], &[2; 32], &[3; 32], &[4; 32])
+            .await
+            .unwrap_err();
+        assert_eq!(
+            conflict
+                .downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>()
+                .unwrap()
+                .field,
+            "bootloader_code_hash"
+        );
+        assert_eq!(
+            connection.via_protocol_versions_dal().latest_protocol_semantic_version().await?,
+            Some(version)
+        );
         Ok(())
     }
 }

@@ -8,7 +8,7 @@ use via_verification::{
     version_27::types::ProveBatches as ProveBatchesV27,
     version_28::types::ProveBatches as ProveBatchesV28,
 };
-use via_verifier_dal::{via_store_mode_dal::StoreMode, via_transactions_dal::L1ToL2Transaction};
+use via_verifier_dal::via_store_mode_dal::StoreMode;
 use zksync_object_store::{Bucket, MockObjectStore, ObjectStore, ObjectStoreError, StoredObject};
 use zksync_types::{
     protocol_version::{ProtocolSemanticVersion, VersionPatch},
@@ -252,19 +252,9 @@ async fn approval_fixture_in(
         .await
         .unwrap();
     let deposit = H256::random();
-    storage
-        .via_transactions_dal()
-        .insert_transaction(L1ToL2Transaction {
-            priority_id: 0,
-            tx_id: H256::random(),
-            receiver: "receiver".into(),
-            value: 1,
-            calldata: vec![],
-            canonical_tx_hash: deposit,
-            l1_block_number: 1,
-        })
-        .await
-        .unwrap();
+    sqlx::query("INSERT INTO via_transactions (priority_id,tx_id,receiver,value,calldata,canonical_tx_hash,l1_block_number) VALUES (0,$1,'receiver',1,'',$2,1)")
+        .bind(H256::random().as_bytes()).bind(deposit.as_bytes())
+        .execute(storage.conn()).await.unwrap();
     let pubdata = Pubdata {
         user_logs: vec![L1MessengerL2ToL1Log {
             sender: H160::from_str(L2_BOOTLOADER_CONTRACT_ADDR).unwrap(),

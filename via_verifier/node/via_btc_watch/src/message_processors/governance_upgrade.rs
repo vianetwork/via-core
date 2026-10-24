@@ -6,7 +6,7 @@ use via_btc_client::{
     traits::BitcoinOps,
     types::FullInscriptionMessage,
 };
-use via_verifier_dal::{Connection, DalError, Verifier, VerifierDal};
+use via_verifier_dal::{Connection, Verifier, VerifierDal};
 use via_verifier_types::protocol_version::get_sequencer_version;
 use zksync_types::via_protocol_upgrade::ViaProtocolUpgrade;
 
@@ -36,7 +36,9 @@ impl GovernanceUpgradesEventProcessor {
 #[async_trait::async_trait]
 impl MessageProcessor for GovernanceUpgradesEventProcessor {
     async fn process_messages(
-        &mut self, storage: &mut Connection<'_, Verifier>, msgs: Vec<FullInscriptionMessage>,
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
+        msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
         let mut upgrades = Vec::new();
@@ -115,7 +117,7 @@ impl MessageProcessor for GovernanceUpgradesEventProcessor {
                     recursion_scheduler_level_vk_hash.as_bytes(),
                 )
                 .await
-                .map_err(DalError::generalize)?;
+                ?;
         }
         Ok(None)
     }

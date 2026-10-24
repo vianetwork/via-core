@@ -73,6 +73,10 @@ pub struct StorageTransaction {
 
     // DEPRECATED.
     pub l1_block_number: Option<i32>,
+    pub bitcoin_height: Option<i64>,
+    pub bitcoin_hash: Option<String>,
+    pub bitcoin_vout: Option<i64>,
+    pub bitcoin_payload: Option<serde_json::Value>,
 }
 
 impl From<StorageTransaction> for L1TxCommonData {

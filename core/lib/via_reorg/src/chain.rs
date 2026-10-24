@@ -124,7 +124,6 @@ impl<H: Copy + Eq, R: FnMut(H) -> Option<Header<H>>> Walk<'_, H, R> {
         let mut connected_blocks = Vec::new();
         let mut current = current_header;
         let mut previous = *prev_header;
-        // provenance:ldk-walk:start
 		loop {
 			// Found the common ancestor.
 			if current.block_hash == previous.block_hash {
@@ -143,7 +142,6 @@ impl<H: Copy + Eq, R: FnMut(H) -> Option<Header<H>>> Walk<'_, H, R> {
 				current = self.look_up_previous_header(chain_poller, &current).await?;
 			}
 		}
-        // provenance:ldk-walk:end
         if current.header != previous.header {
             return Err(WalkError::WrongHeight);
         }

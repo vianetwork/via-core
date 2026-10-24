@@ -1,5 +1,4 @@
 use bitcoin::{hashes::Hash, Address, Amount, Network, ScriptBuf, WPubkeyHash};
-use via_verifier_dal::via_transactions_dal::L1ToL2Transaction;
 use via_verifier_types::withdrawal::{CompleteWithdrawalBatch, WithdrawalRequest};
 use zksync_db_connection::instrument::InstrumentExt;
 use zksync_types::{Address as L2Address, H256};
@@ -105,19 +104,9 @@ async fn import_batch(
         .await
         .unwrap();
     if let Some(deposit_height) = deposit_height {
-        storage
-            .via_transactions_dal()
-            .insert_transaction(L1ToL2Transaction {
-                priority_id: i64::from(number),
-                tx_id: hash,
-                receiver: "fixture".into(),
-                value: 10_000,
-                calldata: vec![],
-                canonical_tx_hash: hash,
-                l1_block_number: deposit_height,
-            })
-            .await
-            .unwrap();
+        sqlx::query("INSERT INTO via_transactions (priority_id,tx_id,receiver,value,calldata,canonical_tx_hash,l1_block_number) VALUES ($1,$2,'fixture',10000,'',$2,$3)")
+            .bind(i64::from(number)).bind(hash.as_bytes()).bind(deposit_height)
+            .instrument("seed_retained_deposit").execute(storage).await.unwrap();
         storage
             .via_transactions_dal()
             .update_transaction(&hash, true, i64::from(number))
@@ -840,12 +829,7 @@ async fn vote_reorg_preserves_proof_forced_descendant_rejection() {
         .import_complete_batch(wallet().as_bytes(), &proof, &batch)
         .await
         .is_err());
-    storage
-        .via_votes_dal()
-        .delete_invalid_votable_transactions_if_exists()
-        .await
-        .unwrap();
-    assert!(!storage
+    assert!(storage
         .via_votes_dal()
         .proof_reveal_tx_exists(&proof)
         .await

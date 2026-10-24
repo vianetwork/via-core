@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE transactions SET bitcoin_height=$2, bitcoin_hash=$3,\n                bitcoin_vout=$4, bitcoin_payload=$5 WHERE hash=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int8",
+        "Text",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "54a511ddbb1eef63b038e25affd2620d27e159b40e4487a1cf1c2a9950f91e8f"
+}

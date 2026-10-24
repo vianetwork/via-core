@@ -1,4 +1,12 @@
 use rand::random;
+use bitcoin::{hashes::Hash, BlockHash};
+use via_btc_client::{
+    indexer::replay::{DepositOrigin, DepositPayload, ReplayConflict},
+    types::L1ToL2MessageInput,
+};
+use zksync_db_connection::instrument::InstrumentExt;
+use zksync_types::{Address, l1::via_l1::ViaL1Deposit};
+use crate::via_transactions_dal::L1ToL2Transaction;
 use zksync_db_connection::{connection::Connection, connection_pool::ConnectionPool};
 use zksync_types::H256;
 
@@ -17,6 +25,74 @@ fn mock_via_vote() -> (u32, H256, String, bool) {
         "0x1234567890123456789012345678901234567890".to_string(), // verifier_address
         random::<bool>(),
     )
+}
+
+#[tokio::test]
+async fn proof_replay_preserves_completed_result_and_distinguishes_same_batch_proofs(
+) -> anyhow::Result<()> {
+    let mut db = create_test_connection().await;
+    for number in [1, 2] {
+        db.via_votes_dal()
+            .insert_votable_transaction(
+                1,
+                H256::repeat_byte(7),
+                H256::zero(),
+                "da".into(),
+                H256::from_low_u64_be(number),
+                format!("proof-{number}"),
+                "same-pubdata-tx".into(),
+                "same-pubdata-blob".into(),
+                None,
+            )
+            .await?;
+    }
+    let proof = H256::from_low_u64_be(1);
+    let id = db.via_votes_dal().get_votable_transaction_id(proof.as_bytes()).await?.unwrap();
+    db.via_votes_dal().verify_votable_transaction(1, proof, true).await?;
+    db.via_votes_dal()
+        .insert_votable_transaction(
+            1,
+            H256::repeat_byte(7),
+            H256::zero(),
+            "da".into(),
+            proof,
+            "proof-1".into(),
+            "same-pubdata-tx".into(),
+            "same-pubdata-blob".into(),
+            None,
+        )
+        .await?;
+    let error = db
+        .via_votes_dal()
+        .insert_votable_transaction(
+            1,
+            H256::repeat_byte(7),
+            H256::zero(),
+            "da".into(),
+            proof,
+            "changed-proof".into(),
+            "same-pubdata-tx".into(),
+            "same-pubdata-blob".into(),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.downcast_ref::<ReplayConflict>().unwrap().field, "proof_blob_id");
+    assert_eq!(db.via_votes_dal().get_votable_transaction_id(proof.as_bytes()).await?, Some(id));
+    let status = sqlx::query_scalar::<_, bool>(
+        "SELECT l1_batch_status FROM via_votable_transactions WHERE id=$1",
+    )
+    .bind(id)
+    .instrument("kept_proof_replay_result")
+    .fetch_one(&mut db)
+    .await?;
+    assert!(status);
+    let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM via_votable_transactions")
+        .instrument("distinct_same_batch_proofs")
+        .fetch_one(&mut db)
+        .await?;
+    assert_eq!(count, 2);
+    Ok(())
 }
 
 #[tokio::test]
@@ -293,19 +369,12 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
         i64::from(expected_not_processed_l1_batch_votable_tx_id)
     );
 
-    // Delete previous invalid transactions
-    storage
-        .via_votes_dal()
-        .delete_invalid_votable_transactions_if_exists()
-        .await
-        .unwrap();
-
     let rejected_l1_batch = storage
         .via_votes_dal()
         .get_first_rejected_l1_batch()
         .await
         .unwrap();
-    assert!(rejected_l1_batch.is_none());
+    assert!(rejected_l1_batch.is_some());
 }
 
 fn store_mode(dev: bool, network: &str, genesis: &str) -> StoreMode {
@@ -713,4 +782,109 @@ async fn strict_rollback_and_reapply_preserve_historical_verdicts() {
     .await
     .unwrap();
     assert_eq!(persisted, (true, false, 1));
+}
+
+#[tokio::test]
+async fn remine_keeps_verdict_assignment_and_compares_payload_before_source_update(
+) -> anyhow::Result<()> {
+    let pool = ConnectionPool::<Verifier>::test_pool().await;
+    let mut db = pool.connection().await?;
+    let txid = H256::repeat_byte(8);
+    let tx = |height, receiver, vout| {
+        let deposit = ViaL1Deposit {
+            l2_receiver_address: receiver,
+            amount: 50_000,
+            calldata: vec![],
+            l1_block_number: height,
+            tx_index: 1,
+            output_vout: vout,
+        };
+        L1ToL2Transaction {
+            priority_id: deposit.priority_id().0 as i64,
+            l1_block_number: height as i64,
+            tx_id: txid,
+            receiver: receiver.to_string(),
+            value: 50_000,
+            calldata: vec![],
+            canonical_tx_hash: deposit.l1_tx().unwrap().hash(),
+        }
+    };
+    let old = tx(10, Address::repeat_byte(7), 0);
+    let original = (old.priority_id, old.canonical_tx_hash, old.receiver.clone());
+    let mut origin =
+        DepositOrigin { height: 10, hash: BlockHash::from_byte_array([10; 32]), vout: 0 };
+    let mut payload = DepositPayload {
+        input: (
+            L1ToL2MessageInput {
+                receiver_l2_address: Address::repeat_byte(7),
+                l2_contract_address: Address::zero(),
+                call_data: vec![],
+            },
+            50_000,
+        ),
+        public_key: vec![2; 33],
+        signature: vec![3; 64],
+        sender_script: None,
+    };
+    assert!(db.via_transactions_dal().insert_transaction(old, &origin, &payload).await?);
+    sqlx::query("UPDATE via_transactions SET status=TRUE,l1_batch_number=9,bitcoin_height=NULL,bitcoin_hash=NULL,bitcoin_vout=NULL,bitcoin_payload=NULL")
+        .instrument("seed_completed_legacy_deposit").execute(&mut db).await?;
+    origin.height = 11;
+    origin.hash = BlockHash::from_byte_array([11; 32]);
+    let mut same_abbreviation = [8; 20];
+    same_abbreviation[..2].fill(7);
+    same_abbreviation[18..].fill(7);
+    for (receiver, field) in [
+        (Address::repeat_byte(9), "receiver"),
+        (Address::from(same_abbreviation), "retained_execution"),
+    ] {
+        payload.input.0.receiver_l2_address = receiver;
+        let error = db
+            .via_transactions_dal()
+            .insert_transaction(tx(11, receiver, 0), &origin, &payload)
+            .await
+            .unwrap_err();
+        assert_eq!(error.downcast_ref::<ReplayConflict>().unwrap().field, field);
+    }
+    payload.input.0.receiver_l2_address = Address::repeat_byte(7);
+    assert!(
+        !db.via_transactions_dal()
+            .insert_transaction(tx(11, Address::repeat_byte(7), 0), &origin, &payload)
+            .await?
+    );
+    payload.public_key[0] ^= 1;
+    let error = db
+        .via_transactions_dal()
+        .insert_transaction(tx(11, Address::repeat_byte(7), 0), &origin, &payload)
+        .await
+        .unwrap_err();
+    assert_eq!(error.downcast_ref::<ReplayConflict>().unwrap().field, "public_key");
+    origin.vout = 1;
+    assert!(
+        db.via_transactions_dal()
+            .insert_transaction(tx(11, Address::repeat_byte(7), 1), &origin, &payload)
+            .await?
+    );
+    let mut reset = db.start_transaction().await?;
+    reset.via_indexer_dal().delete_reader_suffix(0).await?;
+    reset.commit().await?;
+    let row = sqlx::query("SELECT * FROM via_transactions")
+        .instrument("retained_completed_deposit")
+        .fetch_optional(&mut db)
+        .await?
+        .unwrap();
+    use sqlx::Row;
+    assert_eq!(row.get::<i64, _>("priority_id"), original.0);
+    assert_eq!(row.get::<Vec<u8>, _>("canonical_tx_hash"), original.1.as_bytes());
+    assert_eq!(row.get::<String, _>("receiver"), original.2);
+    assert_eq!(row.get::<i64, _>("l1_block_number"), 10);
+    assert_eq!(row.get::<i64, _>("bitcoin_height"), 11);
+    assert_eq!(row.get::<i64, _>("l1_batch_number"), 9);
+    assert!(row.get::<bool, _>("status"));
+    let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM via_transactions")
+        .instrument("retained_completed_count")
+        .fetch_one(&mut db)
+        .await?;
+    assert_eq!(count, 1);
+    Ok(())
 }

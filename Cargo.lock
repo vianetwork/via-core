@@ -11852,6 +11852,7 @@ dependencies = [
  "test-casing",
  "tokio",
  "tracing",
+ "via_btc_client",
  "zksync_dal",
  "zksync_merkle_tree",
  "zksync_object_store",
@@ -11940,6 +11941,20 @@ dependencies = [
  "zksync_shared_metrics",
  "zksync_types",
  "zksync_utils",
+]
+
+[[package]]
+name = "via_btc_storage"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+ "via_reorg",
+ "via_test_utils",
+ "zksync_db_connection",
 ]
 
 [[package]]
@@ -12619,6 +12634,8 @@ dependencies = [
  "strum 0.26.3",
  "thiserror 1.0.69",
  "tokio",
+ "via_btc_client",
+ "via_btc_storage",
  "via_verifier_types",
  "zksync_basic_types",
  "zksync_db_connection",
@@ -14364,6 +14381,8 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "via_btc_client",
+ "via_btc_storage",
  "vise",
  "zksync_concurrency",
  "zksync_consensus_crypto",
