@@ -18,7 +18,7 @@ pub struct ViaVerifierInitLayer {
     pub proof_verification_dev_mode: bool,
 }
 
-// jscpd:ignore-start Each layer owns its context type; sharing it would couple independent task outputs.
+// jscpd:ignore-start Each layer owns its context type. Sharing it would couple independent task outputs.
 #[derive(Debug, FromContext)]
 #[context(crate = crate)]
 pub struct Input {

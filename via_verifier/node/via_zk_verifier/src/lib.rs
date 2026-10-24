@@ -77,7 +77,7 @@ impl ViaVerifier {
         let mut timer = tokio::time::interval(self.config.polling_interval());
         let pool = self.pool.clone();
 
-        // jscpd:ignore-start Each actor owns polling and cancellation; verifier work has an additional cancellation boundary.
+        // jscpd:ignore-start Each actor owns polling and cancellation. Verifier work adds another cancellation boundary.
         while !*stop_receiver.borrow_and_update() {
             tokio::select! {
                 _ = timer.tick() => { /* continue iterations */ }
@@ -90,9 +90,8 @@ impl ViaVerifier {
                 _ = stop_receiver.changed() => break,
                 storage = pool.connection_tagged("via_zk_verifier") => storage?,
             };
-            // Cancellation before commit rolls back the verdict transaction.
-            // An in-flight commit may still finish.
-            // The next start reads its durable result.
+            // Cancellation before commit rolls back verdict transaction.
+            // Commit already in flight may finish, and next start reads its durable result.
             let result = tokio::select! {
                 biased;
                 _ = stop_receiver.changed() => break,
@@ -342,16 +341,15 @@ async fn verify_batch_proof(
 ) -> anyhow::Result<Approval> {
     let batch = inscribed.l1_batch_index;
     let number = i64::from(batch.0);
-    // A package this node could not decode may have been rebuilt by the serving node, so it waits rather than counts as invalid.
-    // The Engine API likewise separates missing data (SYNCING) from completed validation, but Via drops its rule that some malformed payloads are INVALID:
+    // Package this node could not decode may have been rebuilt by serving node, hence it waits rather than counts as invalid.
+    // Engine API likewise separates missing data (SYNCING) from validation, but Via drops its INVALID-for-malformed rule:
     // https://github.com/ethereum/execution-apis/blob/5bcdc34a477b10af278c079525374e6a4046f291/src/engine/paris.md#L175-L179
     let mut prove_batch_data = decode_prove_batch_data(minor, proof_data)
         .and_then(|data| data.check_shape().map(|()| data))
         .map_err(|err| no_verdict(NoVerdictReason::MalformedPackage, number, err))?;
 
-    // The package must name the inscribed batch under the local protocol version, because that version selects the proof lookup.
-    // zkSync's Executor matches the whole submitted batch records against stored hashes, commitments included.
-    // The inscription carries no commitment, so Via compares only these fields and the commitments stay unbound:
+    // Package must name inscribed batch under local protocol version, because that version selects proof lookup.
+    // zkSync's Executor matches whole batch records, commitments included, but inscription carries no commitment to bind:
     // https://github.com/matter-labs/era-contracts/blob/df2c3baabd8bf1ea7b82fb6aafa5ae550c0f9b80/l1-contracts/contracts/state-transition/chain-deps/facets/Executor.sol#L484-L500
     let claimed = (prove_batch_data.claimed_batch(), prove_batch_data.protocol_version_id());
     let expected = ((batch, inscribed.l1_batch_hash, inscribed.prev_l1_batch_hash), Some(minor));
@@ -371,9 +369,8 @@ async fn verify_batch_proof(
                 anyhow::anyhow!("no registered patch for protocol version {minor}"),
             ));
         }
-        // A proof is keyed by the exact patch that produced it, so every patch of the batch's minor version is tried, newest first.
-        // Upstream zkSync's eth sender also tries allowed versions in turn, but filters them by the verification key authorized on L1.
-        // Via keeps one key per minor version, so every patch is eligible, and a proof made with another key fails and records nothing:
+        // Proofs are stored per exact patch, and each minor has one verification key, hence all patches are tried, newest first.
+        // zkSync's eth sender also tries versions in turn, filtered by L1-authorized key. Wrong-key proof fails without record:
         // https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/eth_sender/src/aggregator.rs#L1030-L1050
         let found = match &mut prove_batch_data {
             ProveBatchData::V27(data) => find_wrapped_proof(blob_store, batch, allowed_versions)
@@ -383,17 +380,17 @@ async fn verify_batch_proof(
                 .await
                 .map(|proof| proof.map(|proof| data.proofs.push(proof)).is_some()),
         };
-        // An absent object may still arrive, so the batch waits.
-        // An object that exists but will not decode is unusable.
-        // Bitcoin Core's VerifyDB draws the same line between data it lacks and data it cannot read:
+        // Batch waits on absent object, which may arrive later. Object that exists but will not decode is unusable.
+        // Bitcoin Core's VerifyDB draws same line between data it lacks and data it cannot read:
         // https://github.com/bitcoin/bitcoin/blob/d82283950f5ff3b2116e705f931c6e89e5fdd0be/src/validation.cpp#L4451-L4462
         match found {
             Ok(true) => {}
-            // Development acceptance needs an absent proof, because the external-node DA path rewrites `should_verify` from its own config.
-            // zkSync's TestnetVerifier also skips only an empty proof and verifies any other, but its empty proof is fixed calldata.
-            // Absence here is a local observation, acceptable only because the store fence confines it to regtest, and a proof arriving later is not checked:
+            // Development acceptance needs absent proof, because external-node DA path rewrites `should_verify` from serving config.
+            // zkSync's TestnetVerifier also skips only empty proof and verifies any other, but its empty proof is fixed calldata:
             // https://github.com/matter-labs/era-contracts/blob/df2c3baabd8bf1ea7b82fb6aafa5ae550c0f9b80/l1-contracts/contracts/state-transition/TestnetVerifier.sol#L14-L33
             Ok(false) if dev_mode => {
+                // Local absence is acceptable only because store fence confines it to regtest.
+                // Proof arriving later is never checked.
                 tracing::warn!(
                     "No proof found for l1 batch {batch}, and development mode skips verification"
                 );
@@ -415,8 +412,8 @@ async fn verify_batch_proof(
         }
     }
 
-    // A false result shows only that this proof fails for the package's commitments, which nothing binds to the inscription.
-    // Lighthouse's proof engine likewise says a proof that does not verify says nothing about the payload it claims to prove:
+    // False result shows only that this proof fails for package's commitments, which nothing binds to inscription.
+    // Lighthouse's proof engine likewise says failed proof says nothing about payload it claims to prove:
     // https://github.com/sigp/lighthouse/blob/de4ef4002115b6f94a42868114cabd66f7273328/beacon_node/proof_engine/src/lib.rs#L24-L30
     match verify_proof(prove_batch_data).await {
         Ok(true) => Ok(Approval::Verified),
@@ -452,7 +449,7 @@ async fn record_approval(
     number_of_verifiers: usize,
 ) -> anyhow::Result<bool> {
     let mut transaction = storage.start_transaction().await?;
-    // Read in the transaction that records their statuses, next to the reorg check below.
+    // Read in transaction that records their statuses, next to reorg check below.
     let deposits = verify_op_priority_id(&mut transaction, l1_batch_number, pubdata).await?;
 
     let votable_transaction_id = transaction
@@ -489,7 +486,7 @@ async fn record_approval(
             .await?;
     }
 
-    // Dropping the transaction on a reorg rolls every write above back.
+    // Dropping transaction on reorg rolls every write above back.
     if transaction.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
         return Ok(false);
     }

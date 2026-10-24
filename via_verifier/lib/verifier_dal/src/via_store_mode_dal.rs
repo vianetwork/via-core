@@ -29,7 +29,7 @@ impl ViaStoreModeDal<'_, '_> {
     /// Via adapts that: storage init matches the node's genesis to the configured network, and the designation stores its hash:
     /// https://github.com/ethereum/go-ethereum/blob/920c07774c65ebb3023536f85df642c44478b540/core/genesis.go#L384-L392
     ///
-    /// Returns true when a strict designation just adopted verdicts written before it, which stay unproven legacy results.
+    /// Returns true when this call's strict designation adopted verdicts written before it, which stay unproven legacy results.
     /// A strict store keeps them, because re-verifying history needs genuine historical proofs.
     pub async fn ensure_proof_verification_mode(
         &mut self,
@@ -42,7 +42,7 @@ impl ViaStoreModeDal<'_, '_> {
         );
         let mut tx = self.storage.start_transaction().await?;
         let mut adopted_legacy = false;
-        // The primary key serializes concurrent first starts, so only the process that inserts judges existing verdicts.
+        // Primary key serializes concurrent first starts, leaving only inserting process to judge existing verdicts.
         let designated_now = sqlx::query(
             "INSERT INTO via_verifier_store_mode \
              (id, proof_verification_dev_mode, bitcoin_network, bitcoin_genesis_hash, designated_after_votable_id) \
@@ -66,8 +66,8 @@ impl ViaStoreModeDal<'_, '_> {
             .await?
             .context("existence query returned no row")?
             .try_get("found")?;
-            // Existing verdicts may come from the old skip path, and a development store is disposable.
-            // Returning early drops the transaction, which rolls the designation back.
+            // Existing verdicts may come from legacy skip path, and development store is disposable.
+            // Returning early drops transaction, which rolls designation back.
             ensure!(
                 !(has_verdicts && mode.proof_verification_dev_mode),
                 "refusing to designate a store that already holds verdicts for development mode; use a fresh store"

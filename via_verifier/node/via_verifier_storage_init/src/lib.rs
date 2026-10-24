@@ -24,14 +24,14 @@ impl ViaVerifierStorageInitializer {
         btc_watch_config: ViaBtcWatchConfig,
         proof_verification_dev_mode: bool,
     ) -> anyhow::Result<Self> {
-        // Runs on every start, before the framework launches verifier tasks.
-        // The configured network name falls back to regtest when unparseable, so the node's block 0 must match it.
-        // This separates Bitcoin networks, not two regtest deployments, which share one genesis.
-        // Bitcoin Core likewise refuses chain data whose genesis block is not the configured network's:
-        // https://github.com/bitcoin/bitcoin/blob/d82283950f5ff3b2116e705f931c6e89e5fdd0be/src/node/chainstate.cpp#L72-L74
+        // Runs on every start, before framework launches verifier tasks.
+        // Node's block 0 must match configured network, because unparseable network name falls back to regtest.
         let network = client.get_network();
         let genesis_hash = client.fetch_block(0).await?.block_hash();
         let expected_genesis = genesis_block(network).block_hash();
+        // Genesis separates Bitcoin networks, not two regtest deployments, which share one.
+        // Bitcoin Core likewise refuses chain data whose genesis block is not configured network's:
+        // https://github.com/bitcoin/bitcoin/blob/d82283950f5ff3b2116e705f931c6e89e5fdd0be/src/node/chainstate.cpp#L72-L74
         anyhow::ensure!(
             genesis_hash == expected_genesis,
             "Bitcoin node genesis {genesis_hash} does not match configured network {network} ({expected_genesis})"

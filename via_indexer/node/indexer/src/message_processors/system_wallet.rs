@@ -182,7 +182,7 @@ impl SystemWalletProcessor {
     ) -> anyhow::Result<bool> {
         tracing::info!("Received UpdateSequencer message");
 
-        // jscpd:ignore-start Indexer selects and validates its wallet projection within its own SQL owner.
+        // jscpd:ignore-start Indexer selects and validates its wallet projection within indexer's SQL owner.
         let system_wallets_map =
             storage.via_wallet_dal().get_system_wallets_raw().await.unwrap().unwrap_or_default();
 
@@ -227,7 +227,7 @@ impl SystemWalletProcessor {
     ) -> anyhow::Result<bool> {
         tracing::info!("Received UpdateGovernance message");
 
-        // jscpd:ignore-start Indexer selects and validates its wallet projection within its own SQL owner.
+        // jscpd:ignore-start Indexer selects and validates its wallet projection within indexer's SQL owner.
         let system_wallets_map =
             storage.via_wallet_dal().get_system_wallets_raw().await.unwrap().unwrap_or_default();
 
