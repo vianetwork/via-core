@@ -1,5 +1,27 @@
 # Changelog
 
+## [28.2.0](https://github.com/vianetwork/via-core/compare/core-v28.1.0...core-v28.2.0) (2026-10-24)
+
+
+### Features
+
+* **via-verifier:** implement the durable withdrawal lifecycle ([666dc9e](https://github.com/vianetwork/via-core/commit/666dc9e8124502dbbbd109ea3a18712d51db68a8))
+
+
+### Bug Fixes
+
+* **via-btc:** decode OP_RETURN deposit push boundaries ([7f9c387](https://github.com/vianetwork/via-core/commit/7f9c3877aa644c4ded029fb07833624878a72af3))
+* **via-btc:** enforce the L2 mempool capacity ([246156e](https://github.com/vianetwork/via-core/commit/246156e041f65e5ce1ef5f09d7e3b9b7f6293668))
+* **via-btc:** let the deadline flush partial proof groups ([e4b7604](https://github.com/vianetwork/via-core/commit/e4b76045b8eadc0cf6190f7a04a031ab674ed170))
+* **via-btc:** reject incomplete withdrawal messages ([dc3aaca](https://github.com/vianetwork/via-core/commit/dc3aaca695a8255bca98cd47bc2dee64d4b3b86c))
+* **via-btc:** reject invalid deposit address lengths ([c058bac](https://github.com/vianetwork/via-core/commit/c058bac44f43dffe3252f723b080abad9115fda6))
+* **via-btc:** serialize main-node Bitcoin recovery ([#404](https://github.com/vianetwork/via-core/issues/404)) ([813fddd](https://github.com/vianetwork/via-core/commit/813fddd858c3db3408e9cd9a216785b2a48bdbff))
+* **via-btc:** stop Bitcoin RPC from blocking async workers and fetch only block hashes ([ba71528](https://github.com/vianetwork/via-core/commit/ba71528609d7b3551f61ca7eb6704d4d8c68b6f3))
+* **via-btc:** trace getblockhash like the other RPC methods ([5067739](https://github.com/vianetwork/via-core/commit/50677398c7bcb80cdc83715aecdf5f03b36c82f3))
+* **via-da:** reject malformed Celestia blob IDs and manifests without panicking ([61a6e22](https://github.com/vianetwork/via-core/commit/61a6e2237b3fa2ea2868d3a4002459e9250049e8))
+* **via-verifier:** compact authenticated signing snapshots ([b685036](https://github.com/vianetwork/via-core/commit/b685036325e6587986e9e65798c46cd6bbdc0f33))
+* **via-verifier:** reconcile proof verdict lifecycle and stack prerequisites ([0464d52](https://github.com/vianetwork/via-core/commit/0464d52182de20e70cc6d334eb20b47ab466643c))
+
 ## [28.1.0](https://github.com/vianetwork/via-core/compare/core-v28.0.3...core-v28.1.0) (2026-05-28)
 
 
