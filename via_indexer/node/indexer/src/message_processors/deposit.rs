@@ -84,7 +84,7 @@ impl L1ToL2MessageProcessor {
         tx_id: H256,
         msg: &L1ToL2Message,
     ) -> anyhow::Result<Option<Deposit>> {
-        // jscpd:ignore-start Indexer decorates these protocol fields; execution queues retain their own transaction owner.
+        // jscpd:ignore-start Indexer decorates these protocol fields. Execution queues retain their transaction owner.
         let deposit = ViaL1Deposit {
             l2_receiver_address: msg.input.receiver_l2_address,
             amount: msg.amount.to_sat(),

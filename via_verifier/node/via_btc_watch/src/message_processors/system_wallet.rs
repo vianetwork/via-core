@@ -14,7 +14,7 @@ use crate::{
     metrics::METRICS,
 };
 
-// jscpd:ignore-start Each node constructs its wallet processor against its own SQL owner and node lifecycle.
+// jscpd:ignore-start Each node constructs its wallet processor against node-local SQL owner and lifecycle.
 #[derive(Debug)]
 pub struct SystemWalletProcessor {
     /// BTC client
@@ -36,7 +36,7 @@ impl MessageProcessor for SystemWalletProcessor {
         msgs: Vec<FullInscriptionMessage>,
         _: &mut BitcoinInscriptionIndexer,
     ) -> Result<Option<u32>, MessageProcessorError> {
-        // jscpd:ignore-start Each node dispatches wallet effects inside its own DAL transaction and returns its local restart boundary.
+        // jscpd:ignore-start Each node dispatches wallet effects in its DAL transaction and returns its local restart boundary.
         let mut l1_block_number: Option<u32> = None;
 
         for msg in FullInscriptionMessage::sort_messages(msgs) {

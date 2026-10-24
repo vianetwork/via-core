@@ -102,7 +102,7 @@ async fn a_package_for_another_batch_or_version_has_no_verdict() {
     let outcome = check(&*store, true, &data, &other_root).await;
     assert_eq!(reason(outcome), NoVerdictReason::MalformedPackage);
 
-    // A declared version would otherwise choose which stored proofs are looked up.
+    // Declared version would otherwise choose which stored proofs are looked up.
     let mut other_version = omit_proof(&*store, v28_patches(&[0])[0]).await;
     other_version.l1_batches[0].header.protocol_version = Some(ProtocolVersionId::Version27);
     let outcome = check(&*store, true, &other_version, &inscribed(&other_version)).await;
@@ -129,7 +129,7 @@ async fn an_absent_proof_waits_unless_development_mode_accepts_it() {
     let approval = check(&*store, true, &data, &input).await.unwrap();
     assert_eq!(approval, Approval::DevAccepted);
 
-    // Without a registered patch the lookup never ran, so absence is not established.
+    // Absence is not established, because lookup never ran without registered patch.
     let bytes = bincode::serialize(&data).unwrap();
     let outcome =
         verify_batch_proof(&*store, true, &input, &[], ProtocolVersionId::Version28, &bytes).await;
@@ -156,7 +156,7 @@ async fn an_undecodable_stored_proof_has_no_verdict() {
 async fn a_failing_proof_has_no_verdict_even_in_development_mode() {
     let store = MockObjectStore::arc();
     let mut data = v28();
-    // The roots still match the inscription, and only the unbound commitment differs.
+    // Roots match inscription, and only unbound commitment differs.
     data.l1_batches[0].metadata.commitment = H256::repeat_byte(7);
     let outcome = check(&*store, true, &data, &inscribed(&data)).await;
     assert_eq!(reason(outcome), NoVerdictReason::ProofFailed);
@@ -343,7 +343,7 @@ async fn a_reorg_before_commit_writes_nothing() {
 #[tokio::test]
 async fn watermarks_come_from_the_database_and_follow_a_reorg() {
     let (mut storage, tx_id, _, pubdata) = approval_fixture(false, false).await;
-    // A fresh process sees the pending batch without having processed anything.
+    // Fresh process sees pending batch without having processed anything.
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (1, 0));
 
     record_approval(&mut storage, BATCH, tx_id, Approval::Verified, &pubdata, None, 1)
@@ -351,7 +351,7 @@ async fn watermarks_come_from_the_database_and_follow_a_reorg() {
         .unwrap();
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (1, 1));
 
-    // A reorg removes the batch, and both watermarks fall back with it.
+    // Reorg removes batch, and both watermarks fall back with it.
     sqlx::query("DELETE FROM via_votable_transactions WHERE l1_batch_number = $1")
         .bind(BATCH)
         .execute(storage.conn())
@@ -360,8 +360,8 @@ async fn watermarks_come_from_the_database_and_follow_a_reorg() {
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (0, 0));
 }
 
-/// Only the RPC transport and DA/object storage are doubled; the inscription parser,
-/// proof verifier, selection, deposit checks and transaction writes remain production code.
+/// Only the RPC transport and DA/object storage are doubled.
+/// The inscription parser, proof verifier, selection, deposit checks and transaction writes remain production code.
 #[derive(Debug, Clone)]
 struct FixtureDa {
     proof: Vec<u8>,
@@ -683,7 +683,7 @@ async fn missing_proof_retries_the_same_persisted_batch_then_approves() {
         selected
     );
     assert_eq!(report_watermarks(&mut storage).await.unwrap(), (10, 8));
-    // Reconnect as on restart: the pending work comes from the database, not memory.
+    // Reconnect as on restart: pending work comes from database, not memory.
     drop(storage);
     let mut storage = fixture.verifier.pool.connection().await.unwrap();
     let mut package = v28();
@@ -860,7 +860,7 @@ async fn stop_interrupts_connection_acquisition() {
     })
     .await;
     // Register this later timer only after run has registered its first tick.
-    // Poll run first when it expires, so the earlier tick reaches the exhausted pool before stop.
+    // Poll run first when it expires, letting earlier tick reach exhausted pool before stop.
     tokio::select! {
         biased;
         result = &mut run => panic!("verifier exited while the pool was exhausted: {result:?}"),
@@ -904,7 +904,7 @@ async fn stop_during_a_post_marker_database_wait_rolls_back_all_effects() {
     stop.send(true).unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(2), &mut run).await.unwrap().unwrap();
     lock.commit().await.unwrap();
-    // Wait for the cancelled write and queued rollback to release their row lock.
+    // Wait for cancelled write and queued rollback to release their row lock.
     tokio::time::timeout(
         std::time::Duration::from_secs(10),
         sqlx::query("SELECT canonical_tx_hash FROM via_transactions FOR UPDATE")
@@ -969,7 +969,7 @@ async fn initializer_checks_actual_genesis_and_network_before_designating_the_st
             .unwrap();
         assert_eq!(count, 0);
     }
-    // The configured regtest endpoint now serves Bitcoin genesis, even for an initialized store.
+    // Configured regtest endpoint serves Bitcoin genesis, and initialized store gets no exemption.
     assert!(initialize(fixture.verifier.pool.clone(), fixture.client.clone(), false)
         .await
         .is_err());

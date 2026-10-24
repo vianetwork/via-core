@@ -367,8 +367,8 @@ async fn development_designation_refuses_a_store_with_verdicts() {
         .ensure_proof_verification_mode(&store_mode(true, "regtest", "g"))
         .await;
     assert!(designated.is_err());
-    // The refusal rolled its designation back, so the store can still be designated strict.
-    // That designation reports the adopted legacy verdict once, and a restart does not report it again.
+    // Refusal rolled its designation back, leaving store free for strict designation.
+    // That designation reports adopted legacy verdict once, and restart does not report it again.
     let strict = store_mode(false, "regtest", "g");
     let mut dal = storage.via_store_mode_dal();
     assert!(dal.ensure_proof_verification_mode(&strict).await.unwrap());
@@ -391,7 +391,7 @@ async fn development_store_restarts_after_its_own_verdicts() {
     drop(storage);
     drop(pool);
 
-    // A new pool cannot reuse the old process's physical database connection.
+    // New pool cannot reuse old process's physical database connection.
     let restarted_pool = ConnectionPool::<Verifier>::singleton(database_url).build().await.unwrap();
     let mut storage = restarted_pool.connection().await.unwrap();
     let new_pid: i32 =
@@ -569,7 +569,7 @@ async fn rollback_waits_for_admission_and_preserves_development_approval() {
     let rollback_task = tokio::spawn(async move {
         let mut tx = rollback.start_transaction().await.unwrap();
         let result = sqlx::Executor::execute(tx.conn(), STORE_MODE_DOWN).await;
-        // A rejected migration must roll back, not leave a failed transaction open.
+        // Rejected migration must roll back, not leave failed transaction open.
         drop(tx);
         result
     });
@@ -632,7 +632,7 @@ async fn rollback_winning_before_admission_cannot_erase_a_development_result() {
         .unwrap()
         .unwrap()
         .is_err());
-    // Reapplying the schema cannot expose a development result with its origin erased.
+    // Reapplying schema cannot expose development result with its origin erased.
     let mut restore = observer.start_transaction().await.unwrap();
     sqlx::raw_sql(STORE_MODE_UP).execute(restore.conn()).await.unwrap();
     restore.commit().await.unwrap();
@@ -671,7 +671,7 @@ async fn verification_watermarks_exclude_rejections_and_forks_but_are_not_a_pref
             .await
             .unwrap();
     }
-    // A negative local result and a positive result on a rejected fork are distinct.
+    // Negative local result and positive result on rejected fork are distinct.
     sqlx::query(
         "UPDATE via_votable_transactions SET l1_batch_status = FALSE WHERE l1_batch_number = 1",
     )
@@ -681,7 +681,7 @@ async fn verification_watermarks_exclude_rejections_and_forks_but_are_not_a_pref
     sqlx::query("UPDATE via_votable_transactions SET l1_batch_status = TRUE, is_finalized = FALSE WHERE l1_batch_number = 5")
         .execute(storage.conn()).await.unwrap();
     assert_eq!(storage.via_votes_dal().get_verification_watermarks().await.unwrap(), (4, 0));
-    // Legacy and development approvals count despite the unresolved lower batch.
+    // Legacy and development approvals count despite unresolved lower batch.
     sqlx::query("UPDATE via_votable_transactions SET l1_batch_status = TRUE, is_finalized = TRUE WHERE l1_batch_number = 3")
         .execute(storage.conn()).await.unwrap();
     assert_eq!(storage.via_votes_dal().get_verification_watermarks().await.unwrap(), (4, 3));
