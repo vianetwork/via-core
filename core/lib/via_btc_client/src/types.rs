@@ -112,6 +112,8 @@ pub struct CommonFields {
     pub block_hash: Option<bitcoin::BlockHash>,
     pub tx_id: Txid,
     pub tx_index: Option<usize>,
+    /// Witness input index, or input count plus OP_RETURN output index.
+    pub message_index: usize,
     pub output_vout: Option<usize>,
     pub p2wpkh_address: Option<BitcoinAddress>,
 }
@@ -317,24 +319,43 @@ pub enum FullInscriptionMessage {
 }
 
 impl FullInscriptionMessage {
-    /// Return a numeric sort key that reflects the enum declaration order
-    fn order_key(&self) -> usize {
+    pub fn common(&self) -> &CommonFields {
         match self {
-            FullInscriptionMessage::L1BatchDAReference(_) => 0,
-            FullInscriptionMessage::ProofDAReference(_) => 1,
-            FullInscriptionMessage::ValidatorAttestation(_) => 2,
-            FullInscriptionMessage::SystemBootstrapping(_) => 3,
-            FullInscriptionMessage::L1ToL2Message(_) => 4,
-            FullInscriptionMessage::SystemContractUpgradeProposal(_) => 5,
-            FullInscriptionMessage::BridgeWithdrawal(_) => 6,
-            FullInscriptionMessage::UpdateBridgeProposal(_) => 7,
-
-            // System inscriptions must be ordered to ensure the indexer always uses the latest wallet state.
-            FullInscriptionMessage::UpdateGovernance(_) => 8,
-            FullInscriptionMessage::UpdateSequencer(_) => 9,
-            FullInscriptionMessage::SystemContractUpgrade(_) => 10,
-            FullInscriptionMessage::UpdateBridge(_) => 11,
+            Self::L1BatchDAReference(message) => &message.common,
+            Self::ProofDAReference(message) => &message.common,
+            Self::ValidatorAttestation(message) => &message.common,
+            Self::SystemBootstrapping(message) => &message.common,
+            Self::L1ToL2Message(message) => &message.common,
+            Self::SystemContractUpgradeProposal(message) => &message.common,
+            Self::BridgeWithdrawal(message) => &message.common,
+            Self::UpdateBridgeProposal(message) => &message.common,
+            Self::UpdateGovernance(message) => &message.common,
+            Self::UpdateSequencer(message) => &message.common,
+            Self::SystemContractUpgrade(message) => &message.common,
+            Self::UpdateBridge(message) => &message.common,
         }
+    }
+
+    pub fn common_mut(&mut self) -> &mut CommonFields {
+        match self {
+            Self::L1BatchDAReference(message) => &mut message.common,
+            Self::ProofDAReference(message) => &mut message.common,
+            Self::ValidatorAttestation(message) => &mut message.common,
+            Self::SystemBootstrapping(message) => &mut message.common,
+            Self::L1ToL2Message(message) => &mut message.common,
+            Self::SystemContractUpgradeProposal(message) => &mut message.common,
+            Self::BridgeWithdrawal(message) => &mut message.common,
+            Self::UpdateBridgeProposal(message) => &mut message.common,
+            Self::UpdateGovernance(message) => &mut message.common,
+            Self::UpdateSequencer(message) => &mut message.common,
+            Self::SystemContractUpgrade(message) => &mut message.common,
+            Self::UpdateBridge(message) => &mut message.common,
+        }
+    }
+
+    fn order_key(&self) -> (u32, Option<usize>, usize) {
+        let common = self.common();
+        (common.block_height, common.tx_index, common.message_index)
     }
 
     pub fn sort_messages(mut msgs: Vec<FullInscriptionMessage>) -> Vec<FullInscriptionMessage> {

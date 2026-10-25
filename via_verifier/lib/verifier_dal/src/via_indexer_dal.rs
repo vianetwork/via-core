@@ -41,6 +41,7 @@ impl ViaIndexerDal<'_, '_> {
                     "protocol_versions",
                     "protocol_patches",
                     "via_votable_transactions",
+                    "via_votes",
                     "via_wallets",
                     "via_l1_blocks",
                     "via_btc_configuration",

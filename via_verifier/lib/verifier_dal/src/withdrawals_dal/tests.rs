@@ -2359,7 +2359,7 @@ async fn proof_at(
             batch.blob_id.clone(),
             inclusion,
         )
-        .await
+        .await.map(|_| ())
 }
 
 async fn prune_votes_at(storage: &mut Connection<'_, Verifier>, cut: i64) {

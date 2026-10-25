@@ -10,6 +10,17 @@ use zksync_db_connection::{
 
 pub const FORMAT_VERSION: i32 = 1;
 
+/// PROTOCOL_CONSUMER names consumer that completes block h's protocol inputs even while h's rotation is NotReady.
+/// Block h+1 then waits for that decision.
+pub const PROTOCOL_CONSUMER: &str = "protocol";
+
+mod configuration;
+mod proof;
+pub use proof::{CanonicalProof, CanonicalVote, ProofQuorum, ProofWork};
+mod wallet;
+pub use configuration::{StoredConfiguration, WalletSource};
+pub use wallet::WalletDal;
+
 #[cfg(test)]
 mod tests;
 
@@ -27,6 +38,7 @@ pub struct StoredHeader {
     pub header: Header<BlockHash>,
 }
 
+#[derive(sqlx::FromRow)]
 struct HeaderRow {
     id: i64,
     number: i64,
@@ -146,6 +158,20 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
             .execute(self.storage).await?;
         ensure!(result.rows_affected() == 1, StoreError::HeadChanged);
         Ok(())
+    }
+
+    pub async fn consumer(&mut self, name: &str) -> anyhow::Result<Option<StoredHeader>> {
+        sqlx::query(
+            "SELECT h.id,h.number,h.hash,h.parent_hash FROM via_btc_consumers c
+             JOIN via_btc_headers h ON h.id=c.header_id WHERE c.name=$1",
+        )
+        .bind(name)
+        .try_map(|row: sqlx::postgres::PgRow| <HeaderRow as sqlx::FromRow<'_, _>>::from_row(&row))
+        .instrument("bitcoin_reader_consumer_position")
+        .fetch_optional(self.storage)
+        .await?
+        .map(TryInto::try_into)
+        .transpose()
     }
 
     /// complete_replay flips replay_ready once cutoff and frontier headers exist,

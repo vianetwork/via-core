@@ -13,6 +13,7 @@ categories.workspace = true
 [dependencies]
 vise.workspace = true
 via_btc_client.workspace = true
+via_btc_storage.workspace = true
 zksync_shared_metrics.workspace = true
 zksync_dal.workspace = true
 zksync_types.workspace = true
@@ -21,7 +22,6 @@ zksync_da_client.workspace = true
 zksync_prover_interface.workspace = true
 via_da_client.workspace = true
 via_verifier_types.workspace = true
-via_consensus.workspace = true
 via_da_dispatcher_lib.workspace = true
 zksync_object_store.workspace = true
 zksync_l1_contract_interface.workspace = true
@@ -38,9 +38,10 @@ serde.workspace = true
 
 via_verification.workspace = true
 via_verifier_dal.workspace = true
-via_verifier_state.workspace = true
 
 [dev-dependencies]
+via_test_utils.workspace = true
+via_reorg.workspace = true
 via_verifier_storage_init.workspace = true
 bitcoin.workspace = true
 serde_json.workspace = true

@@ -5,27 +5,18 @@ use metrics::{NoVerdictReason, METRICS};
 use tokio::sync::watch;
 use via_btc_client::{
     client::BitcoinClient,
-    indexer::BitcoinInscriptionIndexer,
-    types::{
-        BitcoinTxid, FullInscriptionMessage, L1BatchDAReference, L1BatchDAReferenceInput,
-        ProofDAReference,
-    },
-    utils::bytes_to_txid,
+    types::{L1BatchDAReferenceInput, HeaderMembership},
 };
-use via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD;
+use via_btc_storage::{ProofWork, ReaderDal};
 use via_da_client::{pubdata::Pubdata, types::L2_BOOTLOADER_CONTRACT_ADDR};
 use via_da_dispatcher_lib::blob::find_wrapped_proof;
 use via_verification::{decode_prove_batch_data, verify_proof, ProveBatchData};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
-use via_verifier_state::sync::ViaState;
 use via_verifier_types::protocol_version::check_if_supported_sequencer_version;
-use zksync_config::{ViaBtcWatchConfig, ViaVerifierConfig};
-use zksync_da_client::{types::InclusionData, DataAvailabilityClient};
+use zksync_config::ViaVerifierConfig;
+use zksync_da_client::DataAvailabilityClient;
 use zksync_object_store::{ObjectStore, ObjectStoreError};
-use zksync_types::{
-    protocol_version::ProtocolSemanticVersion, via_wallet::SystemWallets, ProtocolVersionId, H160,
-    H256,
-};
+use zksync_types::{protocol_version::ProtocolSemanticVersion, ProtocolVersionId, H160, H256};
 
 mod metrics;
 #[cfg(test)]
@@ -45,30 +36,23 @@ pub struct ViaVerifier {
     config: ViaVerifierConfig,
     pool: ConnectionPool<Verifier>,
     da_client: Box<dyn DataAvailabilityClient>,
-    indexer: BitcoinInscriptionIndexer,
-    state: ViaState,
+    btc_client: Arc<BitcoinClient>,
     blob_store: Arc<dyn ObjectStore>,
 }
 
 impl ViaVerifier {
-    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         config: ViaVerifierConfig,
-        indexer: BitcoinInscriptionIndexer,
         pool: ConnectionPool<Verifier>,
         da_client: Box<dyn DataAvailabilityClient>,
         btc_client: Arc<BitcoinClient>,
-        via_btc_watch_config: ViaBtcWatchConfig,
         blob_store: Arc<dyn ObjectStore>,
     ) -> anyhow::Result<Self> {
-        let state = ViaState::new(pool.clone(), btc_client.clone(), via_btc_watch_config);
-
         Ok(Self {
-            config: config.clone(),
+            config,
             pool,
             da_client,
-            indexer,
-            state,
+            btc_client,
             blob_store,
         })
     }
@@ -120,101 +104,46 @@ impl ViaVerifier {
     ) -> anyhow::Result<()> {
         report_watermarks(storage).await?;
 
-        if self.state.is_reorg_in_progress().await? {
-            return Ok(());
-        }
-
-        if self.state.is_sync_in_progress().await? {
-            return Ok(());
-        }
-
-        self.validate_verifier_address().await?;
-
-        if let Some((l1_batch_number, mut raw_tx_id)) = storage
-            .via_votes_dal()
-            .get_first_not_verified_l1_batch_in_canonical_inscription_chain()
-            .await?
-        {
+        if let Some(work) = storage.via_votes_dal().pending_reader_proof().await? {
+            if !ReaderDal::new(storage).proof_inputs_complete(&work).await?
+                || !self.proof_is_mature(&work).await?
+            {
+                return Ok(());
+            }
             let latency = METRICS.verification_time.start();
-            let db_raw_tx_id = H256::from_slice(&raw_tx_id);
-            tracing::info!("New non executed l1_batch {l1_batch_number}, ready to be processed");
-
-            raw_tx_id.reverse();
-            let proof_txid = bytes_to_txid(&raw_tx_id).with_context(|| "Failed to parse tx_id")?;
-            tracing::info!("trying to get proof_txid: {}", proof_txid);
-            let proof_msgs = self.indexer.parse_transaction(&proof_txid).await?;
-            let proof_da = match proof_msgs.as_slice() {
-                [FullInscriptionMessage::ProofDAReference(a)] => a,
-                other => return Err(unexpected_msgs(l1_batch_number, "ProofDAReference", other)),
+            let batch_da = &work.proof.payload.input.pubdata.payload.input;
+            let l1_batch_number = i64::from(batch_da.l1_batch_index.0);
+            let Some(wallets) =
+                ReaderDal::new(storage).wallets_before(work.proof.origin.height).await?
+            else {
+                return Ok(());
             };
-
-            let (proof_blob, batch_tx_id) = self
-                .process_proof_da_reference(proof_da)
-                .await
-                .map_err(|err| {
-                    no_verdict(NoVerdictReason::PackageUnavailable, l1_batch_number, err)
-                })?;
-
-            let batch_msgs = self.indexer.parse_transaction(&batch_tx_id).await?;
-            let batch_da = match batch_msgs.as_slice() {
-                [FullInscriptionMessage::L1BatchDAReference(a)] => a,
-                other => {
-                    return Err(unexpected_msgs(
-                        l1_batch_number,
-                        "L1BatchDAReference",
-                        other,
-                    ))
-                }
-            };
-
-            tracing::info!(
-                "Fetch l1 batch pubdata for blob id  {}",
-                batch_da.input.blob_id
-            );
-
-            let (batch_blob, _) =
-                self.process_batch_da_reference(batch_da)
-                    .await
-                    .map_err(|err| {
-                        no_verdict(NoVerdictReason::PackageUnavailable, l1_batch_number, err)
-                    })?;
+            wallets.is_valid_verifier_address(self.config.wallet_address()?)?;
+            let proof_blob =
+                self.fetch_blob(&work.proof.payload.input.proof.blob_id, l1_batch_number).await?;
+            let batch_blob = self.fetch_blob(&batch_da.blob_id, l1_batch_number).await?;
             let mut pubdata =
                 Pubdata::decode_pubdata(batch_blob.data.clone().to_vec()).map_err(|err| {
                     no_verdict(NoVerdictReason::MalformedPackage, l1_batch_number, err)
                 })?;
 
-            let upgrade_tx_hash_opt = self.verify_upgrade_tx_hash(storage, &pubdata).await?;
-
-            let mut protocol_version = storage
-                .via_protocol_versions_dal()
-                .latest_protocol_semantic_version()
-                .await
-                .context("Failed to load the latest protocol semantic version")?
-                .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
+            let upgrade_tx_hash_opt =
+                self.verify_upgrade_tx_hash(storage, &pubdata, work.proof.origin.height).await?;
 
             if upgrade_tx_hash_opt.is_some() {
-                // Discard the first log since it related to protocol upgrade.
                 pubdata.user_logs.remove(0);
-
-                protocol_version = storage
-                    .via_protocol_versions_dal()
-                    .latest_semantic_version()
-                    .await
-                    .context("Failed to load the latest protocol semantic version")?
-                    .ok_or_else(|| anyhow::anyhow!("Protocol version is missing"))?;
-
-                // Check if the new protocol version is supported by the verifier node.
-                check_if_supported_sequencer_version(protocol_version)?;
             }
-
             let allowed_versions = storage
                 .via_protocol_versions_dal()
-                .semantic_versions_of_minor(protocol_version.minor)
+                .versions_for_proof(work.proof.origin.height, upgrade_tx_hash_opt)
                 .await?;
+            let protocol_version =
+                *allowed_versions.first().context("protocol prefix is unavailable")?;
+            check_if_supported_sequencer_version(protocol_version)?;
             let approval = verify_batch_proof(
                 &*self.blob_store,
                 self.config.proof_verification_dev_mode,
-                &batch_da.input,
+                batch_da,
                 &allowed_versions,
                 protocol_version.minor,
                 &proof_blob.data,
@@ -222,14 +151,15 @@ impl ViaVerifier {
             .await?;
             tracing::info!("Proof check for l1 batch {l1_batch_number}: {approval:?}");
 
+            if !self.proof_is_mature(&work).await? {
+                return Ok(());
+            }
             let committed = record_approval(
                 storage,
-                l1_batch_number,
-                db_raw_tx_id,
+                &work,
                 approval,
                 &pubdata,
                 upgrade_tx_hash_opt,
-                self.indexer.get_number_of_verifiers(),
             )
             .await?;
             if committed {
@@ -249,10 +179,11 @@ impl ViaVerifier {
         &mut self,
         storage: &mut Connection<'_, Verifier>,
         pubdata: &Pubdata,
+        height: u32,
     ) -> anyhow::Result<Option<H256>> {
         if let Some(upgrade_tx_hash) = storage
             .via_protocol_versions_dal()
-            .get_in_progress_upgrade_tx_hash()
+            .pending_upgrade_before(height)
             .await?
         {
             if let Some(log) = pubdata.user_logs.first() {
@@ -268,56 +199,31 @@ impl ViaVerifier {
         Ok(None)
     }
 
-    /// Processes a `ProofDAReference` message by retrieving the DA blob
-    async fn process_proof_da_reference(
-        &mut self,
-        proof_msg: &ProofDAReference,
-    ) -> anyhow::Result<(InclusionData, BitcoinTxid)> {
-        let blob = self
-            .da_client
-            .get_inclusion_data(&proof_msg.input.blob_id)
+    async fn fetch_blob(
+        &self,
+        id: &str,
+        batch: i64,
+    ) -> anyhow::Result<zksync_da_client::types::InclusionData> {
+        self.da_client
+            .get_inclusion_data(id)
             .await
-            .with_context(|| "Failed to fetch the blob")?
-            .ok_or_else(|| anyhow::anyhow!("Blob not found"))?;
-        let batch_tx_id = proof_msg.input.l1_batch_reveal_txid;
-
-        Ok((blob, batch_tx_id))
+            .map_err(|err| no_verdict(NoVerdictReason::PackageUnavailable, batch, err.into()))?
+            .ok_or_else(|| {
+                no_verdict(
+                    NoVerdictReason::PackageUnavailable,
+                    batch,
+                    anyhow::anyhow!("DA blob {id} unavailable"),
+                )
+            })
     }
 
-    /// Processes an `L1BatchDAReference` message by retrieving the DA blob
-    async fn process_batch_da_reference(
-        &mut self,
-        batch_msg: &L1BatchDAReference,
-    ) -> anyhow::Result<(InclusionData, H256)> {
-        let blob = self
-            .da_client
-            .get_inclusion_data(&batch_msg.input.blob_id)
-            .await
-            .with_context(|| "Failed to fetch the blob")?
-            .ok_or_else(|| anyhow::anyhow!("Blob not found"))?;
-        let hash = batch_msg.input.l1_batch_hash;
-
-        Ok((blob, hash))
-    }
-    /// Check if the wallet is in the verifier set.
-    async fn validate_verifier_address(&self) -> anyhow::Result<()> {
-        let mut storage = self.pool.connection().await?;
-
-        let last_processed_l1_block = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block("via_btc_watch")
-            .await?;
-
-        let Some(wallets_map) = storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(last_processed_l1_block as i64)
-            .await?
-        else {
-            anyhow::bail!("System wallets not found")
+    async fn proof_is_mature(&self, work: &ProofWork) -> anyhow::Result<bool> {
+        let Some(header) = self.btc_client.header_by_hash(&work.proof.origin.hash).await? else {
+            return Ok(false);
         };
-
-        let wallets = SystemWallets::try_from(wallets_map)?;
-        wallets.is_valid_verifier_address(self.config.wallet_address()?)
+        Ok(header.height == work.proof.origin.height
+            && matches!(header.membership,
+            HeaderMembership::Canonical(confirmations) if confirmations.get() >= self.btc_client.reorg_safe_depth()?.get()))
     }
 }
 
@@ -437,38 +343,34 @@ async fn report_watermarks(storage: &mut Connection<'_, Verifier>) -> anyhow::Re
     Ok((indexed, valid))
 }
 
-/// Records an approval with its deposit, vote and upgrade effects in one transaction.
-/// Returns false when a reorg started meanwhile, in which case nothing is written.
+/// Records the local approval with its deposit and upgrade effects in one transaction.
+/// Returns false for a replaced row/header, an incomplete prefix or a concurrent reorg.
 async fn record_approval(
     storage: &mut Connection<'_, Verifier>,
-    l1_batch_number: i64,
-    proof_reveal_tx_id: H256,
+    work: &ProofWork,
     approval: Approval,
     pubdata: &Pubdata,
     upgrade_tx_hash: Option<H256>,
-    number_of_verifiers: usize,
 ) -> anyhow::Result<bool> {
     let mut transaction = storage.start_transaction().await?;
-    // Read in transaction that records their statuses, next to reorg check below.
-    let deposits = verify_op_priority_id(&mut transaction, l1_batch_number, pubdata).await?;
-
-    let votable_transaction_id = transaction
-        .via_votes_dal()
-        .verify_votable_transaction(l1_batch_number, proof_reveal_tx_id, true)
-        .await?;
+    transaction.via_indexer_dal().lock_btc_watch().await?;
+    transaction.via_indexer_dal().lock_withdrawal_invalidation().await?;
+    if !ReaderDal::new(&mut transaction).proof_inputs_complete(work).await? {
+        return Ok(false);
+    }
+    let l1_batch_number =
+        i64::from(work.proof.payload.input.pubdata.payload.input.l1_batch_index.0);
+    if !transaction.via_votes_dal().complete_reader_proof(work).await? {
+        return Ok(false);
+    }
+    let deposits =
+        verify_op_priority_id(&mut transaction, l1_batch_number, pubdata, work.proof.origin.height)
+            .await?;
+    let votable_transaction_id = work.id;
 
     if approval == Approval::DevAccepted {
         transaction.via_votes_dal().mark_unverified_dev(votable_transaction_id).await?;
     }
-
-    transaction
-        .via_votes_dal()
-        .finalize_transaction_if_needed(
-            votable_transaction_id,
-            BATCH_FINALIZATION_THRESHOLD,
-            number_of_verifiers,
-        )
-        .await?;
 
     for (hash, status) in deposits {
         transaction
@@ -502,6 +404,7 @@ async fn verify_op_priority_id(
     storage: &mut Connection<'_, Verifier>,
     l1_batch_number: i64,
     pubdata: &Pubdata,
+    height: u32,
 ) -> anyhow::Result<Vec<(H256, bool)>> {
     let bootloader = H160::from_str(L2_BOOTLOADER_CONTRACT_ADDR)?;
     let deposit_logs: Vec<_> =
@@ -509,7 +412,7 @@ async fn verify_op_priority_id(
 
     let txs = storage
         .via_transactions_dal()
-        .list_transactions_not_processed(deposit_logs.len() as i64)
+        .deposits_for_proof(l1_batch_number,deposit_logs.len() as i64,height)
         .await?;
 
     if txs.len() != deposit_logs.len() {
@@ -517,7 +420,7 @@ async fn verify_op_priority_id(
             NoVerdictReason::DepositIndexIncomplete,
             l1_batch_number,
             anyhow::anyhow!(
-                "Verifier indexed {} unprocessed deposits, pubdata requires {}",
+                "Verifier has {} source-bound deposits, pubdata requires {}",
                 txs.len(),
                 deposit_logs.len(),
             ),
@@ -526,7 +429,12 @@ async fn verify_op_priority_id(
 
     txs.iter()
         .zip(deposit_logs)
-        .map(|(raw_tx_id, deposit_log)| {
+        .map(|((raw_tx_id, settled, canonical), deposit_log)| {
+            if !canonical { return Err(no_verdict(NoVerdictReason::DepositIndexIncomplete,l1_batch_number,anyhow::anyhow!("deposit source is incomplete"))); }
+            let status = !deposit_log.value.is_zero();
+            if settled.is_some_and(|saved| saved!=status) {
+                return Err(no_verdict(NoVerdictReason::DepositMismatch,l1_batch_number,anyhow::anyhow!("deposit settlement conflicts with the completed batch")));
+            }
             let indexed = H256::from_slice(raw_tx_id);
             if indexed != deposit_log.key {
                 return Err(no_verdict(
@@ -538,7 +446,7 @@ async fn verify_op_priority_id(
                     ),
                 ));
             }
-            Ok((deposit_log.key, !deposit_log.value.is_zero()))
+            Ok((deposit_log.key, status))
         })
         .collect()
 }
@@ -562,17 +470,4 @@ impl std::fmt::Display for NoVerdict {
 /// https://github.com/chainwayxyz/citrea/blob/f11527f94344d5dc4576ccb9589d5713fb8f7238/crates/fullnode/src/da_block_handler.rs#L941-L1000
 fn no_verdict(reason: NoVerdictReason, l1_batch_number: i64, err: anyhow::Error) -> anyhow::Error {
     err.context(NoVerdict { reason, l1_batch_number })
-}
-
-/// A transaction always parses to the same messages, so anything but the one expected message never changes on a later poll.
-fn unexpected_msgs(
-    l1_batch_number: i64,
-    expected: &str,
-    got: &[FullInscriptionMessage],
-) -> anyhow::Error {
-    no_verdict(
-        NoVerdictReason::MalformedPackage,
-        l1_batch_number,
-        anyhow::anyhow!("expected one {expected} message, got {got:?}"),
-    )
 }

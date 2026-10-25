@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 
 pub mod chain;
+pub mod configuration;
 pub mod maturity;
 pub mod votes;
 

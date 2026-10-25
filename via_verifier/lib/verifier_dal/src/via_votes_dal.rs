@@ -1,3 +1,4 @@
+use via_btc_client::indexer::replay::{Included, ProofInput};
 use bitcoin::BlockHash;
 use sqlx::Row;
 use zksync_db_connection::{
@@ -10,6 +11,16 @@ use zksync_types::H256;
 use crate::{
     models::storage_vote::CanonicalChainStatus, Verifier, WITHDRAWAL_INVALIDATION_LOCK_KEY,
 };
+
+// The immutable pre-reset finalization marker supplies the verifier Q26 exception.
+pub const READER_PROOFS_QUERY: &str = "SELECT p.id,p.bitcoin_payload AS payload,h.id AS header_id,h.number AS height,h.hash,
+                p.l1_batch_status IS NOT NULL AND p.id>m.designated_after_votable_id
+                  AND (NOT p.unverified_dev OR m.proof_verification_dev_mode) AS local_complete,
+                COALESCE(p.rotation_legacy_cutoff>=h.number,FALSE) AS rotation_exempt
+             FROM via_votable_transactions p JOIN via_btc_headers h
+               ON h.id=p.proof_header_id AND h.number=p.proof_l1_block_number AND h.hash=p.proof_l1_block_hash
+             CROSS JOIN via_verifier_store_mode m WHERE h.number<=$1 AND p.bitcoin_payload IS NOT NULL
+             ORDER BY h.number,p.transaction_index,p.message_index";
 
 pub struct ViaVotesDal<'c, 'a> {
     pub(crate) storage: &'c mut Connection<'a, Verifier>,
@@ -60,6 +71,88 @@ async fn lock_source(
 }
 
 impl ViaVotesDal<'_, '_> {
+    pub async fn pending_reader_proof(
+        &mut self,
+    ) -> anyhow::Result<Option<via_btc_storage::ProofWork>> {
+        let row = sqlx::query("SELECT p.id,p.bitcoin_payload AS payload,h.id AS header_id,h.number AS height,h.hash
+            FROM via_votable_transactions p JOIN via_btc_headers h ON h.id=p.proof_header_id
+              AND h.number=p.proof_l1_block_number AND h.hash=p.proof_l1_block_hash
+            WHERE p.l1_batch_status IS NULL AND p.bitcoin_payload IS NOT NULL AND (p.l1_batch_number=1
+              OR EXISTS(SELECT 1 FROM via_votable_transactions parent JOIN via_btc_headers b ON b.id=parent.proof_header_id
+                AND b.number=parent.proof_l1_block_number AND b.hash=parent.proof_l1_block_hash
+                WHERE parent.l1_batch_status=TRUE AND parent.l1_batch_number=p.l1_batch_number-1
+                  AND parent.l1_batch_hash=p.prev_l1_batch_hash))
+            ORDER BY p.l1_batch_number,h.number,p.transaction_index,p.message_index LIMIT 1")
+            .instrument("pending_reader_proof").fetch_optional(self.storage).await?;
+        row.as_ref().map(via_btc_storage::ProofWork::from_row).transpose()
+    }
+
+    pub async fn complete_reader_proof(
+        &mut self,
+        work: &via_btc_storage::ProofWork,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query("UPDATE via_votable_transactions p SET l1_batch_status=TRUE,updated_at=NOW()
+            FROM via_btc_headers h WHERE p.id=$1 AND p.proof_header_id=$2 AND h.id=$2 AND h.number=$3 AND h.hash=$4
+              AND p.proof_l1_block_number=h.number AND p.proof_l1_block_hash=h.hash AND p.l1_batch_status IS NULL")
+            .bind(work.id).bind(work.header_id).bind(i64::from(work.proof.origin.height)).bind(work.proof.origin.hash.to_string())
+            .instrument("complete_reader_proof").execute(self.storage).await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn save_reader_proof(
+        &mut self,
+        proof: &Included<ProofInput>,
+        header_id: i64,
+    ) -> anyhow::Result<()> {
+        use via_btc_client::indexer::replay::transaction_hash;
+        via_btc_storage::ReaderDal::new(self.storage).check_proof_source(proof, header_id).await?;
+        let input = &proof.payload.input;
+        let pubdata = &input.pubdata.payload.input;
+        let proof_txid = transaction_hash(proof.origin.txid);
+        let proof_id = self
+            .insert_votable_transaction(
+                pubdata.l1_batch_index.0,
+                pubdata.l1_batch_hash,
+                pubdata.prev_l1_batch_hash,
+                input.proof.da_identifier.clone(),
+                proof_txid,
+                input.proof.blob_id.clone(),
+                input.proof.l1_batch_reveal_txid.to_string(),
+                pubdata.blob_id.clone(),
+                Some((proof.origin.height, proof.origin.hash)),
+            )
+            .await?;
+        let payload = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            "SELECT bitcoin_payload FROM via_votable_transactions WHERE id=$1 FOR UPDATE",
+        )
+        .bind(proof_id)
+        .instrument("verifier_proof_binding")
+        .fetch_one(self.storage)
+        .await?;
+        if let Some(payload) = payload {
+            let mut old: Included<ProofInput> = serde_json::from_value(payload)?;
+            old.origin = via_btc_client::indexer::replay::MessageOrigin {
+                txid: old.origin.txid,
+                ..proof.origin.clone()
+            };
+            old.payload.input.pubdata.origin = via_btc_client::indexer::replay::MessageOrigin {
+                txid: old.payload.input.pubdata.origin.txid,
+                ..proof.payload.input.pubdata.origin.clone()
+            };
+            proof.compare(&old)?;
+        }
+        let result = sqlx::query("UPDATE via_votable_transactions p SET bitcoin_payload=$2,proof_header_id=h.id,
+            proof_l1_block_number=h.number,proof_l1_block_hash=h.hash,source_l1_block_number=h.number,source_l1_block_hash=h.hash,
+            transaction_index=$3,message_index=$4 FROM via_btc_headers h
+            WHERE p.id=$1 AND h.id=$5 AND h.number=$6 AND h.hash=$7")
+            .bind(proof_id).bind(serde_json::to_value(proof)?)
+            .bind(i32::try_from(proof.origin.transaction_index)?).bind(i32::try_from(proof.origin.message_index)?)
+            .bind(header_id).bind(i64::from(proof.origin.height)).bind(proof.origin.hash.to_string())
+            .instrument("verifier_bind_proof_source").execute(self.storage).await?;
+        anyhow::ensure!(result.rows_affected() == 1, via_btc_storage::StoreError::HeadChanged);
+        Ok(())
+    }
+
     /// Inserts a new row in `via_votable_transactions`.
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_votable_transaction(
@@ -73,15 +166,14 @@ impl ViaVotesDal<'_, '_> {
         pubdata_reveal_tx_id: String,
         pubdata_blob_id: String,
         source_inclusion: Option<(u32, BlockHash)>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<i64> {
         let mut tx = self.storage.start_transaction().await?;
         lock_source(&mut tx, source_inclusion).await?;
         let source_hash = source_inclusion.map(|(_, hash)| hash.to_string());
         let old = sqlx::query(
-            "SELECT * FROM via_votable_transactions WHERE proof_reveal_tx_id=$1
-            AND (proof_l1_block_hash IS NOT DISTINCT FROM $2 OR proof_l1_block_hash IS NULL
-                OR EXISTS(SELECT 1 FROM via_l1_blocks h WHERE h.number=proof_l1_block_number AND h.hash=proof_l1_block_hash))
-            ORDER BY proof_l1_block_hash IS NULL LIMIT 1 FOR UPDATE",
+            "SELECT p.*, EXISTS(SELECT 1 FROM via_l1_blocks h WHERE h.number=p.proof_l1_block_number AND h.hash=p.proof_l1_block_hash) AS canonical
+             FROM via_votable_transactions p WHERE p.proof_reveal_tx_id=$1
+             ORDER BY (p.proof_l1_block_hash IS NOT DISTINCT FROM $2) DESC,canonical DESC,p.id LIMIT 1 FOR UPDATE",
         )
         .bind(proof_reveal_tx_id.as_bytes())
         .bind(&source_hash)
@@ -122,22 +214,23 @@ impl ViaVotesDal<'_, '_> {
                 (old.try_get::<Option<String>, _>("proof_l1_block_hash")?, source_hash)
             {
                 anyhow::ensure!(
-                    saved == incoming,
+                    saved == incoming || !old.try_get::<bool, _>("canonical")?,
                     via_btc_client::indexer::replay::ReplayConflict {
                         field: "duplicate_canonical_inclusion"
                     }
                 );
             }
+            let id = old.try_get("id")?;
             tx.commit().await?;
-            return Ok(());
+            return Ok(id);
         }
-        sqlx::query(
+        let id = sqlx::query_scalar::<_,i64>(
             "INSERT INTO via_votable_transactions (
                 l1_batch_number,l1_batch_hash,prev_l1_batch_hash,proof_reveal_tx_id,
                 da_identifier,proof_blob_id,pubdata_reveal_tx_id,pubdata_blob_id,
                 source_l1_block_number,source_l1_block_hash,
                 proof_l1_block_number,proof_l1_block_hash
-             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,$10)",
+             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,$10) RETURNING id",
         )
         .bind(i64::from(l1_batch_number))
         .bind(l1_batch_hash.as_bytes())
@@ -150,10 +243,10 @@ impl ViaVotesDal<'_, '_> {
         .bind(source_inclusion.map(|(height, _)| i64::from(height)))
         .bind(source_inclusion.map(|(_, hash)| hash.to_string()))
         .instrument("insert_votable_transaction")
-        .execute(&mut tx)
+        .fetch_one(&mut tx)
         .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(id)
     }
 
     pub async fn get_votable_transaction_id(
@@ -210,7 +303,7 @@ impl ViaVotesDal<'_, '_> {
         let inserted = sqlx::query(
             "INSERT INTO via_votes(votable_transaction_id,verifier_address,vote,
                 source_l1_block_number,source_l1_block_hash)
-             VALUES($1,$2,$3,$4,$5) ON CONFLICT (votable_transaction_id,verifier_address) DO NOTHING",
+             VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
         )
         .bind(votable_transaction_id)
         .bind(verifier_address)

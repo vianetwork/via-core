@@ -99,7 +99,7 @@ impl<'a> VerifierDal<'a> for Connection<'a, Verifier> {
     }
 
     fn via_wallet_dal(&mut self) -> ViaWalletDal<'_, 'a> {
-        ViaWalletDal { storage: self }
+        ViaWalletDal::new(self)
     }
 
     fn via_l1_block_dal(&mut self) -> ViaL1BlockDal<'_, 'a> {

@@ -41,6 +41,8 @@ impl ViaIndexerDal<'_, '_> {
                     "protocol_versions",
                     "protocol_patches",
                     "via_btc_proofs",
+                    "via_btc_finalizations",
+                    "via_votes",
                     "via_wallets",
                     "via_l1_blocks",
                     "via_btc_configuration",
@@ -52,13 +54,14 @@ impl ViaIndexerDal<'_, '_> {
                     "miniblocks.miniblocks_protocol_version_fkey",
                     "protocol_patches.protocol_patches_minor_fkey",
                     "via_btc_finalizations.via_btc_finalizations_proof_id_fkey",
+                    "via_votes.via_votes_votable_transaction_id_fkey",
                     "via_btc_consumers.via_btc_consumers_header_id_fkey",
                 ],
             )
             .await?;
         for query in [
             "DELETE FROM via_btc_finalizations f USING via_btc_proofs p WHERE f.proof_id=p.id AND p.l1_block_number>$1",
-            "DELETE FROM via_votes WHERE l1_block_number>$1 OR l1_block_number IS NULL",
+            "DELETE FROM via_votes WHERE source_l1_block_number>$1 OR source_l1_block_number IS NULL",
             "DELETE FROM via_btc_proofs p WHERE p.l1_block_number>$1
                 AND NOT EXISTS(SELECT 1 FROM via_btc_inscriptions_request r WHERE r.l1_batch_number=p.l1_batch_number)
                 AND NOT EXISTS(SELECT 1 FROM via_data_availability d WHERE d.l1_batch_number=p.l1_batch_number)",

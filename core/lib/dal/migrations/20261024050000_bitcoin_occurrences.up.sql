@@ -1,0 +1,13 @@
+ALTER TABLE via_wallets DROP CONSTRAINT unique_tx_hash_address_role;
+CREATE UNIQUE INDEX via_wallet_legacy ON via_wallets(tx_hash,address,role) WHERE block_hash IS NULL;
+CREATE UNIQUE INDEX via_wallet_occurrence ON via_wallets(block_hash,transaction_index,message_index,role);
+ALTER TABLE via_votes DROP CONSTRAINT via_votes_pkey, DROP CONSTRAINT via_votes_l1_batch_number_fkey;
+ALTER TABLE via_votes ADD COLUMN id BIGSERIAL PRIMARY KEY, ADD COLUMN votable_transaction_id BIGINT REFERENCES via_btc_proofs(id);
+CREATE UNIQUE INDEX via_vote_legacy ON via_votes(l1_batch_number,proof_reveal_tx_id,verifier_address) WHERE txid IS NULL;
+CREATE UNIQUE INDEX via_vote_occurrence ON via_votes(block_hash,transaction_index,message_index);
+CREATE UNIQUE INDEX via_vote_member ON via_votes(votable_transaction_id,verifier_address) WHERE votable_transaction_id IS NOT NULL;
+ALTER TABLE via_votes RENAME COLUMN l1_block_number TO source_l1_block_number;
+ALTER TABLE via_votes RENAME COLUMN block_hash TO source_l1_block_hash;
+ALTER TABLE via_votes ALTER COLUMN l1_batch_number DROP NOT NULL, ALTER COLUMN proof_reveal_tx_id DROP NOT NULL;
+ALTER TABLE via_btc_proofs ADD COLUMN proof_header_id BIGINT;
+ALTER TABLE via_l1_batch_inscription_request ADD COLUMN rotation_legacy_cutoff BIGINT;

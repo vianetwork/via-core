@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{num::NonZeroU32, sync::Arc};
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -47,10 +47,109 @@ impl BitcoinClient {
         if block.block_hash() != header.hash
             || block.header.prev_blockhash != header.parent_hash
             || block.compute_merkle_root() != Some(block.header.merkle_root)
+            || !block.check_witness_commitment()
         {
             return Err(BitcoinError::InvalidBlockBody(header.hash));
         }
         Ok(block)
+    }
+
+    /// canonical_transaction treats getrawtransaction blockhash as hint and proves inclusion from checked canonical header and body.
+    /// Transaction in orphaned or unknown block yields None instead of stale origin.
+    /// Idea only from BDK bitcoind_rpc Emitter, which trusts membership only after header check: https://github.com/bitcoindevkit/bdk/blob/5dc6e959379982a1661e8f57c3ee7af334627ca5/crates/bitcoind_rpc/src/lib.rs
+    pub async fn canonical_transaction(
+        &self,
+        txid: &Txid,
+    ) -> BitcoinClientResult<Option<(Transaction, BlockHeaderInfo, usize)>> {
+        let info = self.rpc.get_raw_transaction_info(txid).await?;
+        let Some(hash) = info.blockhash else {
+            return Ok(None);
+        };
+        let Some(header) = self.header_by_hash(&hash).await? else {
+            return Ok(None);
+        };
+        if !matches!(header.membership, HeaderMembership::Canonical(_)) {
+            return Ok(None);
+        }
+        let block = self.checked_block(&header).await?;
+        let (index, transaction) = block
+            .txdata
+            .into_iter()
+            .enumerate()
+            .find(|(_, transaction)| transaction.compute_txid() == *txid)
+            .ok_or(BitcoinError::InvalidBlockBody(hash))?;
+        Ok(Some((transaction, header, index)))
+    }
+
+    /// Related inscriptions inherit the exact checked transaction's inclusion, never its RPC hint alone.
+    pub async fn canonical_messages(
+        &self,
+        txid: &Txid,
+    ) -> BitcoinClientResult<Option<Vec<crate::types::FullInscriptionMessage>>> {
+        let Some((transaction, header, index)) = self.canonical_transaction(txid).await? else {
+            return Ok(None);
+        };
+        let mut messages = crate::indexer::MessageParser::new(self.get_network())
+            .parse_system_transaction(&transaction, header.height, None);
+        for message in &mut messages {
+            let common = message.common_mut();
+            common.tx_id = *txid;
+            common.tx_index = Some(index);
+            common.block_hash = Some(header.hash);
+        }
+        Ok(Some(messages))
+    }
+
+    pub async fn prepare_proofs(
+        &self,
+        messages: &[crate::types::FullInscriptionMessage],
+    ) -> anyhow::Result<Vec<crate::indexer::replay::Included<crate::indexer::replay::ProofInput>>>
+    {
+        use crate::{
+            indexer::replay::{Included, ProofInput},
+            types::FullInscriptionMessage,
+        };
+        let mut proofs = Vec::new();
+        for message in messages {
+            let FullInscriptionMessage::ProofDAReference(proof) = message else { continue };
+            let related = self
+                .canonical_messages(&proof.input.l1_batch_reveal_txid)
+                .await
+                .with_context(|| format!("pubdata for proof {}", proof.common.tx_id))?
+                .context("proof pubdata has no canonical inclusion")?;
+            let [FullInscriptionMessage::L1BatchDAReference(pubdata)] = related.as_slice() else {
+                anyhow::bail!(
+                    "proof {} does not reference one pubdata inscription",
+                    proof.common.tx_id
+                );
+            };
+            anyhow::ensure!(
+                pubdata.common.block_height <= proof.common.block_height,
+                "pubdata is outside proof prefix"
+            );
+            proofs.push(Included::new(
+                &proof.common,
+                ProofInput {
+                    proof: proof.input.clone(),
+                    pubdata: Included::new(&pubdata.common, pubdata.input.clone())?,
+                },
+            )?);
+        }
+        Ok(proofs)
+    }
+
+    pub fn reorg_safe_depth(&self) -> BitcoinClientResult<NonZeroU32> {
+        let network = self
+            .config
+            .network
+            .parse::<Network>()
+            .map_err(|error| BitcoinError::InvalidNetwork(error.to_string()))?;
+        Ok(NonZeroU32::new(match network {
+            Network::Bitcoin => 6,
+            Network::Testnet | Network::Testnet4 | Network::Signet => 100,
+            Network::Regtest => 1,
+        })
+        .expect("network confirmation depths are positive"))
     }
 
     /// canonical_header_at resolves height to hash, then verifies header height and canonical membership.
@@ -93,6 +192,10 @@ impl BitcoinClient {
         config: ViaBtcClientConfig,
         component: &'static str,
     ) -> BitcoinClientResult<Self> {
+        config
+            .network
+            .parse::<Network>()
+            .map_err(|error| BitcoinError::InvalidNetwork(error.to_string()))?;
         debug!("Creating new BitcoinClient");
         let rpc = BitcoinRpcClient::new(rpc_url, auth, component)?;
         Ok(Self {
@@ -419,6 +522,26 @@ mod tests {
             rpc: Arc::new(mock_bitcoin_rpc),
             config: ViaBtcClientConfig::for_tests(),
         }
+    }
+
+    #[test]
+    fn confirmation_policy_rejects_an_unknown_network_instead_of_using_regtest() {
+        let mut client = get_client_with_mock(MockBitcoinRpc::new());
+        for (network, depth) in [
+            (Network::Bitcoin, 6),
+            (Network::Testnet4, 100),
+            (Network::Signet, 100),
+            (Network::Regtest, 1),
+        ] {
+            client.config.network = network.to_string();
+            assert_eq!(client.reorg_safe_depth().unwrap().get(), depth);
+        }
+        client.config.network = "unknown".into();
+        assert!(matches!(client.reorg_safe_depth(), Err(BitcoinError::InvalidNetwork(_))));
+        assert!(matches!(
+            BitcoinClient::new("http://127.0.0.1:1", NodeAuth::None, client.config.clone()),
+            Err(BitcoinError::InvalidNetwork(_))
+        ));
     }
 
     #[tokio::test]

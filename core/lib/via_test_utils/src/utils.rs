@@ -39,6 +39,20 @@ const RPC_USERNAME: &str = "rpcuser";
 const RPC_PASSWORD: &str = "rpcpassword";
 const NETWORK: BitcoinNetwork = BitcoinNetwork::Regtest;
 
+fn mock_common_fields() -> CommonFields {
+    CommonFields {
+        schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
+        encoded_public_key: PushBytesBuf::new(),
+        block_height: 0,
+        block_hash: None,
+        tx_id: BitcoinTxid::all_zeros(),
+        p2wpkh_address: None,
+        tx_index: None,
+        message_index: 0,
+        output_vout: None,
+    }
+}
+
 /// Init a BTC client
 pub fn test_bitcoin_client() -> BitcoinClient {
     BitcoinClient::new(
@@ -136,18 +150,7 @@ pub fn bootstrap_state_mock() -> BootstrapState {
 /// Create a update sequencer address inscription
 pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
     FullInscriptionMessage::UpdateSequencer(UpdateSequencer {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
-                .ok()
-                .unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            block_hash: None,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: mock_common_fields(),
         input: UpdateSequencerInput {
             inputs: vec![],
             address: address.as_unchecked().clone(),
@@ -158,18 +161,7 @@ pub fn create_update_sequencer_inscription(address: BitcoinAddress) -> FullInscr
 /// Create a update governance address inscription
 pub fn create_update_governance_inscription(address: BitcoinAddress) -> FullInscriptionMessage {
     FullInscriptionMessage::UpdateGovernance(UpdateGovernance {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64])
-                .ok()
-                .unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            block_hash: None,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: mock_common_fields(),
         input: UpdateGovernanceInput {
             inputs: vec![],
             address: address.as_unchecked().clone(),
@@ -199,16 +191,7 @@ pub async fn create_update_bridge_inscription(
         .await?;
 
     Ok(FullInscriptionMessage::UpdateBridge(UpdateBridge {
-        common: CommonFields {
-            schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-            encoded_public_key: PushBytesBuf::new(),
-            block_height: 0,
-            block_hash: None,
-            tx_id: BitcoinTxid::all_zeros(),
-            p2wpkh_address: None,
-            tx_index: None,
-            output_vout: None,
-        },
+        common: mock_common_fields(),
         input: UpdateBridgeInput {
             inputs: vec![],
             proposal_tx_id: result.final_reveal_tx.txid,

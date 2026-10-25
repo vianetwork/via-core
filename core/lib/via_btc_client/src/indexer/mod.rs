@@ -3,7 +3,9 @@ use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use bitcoin::{Address, Amount, BlockHash, OutPoint, Transaction as BitcoinTransaction, Txid};
 use tracing::{debug, info, instrument, warn};
 
+pub mod configuration;
 mod parser;
+pub mod replay;
 pub use parser::{get_eth_address, MessageParser};
 use zksync_basic_types::L1BatchNumber;
 use zksync_types::via_wallet::SystemWallets;
@@ -17,7 +19,6 @@ use crate::{
     },
 };
 
-pub mod replay;
 pub mod withdrawal;
 
 /// Controls withdrawal provenance work independently of deposit and system-message ingestion.
@@ -126,33 +127,41 @@ impl BitcoinInscriptionIndexer {
         debug!("Processing block at height {}", block_height);
 
         let block = self.client.fetch_block(block_height as u128).await?;
+        self.process_block_body(&block, block_height).await
+    }
+
+    /// Authority readers pass the body returned by BitcoinClient::checked_block before opening SQL.
+    pub async fn process_block_body(
+        &mut self,
+        block: &bitcoin::Block,
+        block_height: u32,
+    ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
         let block_hash = block.block_hash();
-        // TODO: check block header is belong to a valid chain of blocks (reorg detection and management)
         // TODO: deal with malicious sequencer, verifiers from being able to make trouble by sending invalid messages / valid messages with invalid data
 
         let mut valid_messages = Vec::new();
 
         let mut system_txs = self.extract_important_transactions(&block.txdata);
 
-        // Parse protocol upgrade messages (Upgrade system contracts, bridge addresses, sequencer address)
-        if !system_txs.governance_txs.is_empty() {
-            let parsed_messages: Vec<_> = system_txs
-                .governance_txs
-                .iter()
-                .flat_map(|tx| {
-                    self.parser
-                        .parse_protocol_upgrade_transactions(tx, block_height)
-                })
-                .collect();
-
-            let mut messages = vec![];
-            for message in parsed_messages {
-                if self.is_valid_gov_message(&message).await {
-                    messages.push(message);
-                }
+        for transaction in &system_txs.governance_txs {
+            let messages =
+                self.parser.parse_protocol_upgrade_transactions(transaction, block_height);
+            if messages.is_empty() {
+                continue;
             }
-
-            valid_messages.extend(messages);
+            if self
+                .is_valid_gov_upgrade(
+                    transaction.tx.input.first().map(|input| &input.previous_output),
+                )
+                .await
+                .map_err(|error| {
+                    crate::types::BitcoinError::Rpc(format!(
+                        "governance previous output: {error:#}"
+                    ))
+                })?
+            {
+                valid_messages.extend(messages);
+            }
         }
 
         if !system_txs.system_txs.is_empty() {
@@ -162,24 +171,18 @@ impl BitcoinInscriptionIndexer {
                 .flat_map(|tx| {
                     self.parser
                         .parse_system_transaction(&tx.tx, block_height, Some(&self.wallets))
+                        .into_iter().map(|mut message| {
+                            let common=message.common_mut();
+                            common.tx_index=Some(tx.tx_index);
+                            common.tx_id=tx.tx.compute_txid();
+                            message
+                        })
                 })
                 .collect();
 
             let messages: Vec<_> = parsed_messages
                 .into_iter()
                 .filter(|message| self.is_valid_system_message(message))
-                .map(|mut message| {
-                    match &mut message {
-                        FullInscriptionMessage::ProofDAReference(proof) => {
-                            proof.common.block_hash = Some(block_hash);
-                        }
-                        FullInscriptionMessage::ValidatorAttestation(vote) => {
-                            vote.common.block_hash = Some(block_hash);
-                        }
-                        _ => {}
-                    }
-                    message
-                })
                 .collect();
 
             valid_messages.extend(messages);
@@ -219,6 +222,9 @@ impl BitcoinInscriptionIndexer {
                     }
                 }
                 for mut message in parsed {
+                    let common=message.common_mut();
+                    common.tx_index=Some(tx.tx_index);
+                    common.tx_id=tx.tx.compute_txid();
                     let valid = match self
                         .is_valid_bridge_message(&mut message, &mut parents)
                         .await
@@ -245,17 +251,15 @@ impl BitcoinInscriptionIndexer {
             }
         }
 
+        for message in &mut valid_messages {
+            message.common_mut().block_hash = Some(block_hash);
+        }
         debug!(
             "Processed {} valid messages in block {}",
             valid_messages.len(),
             block_height
         );
-        for message in &mut valid_messages {
-            if let FullInscriptionMessage::L1ToL2Message(deposit) = message {
-                deposit.common.block_hash = Some(block_hash);
-            }
-        }
-        Ok(valid_messages)
+        Ok(FullInscriptionMessage::sort_messages(valid_messages))
     }
 
     fn extract_important_transactions(
@@ -268,12 +272,7 @@ impl BitcoinInscriptionIndexer {
             .enumerate()
             .filter_map(|(tx_index, tx)| {
                 let is_valid = tx.input.iter().any(|input| {
-                    if let Some(btc_address) = self.parser.parse_p2wpkh(&input.witness) {
-                        btc_address == self.wallets.sequencer
-                            || self.wallets.verifiers.contains(&btc_address)
-                    } else {
-                        false
-                    }
+                    self.parser.parse_p2wpkh(&input.witness).is_some()
                 });
 
                 if is_valid {
@@ -387,11 +386,8 @@ impl BitcoinInscriptionIndexer {
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_system_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
-            FullInscriptionMessage::ValidatorAttestation(m) => m
-                .common
-                .p2wpkh_address
-                .as_ref()
-                .map_or(false, |addr| self.wallets.verifiers.contains(addr)),
+            // Retain historical voters; membership belongs to the proof-inclusion tally.
+            FullInscriptionMessage::ValidatorAttestation(m) => m.common.p2wpkh_address.is_some(),
             FullInscriptionMessage::L1BatchDAReference(m) => m
                 .common
                 .p2wpkh_address
@@ -425,20 +421,6 @@ impl BitcoinInscriptionIndexer {
             }
             _ => Ok(false),
         }
-    }
-
-    async fn is_valid_gov_message(&self, message: &FullInscriptionMessage) -> bool {
-        let maybe_input = match message {
-            FullInscriptionMessage::SystemContractUpgrade(m) => m.input.inputs.first(),
-            FullInscriptionMessage::UpdateBridge(m) => m.input.inputs.first(),
-            FullInscriptionMessage::UpdateSequencer(m) => m.input.inputs.first(),
-            FullInscriptionMessage::UpdateGovernance(m) => m.input.inputs.first(),
-            _ => return false,
-        };
-
-        self.is_valid_gov_upgrade(maybe_input)
-            .await
-            .unwrap_or(false)
     }
 
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
@@ -527,7 +509,9 @@ impl BitcoinInscriptionIndexer {
     #[instrument(skip(self, outpoint_opt), target = "bitcoin_indexer")]
     async fn is_valid_gov_upgrade(&self, outpoint_opt: Option<&OutPoint>) -> anyhow::Result<bool> {
         if let Some(outpoint) = outpoint_opt {
+            if outpoint.is_null() { return Ok(false); }
             let tx = self.client.get_transaction(&outpoint.txid).await?;
+            anyhow::ensure!(tx.compute_txid() == outpoint.txid, "governance parent transaction ID mismatch");
             if let Some(txout) = tx.output.get(outpoint.vout as usize) {
                 return Ok(txout.script_pubkey == self.wallets.governance.script_pubkey());
             }
@@ -632,6 +616,7 @@ mod tests {
             tx_id: Txid::all_zeros(),
             p2wpkh_address: Some(get_test_addr()),
             tx_index: None,
+            message_index: 0,
             output_vout: None,
         }
     }
@@ -653,7 +638,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_inclusion_requires_block_scan_and_preserves_sender_authorization() {
+    async fn source_inclusion_requires_block_scan_and_retains_historical_voters() {
         use bitcoin::{
             opcodes::{all, OP_FALSE},
             script::Builder,
@@ -758,10 +743,8 @@ mod tests {
             }
             Arc::make_mut(&mut indexer.wallets).verifiers.clear();
             let messages = indexer.process_block(42).await.unwrap();
-            assert!(matches!(
-                messages.as_slice(),
-                [FullInscriptionMessage::ProofDAReference(_)]
-            ));
+            assert_eq!(messages.len(), 2);
+            assert!(messages.iter().any(|message| matches!(message, FullInscriptionMessage::ValidatorAttestation(_))));
         }
     }
 
@@ -1321,20 +1304,11 @@ mod tests {
                     attestation: Vote::Ok,
                 },
             });
-        assert!(!indexer.is_valid_system_message(&validator_attestation));
+        assert!(indexer.is_valid_system_message(&validator_attestation));
 
         let l1_batch_da_reference =
             FullInscriptionMessage::L1BatchDAReference(types::L1BatchDAReference {
-                common: CommonFields {
-                    schnorr_signature: bitcoin::taproot::Signature::from_slice(&[0; 64]).unwrap(),
-                    encoded_public_key: bitcoin::script::PushBytesBuf::from([0u8; 32]),
-                    block_height: 0,
-                    block_hash: None,
-                    tx_id: Txid::all_zeros(),
-                    p2wpkh_address: Some(get_test_addr()),
-                    tx_index: None,
-                    output_vout: None,
-                },
+                common: get_test_common_fields(),
                 input: types::L1BatchDAReferenceInput {
                     l1_batch_hash: zksync_basic_types::H256::zero(),
                     l1_batch_index: zksync_types::L1BatchNumber(0),

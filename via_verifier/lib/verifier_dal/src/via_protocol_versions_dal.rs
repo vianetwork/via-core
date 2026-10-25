@@ -15,6 +15,37 @@ pub struct ViaProtocolVersionsDal<'a, 'c> {
 }
 
 impl ViaProtocolVersionsDal<'_, '_> {
+    pub async fn versions_for_proof(
+        &mut self,
+        height: u32,
+        upgrade: Option<H256>,
+    ) -> anyhow::Result<Vec<ProtocolSemanticVersion>> {
+        let rows = sqlx::query("SELECT p.minor,p.patch FROM protocol_patches p JOIN protocol_versions v ON v.id=p.minor
+            JOIN via_btc_headers h ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash
+            JOIN via_btc_headers m ON m.number=v.bitcoin_height AND m.hash=v.bitcoin_hash
+            WHERE h.number<$1 AND m.number<$1 AND (v.executed OR v.upgrade_tx_hash=$2)
+            ORDER BY p.minor DESC,p.patch DESC")
+            .bind(i64::from(height)).bind(upgrade.map(|hash| hash.as_bytes().to_vec()))
+            .try_map(|row: PgRow| Ok((row.try_get::<i32,_>("minor")?,row.try_get::<i32,_>("patch")?)))
+            .instrument("historical_protocol_for_proof").fetch_all(self.storage).await?;
+        let mut versions = Vec::new();
+        for (minor, patch) in
+            rows.iter().take_while(|row| Some(row.0) == rows.first().map(|row| row.0))
+        {
+            versions.push(ProtocolSemanticVersion {
+                minor: u16::try_from(*minor)?.try_into()?,
+                patch: VersionPatch((*patch).try_into()?),
+            });
+        }
+        Ok(versions)
+    }
+
+    pub async fn pending_upgrade_before(&mut self, height: u32) -> anyhow::Result<Option<H256>> {
+        Ok(sqlx::query_scalar::<_, Vec<u8>>("SELECT v.upgrade_tx_hash FROM protocol_versions v JOIN via_btc_headers h
+            ON h.number=v.bitcoin_height AND h.hash=v.bitcoin_hash WHERE NOT v.executed AND h.number<$1 ORDER BY v.id LIMIT 1")
+            .bind(i64::from(height)).instrument("historical_pending_upgrade").fetch_optional(self.storage).await?.map(|raw|H256::from_slice(&raw)))
+    }
+
     pub async fn save_protocol_version(
         &mut self,
         version: ProtocolSemanticVersion,

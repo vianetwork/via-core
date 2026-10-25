@@ -265,4 +265,40 @@ mod tests {
         );
         Ok(())
     }
+    #[tokio::test]
+    async fn checked_body_rejects_witness_changes_even_when_txids_match() -> anyhow::Result<()> {
+        let core = BitcoinCore::new()?;
+        let hash = core.mine(1)?[0];
+        let client = core.client()?;
+        let header = client.header_by_hash(&hash).await?.unwrap();
+        let mut block = client.checked_block(&header).await?;
+        block.txdata[0].input[0].witness = Witness::from_slice(&[[1; 32]]);
+        assert_eq!(block.compute_merkle_root(), Some(block.header.merkle_root));
+        let server = BitcoinRpcServer::new(None, false, move |_, _| json!(serialize_hex(&block)))?;
+        let client =
+            BitcoinClient::new(&server.url(""), NodeAuth::None, ViaBtcClientConfig::for_tests())?;
+        assert!(matches!(client.checked_block(&header).await,
+            Err(via_btc_client::types::BitcoinError::InvalidBlockBody(rejected)) if rejected == hash));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn transaction_origin_requires_a_current_block_body() -> anyhow::Result<()> {
+        let core = BitcoinCore::new()?;
+        core.mine(101)?;
+        let address: String = core.rpc("getnewaddress", &[])?;
+        let txid: bitcoin::Txid =
+            core.rpc("sendtoaddress", &[serde_json::json!(address), serde_json::json!(0.01)])?;
+        let client = core.client()?;
+        assert!(client.canonical_transaction(&txid).await?.is_none());
+        let block = core.mine(1)?[0];
+        let (transaction, header, index) = client.canonical_transaction(&txid).await?.unwrap();
+        assert_eq!(transaction.compute_txid(), txid);
+        assert_eq!(header.hash, block);
+        assert_eq!(header.height, 102);
+        assert_eq!(index, 1);
+        let _: serde_json::Value = core.rpc("invalidateblock", &[serde_json::json!(block)])?;
+        assert!(client.canonical_transaction(&txid).await?.is_none());
+        Ok(())
+    }
 }

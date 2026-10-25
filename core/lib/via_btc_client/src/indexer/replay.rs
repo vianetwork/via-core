@@ -8,6 +8,66 @@ use zksync_types::{
 
 use crate::types::{CommonFields, FullInscriptionMessage, L1ToL2Message, L1ToL2MessageInput};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageOrigin {
+    pub height: u32,
+    pub hash: bitcoin::BlockHash,
+    pub transaction_index: u32,
+    pub message_index: u32,
+    pub txid: bitcoin::Txid,
+}
+
+impl TryFrom<&CommonFields> for MessageOrigin {
+    type Error = anyhow::Error;
+    fn try_from(common: &CommonFields) -> anyhow::Result<Self> {
+        use anyhow::Context;
+        Ok(Self {
+            height: common.block_height,
+            hash: common.block_hash.context("message has no scanned block hash")?,
+            transaction_index: common
+                .tx_index
+                .context("message has no transaction index")?
+                .try_into()?,
+            message_index: common.message_index.try_into()?,
+            txid: common.tx_id,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProofInput {
+    pub proof: crate::types::ProofDAReferenceInput,
+    /// Retained replay may rebind inclusion positions without changing either immutable payload.
+    /// The proof row's captured header ID changes with that rebind, excluding stale completion.
+    pub pubdata: Included<crate::types::L1BatchDAReferenceInput>,
+}
+
+/// Included pairs message position with immutable payload.
+/// Remine after reorg rewrites origin and leaves payload untouched and comparable.
+/// Idea only from NBXplorer schema, which keeps blks_txs memberships apart from transaction content: https://github.com/btcpayserver/NBXplorer/blob/27585a7a83b11a96adad9facf092c0d07d327ac2/NBXplorer/DBScripts/FullSchema.sql
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Included<T> {
+    pub origin: MessageOrigin,
+    pub payload: Payload<T>,
+}
+
+impl<T: PartialEq> Included<T> {
+    pub fn compare(&self, saved: &Self) -> Result<(), ReplayConflict> {
+        compare_fields([
+            ("height", self.origin.height == saved.origin.height),
+            ("block_hash", self.origin.hash == saved.origin.hash),
+            ("transaction_index", self.origin.transaction_index == saved.origin.transaction_index),
+            ("message_index", self.origin.message_index == saved.origin.message_index),
+            ("txid", self.origin.txid == saved.origin.txid),
+        ])?;
+        self.payload.compare(&saved.payload)
+    }
+
+    pub fn new(common: &CommonFields, input: T) -> anyhow::Result<Self> {
+        Ok(Self { origin: MessageOrigin::try_from(common)?, payload: Payload::new(common, input) })
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error("Bitcoin replay conflict in {field}")]
 pub struct ReplayConflict {
@@ -151,9 +211,10 @@ impl TryFrom<&CommonFields> for DepositOrigin {
     type Error = anyhow::Error;
     fn try_from(common: &CommonFields) -> anyhow::Result<Self> {
         use anyhow::Context;
+        let message = MessageOrigin::try_from(common)?;
         Ok(Self {
-            height: common.block_height,
-            hash: common.block_hash.context("deposit has no scanned block hash")?,
+            height: message.height,
+            hash: message.hash,
             vout: common.output_vout.context("deposit has no output position")?.try_into()?,
         })
     }

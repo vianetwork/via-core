@@ -139,6 +139,27 @@ impl ViaTransactionsDal<'_, '_> {
         Ok(priority_id.unwrap_or(0))
     }
 
+    /// A second proof of one batch reuses its complete settled set; it cannot consume later deposits.
+    pub async fn deposits_for_proof(
+        &mut self,
+        batch: i64,
+        count: i64,
+        height: u32,
+    ) -> DalResult<Vec<(Vec<u8>, Option<bool>, bool)>> {
+        use sqlx::Row;
+        sqlx::query("WITH assigned AS (SELECT * FROM via_transactions WHERE l1_batch_number=$1),
+            candidates AS (SELECT * FROM assigned UNION ALL
+                (SELECT * FROM via_transactions WHERE status IS NULL AND l1_batch_number IS NULL
+                    AND NOT EXISTS(SELECT 1 FROM assigned) ORDER BY priority_id LIMIT $2))
+            SELECT t.canonical_tx_hash,t.status,
+                h.id IS NOT NULL AND h.number<=$3 AND t.bitcoin_payload IS NOT NULL AS canonical
+            FROM candidates t LEFT JOIN via_btc_headers h ON h.number=t.bitcoin_height AND h.hash=t.bitcoin_hash
+            ORDER BY t.priority_id")
+            .bind(batch).bind(count).bind(i64::from(height))
+            .try_map(|row: sqlx::postgres::PgRow| Ok((row.try_get("canonical_tx_hash")?,row.try_get("status")?,row.try_get("canonical")?)))
+            .instrument("deposits_for_exact_proof").fetch_all(self.storage).await
+    }
+
     pub async fn list_transactions_not_processed(&mut self, limit: i64) -> DalResult<Vec<Vec<u8>>> {
         let rows = sqlx::query!(
             r#"

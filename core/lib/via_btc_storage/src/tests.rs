@@ -7,6 +7,14 @@ use super::*;
 struct Test;
 impl DbMarker for Test {}
 
+fn fixture_header(chain: &Chain, height: u32) -> Header<BlockHash> {
+    Header {
+        height,
+        block_hash: chain.blocks[&height].block_hash(),
+        parent_hash: chain.blocks[&height].header.prev_blockhash,
+    }
+}
+
 async fn children(connection: &mut Connection<'_, Test>) -> anyhow::Result<i64> {
     Ok(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM via_btc_configuration")
         .instrument("reader_test_count")
@@ -18,11 +26,7 @@ async fn children(connection: &mut Connection<'_, Test>) -> anyhow::Result<i64> 
 async fn aborted_suffix_and_forward_writes_preserve_head_children_and_frontier(
 ) -> anyhow::Result<()> {
     let chain = Chain::with_height(2);
-    let header = |height| Header {
-        height,
-        block_hash: chain.blocks[&height].block_hash(),
-        parent_hash: chain.blocks[&height].header.prev_blockhash,
-    };
+    let header = |height| fixture_header(&chain, height);
     let pool = ConnectionPool::<Test>::test_pool().await;
     let mut connection = pool.connection().await?;
     let mut tx = connection.start_transaction().await?;
@@ -116,6 +120,86 @@ async fn aborted_suffix_and_forward_writes_preserve_head_children_and_frontier(
         .execute(&mut tx)
         .await?;
     assert!(ReaderDal::new(&mut tx).complete_replay(&["interpretation"], "SELECT FALSE").await?);
+    tx.commit().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn configuration_replay_keeps_occurrences_and_activates_only_at_next_height(
+) -> anyhow::Result<()> {
+    use bitcoin::{hashes::Hash, Network, Txid};
+    use via_btc_client::{
+        indexer::{
+            configuration::ConfigurationInput,
+            replay::{Included, MessageOrigin, Payload, ReplayConflict},
+        },
+        types::UpdateGovernanceInput,
+    };
+    use zksync_types::via_wallet::SystemWalletsDetails;
+
+    let chain = Chain::with_height(2);
+    let header = |height| fixture_header(&chain, height);
+    let pool = ConnectionPool::<Test>::test_pool().await;
+    let mut db = pool.connection().await?;
+    let mut tx = db.start_transaction().await?;
+    let wallets = via_test_utils::utils::test_wallets();
+    let mut reader = ReaderDal::new(&mut tx);
+    reader.initialize("regtest", header(0).block_hash, header(0), header(2).into()).await?;
+    reader
+        .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone())?, WalletSource::Unbound(0))
+        .await?;
+    let genesis = reader.get_highest_block().await?.unwrap();
+    reader.save_block(header(1), &genesis).await?;
+    let first = reader.get_highest_block().await?.unwrap();
+    reader.save_block(header(2), &first).await?;
+    let second = reader.get_highest_block().await?.unwrap();
+    for block in [&genesis, &first, &second] {
+        reader.complete_consumer(PROTOCOL_CONSUMER, block).await?;
+    }
+    let mut change = Included {
+        origin: MessageOrigin {
+            height: 1,
+            hash: header(1).block_hash,
+            transaction_index: 0,
+            message_index: 0,
+            txid: Txid::from_byte_array([1; 32]),
+        },
+        payload: Payload {
+            input: ConfigurationInput::Governance(UpdateGovernanceInput {
+                inputs: vec![],
+                address: wallets.sequencer.as_unchecked().clone(),
+            }),
+            public_key: vec![],
+            signature: vec![0; 64],
+            sender_script: None,
+        },
+    };
+    let one = reader.save_configuration(&change).await?;
+    assert_eq!(reader.save_configuration(&change).await?, one);
+    change.origin.message_index = 1;
+    let two = reader.save_configuration(&change).await?;
+    assert_ne!(one, two);
+    assert_eq!(reader.wallets_before(1).await?, Some(wallets.clone()));
+    assert!(reader.wallets_before(2).await?.is_none());
+    reader.decide_configurations(1, &[], &[], true, Network::Regtest, 0.66).await?;
+    assert!(reader.configurations_at(1).await?.iter().all(|change| change.accepted == Some(false)));
+    assert_eq!(reader.wallets_before(2).await?, Some(wallets.clone()));
+    change.origin.height = 2;
+    change.origin.hash = header(2).block_hash;
+    change.origin.message_index = 0;
+    change.origin.txid = Txid::from_byte_array([2; 32]);
+    reader.save_configuration(&change).await?;
+    reader.decide_configurations(2, &[], &[], true, Network::Regtest, 0.66).await?;
+    assert_eq!(reader.wallets_before(2).await?, Some(wallets.clone()));
+    let mut expected = wallets.clone();
+    expected.governance = wallets.sequencer.clone();
+    assert_eq!(reader.wallets_before(3).await?, Some(expected));
+    change.payload.signature[0] = 1;
+    let error = reader.save_configuration(&change).await.unwrap_err();
+    assert_eq!(error.downcast_ref::<ReplayConflict>().unwrap().field, "signature");
+    reader.delete_common_suffix(1).await?;
+    reader.rewind_headers(&second, &first, header(1).into()).await?;
+    assert_eq!(reader.wallets_before(3).await?, Some(wallets));
     tx.commit().await?;
     Ok(())
 }

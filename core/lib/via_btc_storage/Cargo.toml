@@ -12,9 +12,13 @@ license.workspace = true
 anyhow.workspace = true
 bitcoin.workspace = true
 sqlx.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
+via_btc_client.workspace = true
 via_reorg.workspace = true
 zksync_db_connection.workspace = true
+zksync_types.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

@@ -11949,12 +11949,16 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
+ "serde_json",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
+ "tracing",
+ "via_btc_client",
  "via_reorg",
  "via_test_utils",
  "zksync_db_connection",
+ "zksync_types",
 ]
 
 [[package]]
@@ -12764,12 +12768,13 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
- "via_consensus",
+ "via_btc_storage",
  "via_da_client",
  "via_da_dispatcher_lib",
+ "via_reorg",
+ "via_test_utils",
  "via_verification",
  "via_verifier_dal",
- "via_verifier_state",
  "via_verifier_storage_init",
  "via_verifier_types",
  "vise",

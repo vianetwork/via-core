@@ -395,25 +395,20 @@ mod tests {
             .instrument("seed_retained_request").execute(&mut db).await?;
         sqlx::query("INSERT INTO via_data_availability(l1_batch_number,is_proof,blob_id,sent_at,created_at,updated_at,index) VALUES (1,FALSE,'retained-da',NOW(),NOW(),NOW(),0)")
             .instrument("seed_retained_da").execute(&mut db).await?;
-        sqlx::query(
-            "CREATE TABLE unreviewed_dependency (tx_hash BYTEA REFERENCES transactions(hash))",
-        )
-        .instrument("seed_unknown_dependency")
-        .execute(&mut db)
-        .await?;
-        let mut reset = db.start_transaction().await?;
-        assert!(reset
-            .via_indexer_dal()
-            .delete_reader_suffix(0)
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("unknown dependent constraint"));
-        drop(reset);
-        sqlx::query("DROP TABLE unreviewed_dependency")
-            .instrument("remove_unknown_dependency")
-            .execute(&mut db)
-            .await?;
+        for column in [
+            "tx_hash BYTEA REFERENCES transactions(hash)",
+            "vote_id BIGINT REFERENCES via_votes(id)",
+            "proof_id BIGINT REFERENCES via_btc_finalizations(proof_id)",
+        ] {
+            sqlx::query(&format!("CREATE TABLE unreviewed_dependency ({column})"))
+                .instrument("seed_unknown_dependency").execute(&mut db).await?;
+            let mut reset = db.start_transaction().await?;
+            assert!(reset.via_indexer_dal().delete_reader_suffix(0).await.unwrap_err()
+                .to_string().contains("unknown dependent constraint"));
+            drop(reset);
+            sqlx::query("DROP TABLE unreviewed_dependency")
+                .instrument("remove_unknown_dependency").execute(&mut db).await?;
+        }
         for commit in [false, true] {
             let mut reset = db.start_transaction().await?;
             reset.via_indexer_dal().delete_reader_suffix(0).await?;
