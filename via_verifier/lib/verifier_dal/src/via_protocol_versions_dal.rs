@@ -15,6 +15,59 @@ pub struct ViaProtocolVersionsDal<'a, 'c> {
 }
 
 impl ViaProtocolVersionsDal<'_, '_> {
+    pub async fn bind_reader_bootstrap(
+        &mut self,
+        bootstrap: &via_btc_client::bootstrap::CheckedBootstrap,
+    ) -> anyhow::Result<()> {
+        let state = &bootstrap.state;
+        let uninitialized = self.latest_protocol_semantic_version().await?.is_none();
+        self.save_protocol_version(
+            state.protocol_version,
+            state.bootloader_hash.as_bytes(),
+            state.abstract_account_hash.as_bytes(),
+            H256::zero().as_bytes(),
+            state.snark_wrapper_vk_hash.as_bytes(),
+        )
+        .await?;
+        if uninitialized {
+            self.mark_upgrade_as_executed(H256::zero().as_bytes()).await?;
+        }
+        sqlx::query("UPDATE protocol_versions SET bitcoin_height=$1,bitcoin_hash=$2 WHERE id=$3 AND bitcoin_payload IS NULL")
+            .bind(i64::from(bootstrap.starting.height)).bind(bootstrap.starting.hash.to_string()).bind(state.protocol_version.minor as i32)
+            .instrument("verifier_bootstrap_minor_source").execute(self.storage).await?;
+        Ok(())
+    }
+
+    /// Main stores minor provenance on its patch; verifier also persists the executed-minor source.
+    pub async fn bind_reader_protocol(
+        &mut self,
+        change: &via_btc_storage::StoredConfiguration,
+    ) -> anyhow::Result<()> {
+        use anyhow::Context;
+        let via_btc_client::indexer::configuration::ConfigurationInput::Protocol(_, proposals) =
+            &change.change.payload.input
+        else {
+            anyhow::bail!("non-protocol candidate at verifier protocol owner");
+        };
+        let input = &proposals.first().context("missing checked protocol proposal")?.payload.input;
+        let hash = zksync_types::via_protocol_upgrade::ViaProtocolUpgrade::default()
+            .get_canonical_tx_hash(input.version, input.system_contracts.clone())?;
+        self.save_protocol_version(
+            input.version,
+            input.bootloader_code_hash.as_bytes(),
+            input.default_account_code_hash.as_bytes(),
+            hash.as_bytes(),
+            input.recursion_scheduler_level_vk_hash.as_bytes(),
+        )
+        .await?;
+        via_btc_storage::ReaderDal::new(self.storage).bind_protocol(change).await?;
+        sqlx::query("UPDATE protocol_versions v SET bitcoin_height=p.bitcoin_height,bitcoin_hash=p.bitcoin_hash,bitcoin_payload=p.bitcoin_payload
+            FROM protocol_patches p JOIN via_btc_configuration c ON p.bitcoin_height=c.l1_block_number AND p.bitcoin_hash=c.block_hash
+            WHERE c.id=$1 AND c.accepted AND p.minor=v.id AND v.bitcoin_payload IS NULL")
+            .bind(change.id).instrument("verifier_bind_protocol_minor").execute(self.storage).await?;
+        Ok(())
+    }
+
     pub async fn versions_for_proof(
         &mut self,
         height: u32,
@@ -54,7 +107,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
         upgrade_tx_hash: &[u8],
         recursion_scheduler_level_vk_hash: &[u8],
     ) -> anyhow::Result<()> {
-        use via_btc_client::indexer::replay::ReplayConflict;
+        use via_btc_client::indexer::replay::compare_fields;
         let mut db_transaction = self.storage.start_transaction().await?;
         if let Some(saved) = sqlx::query!(
             "SELECT bootloader_code_hash, default_account_code_hash,
@@ -65,7 +118,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
         .fetch_optional(&mut db_transaction)
         .await?
         {
-            for (field, equal) in [
+            compare_fields([
                 ("bootloader_code_hash", saved.bootloader_code_hash == bootloader_code_hash),
                 (
                     "default_account_code_hash",
@@ -76,9 +129,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
                     "recursion_scheduler_level_vk_hash",
                     saved.recursion_scheduler_level_vk_hash == recursion_scheduler_level_vk_hash,
                 ),
-            ] {
-                anyhow::ensure!(equal, ReplayConflict { field });
-            }
+            ])?;
         }
 
         sqlx::query!(

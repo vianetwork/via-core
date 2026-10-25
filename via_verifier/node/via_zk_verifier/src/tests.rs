@@ -7,7 +7,6 @@ use via_btc_client::{
     indexer::replay::{Included, MessageOrigin, Payload, ProofInput},
 };
 use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, chain::Chain};
-use zksync_config::ViaBtcWatchConfig;
 use zksync_da_client::types::InclusionData;
 use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails};
 use via_da_client::types::L1MessengerL2ToL1Log;
@@ -15,7 +14,7 @@ use via_verification::{
     version_27::types::ProveBatches as ProveBatchesV27,
     version_28::types::ProveBatches as ProveBatchesV28,
 };
-use via_verifier_dal::{via_store_mode_dal::StoreMode, via_votes_dal::READER_PROOFS_QUERY};
+use via_verifier_dal::via_store_mode_dal::StoreMode;
 use zksync_object_store::{Bucket, MockObjectStore, ObjectStore, ObjectStoreError, StoredObject};
 use zksync_types::{
     protocol_version::{ProtocolSemanticVersion, VersionPatch},
@@ -262,7 +261,7 @@ async fn materialize_work(
             .unwrap();
         let root = reader.header_at(0).await.unwrap().unwrap();
         reader.save_block(header(1), &root).await.unwrap();
-        reader.complete_consumer(via_btc_storage::PROTOCOL_CONSUMER, &root).await.unwrap();
+        reader.complete_consumer(via_btc_storage::PROTOCOL_CONSUMER, &root, &root).await.unwrap();
     }
     reader
         .insert_wallets(
@@ -272,7 +271,8 @@ async fn materialize_work(
         .await
         .unwrap();
     let block = reader.header_at(1).await.unwrap().unwrap();
-    reader.complete_consumer(via_btc_storage::PROTOCOL_CONSUMER, &block).await.unwrap();
+    let oldest = reader.header_at(0).await.unwrap().unwrap();
+    reader.complete_consumer(via_btc_storage::PROTOCOL_CONSUMER, &block, &oldest).await.unwrap();
     reader.advance_frontier(&block, &block).await.unwrap();
     let origin = MessageOrigin {
         height: 1,
@@ -414,16 +414,6 @@ async fn a_strict_store_rolls_back_a_development_approval() {
     assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
 }
 
-#[tokio::test]
-async fn a_reorg_before_commit_writes_nothing() {
-    let (mut storage, tx_id, deposit, pubdata) = approval_fixture(false, false).await;
-    storage.via_l1_block_dal().insert_reorg_metadata(1, BATCH).await.unwrap();
-    let committed =
-        record_approval(&mut storage, &tx_id, Approval::Verified, &pubdata, None).await.unwrap();
-    assert!(!committed);
-    assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
-}
-
 async fn assert_work_held(
     storage: &mut Connection<'_, Verifier>,
     work: &ProofWork,
@@ -435,7 +425,7 @@ async fn assert_work_held(
 }
 
 #[tokio::test]
-async fn replaced_work_cannot_complete_and_an_incomplete_prefix_waits() {
+async fn incomplete_protocol_prefix_holds_approval() {
     let (mut storage, old, deposit, pubdata) = approval_fixture(false, false).await;
     sqlx::query(
         "UPDATE via_btc_consumers SET header_id=(SELECT id FROM via_btc_headers WHERE number=0)",
@@ -444,6 +434,21 @@ async fn replaced_work_cannot_complete_and_an_incomplete_prefix_waits() {
     .await
     .unwrap();
     assert_work_held(&mut storage, &old, &pubdata, deposit).await;
+}
+
+async fn approve_and_assert_state(
+    storage: &mut Connection<'_, Verifier>,
+    work: &ProofWork,
+    pubdata: &Pubdata,
+    deposit: H256,
+) {
+    assert!(record_approval(storage, work, Approval::Verified, pubdata, None).await.unwrap());
+    assert_eq!(persisted(storage, deposit).await, (Some(true), false, Some(true)));
+}
+
+#[tokio::test]
+async fn stale_work_cannot_complete_and_fresh_work_completes_once() {
+    let (mut storage, old, deposit, pubdata) = approval_fixture(false, false).await;
     // Rebuild exactly the same source occurrence. BIGSERIAL identities are never reset.
     sqlx::query("DELETE FROM via_votable_transactions WHERE id=$1")
         .bind(old.id)
@@ -460,11 +465,16 @@ async fn replaced_work_cannot_complete_and_an_incomplete_prefix_waits() {
     .await;
     assert_ne!(old.id, new.id);
     assert_work_held(&mut storage, &old, &pubdata, deposit).await;
-    assert!(record_approval(&mut storage, &new, Approval::Verified, &pubdata, None).await.unwrap());
+    approve_and_assert_state(&mut storage, &new, &pubdata, deposit).await;
     assert!(!record_approval(&mut storage, &new, Approval::Verified, &pubdata, None)
         .await
         .unwrap());
-    assert_eq!(persisted(&mut storage, deposit).await, (Some(true), false, Some(true)));
+}
+
+#[tokio::test]
+async fn distinct_same_batch_proof_can_record_approval() {
+    let (mut storage, new, deposit, pubdata) = approval_fixture(false, false).await;
+    assert!(record_approval(&mut storage, &new, Approval::Verified, &pubdata, None).await.unwrap());
     let mut repeated = new.proof.clone();
     repeated.origin.txid = "04".repeat(32).parse().unwrap();
     repeated.origin.transaction_index += 1;
@@ -472,10 +482,8 @@ async fn replaced_work_cannot_complete_and_an_incomplete_prefix_waits() {
     tx.via_votes_dal().save_reader_proof(&repeated, new.header_id).await.unwrap();
     tx.commit().await.unwrap();
     let second = storage.via_votes_dal().pending_reader_proof().await.unwrap().unwrap();
-    assert!(record_approval(&mut storage, &second, Approval::Verified, &pubdata, None)
-        .await
-        .unwrap());
-    assert_eq!(persisted(&mut storage, deposit).await, (Some(true), false, Some(true)));
+    assert_ne!(second.id, new.id);
+    approve_and_assert_state(&mut storage, &second, &pubdata, deposit).await;
 }
 
 #[tokio::test]
@@ -587,7 +595,7 @@ async fn lifecycle_fixture_with_genesis(
     genesis_network: bitcoin::Network,
 ) -> LifecycleFixture {
     use via_btc_client::{
-        inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOpsConfig},
+        inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOps},
         types::{InscriptionMessage, NodeAuth, ProofDAReferenceInput},
     };
 
@@ -596,7 +604,7 @@ async fn lifecycle_fixture_with_genesis(
     let mut package = v28();
     package.proofs.clear();
     let batch = package.l1_batches[0].header.number.0;
-    let mut inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
+    let mut inscriber = get_mock_inscriber_and_conditions(MockBitcoinOps::default());
     let mut input = inscribed(&package);
     input.blob_id = "pubdata".into();
     input.da_identifier = "fixture".into();
@@ -628,7 +636,7 @@ async fn lifecycle_fixture_with_genesis(
         governance: address.clone(),
         verifiers: vec![address.clone()],
     };
-    storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+
     let version = v28_patches(&[0])[0];
     storage
         .via_protocol_versions_dal()
@@ -795,7 +803,13 @@ async fn decide_rotation_candidate(
     storage: &mut Connection<'_, Verifier>,
     id: i64,
 ) -> Option<bool> {
-    let proofs = ReaderDal::new(storage).canonical_proofs(READER_PROOFS_QUERY, 1).await.unwrap();
+    let proofs = <Verifier as via_btc_storage::ReaderRole>::canonical_proofs(
+        storage,
+        1,
+        via_btc_storage::ProofScope::Interpretation,
+    )
+    .await
+    .unwrap();
     let votes = ReaderDal::new(storage).reader_votes(1).await.unwrap();
     let mut tx = storage.start_transaction().await.unwrap();
     let mut reader = ReaderDal::new(&mut tx);
@@ -957,7 +971,8 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
         )
         .await
         .unwrap();
-    storage.via_votes_dal().insert_vote(1, "verifier", true, None).await.unwrap();
+    sqlx::query("INSERT INTO via_votes(votable_transaction_id,verifier_address,vote) VALUES(1,'verifier',TRUE)")
+        .execute(storage.conn()).await.unwrap();
     sqlx::query(
         "ALTER TABLE protocol_versions ADD CONSTRAINT fixture_upgrade_failure CHECK (NOT executed)",
     )
@@ -998,15 +1013,20 @@ async fn a_later_database_error_rolls_back_the_development_marker_and_effects() 
 }
 
 #[tokio::test]
-async fn a_development_reorg_rolls_back_the_marker_and_deposit_effects() {
-    let (mut storage, tx_id, deposit, pubdata) = approval_fixture(true, false).await;
-    storage.via_l1_block_dal().insert_reorg_metadata(1, BATCH).await.unwrap();
-    let before = durable_effects(&mut storage).await;
-    assert!(!record_approval(&mut storage, &tx_id, Approval::DevAccepted, &pubdata, None)
-        .await
-        .unwrap());
-    assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
-    assert_eq!(durable_effects(&mut storage).await, before);
+async fn stopped_reader_rolls_back_strict_and_development_approval_effects() {
+    for (dev, approval) in [(false, Approval::Verified), (true, Approval::DevAccepted)] {
+        let (mut storage, work, deposit, pubdata) = approval_fixture(dev, false).await;
+        let mut stop = storage.start_transaction().await.unwrap();
+        via_btc_storage::ReaderDal::new(&mut stop)
+            .stop("fixture source invalidation")
+            .await
+            .unwrap();
+        stop.commit().await.unwrap();
+        let before = durable_effects(&mut storage).await;
+        assert!(!record_approval(&mut storage, &work, approval, &pubdata, None).await.unwrap());
+        assert_eq!(persisted(&mut storage, deposit).await, (None, false, None));
+        assert_eq!(durable_effects(&mut storage).await, before);
+    }
 }
 
 fn start_verifier(
@@ -1124,7 +1144,6 @@ async fn initialize(
         pool,
         client,
         zksync_config::configs::via_consensus::ViaGenesisConfig::default(),
-        ViaBtcWatchConfig::for_tests(),
         dev_mode,
     )
     .await
@@ -1132,20 +1151,62 @@ async fn initialize(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn initialized_development_store_reopens_but_refuses_a_strict_process() {
-    let mut fixture = lifecycle_fixture(true, false).await;
-    let database_url = fixture.verifier.pool.database_url().clone();
-    let mut storage = fixture.verifier.pool.connection().await.unwrap();
-    fixture.verifier.loop_iteration(&mut storage).await.unwrap();
-    assert_eq!(lifecycle_state(&fixture).await, (Some(true), true, Some(true), 1));
-    let before = durable_effects(&mut storage).await;
+    use via_test_utils::bitcoin_core::BitcoinCore;
+    let core = BitcoinCore::new().unwrap();
+    let client = core.inscriber_client().unwrap();
+    let protocol = zksync_types::ProtocolVersion {
+        version: ProtocolSemanticVersion::new(ProtocolVersionId::Version27, VersionPatch(0)),
+        base_system_contracts_hashes: zksync_contracts::BaseSystemContractsHashes {
+            bootloader: H256::repeat_byte(1),
+            default_aa: H256::repeat_byte(2),
+            evm_emulator: Some(H256::repeat_byte(4)),
+        },
+        l1_verifier_config: zksync_types::protocol_version::L1VerifierConfig {
+            snark_wrapper_vk_hash: H256::repeat_byte(3),
+        },
+        ..Default::default()
+    };
+    let bootstrap =
+        core.bootstrap(&protocol, &via_test_utils::utils::test_wallets()).await.unwrap();
+    let genesis = zksync_config::configs::via_consensus::ViaGenesisConfig {
+        bootstrap_txids: vec![bootstrap.to_string()],
+    };
+    let pool = ConnectionPool::<Verifier>::test_pool().await;
+    via_verifier_storage_init::ViaVerifierStorageInitializer::new(
+        pool.clone(),
+        client.clone(),
+        genesis.clone(),
+        true,
+    )
+    .await
+    .unwrap();
+    let mut storage = pool.connection().await.unwrap();
+    let before = ReaderDal::new(&mut storage).state().await.unwrap().unwrap();
+    assert_eq!(before.bootstrap.height, 1);
+    assert!(!before.replay_ready);
     drop(storage);
-    drop(fixture.verifier);
-    let restarted = ConnectionPool::<Verifier>::singleton(database_url).build().await.unwrap();
-    initialize(restarted.clone(), fixture.client.clone(), true).await.unwrap();
-    assert!(initialize(restarted.clone(), fixture.client.clone(), false).await.is_err());
-    let mut storage = restarted.connection().await.unwrap();
-    assert_eq!(durable_effects(&mut storage).await, before);
-    assert_eq!(recorded_vote_status(&mut storage).await, Some(true));
+    via_verifier_storage_init::ViaVerifierStorageInitializer::new(
+        pool.clone(),
+        client.clone(),
+        genesis.clone(),
+        true,
+    )
+    .await
+    .unwrap();
+    assert!(via_verifier_storage_init::ViaVerifierStorageInitializer::new(
+        pool.clone(),
+        client,
+        genesis,
+        false
+    )
+    .await
+    .is_err());
+    let mut storage = pool.connection().await.unwrap();
+    let after = ReaderDal::new(&mut storage).state().await.unwrap().unwrap();
+    assert_eq!(
+        (after.bootstrap, after.cutoff, after.confirmed, after.replay_ready),
+        (before.bootstrap, before.cutoff, before.confirmed, before.replay_ready)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

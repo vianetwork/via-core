@@ -24,9 +24,8 @@ use zksync_config::{
     configs::{
         via_bridge::ViaBridgeConfig, via_verifier::ViaVerifierConfig, via_wallets::ViaWallet,
     },
-    ViaBtcWatchConfig,
 };
-use zksync_types::{via_roles::ViaNodeRole, via_wallet::SystemWallets};
+use zksync_types::via_roles::ViaNodeRole;
 
 use crate::{
     auth::{random_id, Binding, Envelope, MAX_BODY},
@@ -72,7 +71,6 @@ impl ViaWithdrawalVerifier {
         btc_client: Arc<dyn BitcoinOps>,
         withdrawal_client: WithdrawalClient,
         via_bridge_config: ViaBridgeConfig,
-        via_btc_watch_config: ViaBtcWatchConfig,
     ) -> anyhow::Result<Self> {
         if verifier_config.withdrawal_signing_enabled {
             PublicKey::from_str(&verifier_config.coordinator_public_key)?;
@@ -97,7 +95,6 @@ impl ViaWithdrawalVerifier {
         let state = ViaState::new(
             master_connection_pool.clone(),
             btc_client.clone(),
-            via_btc_watch_config,
         );
         Ok(Self {
             verifier_config,
@@ -141,7 +138,16 @@ impl ViaWithdrawalVerifier {
             tokio::select! { _ = timer.tick() => {}, _ = stop.changed() => break }
             // Never replace/reacquire this connection: a lost owner terminates the process task.
             Self::check_owner(&mut owner, &wallet).await?;
-            if let Err(error) = self.iteration(&mut owner, &wallet).await {
+            let authority = via_btc_storage::transition::begin_authority(&pool, self.btc_client.as_ref(), &[]).await;
+            let result = match authority {
+                Ok(guard) => {
+                    let result = self.iteration(&mut owner, &wallet).await;
+                    drop(guard);
+                    result
+                }
+                Err(error) => Err(error),
+            };
+            if let Err(error) = result {
                 crate::metrics::METRICS.errors.inc();
                 tracing::error!("Withdrawal signing deferred: {error:#}");
             }
@@ -693,16 +699,7 @@ impl ViaWithdrawalVerifier {
 
     async fn validate_verifier_addresses(&self) -> anyhow::Result<()> {
         let mut storage = self.master_connection_pool.connection().await?;
-        let height = storage
-            .via_indexer_dal()
-            .get_last_processed_l1_block("via_btc_watch")
-            .await?;
-        let map = storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(height as i64)
-            .await?
-            .context("System wallets not found")?;
-        let wallets = SystemWallets::try_from(map)?;
+        let wallets = via_btc_storage::ReaderDal::new(&mut storage).mature_wallets().await?;
         wallets.is_valid_verifier_address(self.verifier_config.wallet_address()?)?;
         wallets.is_valid_bridge_address(self.via_bridge_config.bridge_address()?)
     }

@@ -1,5 +1,7 @@
 //! Role adapters own the outer transaction, owner/source locks and dependent row deletion.
 
+use std::future::Future;
+
 use anyhow::{ensure, Context};
 use bitcoin::BlockHash;
 use via_reorg::chain::{BlockRef, Header};
@@ -14,18 +16,132 @@ pub const FORMAT_VERSION: i32 = 1;
 /// Block h+1 then waits for that decision.
 pub const PROTOCOL_CONSUMER: &str = "protocol";
 
+#[derive(Clone, Copy)]
+pub enum ProofScope {
+    Interpretation,
+    Finalization,
+    Publication(bitcoin::Txid),
+}
+
+/// ReaderRole owns schema-specific SQL and returns typed facts to the common reader.
+/// Each operation uses the caller's connection, keeping native effects in the same transaction.
+/// Adapted from Sui's store traits, role schemas replace store backends: https://github.com/MystenLabs/sui/blob/6de525b6b70277c845f4f5751a9e87fc7130dd48/crates/sui-indexer-alt-framework-store-traits/src/lib.rs
+pub trait ReaderRole: DbMarker + Sized {
+    const NAME: &'static str;
+    const OWNER: zksync_db_connection::advisory_lock::TransactionAdvisoryLock;
+    const REQUIRED_CONSUMERS: &'static [&'static str];
+    fn authorize_publication(
+        storage: &mut Connection<'_, Self>,
+        message: &via_btc_client::types::InscriptionMessage,
+        voter: &bitcoin::Address,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn save_publication(
+        storage: &mut Connection<'_, Self>,
+        request_id: i64,
+        publication: publication::Publication,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn save_proof(
+        storage: &mut Connection<'_, Self>,
+        proof: &via_btc_client::indexer::replay::Included<
+            via_btc_client::indexer::replay::ProofInput,
+        >,
+        header_id: i64,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn lock_source(
+        storage: &mut Connection<'_, Self>,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn lock_authority_source(
+        storage: &mut Connection<'_, Self>,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send {
+        Self::lock_source(storage)
+    }
+    fn delete_suffix(
+        storage: &mut Connection<'_, Self>,
+        height: u32,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn materialize_protocol(
+        storage: &mut Connection<'_, Self>,
+        change: &StoredConfiguration,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn apply_protocol_block(
+        storage: &mut Connection<'_, Self>,
+        block: &protocol::ProtocolBlock,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn stamp_legacy_cutoff(
+        storage: &mut Connection<'_, Self>,
+        cutoff: u32,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn initialize_bootstrap(
+        storage: &mut Connection<'_, Self>,
+        bootstrap: &via_btc_client::bootstrap::CheckedBootstrap,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+    fn has_unreconciled_sources(
+        storage: &mut Connection<'_, Self>,
+    ) -> impl Future<Output = anyhow::Result<bool>> + Send;
+    /// retained_boundary returns the greatest reconciled source needed by already-kept effects.
+    /// Replay protects old work admitted at weaker depth. Higher frontier grants no new maturity.
+    /// Idea only from Hyperlane's monotone confirmed frontier, which refuses deletion below protected history: https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/693d2d45df75135504e424c5a4d16761d0016f99/rust/main/agents/scraper/src/near_head/store.rs
+    fn retained_boundary(
+        storage: &mut Connection<'_, Self>,
+    ) -> impl Future<Output = anyhow::Result<Option<u32>>> + Send;
+    fn retained_proof_txids(
+        storage: &mut Connection<'_, Self>,
+    ) -> impl Future<Output = anyhow::Result<Vec<bitcoin::Txid>>> + Send;
+    fn canonical_proofs(
+        storage: &mut Connection<'_, Self>,
+        through: u32,
+        scope: ProofScope,
+    ) -> impl Future<Output = anyhow::Result<Vec<CanonicalProof>>> + Send;
+    fn finalize_proof(
+        storage: &mut Connection<'_, Self>,
+        work: &ProofWork,
+        approved: bool,
+    ) -> impl Future<Output = anyhow::Result<u64>> + Send;
+}
+
+pub async fn initialize_reader<DB: ReaderRole>(
+    pool: &zksync_db_connection::connection_pool::ConnectionPool<DB>,
+    client: std::sync::Arc<via_btc_client::client::BitcoinClient>,
+    genesis: zksync_config::configs::via_consensus::ViaGenesisConfig,
+) -> anyhow::Result<()> {
+    let bootstrap = via_btc_client::bootstrap::ViaBootstrap::new(client.clone(), genesis)
+        .checked_reader_bootstrap()
+        .await?;
+    bootstrap.revalidate(&client).await?;
+    let mut connection = pool.connection().await?;
+    let mut tx = DB::OWNER.begin(&mut connection).await?;
+    if ReaderDal::new(&mut tx).prepare_reset(bootstrap.selected.height).await? {
+        DB::delete_suffix(&mut tx, bootstrap.starting.height.saturating_sub(1)).await?;
+    }
+    ReaderDal::new(&mut tx)
+        .initialize_defaults(
+            &bootstrap,
+            via_btc_client::traits::BitcoinOps::get_network(client.as_ref()),
+        )
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 mod configuration;
 mod proof;
 pub use proof::{CanonicalProof, CanonicalVote, ProofQuorum, ProofWork};
+pub mod metrics;
+pub mod protocol;
+pub mod publication;
+pub mod transition;
 mod wallet;
 pub use configuration::{StoredConfiguration, WalletSource};
 pub use wallet::WalletDal;
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("Bitcoin authority held pending canonical mature replay inputs")]
+    AuthorityHeld,
+    #[error("Bitcoin reader stopped for diagnosis: {0}")]
+    Stopped(String),
+    #[error("Bitcoin source authority held: {0}")]
+    SourceHeld(&'static str),
     #[error("Bitcoin reader head changed during preparation")]
     HeadChanged,
     #[error("Bitcoin reader integrity failure: {0}")]
@@ -36,6 +152,14 @@ pub enum StoreError {
 pub struct StoredHeader {
     pub id: i64,
     pub header: Header<BlockHash>,
+}
+
+/// ConsumerPosition separates committed effects from the oldest history a consumer still needs.
+/// Both positions commit with effects, so a crash cannot release history needed on restart.
+/// Idea only from PostgreSQL replication slots, which retain the durable restart position separately from confirmed progress: https://github.com/postgres/postgres/blob/0019a1ecf4c7615a2570d21eeb4b32ae3b371f18/src/backend/replication/slot.c
+pub struct ConsumerPosition {
+    pub applied: StoredHeader,
+    pub oldest_needed: StoredHeader,
 }
 
 #[derive(sqlx::FromRow)]
@@ -90,6 +214,42 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
         Self { storage }
     }
 
+    pub async fn prepare_reset(&mut self, cutoff: u32) -> anyhow::Result<bool>
+    where
+        DB: ReaderRole,
+    {
+        ensure!(
+            self.storage.in_transaction(),
+            StoreError::Integrity("reset preflight outside transaction")
+        );
+        let held = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM via_l1_reorg)")
+            .instrument("bitcoin_reset_barrier")
+            .fetch_one(self.storage)
+            .await?;
+        ensure!(!held, "Existing Bitcoin recovery barrier; stopped for diagnosis");
+        let reset = self.state().await?.is_none();
+        if reset {
+            self.stamp_legacy_cutoff(cutoff).await?;
+        }
+        Ok(reset)
+    }
+
+    /// Q26 captures only already-finalized rows before the first reset, never a moving replay cutoff.
+    pub async fn stamp_legacy_cutoff(&mut self, cutoff: u32) -> anyhow::Result<()>
+    where
+        DB: ReaderRole,
+    {
+        ensure!(
+            self.storage.in_transaction(),
+            StoreError::Integrity("legacy cutoff outside transaction")
+        );
+        ensure!(
+            self.state().await?.is_none(),
+            StoreError::Integrity("legacy cutoff already established")
+        );
+        DB::stamp_legacy_cutoff(self.storage, cutoff).await
+    }
+
     /// check_reset_schema rejects reset when any foreign key into reset tables is missing from known list.
     /// Unknown dependent table then blocks deletion instead of cascading or failing mid-reset.
     /// Idea only from Midnight migration compatibility checks, which refuse unknown schema state: https://github.com/midnightntwrk/midnight-indexer/blob/8b6ea73ea310d60519b3deb17b9f4d1c2342d9c9/indexer-common/src/infra/migrations/postgres.rs
@@ -120,6 +280,7 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
     pub async fn delete_common_suffix(&mut self, height: u32) -> anyhow::Result<()> {
         ensure!(self.storage.in_transaction(), StoreError::Integrity("delete outside transaction"));
         for query in [
+            "DELETE FROM via_votes WHERE source_l1_block_number>$1 OR source_l1_block_number IS NULL",
             "DELETE FROM via_btc_configuration WHERE l1_block_number>$1",
             "DELETE FROM via_wallets WHERE l1_block_number>$1 AND block_hash IS NOT NULL",
             "DELETE FROM via_l1_blocks WHERE number>$1",
@@ -140,37 +301,63 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
         &mut self,
         name: &str,
         header: &StoredHeader,
+        oldest_needed: &StoredHeader,
     ) -> anyhow::Result<()> {
         ensure!(
             self.storage.in_transaction(),
             StoreError::Integrity("consumer outside transaction")
         );
         let result = sqlx::query(
-            "INSERT INTO via_btc_consumers (name,header_id)
-             SELECT $1,h.id FROM via_btc_headers h WHERE h.id=$2 AND h.number=$3 AND h.hash=$4
+            "INSERT INTO via_btc_consumers (name,header_id,oldest_needed_id)
+             SELECT $1,h.id,n.id FROM via_btc_headers h,via_btc_headers n WHERE h.id=$2 AND h.number=$3 AND h.hash=$4
+             AND n.id=$5 AND n.number=$6 AND n.hash=$7 AND n.number<=h.number
              AND ((h.number=(SELECT bootstrap_number FROM via_btc_reader)
                    AND NOT EXISTS(SELECT 1 FROM via_btc_consumers WHERE name=$1))
                   OR EXISTS(SELECT 1 FROM via_btc_consumers c JOIN via_btc_headers previous ON previous.id=c.header_id
                       WHERE c.name=$1 AND (previous.number=h.number-1 OR previous.id=h.id)))
-             ON CONFLICT(name) DO UPDATE SET header_id=excluded.header_id",
+             ON CONFLICT(name) DO UPDATE SET header_id=excluded.header_id,oldest_needed_id=excluded.oldest_needed_id",
         ).bind(name).bind(header.id).bind(i64::from(header.header.height))
-            .bind(header.header.block_hash.to_string()).instrument("bitcoin_reader_consumer")
+            .bind(header.header.block_hash.to_string()).bind(oldest_needed.id)
+            .bind(i64::from(oldest_needed.header.height)).bind(oldest_needed.header.block_hash.to_string()).instrument("bitcoin_reader_consumer")
             .execute(self.storage).await?;
         ensure!(result.rows_affected() == 1, StoreError::HeadChanged);
         Ok(())
     }
 
-    pub async fn consumer(&mut self, name: &str) -> anyhow::Result<Option<StoredHeader>> {
-        sqlx::query(
-            "SELECT h.id,h.number,h.hash,h.parent_hash FROM via_btc_consumers c
-             JOIN via_btc_headers h ON h.id=c.header_id WHERE c.name=$1",
+    pub async fn consumer(&mut self, name: &str) -> anyhow::Result<Option<ConsumerPosition>> {
+        type Row = (i64, i64, String, String, i64, i64, String, String);
+        let row = sqlx::query(
+            "SELECT h.id,h.number,h.hash,h.parent_hash,n.id,n.number,n.hash,n.parent_hash FROM via_btc_consumers c
+             JOIN via_btc_headers h ON h.id=c.header_id JOIN via_btc_headers n ON n.id=c.oldest_needed_id WHERE c.name=$1",
         )
         .bind(name)
-        .try_map(|row: sqlx::postgres::PgRow| <HeaderRow as sqlx::FromRow<'_, _>>::from_row(&row))
+        .try_map(|row: sqlx::postgres::PgRow| <Row as sqlx::FromRow<'_, _>>::from_row(&row))
         .instrument("bitcoin_reader_consumer_position")
         .fetch_optional(self.storage)
-        .await?
-        .map(TryInto::try_into)
+        .await?;
+        row.map(
+            |(
+                id,
+                number,
+                hash,
+                parent_hash,
+                needed_id,
+                needed_number,
+                needed_hash,
+                needed_parent,
+            )| {
+                Ok(ConsumerPosition {
+                    applied: HeaderRow { id, number, hash, parent_hash }.try_into()?,
+                    oldest_needed: HeaderRow {
+                        id: needed_id,
+                        number: needed_number,
+                        hash: needed_hash,
+                        parent_hash: needed_parent,
+                    }
+                    .try_into()?,
+                })
+            },
+        )
         .transpose()
     }
 
@@ -178,20 +365,20 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
     /// every required consumer reached cutoff and no configuration before cutoff is undecided.
     /// Role checks retained sources first, and flag is durable, so restart never repeats catch-up checks.
     /// Idea only from PostgreSQL table synchronization, which moves SYNCDONE to READY only when apply reaches sync position: https://github.com/postgres/postgres/blob/0019a1ecf4c7615a2570d21eeb4b32ae3b371f18/src/backend/replication/logical/tablesync.c
-    pub async fn complete_replay(
-        &mut self,
-        consumers: &[&str],
-        unreconciled_query: &str,
-    ) -> anyhow::Result<bool> {
+    pub async fn complete_replay(&mut self) -> anyhow::Result<bool>
+    where
+        DB: ReaderRole,
+    {
         ensure!(
             self.storage.in_transaction(),
             StoreError::Integrity("readiness outside transaction")
         );
-        let unknown = sqlx::query_scalar::<_, bool>(unreconciled_query)
-            .instrument("bitcoin_reader_retained_reconciliation")
-            .fetch_one(self.storage)
-            .await?;
-        if unknown {
+        if DB::has_unreconciled_sources(self.storage).await? {
+            return Ok(false);
+        }
+        let unbound = DB::retained_proof_txids(self.storage).await?;
+        if let Some(txid) = unbound.first() {
+            tracing::warn!(%txid, remaining=unbound.len(), "Bitcoin replay waits for retained proof source binding");
             return Ok(false);
         }
         let result = sqlx::query(
@@ -202,7 +389,7 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
                  WHERE NOT EXISTS(SELECT 1 FROM via_btc_consumers c JOIN via_btc_headers h ON h.id=c.header_id
                      WHERE c.name=required.name AND h.number>=r.replay_cutoff_number))
              AND NOT EXISTS(SELECT 1 FROM via_btc_configuration WHERE l1_block_number<=r.replay_cutoff_number AND accepted IS NULL)",
-        ).bind(consumers).instrument("bitcoin_reader_complete_replay").execute(self.storage).await?;
+        ).bind(DB::REQUIRED_CONSUMERS).instrument("bitcoin_reader_complete_replay").execute(self.storage).await?;
         Ok(result.rows_affected() == 1)
     }
 
@@ -364,8 +551,9 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
             StoreError::Integrity("missing common ancestor")
         );
         sqlx::query!(
-            "UPDATE via_btc_consumers c SET header_id=$1 FROM via_btc_headers h
-            WHERE c.header_id=h.id AND h.number>$2",
+            "UPDATE via_btc_consumers c SET header_id=CASE WHEN h.number>$2 THEN $1 ELSE c.header_id END,
+             oldest_needed_id=CASE WHEN n.number>$2 THEN $1 ELSE c.oldest_needed_id END FROM via_btc_headers h,via_btc_headers n
+             WHERE c.header_id=h.id AND c.oldest_needed_id=n.id AND (h.number>$2 OR n.number>$2)",
             ancestor.id,
             i64::from(ancestor.header.height)
         )

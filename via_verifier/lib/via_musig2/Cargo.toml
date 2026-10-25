@@ -38,6 +38,7 @@ byteorder = "1.4"
 bincode = "1.3"
 
 [dev-dependencies]
+via_btc_client = { workspace = true, features = ["test-utils"] }
 via_withdrawal_client.workspace = true
 zksync_dal.workspace = true
 dotenv = "0.15"

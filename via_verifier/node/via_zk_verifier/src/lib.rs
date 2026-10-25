@@ -355,6 +355,9 @@ async fn record_approval(
     let mut transaction = storage.start_transaction().await?;
     transaction.via_indexer_dal().lock_btc_watch().await?;
     transaction.via_indexer_dal().lock_withdrawal_invalidation().await?;
+    // Replay readiness waits for rotation decisions, which wait for local proof verdicts.
+    // This local save breaks that cycle only after this proof's complete, mature inputs are fixed;
+    // votes, signatures, L2 execution, finalization and withdrawals still require global readiness.
     if !ReaderDal::new(&mut transaction).proof_inputs_complete(work).await? {
         return Ok(false);
     }
@@ -384,11 +387,6 @@ async fn record_approval(
             .via_protocol_versions_dal()
             .mark_upgrade_as_executed(upgrade_tx_hash.as_bytes())
             .await?;
-    }
-
-    // Dropping transaction on reorg rolls every write above back.
-    if transaction.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
-        return Ok(false);
     }
 
     transaction.commit().await?;

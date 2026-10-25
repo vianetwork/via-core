@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                MAX(l1_batch_number) AS l1_batch_number\n            FROM\n                via_btc_proofs p JOIN via_btc_finalizations f ON f.proof_id=p.id\n                JOIN via_btc_headers h ON h.id=p.proof_header_id AND h.number=p.l1_block_number AND h.hash=p.block_hash\n                CROSS JOIN via_btc_reader reader\n            WHERE\n                f.approved AND reader.replay_ready AND reader.stopped_reason IS NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3b3cd1b7243011ffe61db95f192f70ed634ae2b43ceada955787dc2f2d17fc81"
+}

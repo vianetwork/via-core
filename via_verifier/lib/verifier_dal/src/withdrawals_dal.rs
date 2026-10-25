@@ -147,7 +147,7 @@ async fn expected(
         );
         let rows = sqlx::query(
             "SELECT e.snapshot, NOT b.invalidated AND NOT b.conflicted
-             AND EXISTS(SELECT 1 FROM via_votable_transactions v JOIN via_l1_blocks source ON source.number=v.source_l1_block_number AND source.hash=v.source_l1_block_hash WHERE v.proof_reveal_tx_id=b.proof_txid AND v.l1_batch_number=b.batch_number AND v.pubdata_blob_id=b.blob_id AND v.is_finalized=TRUE AND v.l1_batch_status=TRUE)
+             AND EXISTS(SELECT 1 FROM via_votable_transactions v JOIN via_btc_headers source ON source.id=v.proof_header_id AND v.finalized_header_id=source.id AND source.number=v.proof_l1_block_number AND source.hash=v.proof_l1_block_hash JOIN via_btc_reader reader ON reader.replay_ready AND reader.stopped_reason IS NULL AND reader.confirmed_number>=source.number JOIN via_verifier_store_mode mode ON v.id>mode.designated_after_votable_id AND (NOT v.unverified_dev OR mode.proof_verification_dev_mode) WHERE v.proof_reveal_tx_id=b.proof_txid AND v.l1_batch_number=b.batch_number AND v.pubdata_blob_id=b.blob_id AND v.is_finalized=TRUE AND v.l1_batch_status=TRUE)
              AND (SELECT count(*) FROM via_withdrawal_origins o WHERE o.wallet=e.wallet AND o.reference=e.reference)=1
              AND NOT EXISTS(SELECT 1 FROM via_withdrawal_holds h WHERE h.wallet=e.wallet AND h.reference=e.reference AND h.reason='conflict') AS valid
              FROM via_withdrawal_expected e JOIN via_withdrawal_batches b USING(wallet,batch_number)
@@ -300,7 +300,7 @@ impl ViaWithdrawalDal<'_, '_> {
                 && existing[0].try_get::<Vec<u8>, _>("proof_txid")? == proof_reveal_tx_id
                 && existing[0].try_get::<Value, _>("evidence")? == evidence
             {
-                let source = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_votable_transactions v JOIN via_l1_blocks source ON source.number=v.source_l1_block_number AND source.hash=v.source_l1_block_hash WHERE proof_reveal_tx_id=$1 AND l1_batch_number=$2 AND pubdata_blob_id=$3 AND is_finalized=TRUE AND l1_batch_status=TRUE) AS valid")
+                let source = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_votable_transactions v JOIN via_btc_headers source ON source.id=v.proof_header_id AND v.finalized_header_id=source.id AND source.number=v.proof_l1_block_number AND source.hash=v.proof_l1_block_hash JOIN via_btc_reader reader ON reader.replay_ready AND reader.stopped_reason IS NULL AND reader.confirmed_number>=source.number JOIN via_verifier_store_mode mode ON v.id>mode.designated_after_votable_id AND (NOT v.unverified_dev OR mode.proof_verification_dev_mode) WHERE proof_reveal_tx_id=$1 AND l1_batch_number=$2 AND pubdata_blob_id=$3 AND is_finalized=TRUE AND l1_batch_status=TRUE) AS valid")
                     .bind(proof_reveal_tx_id).bind(i64::from(batch.batch_number)).bind(&batch.blob_id).map(|row| row).instrument("withdrawal_revalidate_complete_source").fetch_one(&mut tx).await?;
                 ensure!(
                     source.try_get::<bool, _>("valid")?,
@@ -335,7 +335,7 @@ impl ViaWithdrawalDal<'_, '_> {
                 "conflicting complete withdrawal batch retained and held"
             ));
         }
-        let source = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_votable_transactions v JOIN via_l1_blocks source ON source.number=v.source_l1_block_number AND source.hash=v.source_l1_block_hash WHERE proof_reveal_tx_id=$1 AND l1_batch_number=$2 AND pubdata_blob_id=$3 AND is_finalized=TRUE AND l1_batch_status=TRUE) AS valid")
+        let source = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_votable_transactions v JOIN via_btc_headers source ON source.id=v.proof_header_id AND v.finalized_header_id=source.id AND source.number=v.proof_l1_block_number AND source.hash=v.proof_l1_block_hash JOIN via_btc_reader reader ON reader.replay_ready AND reader.stopped_reason IS NULL AND reader.confirmed_number>=source.number JOIN via_verifier_store_mode mode ON v.id>mode.designated_after_votable_id AND (NOT v.unverified_dev OR mode.proof_verification_dev_mode) WHERE proof_reveal_tx_id=$1 AND l1_batch_number=$2 AND pubdata_blob_id=$3 AND is_finalized=TRUE AND l1_batch_status=TRUE) AS valid")
             .bind(proof_reveal_tx_id).bind(i64::from(batch.batch_number)).bind(&batch.blob_id).map(|row| row).instrument("withdrawal_complete_source").fetch_one(&mut tx).await?;
         ensure!(
             source.try_get::<bool, _>("valid")?,
@@ -418,7 +418,7 @@ impl ViaWithdrawalDal<'_, '_> {
         let rows = sqlx::query(
             "SELECT e.snapshot FROM via_withdrawal_expected e JOIN via_withdrawal_batches b USING(wallet,batch_number)
              WHERE e.wallet=$1 AND e.gross >= $2::bigint AND NOT b.invalidated AND NOT b.conflicted
-             AND EXISTS(SELECT 1 FROM via_votable_transactions v JOIN via_l1_blocks source ON source.number=v.source_l1_block_number AND source.hash=v.source_l1_block_hash WHERE v.proof_reveal_tx_id=b.proof_txid AND v.l1_batch_number=b.batch_number AND v.pubdata_blob_id=b.blob_id AND v.is_finalized=TRUE AND v.l1_batch_status=TRUE)
+             AND EXISTS(SELECT 1 FROM via_votable_transactions v JOIN via_btc_headers source ON source.id=v.proof_header_id AND v.finalized_header_id=source.id AND source.number=v.proof_l1_block_number AND source.hash=v.proof_l1_block_hash JOIN via_btc_reader reader ON reader.replay_ready AND reader.stopped_reason IS NULL AND reader.confirmed_number>=source.number JOIN via_verifier_store_mode mode ON v.id>mode.designated_after_votable_id AND (NOT v.unverified_dev OR mode.proof_verification_dev_mode) WHERE v.proof_reveal_tx_id=b.proof_txid AND v.l1_batch_number=b.batch_number AND v.pubdata_blob_id=b.blob_id AND v.is_finalized=TRUE AND v.l1_batch_status=TRUE)
              AND (SELECT count(*) FROM via_withdrawal_origins other WHERE other.wallet=e.wallet AND other.reference=e.reference)=1
              AND NOT EXISTS(SELECT 1 FROM via_withdrawal_legacy_holds h WHERE h.reference=e.reference)
              AND NOT EXISTS(SELECT 1 FROM via_withdrawal_holds h WHERE h.wallet=e.wallet AND h.reference=e.reference)
@@ -451,7 +451,7 @@ impl ViaWithdrawalDal<'_, '_> {
         wallet: &[u8],
         l1_batch_number: i64,
     ) -> anyhow::Result<Option<(String, Vec<u8>)>> {
-        let row = sqlx::query("SELECT v.pubdata_blob_id,v.proof_reveal_tx_id FROM via_votable_transactions v JOIN via_l1_blocks source ON source.number=v.source_l1_block_number AND source.hash=v.source_l1_block_hash WHERE v.is_finalized=TRUE AND v.l1_batch_status=TRUE AND v.l1_batch_number=$2 AND NOT EXISTS(SELECT 1 FROM via_withdrawal_batches b WHERE b.wallet=$1 AND b.proof_txid=v.proof_reveal_tx_id AND NOT b.invalidated) ORDER BY v.l1_batch_number LIMIT 1")
+        let row = sqlx::query("SELECT v.pubdata_blob_id,v.proof_reveal_tx_id FROM via_votable_transactions v JOIN via_btc_headers source ON source.id=v.proof_header_id AND v.finalized_header_id=source.id AND source.number=v.proof_l1_block_number AND source.hash=v.proof_l1_block_hash JOIN via_btc_reader reader ON reader.replay_ready AND reader.stopped_reason IS NULL AND reader.confirmed_number>=source.number JOIN via_verifier_store_mode mode ON v.id>mode.designated_after_votable_id AND (NOT v.unverified_dev OR mode.proof_verification_dev_mode) WHERE v.is_finalized=TRUE AND v.l1_batch_status=TRUE AND v.l1_batch_number=$2 AND NOT EXISTS(SELECT 1 FROM via_withdrawal_batches b WHERE b.wallet=$1 AND b.proof_txid=v.proof_reveal_tx_id AND NOT b.invalidated) ORDER BY v.l1_batch_number LIMIT 1")
             .bind(wallet).bind(l1_batch_number).instrument("get_finalized_block_and_non_processed_withdrawal").fetch_optional(self.storage).await?;
         row.map(|r| {
             Ok((
@@ -466,7 +466,7 @@ impl ViaWithdrawalDal<'_, '_> {
         &mut self,
         wallet: &[u8],
     ) -> anyhow::Result<Vec<(i64, String, Vec<u8>)>> {
-        let rows = sqlx::query("SELECT v.l1_batch_number,v.pubdata_blob_id,v.proof_reveal_tx_id FROM via_votable_transactions v JOIN via_l1_blocks source ON source.number=v.source_l1_block_number AND source.hash=v.source_l1_block_hash WHERE v.is_finalized=TRUE AND v.l1_batch_status=TRUE AND NOT EXISTS(SELECT 1 FROM via_withdrawal_batches b WHERE b.wallet=$1 AND b.proof_txid=v.proof_reveal_tx_id AND NOT b.invalidated) ORDER BY v.l1_batch_number")
+        let rows = sqlx::query("SELECT v.l1_batch_number,v.pubdata_blob_id,v.proof_reveal_tx_id FROM via_votable_transactions v JOIN via_btc_headers source ON source.id=v.proof_header_id AND v.finalized_header_id=source.id AND source.number=v.proof_l1_block_number AND source.hash=v.proof_l1_block_hash JOIN via_btc_reader reader ON reader.replay_ready AND reader.stopped_reason IS NULL AND reader.confirmed_number>=source.number JOIN via_verifier_store_mode mode ON v.id>mode.designated_after_votable_id AND (NOT v.unverified_dev OR mode.proof_verification_dev_mode) WHERE v.is_finalized=TRUE AND v.l1_batch_status=TRUE AND NOT EXISTS(SELECT 1 FROM via_withdrawal_batches b WHERE b.wallet=$1 AND b.proof_txid=v.proof_reveal_tx_id AND NOT b.invalidated) ORDER BY v.l1_batch_number")
             .bind(wallet).map(|row| row).instrument("list_finalized_blocks_with_no_bridge_withdrawal").fetch_all(self.storage).await?;
         rows.into_iter()
             .map(|r| {
@@ -633,7 +633,7 @@ impl ViaWithdrawalDal<'_, '_> {
         wallet: &[u8],
         txid: &[u8],
     ) -> anyhow::Result<bool> {
-        let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=$1 AND i.txid=$2) AS present")
+        let row = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_withdrawal_inclusions i JOIN via_btc_headers l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=$1 AND i.txid=$2) AS present")
             .bind(wallet).bind(txid).map(|row| row).instrument("withdrawal_observation_canonical_inclusion").fetch_one(self.storage).await?;
         Ok(row.try_get("present")?)
     }
@@ -642,7 +642,7 @@ impl ViaWithdrawalDal<'_, '_> {
         &mut self,
         wallet: &[u8],
     ) -> anyhow::Result<Vec<WithdrawalObservation>> {
-        let rows = sqlx::query("SELECT o.evidence,c.block_hash AS accepted_block,c.block_height AS accepted_height FROM via_withdrawal_observations o LEFT JOIN LATERAL (SELECT i.block_hash,i.block_height,count(*) OVER() AS candidates FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=o.wallet AND i.txid=o.txid) c ON c.candidates=1 WHERE o.wallet=$1 AND NOT o.fulfilled AND NOT o.conflicted ORDER BY o.txid")
+        let rows = sqlx::query("SELECT o.evidence,c.block_hash AS accepted_block,c.block_height AS accepted_height FROM via_withdrawal_observations o LEFT JOIN LATERAL (SELECT i.block_hash,i.block_height,count(*) OVER() AS candidates FROM via_withdrawal_inclusions i JOIN via_btc_headers l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=o.wallet AND i.txid=o.txid) c ON c.candidates=1 WHERE o.wallet=$1 AND NOT o.fulfilled AND NOT o.conflicted ORDER BY o.txid")
             .bind(wallet).map(|row| row).instrument("withdrawal_pending_observations").fetch_all(self.storage).await?;
         rows.into_iter()
             .map(|row| {
@@ -695,7 +695,7 @@ impl ViaWithdrawalDal<'_, '_> {
         let txid = observation.transaction.compute_txid().to_byte_array();
         let mut tx = self.storage.start_transaction().await?;
         lock_wallet(&mut tx, wallet).await?;
-        let canonical = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=$1 AND hash=$2) AND EXISTS(SELECT 1 FROM via_l1_blocks WHERE number=$3) AND EXISTS(SELECT 1 FROM via_withdrawal_inclusions WHERE wallet=$4 AND txid=$5 AND block_height=$1 AND block_hash_text=$2) AND (SELECT count(*) FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=$4 AND i.txid=$5)=1 AS valid")
+        let canonical = sqlx::query("SELECT EXISTS(SELECT 1 FROM via_btc_headers WHERE number=$1 AND hash=$2) AND EXISTS(SELECT 1 FROM via_btc_headers WHERE number=$3) AND EXISTS(SELECT 1 FROM via_withdrawal_inclusions WHERE wallet=$4 AND txid=$5 AND block_height=$1 AND block_hash_text=$2) AND (SELECT count(*) FROM via_withdrawal_inclusions i JOIN via_btc_headers l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=$4 AND i.txid=$5)=1 AS valid")
             .bind(i64::from(inclusion.block_height)).bind(inclusion.block_hash.to_string()).bind(i64::from(accepted_tip_height)).bind(wallet).bind(txid.as_slice()).map(|row| row).instrument("withdrawal_canonical_inclusion").fetch_one(&mut tx).await?;
         if !canonical.try_get::<bool, _>("valid")? {
             return Ok(false);
@@ -1165,6 +1165,16 @@ impl ViaWithdrawalDal<'_, '_> {
         Ok(())
     }
 
+    pub async fn active_wallet(&mut self) -> anyhow::Result<Option<bitcoin::ScriptBuf>> {
+        Ok(sqlx::query_scalar::<_, Vec<u8>>(
+            "SELECT wallet FROM via_withdrawal_active_wallet WHERE singleton",
+        )
+        .instrument("withdrawal_admitted_wallet")
+        .fetch_optional(self.storage)
+        .await?
+        .map(bitcoin::ScriptBuf::from_bytes))
+    }
+
     pub async fn verify_withdrawal_wallet(&mut self, wallet: &[u8]) -> anyhow::Result<()> {
         let mut tx = self.storage.start_transaction().await?;
         lock_wallet(&mut tx, wallet).await?;
@@ -1176,7 +1186,7 @@ impl ViaWithdrawalDal<'_, '_> {
         &mut self,
         wallet: &[u8],
     ) -> anyhow::Result<Vec<WithdrawalAttemptRecord>> {
-        let rows = sqlx::query("SELECT a.* FROM via_withdrawal_attempts a WHERE a.wallet=$1 AND a.state IN ('signed','finalized') AND NOT EXISTS(SELECT 1 FROM via_withdrawal_inclusions i JOIN via_l1_blocks l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=a.wallet AND i.txid=a.finalized_txid) ORDER BY a.round_id")
+        let rows = sqlx::query("SELECT a.* FROM via_withdrawal_attempts a WHERE a.wallet=$1 AND a.state IN ('signed','finalized') AND NOT EXISTS(SELECT 1 FROM via_withdrawal_inclusions i JOIN via_btc_headers l ON l.number=i.block_height AND l.hash=i.block_hash_text WHERE i.wallet=a.wallet AND i.txid=a.finalized_txid) ORDER BY a.round_id")
             .bind(wallet).map(|row| row).instrument("withdrawal_recoverable_attempts").fetch_all(self.storage).await?;
         rows.iter().map(attempt_record).collect()
     }

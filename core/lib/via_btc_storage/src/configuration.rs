@@ -20,6 +20,102 @@ pub struct StoredConfiguration {
 }
 
 impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
+    /// Call after the role's retained-root reset and native bootstrap validation in the outer transaction.
+    pub async fn initialize_defaults(
+        &mut self,
+        bootstrap: &via_btc_client::bootstrap::CheckedBootstrap,
+        network: bitcoin::Network,
+    ) -> anyhow::Result<()>
+    where
+        DB: crate::ReaderRole,
+    {
+        let source = bootstrap.starting;
+        let state = self
+            .initialize(
+                &network.to_string(),
+                bootstrap.genesis.hash,
+                via_reorg::chain::Header {
+                    height: source.height,
+                    block_hash: source.hash,
+                    parent_hash: source.parent_hash,
+                },
+                via_reorg::chain::BlockRef {
+                    height: bootstrap.selected.height,
+                    block_hash: bootstrap.selected.hash,
+                },
+            )
+            .await?;
+        ensure!(
+            state.stopped_reason.is_none(),
+            "Bitcoin reader stopped for diagnosis: {:?}",
+            state.stopped_reason
+        );
+        DB::initialize_bootstrap(self.storage, bootstrap).await?;
+        self.insert_wallets(
+            &SystemWalletsDetails::try_from(&bootstrap.state)?,
+            WalletSource::Unbound(i64::from(source.height)),
+        )
+        .await?;
+        let version = bootstrap.state.protocol_version;
+        let patch = sqlx::query(
+            "UPDATE protocol_patches SET bitcoin_height=$1,bitcoin_hash=$2
+            WHERE minor=$3 AND patch=$4 AND bitcoin_payload IS NULL",
+        )
+        .bind(i64::from(source.height))
+        .bind(source.hash.to_string())
+        .bind(version.minor as i32)
+        .bind(i32::try_from(version.patch.0)?)
+        .instrument("bitcoin_bootstrap_protocol_source")
+        .execute(self.storage)
+        .await?;
+        ensure!(
+            patch.rows_affected() == 1,
+            StoreError::Integrity("missing or conflicting native bootstrap protocol")
+        );
+        for consumer in DB::REQUIRED_CONSUMERS {
+            if self.consumer(consumer).await?.is_none() {
+                let anchor =
+                    self.header_at(source.height).await?.context("missing bootstrap header")?;
+                self.complete_consumer(consumer, &anchor, &anchor).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn mature_wallets(&mut self) -> anyhow::Result<SystemWallets> {
+        let state = self.state().await?.context("Bitcoin reader is not initialized")?;
+        let height = state.confirmed.height.checked_add(1).context("Bitcoin height overflow")?;
+        if let Some(wallets) = self.wallets_before(height).await? {
+            return Ok(wallets);
+        }
+        let cursor = self
+            .consumer(crate::PROTOCOL_CONSUMER)
+            .await?
+            .context("protocol consumer is missing")?;
+        self.wallets_before(height.min(cursor.applied.header.height))
+            .await?
+            .context(StoreError::AuthorityHeld)
+    }
+
+    pub async fn current_wallets(&mut self) -> anyhow::Result<SystemWallets> {
+        let cursor = self
+            .consumer(crate::PROTOCOL_CONSUMER)
+            .await?
+            .context("protocol consumer is not initialized")?;
+        let next = self
+            .wallets_before(
+                cursor.applied.header.height.checked_add(1).context("Bitcoin height overflow")?,
+            )
+            .await?;
+        // NotReady at h must allow restarting header reader with h's preceding set.
+        if let Some(wallets) = next {
+            return Ok(wallets);
+        }
+        self.wallets_before(cursor.applied.header.height)
+            .await?
+            .context("protocol configuration is incomplete")
+    }
+
     /// decide_configurations accepts or rejects each undecided change in block h in carrier order, rejecting every role with two distinct occurrences.
     /// Bridge change waits on rotation evidence and protocol change needs higher version, so decision never depends on arrival order.
     /// Role applies returned protocol changes in this same outer transaction.
@@ -37,7 +133,7 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
         if self
             .consumer(crate::PROTOCOL_CONSUMER)
             .await?
-            .map_or(true, |cursor| cursor.header.height < height)
+            .map_or(true, |cursor| cursor.applied.header.height < height)
             || self.wallets_before(height).await?.is_none()
         {
             return Ok(Vec::new());
@@ -111,6 +207,20 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
         &mut self,
         height: u32,
     ) -> anyhow::Result<Option<zksync_types::protocol_version::ProtocolSemanticVersion>> {
+        let accepted = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT payload FROM via_btc_configuration WHERE role='Protocol' AND accepted
+             AND l1_block_number<$1 ORDER BY l1_block_number DESC,transaction_index DESC,message_index DESC LIMIT 1",
+        ).bind(i64::from(height)).instrument("bitcoin_interpreted_protocol").fetch_optional(self.storage).await?;
+        if let Some(payload) = accepted {
+            let payload: via_btc_client::indexer::replay::Payload<ConfigurationInput> =
+                serde_json::from_value(payload)?;
+            if let ConfigurationInput::Protocol(_, proposals) = payload.input {
+                if let [proposal] = proposals.as_slice() {
+                    return Ok(Some(proposal.payload.input.version));
+                }
+            }
+            anyhow::bail!(StoreError::Integrity("invalid accepted protocol candidate"));
+        }
         let row = sqlx::query("SELECT p.minor,p.patch FROM protocol_patches p JOIN via_btc_headers h
             ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash WHERE h.number<$1 ORDER BY p.minor DESC,p.patch DESC LIMIT 1")
             .bind(i64::from(height)).instrument("bitcoin_historical_protocol").fetch_optional(self.storage).await?;
@@ -123,6 +233,31 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
             })
         })
         .transpose()
+    }
+
+    /// pending_protocol_changes lists accepted protocol changes through height without matching native protocol_patches row.
+    /// Provisional decision interprets h+1 before native VM version exists, and this backlog feeds native publication.
+    pub async fn pending_protocol_changes(
+        &mut self,
+        through: u32,
+    ) -> anyhow::Result<Vec<StoredConfiguration>> {
+        let heights = sqlx::query_as::<_, (i64,)>(
+            "SELECT DISTINCT c.l1_block_number FROM via_btc_configuration c
+             WHERE c.role='Protocol' AND c.accepted AND c.l1_block_number<=$1
+               AND NOT EXISTS(SELECT 1 FROM protocol_patches p
+                   WHERE p.bitcoin_height=c.l1_block_number AND p.bitcoin_hash=c.block_hash AND p.bitcoin_payload=c.payload)
+             ORDER BY c.l1_block_number",
+        ).bind(i64::from(through)).instrument("bitcoin_pending_native_protocol").fetch_all(self.storage).await?;
+        let mut changes = Vec::new();
+        for (height,) in heights {
+            changes.extend(self.configurations_at(height.try_into()?).await?.into_iter().filter(
+                |change| {
+                    change.accepted == Some(true)
+                        && matches!(change.change.payload.input, ConfigurationInput::Protocol(..))
+                },
+            ));
+        }
+        Ok(changes)
     }
 
     /// Native minor fields and upgrade bytes are validated by the role before this common source save.

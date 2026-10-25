@@ -249,9 +249,10 @@ impl ViaBlocksDal<'_, '_> {
             SELECT
                 MIN(l1_batch_number) AS l1_batch_number
             FROM
-                via_l1_batch_inscription_request
+                via_btc_proofs p JOIN via_btc_finalizations f ON f.proof_id=p.id
+                JOIN via_btc_headers h ON h.id=p.proof_header_id AND h.number=p.l1_block_number AND h.hash=p.block_hash
             WHERE
-                is_finalized = FALSE
+                NOT f.approved
             "#
         )
         .instrument("get_reverted_batch_by_verifier_network")
@@ -487,9 +488,11 @@ impl ViaBlocksDal<'_, '_> {
             SELECT
                 MAX(l1_batch_number) AS l1_batch_number
             FROM
-                via_l1_batch_inscription_request
+                via_btc_proofs p JOIN via_btc_finalizations f ON f.proof_id=p.id
+                JOIN via_btc_headers h ON h.id=p.proof_header_id AND h.number=p.l1_block_number AND h.hash=p.block_hash
+                CROSS JOIN via_btc_reader reader
             WHERE
-                is_finalized = TRUE
+                f.approved AND reader.replay_ready AND reader.stopped_reason IS NULL
             "#
         )
         .instrument("get_last_finalized_l1_batch")

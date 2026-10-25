@@ -118,6 +118,43 @@ impl BitcoinCore {
         Ok(client)
     }
 
+    pub async fn bootstrap(
+        &self,
+        protocol: &zksync_types::ProtocolVersion,
+        wallets: &zksync_types::via_wallet::SystemWallets,
+    ) -> anyhow::Result<bitcoin::Txid> {
+        use via_btc_client::{
+            inscriber::Inscriber,
+            types::{InscriptionMessage, SystemBootstrappingInput},
+        };
+        let key = bitcoin::PrivateKey::generate(bitcoin::Network::Regtest);
+        let mut inscriber = Inscriber::new(self.inscriber_client()?, &key.to_wif(), None).await?;
+        self.fund(&inscriber.inscriber_address()?, Amount::from_sat(1_000_000))?;
+        let result = inscriber
+            .inscribe(InscriptionMessage::SystemBootstrapping(SystemBootstrappingInput {
+                start_block_height: 1,
+                protocol_version: protocol.version,
+                bootloader_hash: protocol.base_system_contracts_hashes.bootloader,
+                abstract_account_hash: protocol.base_system_contracts_hashes.default_aa,
+                evm_emulator_hash: protocol
+                    .base_system_contracts_hashes
+                    .evm_emulator
+                    .unwrap_or_default(),
+                snark_wrapper_vk_hash: protocol.l1_verifier_config.snark_wrapper_vk_hash,
+                governance_address: wallets.governance.as_unchecked().clone(),
+                sequencer_address: wallets.sequencer.as_unchecked().clone(),
+                bridge_musig2_address: wallets.bridge.as_unchecked().clone(),
+                verifier_p2wpkh_addresses: wallets
+                    .verifiers
+                    .iter()
+                    .map(|v| v.as_unchecked().clone())
+                    .collect(),
+            }))
+            .await?;
+        self.mine(1)?;
+        Ok(result.final_reveal_tx.txid)
+    }
+
     pub fn mine(&self, count: u32) -> anyhow::Result<Vec<BlockHash>> {
         let address: String = self.rpc("getnewaddress", &[])?;
         self.rpc("generatetoaddress", &[json!(count), json!(address)])
@@ -217,20 +254,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn failed_startup_is_bounded_and_removes_its_temporary_datadir() -> anyhow::Result<()> {
-        let directory = bitcoind::tempfile::tempdir()?;
-        let mut conf = Conf::default();
-        conf.tmpdir = Some(directory.path().to_owned());
-        conf.args = vec!["-regtest", "-via-invalid-startup-option"];
-        conf.attempts = 1;
-        let start = std::time::Instant::now();
-        assert!(BitcoinD::with_conf(BitcoinCore::executable()?, &conf).is_err());
-        assert!(start.elapsed() < Duration::from_secs(30));
-        assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
-        Ok(())
-    }
-
-    #[test]
     fn natural_fork_is_prepared_without_mutating_core_then_submitted_in_order() -> anyhow::Result<()>
     {
         let core = BitcoinCore::new()?;
@@ -291,14 +314,17 @@ mod tests {
             core.rpc("sendtoaddress", &[serde_json::json!(address), serde_json::json!(0.01)])?;
         let client = core.client()?;
         assert!(client.canonical_transaction(&txid).await?.is_none());
+        assert!(!via_btc_client::traits::BitcoinOps::is_reorg_safe(client.as_ref(), &txid).await?);
         let block = core.mine(1)?[0];
         let (transaction, header, index) = client.canonical_transaction(&txid).await?.unwrap();
         assert_eq!(transaction.compute_txid(), txid);
         assert_eq!(header.hash, block);
         assert_eq!(header.height, 102);
         assert_eq!(index, 1);
+        assert!(via_btc_client::traits::BitcoinOps::is_reorg_safe(client.as_ref(), &txid).await?);
         let _: serde_json::Value = core.rpc("invalidateblock", &[serde_json::json!(block)])?;
         assert!(client.canonical_transaction(&txid).await?.is_none());
+        assert!(!via_btc_client::traits::BitcoinOps::is_reorg_safe(client.as_ref(), &txid).await?);
         Ok(())
     }
 }

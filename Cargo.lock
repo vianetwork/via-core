@@ -11925,11 +11925,14 @@ dependencies = [
  "bitcoin",
  "chrono",
  "hex",
+ "sqlx",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_storage",
  "via_da_dispatcher",
+ "via_reorg",
  "via_test_utils",
  "vise",
  "zksync_config",
@@ -11948,7 +11951,9 @@ name = "via_btc_storage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "bitcoin",
+ "chrono",
  "serde_json",
  "sqlx",
  "thiserror 1.0.69",
@@ -11957,6 +11962,9 @@ dependencies = [
  "via_btc_client",
  "via_reorg",
  "via_test_utils",
+ "vise",
+ "zksync_config",
+ "zksync_dal",
  "zksync_db_connection",
  "zksync_types",
 ]
@@ -11974,8 +11982,8 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_storage",
  "via_consensus",
- "via_main_node_reorg_detector",
  "via_node_storage_init",
  "via_test_utils",
  "vise",
@@ -12080,6 +12088,7 @@ dependencies = [
  "rand 0.8.5",
  "tokio",
  "tracing",
+ "via_btc_storage",
  "via_da_dispatcher_lib",
  "vise",
  "zksync_config",
@@ -12125,6 +12134,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "via_btc_client",
  "via_fee_model",
  "via_test_utils",
  "vise",
@@ -12291,24 +12301,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "via_main_node_reorg_detector"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bitcoin",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "via_btc_client",
- "via_reorg",
- "vise",
- "zksync_config",
- "zksync_dal",
- "zksync_types",
-]
-
-[[package]]
 name = "via_mempool"
 version = "0.1.0"
 dependencies = [
@@ -12362,6 +12354,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_storage",
  "zksync_config",
  "zksync_dal",
  "zksync_types",
@@ -12405,20 +12398,25 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "async-trait",
+ "bitcoin",
  "futures 0.3.31",
  "hex",
  "itertools 0.10.5",
  "once_cell",
  "rand 0.8.5",
  "serde",
+ "sqlx",
  "tempfile",
  "test-casing",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_storage",
  "via_fee_model",
  "via_mempool",
+ "via_reorg",
+ "via_test_utils",
  "vise",
  "zksync_config",
  "zksync_contracts",
@@ -12509,29 +12507,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "via_verifier_block_reverter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bitcoin",
- "futures 0.3.31",
- "sqlx",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "via_btc_client",
- "via_consensus",
- "via_verifier_dal",
- "via_verifier_types",
- "vise",
- "zksync_config",
- "zksync_dal",
- "zksync_db_connection",
- "zksync_types",
-]
-
-[[package]]
 name = "via_verifier_btc_sender"
 version = "0.1.0"
 dependencies = [
@@ -12541,11 +12516,15 @@ dependencies = [
  "bitcoin",
  "chrono",
  "hex",
+ "sqlx",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_storage",
  "via_da_dispatcher",
+ "via_reorg",
+ "via_test_utils",
  "via_verifier_dal",
  "vise",
  "zksync_config",
@@ -12569,10 +12548,10 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_storage",
  "via_consensus",
  "via_musig2",
  "via_test_utils",
- "via_verifier_block_reverter",
  "via_verifier_dal",
  "via_verifier_types",
  "vise",
@@ -12613,7 +12592,10 @@ dependencies = [
  "tracing",
  "uuid 1.11.0",
  "via_btc_client",
+ "via_btc_storage",
  "via_musig2",
+ "via_reorg",
+ "via_test_utils",
  "via_verifier_dal",
  "via_verifier_state",
  "via_verifier_types",
@@ -12647,29 +12629,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "via_verifier_reorg_detector"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bitcoin",
- "serde_json",
- "sqlx",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "via_btc_client",
- "via_reorg",
- "via_test_utils",
- "via_verifier_block_reverter",
- "via_verifier_dal",
- "vise",
- "zksync_config",
- "zksync_dal",
- "zksync_types",
-]
-
-[[package]]
 name = "via_verifier_state"
 version = "0.1.0"
 dependencies = [
@@ -12682,6 +12641,7 @@ dependencies = [
  "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_storage",
  "via_da_client",
  "via_verification",
  "via_verifier_dal",
@@ -12700,15 +12660,12 @@ name = "via_verifier_storage_init"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "bitcoin",
- "tokio",
  "tracing",
  "via_btc_client",
+ "via_btc_storage",
  "via_verifier_dal",
  "zksync_config",
- "zksync_node_genesis",
- "zksync_node_storage_init",
  "zksync_types",
 ]
 
@@ -12779,6 +12736,7 @@ dependencies = [
  "via_verifier_types",
  "vise",
  "zksync_config",
+ "zksync_contracts",
  "zksync_da_client",
  "zksync_dal",
  "zksync_l1_contract_interface",
@@ -14940,6 +14898,7 @@ dependencies = [
  "trybuild",
  "via_btc_client",
  "via_btc_sender",
+ "via_btc_storage",
  "via_btc_watch",
  "via_consistency_checker",
  "via_da_dispatcher",
@@ -14947,16 +14906,13 @@ dependencies = [
  "via_indexer",
  "via_indexer_dal",
  "via_indexer_storage_init",
- "via_main_node_reorg_detector",
  "via_musig2",
  "via_node_storage_init",
  "via_state_keeper",
- "via_verifier_block_reverter",
  "via_verifier_btc_sender",
  "via_verifier_btc_watch",
  "via_verifier_coordinator",
  "via_verifier_dal",
- "via_verifier_reorg_detector",
  "via_verifier_storage_init",
  "via_withdrawal_client",
  "via_zk_verifier",

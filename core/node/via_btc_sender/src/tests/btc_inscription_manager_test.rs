@@ -1,7 +1,7 @@
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::btc_inscription_aggregator::test_support::tests::run_aggregator;
-    use via_btc_client::inscriber::test_utils::MockBitcoinOpsConfig;
+    use via_btc_client::inscriber::test_utils::MockBitcoinOps;
     use zksync_config::ViaBtcSenderConfig;
     use zksync_dal::{ConnectionPool, Core, CoreDal};
     use zksync_node_test_utils::l1_batch_metadata_to_commitment_artifacts;
@@ -25,7 +25,7 @@ pub(crate) mod tests {
         )
         .await;
         fixture.create_genesis_l1_batch().await.unwrap();
-        run_manager(pool.clone(), config, MockBitcoinOpsConfig::default()).await;
+        run_manager(pool.clone(), config, MockBitcoinOps::default()).await;
         assert!(pool
             .connection()
             .await
@@ -41,7 +41,7 @@ pub(crate) mod tests {
     async fn test_btc_inscription_manager_run_one_inscription_request() {
         let pool = ConnectionPool::<Core>::test_pool().await;
         let config = get_btc_sender_config(1, 1);
-        let mut mock_btc_ops_config = MockBitcoinOpsConfig::default();
+        let mut mock_btc_ops_config = MockBitcoinOps::default();
         mock_btc_ops_config.set_block_height(1);
 
         let mut aggregator_test = single_batch(pool.clone(), config.clone()).await;
@@ -93,7 +93,7 @@ pub(crate) mod tests {
     async fn run_manager(
         pool: ConnectionPool<Core>,
         config: ViaBtcSenderConfig,
-        mock_btc_ops_config: MockBitcoinOpsConfig,
+        mock_btc_ops_config: MockBitcoinOps,
     ) {
         let mut manager =
             get_inscription_manager_mock(pool.clone(), config, mock_btc_ops_config).await;
@@ -114,8 +114,7 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .remove(0);
-        let manager =
-            get_inscription_manager_mock(pool, config, MockBitcoinOpsConfig::default()).await;
+        let manager = get_inscription_manager_mock(pool, config, MockBitcoinOps::default()).await;
         let (stop, receiver) = tokio::sync::watch::channel(false);
         let task = tokio::spawn(manager.run(receiver));
         tokio::time::timeout(std::time::Duration::from_secs(10), async {

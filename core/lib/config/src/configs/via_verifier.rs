@@ -12,8 +12,7 @@ use crate::{
     configs::{
         api::HealthCheckConfig, chain::CircuitBreakerConfig, via_bridge::ViaBridgeConfig,
         via_btc_client::ViaBtcClientConfig, via_consensus::ViaGenesisConfig,
-        via_reorg_detector::ViaReorgDetectorConfig, via_secrets::ViaSecrets,
-        via_wallets::ViaWallets, ObservabilityConfig, PrometheusConfig,
+        via_secrets::ViaSecrets, via_wallets::ViaWallets, ObservabilityConfig, PrometheusConfig,
     },
     ObjectStoreConfig, PostgresConfig, ViaBtcSenderConfig, ViaBtcWatchConfig, ViaCelestiaConfig,
 };
@@ -130,7 +129,6 @@ pub struct ViaGeneralVerifierConfig {
     pub via_btc_sender_config: ViaBtcSenderConfig,
     pub via_celestia_config: ViaCelestiaConfig,
     pub via_verifier_config: ViaVerifierConfig,
-    pub via_reorg_detector_config: ViaReorgDetectorConfig,
     pub observability_config: ObservabilityConfig,
     pub health_check: HealthCheckConfig,
     pub prometheus_config: PrometheusConfig,

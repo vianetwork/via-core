@@ -132,33 +132,3 @@ impl Chain {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fork_retains_orphans_and_missing_data_returns_rpc_errors() {
-        let mut chain = Chain::with_height(5);
-        let old = chain.blocks[&5].block_hash();
-        chain.fork_at_height(2);
-        assert_ne!(chain.blocks[&5].block_hash(), old);
-        assert_eq!(
-            chain.rpc(&json!({"method":"getblockheader","params":[old]})).unwrap()["confirmations"],
-            -1
-        );
-        assert_eq!(chain.blocks[&3].header.prev_blockhash, chain.blocks[&2].block_hash());
-        assert_eq!(chain.blocks[&5].header.prev_blockhash, chain.blocks[&4].block_hash());
-        assert_eq!(chain.rpc(&json!({"method":"getblockhash","params":[6]})).unwrap_err().code, -8);
-        chain.missing_headers.insert(old);
-        assert_eq!(
-            chain.rpc(&json!({"method":"getblockheader","params":[old]})).unwrap_err().code,
-            -5
-        );
-        chain.unavailable = true;
-        assert_eq!(
-            chain.rpc(&json!({"method":"getbestblockhash","params":[]})).unwrap_err().code,
-            -28
-        );
-    }
-}

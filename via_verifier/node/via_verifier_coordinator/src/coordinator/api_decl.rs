@@ -26,6 +26,7 @@ pub struct RestApi {
     pub challenges: tokio::sync::Mutex<HashMap<(usize, [u8; 32]), i64>>,
     pub creation: tokio::sync::Mutex<()>,
     pub network: bitcoin::Network,
+    pub btc_client: Arc<dyn BitcoinOps>,
 }
 
 const API_TIMEOUT: Duration = Duration::from_secs(30);
@@ -74,6 +75,7 @@ impl RestApi {
         .collect();
 
         Ok(Self {
+            btc_client: btc_client.clone(),
             config,
             session_manager: SessionManager::new(sessions),
             state,

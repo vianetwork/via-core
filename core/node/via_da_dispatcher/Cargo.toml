@@ -12,6 +12,7 @@ categories.workspace = true
 
 
 [dependencies]
+via_btc_storage.workspace = true
 vise.workspace = true
 zksync_dal.workspace = true
 zksync_utils.workspace = true

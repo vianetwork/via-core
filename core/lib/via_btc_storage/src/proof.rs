@@ -8,7 +8,7 @@ use via_btc_client::{
 };
 use zksync_db_connection::{connection::DbMarker, instrument::InstrumentExt};
 
-use crate::{ReaderDal, StoreError};
+use crate::{ReaderDal, ReaderRole, StoreError};
 
 #[derive(Debug, Clone)]
 pub struct ProofWork {
@@ -46,6 +46,16 @@ pub struct CanonicalProof {
     pub rotation_exempt: bool,
 }
 
+impl CanonicalProof {
+    pub fn from_row(row: &PgRow) -> anyhow::Result<Self> {
+        Ok(Self {
+            work: ProofWork::from_row(row)?,
+            local_complete: row.try_get("local_complete")?,
+            rotation_exempt: row.try_get("rotation_exempt")?,
+        })
+    }
+}
+
 pub struct CanonicalVote {
     pub proof_id: i64,
     pub height: u32,
@@ -65,6 +75,89 @@ impl CanonicalVote {
 }
 
 impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
+    /// finalize_ready_proofs saves final result for each mature proof with complete local verdict and quorum, rechecking authority per proof.
+    /// Runs every tick including empty blocks, so finalization never waits for next proof, and caller revalidates source before owner locks.
+    /// Idea only from Hyperlane near-head confirm, which publishes only up to checked mature boundary with expected head: https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/693d2d45df75135504e424c5a4d16761d0016f99/rust/main/agents/scraper/src/near_head/store.rs
+    pub async fn finalize_ready_proofs(
+        &mut self,
+        prepared: &crate::transition::PreparedTransition,
+        threshold: f64,
+    ) -> anyhow::Result<u64>
+    where
+        DB: ReaderRole,
+    {
+        if !prepared.snapshot.state.replay_ready {
+            return Ok(0);
+        }
+        if let Err(error) = prepared.require_authority(self, &[]).await {
+            if matches!(error.downcast_ref::<StoreError>(), Some(StoreError::AuthorityHeld)) {
+                return Ok(0);
+            }
+            return Err(error);
+        }
+        let Some(mature) = prepared.selected.height.checked_sub(prepared.depth.get() - 1) else {
+            return Ok(0);
+        };
+        let through = mature.min(prepared.snapshot.state.confirmed.height);
+        let proofs =
+            DB::canonical_proofs(self.storage, through, crate::ProofScope::Finalization).await?;
+        let votes = self.reader_votes(through).await?;
+        let mut saved = 0;
+        for proof in proofs.iter().filter(|proof| proof.local_complete) {
+            let work = &proof.work;
+            if !self.proof_inputs_complete(work).await? {
+                continue;
+            }
+            let ProofQuorum::Complete(Some(approved)) =
+                self.proof_quorum(work, &votes, through, threshold).await?
+            else {
+                continue;
+            };
+            let origin = self
+                .header_at(work.proof.origin.height)
+                .await?
+                .context("finalization origin disappeared")?;
+            anyhow::ensure!(origin.id == work.header_id, StoreError::HeadChanged);
+            prepared.require_authority(self, &[origin]).await?;
+            saved += DB::finalize_proof(self.storage, work, approved).await?;
+        }
+        Ok(saved)
+    }
+
+    pub async fn authorize_vote_message(
+        &mut self,
+        message: &via_btc_client::types::InscriptionMessage,
+        voter: &bitcoin::Address,
+    ) -> anyhow::Result<()>
+    where
+        DB: ReaderRole,
+    {
+        let via_btc_client::types::InscriptionMessage::ValidatorAttestation(vote) = message else {
+            anyhow::bail!(StoreError::Integrity("non-vote verifier publication"));
+        };
+        let state = self.state().await?.context(StoreError::AuthorityHeld)?;
+        let proofs = DB::canonical_proofs(
+            self.storage,
+            state.confirmed.height,
+            crate::ProofScope::Publication(vote.reference_txid),
+        )
+        .await?;
+        let proof = proofs
+            .iter()
+            .find(|proof| proof.work.proof.origin.txid == vote.reference_txid)
+            .context(StoreError::AuthorityHeld)?;
+        let wallets = self
+            .wallets_before(proof.work.proof.origin.height)
+            .await?
+            .context(StoreError::AuthorityHeld)?;
+        anyhow::ensure!(wallets.verifiers.contains(voter), StoreError::AuthorityHeld);
+        anyhow::ensure!(
+            proof.local_complete && self.proof_inputs_complete(&proof.work).await?,
+            StoreError::AuthorityHeld
+        );
+        Ok(())
+    }
+
     pub async fn check_proof_source(
         &mut self,
         proof: &Included<ProofInput>,
@@ -106,28 +199,6 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
             .bind(crate::PROTOCOL_CONSUMER).instrument("bitcoin_proof_inputs_complete").fetch_one(self.storage).await?)
     }
 
-    pub async fn canonical_proofs(
-        &mut self,
-        query: &str,
-        through: u32,
-    ) -> anyhow::Result<Vec<CanonicalProof>> {
-        let rows = sqlx::query(query)
-            .bind(i64::from(through))
-            .map(|row: PgRow| row)
-            .instrument("bitcoin_canonical_proofs")
-            .fetch_all(self.storage)
-            .await?;
-        rows.iter()
-            .map(|row| {
-                Ok(CanonicalProof {
-                    work: ProofWork::from_row(row)?,
-                    local_complete: row.try_get("local_complete")?,
-                    rotation_exempt: row.try_get("rotation_exempt")?,
-                })
-            })
-            .collect()
-    }
-
     pub async fn reader_votes(&mut self, through: u32) -> anyhow::Result<Vec<CanonicalVote>> {
         let rows = sqlx::query(
             "SELECT v.votable_transaction_id AS proof_id,v.source_l1_block_number AS height,
@@ -166,19 +237,33 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
             vote.payload.sender_script.as_deref().context("vote has no sender")?,
         );
         let voter = bitcoin::Address::from_script(script, network)?.to_string();
-        let payload = sqlx::query_scalar::<_, serde_json::Value>(
+        let Some(wallets) = self.wallets_before(proof.proof.origin.height).await? else {
+            anyhow::bail!(StoreError::AuthorityHeld);
+        };
+        if !wallets.verifiers.iter().any(|member| member.to_string() == voter) {
+            return Ok(());
+        }
+        let inserted = sqlx::query_scalar::<_, serde_json::Value>(
             "INSERT INTO via_votes(votable_transaction_id,verifier_address,vote,source_l1_block_number,source_l1_block_hash,
                 txid,transaction_index,message_index,bitcoin_payload)
              SELECT $1,$2,$3,h.number,h.hash,$6,$7,$8,$9 FROM via_btc_headers h
              WHERE h.number=$4 AND h.hash=$5 AND EXISTS(SELECT 1 FROM via_btc_headers WHERE id=$10)
-             ON CONFLICT(source_l1_block_hash,transaction_index,message_index) DO UPDATE SET bitcoin_payload=via_votes.bitcoin_payload
-             RETURNING bitcoin_payload",
-        ).bind(proof.id).bind(voter).bind(matches!(vote.payload.input.attestation,via_btc_client::types::Vote::Ok))
+             ON CONFLICT DO NOTHING RETURNING bitcoin_payload",
+        ).bind(proof.id).bind(&voter).bind(matches!(vote.payload.input.attestation,via_btc_client::types::Vote::Ok))
             .bind(i64::from(origin.height)).bind(origin.hash.to_string()).bind(origin.txid.to_string())
             .bind(i32::try_from(origin.transaction_index)?).bind(i32::try_from(origin.message_index)?)
             .bind(serde_json::to_value(vote)?).bind(proof.header_id)
-            .instrument("bitcoin_save_vote_occurrence").fetch_optional(self.storage).await?.context(StoreError::HeadChanged)?;
-        vote.compare(&serde_json::from_value(payload)?)?;
+            .instrument("bitcoin_save_vote_occurrence").fetch_optional(self.storage).await?;
+        if inserted.is_none() {
+            let saved = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+                "SELECT bitcoin_payload FROM via_votes WHERE votable_transaction_id=$1 AND verifier_address=$2",
+            ).bind(proof.id).bind(voter).instrument("bitcoin_compare_member_vote")
+                .fetch_optional(self.storage).await?.flatten()
+                .context(via_btc_client::indexer::replay::ReplayConflict { field: "vote_key" })?;
+            // Exact occurrence retry is idempotent.
+            // Second occurrence from same member conflicts, including same decision (Q28).
+            vote.compare(&serde_json::from_value(saved)?)?;
+        }
         Ok(())
     }
 
@@ -221,6 +306,9 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
             return Ok(via_reorg::configuration::RotationDecision::NotReady);
         }
         let mut quorums = Vec::with_capacity(proofs.len());
+        // Pre-#469 finalized proofs before reset cutoff stay unproven legacy history.
+        // Expired testnet DA prevents re-verification. Later canonical proofs need evidence.
+        // Mainnet starts with no such rows. Exception grants no other authority.
         for proof in proofs.iter().filter(|proof| !proof.rotation_exempt) {
             if !proof.local_complete {
                 return Ok(via_reorg::configuration::RotationDecision::NotReady);

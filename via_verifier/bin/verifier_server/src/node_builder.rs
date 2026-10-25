@@ -10,16 +10,12 @@ use zksync_node_framework::{
         prometheus_exporter::PrometheusExporterLayer,
         sigint::SigintHandlerLayer,
         via_btc_client::BtcClientLayer,
-        via_btc_sender::{
-            vote::ViaBtcVoteInscriptionLayer, vote_manager::ViaInscriptionManagerLayer,
-        },
+        via_btc_sender::{vote_manager::ViaInscriptionManagerLayer},
         via_query_eth_client::ViaQueryEthClientLayer,
         via_verifier::{
             coordinator_api::ViaCoordinatorApiLayer, verifier::ViaWithdrawalVerifierLayer,
         },
-        via_verifier_block_reverter::VerifierBlockReverterLayer,
         via_verifier_btc_watch::VerifierBtcWatchLayer,
-        via_verifier_reorg_detector::ViaVerifierReorgDetectorLayer,
         via_verifier_storage_init::ViaVerifierInitLayer,
         via_zk_verification::ViaBtcProofVerificationLayer,
     },
@@ -98,9 +94,6 @@ impl ViaNodeBuilder {
             .clone()
             .expect("Empty btc sender wallet");
 
-        self.node.add_layer(ViaBtcVoteInscriptionLayer::new(
-            self.configs.via_btc_sender_config.clone(),
-        ));
         self.node.add_layer(ViaInscriptionManagerLayer::new(
             self.configs.via_btc_sender_config.clone(),
             wallet,
@@ -157,9 +150,7 @@ impl ViaNodeBuilder {
 
         self.node.add_layer(ViaWithdrawalVerifierLayer::new(
             self.configs.via_bridge_config.clone(),
-            self.configs.via_btc_client_config.clone(),
             self.configs.via_verifier_config.clone(),
-            self.configs.via_btc_watch_config.clone(),
             wallet,
         ));
         Ok(self)
@@ -171,30 +162,15 @@ impl ViaNodeBuilder {
         Ok(self)
     }
 
-    fn add_block_reverter_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(VerifierBlockReverterLayer::new(
-            self.configs.via_reorg_detector_config.clone(),
-        ));
-        Ok(self)
-    }
-
     fn add_storage_initialization_layer(mut self) -> anyhow::Result<Self> {
         let layer = ViaVerifierInitLayer {
             via_genesis_config: self.configs.via_genesis_config.clone(),
-            via_btc_watch_config: self.configs.via_btc_watch_config.clone(),
             proof_verification_dev_mode: self
                 .configs
                 .via_verifier_config
                 .proof_verification_dev_mode,
         };
         self.node.add_layer(layer);
-        Ok(self)
-    }
-
-    fn add_reorg_detector_layer(mut self) -> anyhow::Result<Self> {
-        self.node.add_layer(ViaVerifierReorgDetectorLayer::new(
-            self.configs.via_reorg_detector_config.clone(),
-        ));
         Ok(self)
     }
 
@@ -219,9 +195,9 @@ impl ViaNodeBuilder {
             .add_circuit_breaker_checker_layer()?
             .add_prometheus_exporter_layer()?
             .add_pools_layer()?
-            .add_block_reverter_layer()?
+
             .add_btc_client_layer()?
-            .add_reorg_detector_layer()?
+
             .add_storage_initialization_layer()?
             .add_btc_sender_layer()?
             .add_btc_watcher_layer()?

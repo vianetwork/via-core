@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE via_btc_consumers c SET header_id=CASE WHEN h.number>$2 THEN $1 ELSE c.header_id END,\n             oldest_needed_id=CASE WHEN n.number>$2 THEN $1 ELSE c.oldest_needed_id END FROM via_btc_headers h,via_btc_headers n\n             WHERE c.header_id=h.id AND c.oldest_needed_id=n.id AND (h.number>$2 OR n.number>$2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "928e30487f4d812f12fffb707310a11a97d098111b1468ae8f386c90e383188e"
+}

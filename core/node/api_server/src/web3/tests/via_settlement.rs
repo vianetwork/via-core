@@ -263,18 +263,8 @@ impl HttpTest for ViaSettlementSyncTest {
                 }
             } else if stage == 3 {
                 for batch in 1..=3 {
-                    let mut reveal_txid = stage_hash(batch, 2).as_bytes().to_vec();
-                    reveal_txid.reverse();
-                    main_storage
-                        .via_votes_dal()
-                        .insert_vote(batch, &reveal_txid, "verifier", batch != 3)
-                        .await?;
-                    assert!(
-                        main_storage
-                            .via_votes_dal()
-                            .finalize_transaction_if_needed(batch, 1.0, 1)
-                            .await?
-                    );
+                    sqlx::query("UPDATE via_l1_batch_inscription_request SET is_finalized=$1 WHERE l1_batch_number=$2")
+                        .bind(batch != 3).bind(i64::from(batch)).execute(main_storage.conn()).await?;
                     sqlx::query("UPDATE via_l1_batch_inscription_request SET updated_at = $1 WHERE l1_batch_number = $2")
                         .bind(stage_time(batch, 3).naive_utc())
                         .bind(i64::from(batch))

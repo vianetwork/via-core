@@ -2,6 +2,8 @@
 
 use std::{slice, sync::Arc, time::Duration};
 
+use bitcoin::{hashes::Hash, BlockHash};
+use via_reorg::chain::{BlockRef, Header};
 use zksync_config::configs::{chain::StateKeeperConfig, wallets::Wallets};
 use zksync_contracts::BaseSystemContracts;
 use zksync_dal::{ConnectionPool, Core, CoreDal};
@@ -79,6 +81,25 @@ impl Tester {
         &self,
         pool: ConnectionPool<Core>,
     ) -> (MempoolIO, MempoolGuard) {
+        let mut storage = pool.connection().await.unwrap();
+        let mut transaction = storage.start_transaction().await.unwrap();
+        let hash = BlockHash::all_zeros();
+        via_btc_storage::ReaderDal::new(&mut transaction)
+            .initialize(
+                "regtest",
+                hash,
+                Header { height: 0, block_hash: hash, parent_hash: hash },
+                BlockRef { height: 0, block_hash: hash },
+            )
+            .await
+            .unwrap();
+        sqlx::query("UPDATE protocol_patches SET bitcoin_height=0,bitcoin_hash=$1")
+            .bind(hash.to_string())
+            .execute(transaction.conn())
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        drop(storage);
         let batch_fee_input_provider = self.create_batch_fee_input_provider().await;
 
         let mempool = MempoolGuard::new(PriorityOpId(0), 100);

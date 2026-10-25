@@ -3,7 +3,6 @@ mod tests {
     use std::{str::FromStr, sync::Arc};
 
     use anyhow::Result;
-    use async_trait::async_trait;
     use bitcoin::{
         hashes::Hash,
         policy::MAX_STANDARD_TX_WEIGHT,
@@ -11,10 +10,7 @@ mod tests {
         Address, Amount, CompressedPublicKey, Network, NetworkKind, OutPoint, PrivateKey,
         ScriptBuf, Transaction, TxOut, Txid,
     };
-    use bitcoincore_rpc::json::GetBlockStatsResult;
-    use mockall::{mock, predicate::*};
     use rand::{rngs::OsRng, seq::SliceRandom, thread_rng, RngCore};
-    use via_btc_client::{traits::BitcoinOps, types::BitcoinError};
     use via_test_utils::utils::generate_return_data_per_outputs;
     use via_verifier_types::transaction::UnsignedBridgeTx;
 
@@ -24,58 +20,8 @@ mod tests {
         types::{TransactionBuilderConfig, TransactionOutput},
     };
 
-    mock! {
-        BitcoinOpsService {}
-        #[async_trait]
-        impl BitcoinOps for BitcoinOpsService {
-            async fn fetch_utxos(&self, _address: &Address) -> anyhow::Result<Vec<(OutPoint, TxOut)>, BitcoinError> {
-                Ok(vec![])
-            }
+    use via_btc_client::inscriber::test_utils::MockBitcoinOpsExpectations as MockBitcoinOpsService;
 
-            async fn get_fee_rate(&self, _target_blocks: u16) -> Result<u64, BitcoinError> {
-                Ok(2)
-            }
-
-            async fn broadcast_signed_transaction(&self, _tx_hex: &str) -> Result<Txid, BitcoinError> {
-                Ok(Txid::ZERO)
-            }
-
-            async fn check_tx_confirmation(&self, _txid: &Txid, _min_confirmations: u32) -> Result<bool, BitcoinError> {
-                Ok(true)
-            }
-
-            async fn fetch_block_height(&self) -> Result<u64, BitcoinError> {
-                Ok(100000)
-            }
-
-            async fn get_balance(&self, _address: &Address) -> Result<u128, BitcoinError> {
-                Ok(100000000)
-            }
-            fn get_network(&self) -> bitcoin::Network {
-                Network::Regtest
-            }
-
-            async fn fetch_block(&self, _height: u128) -> Result<bitcoin::Block, BitcoinError> {
-                Ok(bitcoin::Block::default())
-            }
-
-            async fn get_transaction(&self, _txid: &Txid) -> Result<Transaction, BitcoinError> {
-                Ok(Transaction::default())
-            }
-
-            async fn fetch_block_by_hash(&self, _hash: &bitcoin::BlockHash) -> Result<bitcoin::Block, BitcoinError> {
-                Ok(bitcoin::Block::default())
-            }
-
-            async fn get_block_stats(&self, _height: u64) -> Result<GetBlockStatsResult, BitcoinError> {
-                Ok(GetBlockStatsResult::default())
-            }
-
-            async fn get_fee_history(&self, _start: usize, _end: usize) -> Result<Vec<u64>, BitcoinError> {
-                Ok(vec![1])
-            }
-        }
-    }
 
     const OP_RETURN_WITHDRAW_PREFIX: &[u8] = b"VIA_W_0";
     const WITHDRAWALS_PER_TRANSACTION: usize = 7;

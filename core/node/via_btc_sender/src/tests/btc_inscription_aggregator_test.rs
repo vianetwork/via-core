@@ -1,8 +1,6 @@
 #[cfg(test)]
 pub(crate) mod tests {
-    use via_btc_client::inscriber::test_utils::{
-        get_mock_inscriber_and_conditions, MockBitcoinOpsConfig,
-    };
+    use via_btc_client::inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOps};
     use super::super::ViaBtcInscriptionAggregator;
     use zksync_config::ViaBtcSenderConfig;
     use zksync_dal::{ConnectionPool, Core, CoreDal};
@@ -126,7 +124,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn run_aggregator(pool: ConnectionPool<Core>, config: ViaBtcSenderConfig) {
-        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
+        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOps::default());
         let mut aggregator =
             ViaBtcInscriptionAggregator::new(inscriber, pool.clone(), config).await.unwrap();
         aggregator.loop_iteration(&mut pool.connection().await.unwrap()).await.unwrap();
@@ -138,7 +136,7 @@ pub(crate) mod tests {
         let mut config = get_btc_sender_config(1, 1);
         config.poll_interval = 60_000;
         let mut fixture = ready_batches(pool.clone(), config.clone(), 1).await;
-        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
+        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOps::default());
         let actor = ViaBtcInscriptionAggregator::new(inscriber, pool, config).await.unwrap();
         let (stop, receiver) = tokio::sync::watch::channel(false);
         let mut task = tokio::spawn(actor.run(receiver));

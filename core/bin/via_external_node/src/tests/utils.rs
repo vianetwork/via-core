@@ -2,12 +2,15 @@ use std::sync::Arc;
 
 use tempfile::TempDir;
 use tokio::sync::oneshot;
-use via_test_utils::{bitcoin_rpc::BitcoinRpcServer, utils::test_wallets};
+use via_test_utils::{
+    bitcoin_rpc::{BitcoinRpcServer, RpcError},
+    bitcoin_core::BitcoinCore,
+    utils::test_wallets,
+};
 use zksync_config::{
     configs::{
-        via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig,
-        via_consensus::ViaGenesisConfig, via_reorg_detector::ViaReorgDetectorConfig,
-        via_secrets::ViaL1Secrets,
+        via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig, via_secrets::ViaL1Secrets,
+        via_consensus::ViaGenesisConfig,
     },
     ViaBtcWatchConfig,
 };
@@ -86,43 +89,44 @@ impl TestEnvironment {
             .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 0)
             .await
             .unwrap();
-        storage.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+
+        let native = storage
+            .protocol_versions_dal()
+            .get_protocol_version_with_latest_patch(genesis_l2_block.protocol_version.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
         drop(storage);
 
         let components: ComponentsToRun = components_str.parse().unwrap();
         let mut config = ExternalNodeConfig::mock(&temp_dir, &connection_pool);
-        let block = bitcoin::blockdata::constants::genesis_block(bitcoin::Network::Regtest);
-        let block_hash = block.block_hash().to_string();
-        let block_hex = bitcoin::consensus::encode::serialize_hex(&block);
-        let bitcoin_rpc =
-            BitcoinRpcServer::new(Some(Duration::from_secs(5)), false, move |_, request| {
-                match request["method"].as_str().unwrap() {
-                    "getblockcount" => serde_json::json!(1),
-                    "getblockhash" => {
-                        assert_eq!(request["params"][0], 1);
-                        serde_json::json!(block_hash)
-                    }
-                    "getblock" => {
-                        assert_eq!(request["params"][0], block_hash);
-                        serde_json::json!(block_hex)
-                    }
-                    method => panic!("Unexpected Bitcoin RPC: {method}"),
-                }
-            })
-            .unwrap();
+        let core = Arc::new(BitcoinCore::new().unwrap());
+        let bootstrap = core.bootstrap(&native, &wallets).await.unwrap();
+        let bitcoin_rpc = BitcoinRpcServer::new_with_errors(
+            Some(Duration::from_secs(5)),
+            false,
+            move |_, request| {
+                core.rpc::<serde_json::Value>(
+                    request["method"].as_str().unwrap(),
+                    request["params"].as_array().unwrap(),
+                )
+                .map_err(|e| RpcError { code: -32603, message: e.to_string() })
+            },
+        )
+        .unwrap();
         config.via_secrets = Some(ViaL1Secrets {
             rpc_url: bitcoin_rpc.url("").parse().unwrap(),
             rpc_user: String::new(),
             rpc_password: String::new(),
         });
-        config.via_genesis_config = Some(ViaGenesisConfig::default());
+        config.via_genesis_config =
+            Some(ViaGenesisConfig { bootstrap_txids: vec![bootstrap.to_string()] });
         config.via_bridge_config = Some(ViaBridgeConfig {
             bridge_address: wallets.bridge.to_string(),
             verifiers_pub_keys: Vec::new(),
         });
         config.via_btc_client_config = Some(ViaBtcClientConfig::for_tests());
         config.via_btc_watch_config = Some(ViaBtcWatchConfig::for_tests());
-        config.via_reorg_detector_config = Some(ViaReorgDetectorConfig::for_tests());
         if components.0.contains(&Component::TreeApi) {
             config.tree_component.api_port = Some(0);
         }

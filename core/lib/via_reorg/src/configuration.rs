@@ -44,12 +44,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn occurrences_and_incomplete_evidence_do_not_become_value_based_decisions() {
+    fn role_conflicts_use_occurrence_identity() {
         assert!(conflicting_roles([("bridge", 7), ("bridge", 7)]).is_empty());
         assert_eq!(
             conflicting_roles([("bridge", 7), ("bridge", 8), ("sequencer", 9)]),
             HashSet::from(["bridge"])
         );
+    }
+
+    #[test]
+    fn rotation_decision_requires_complete_evidence() {
         assert_eq!(decide_rotation(false, [Some(true)]), RotationDecision::NotReady);
         assert_eq!(decide_rotation(true, [Some(true), None]), RotationDecision::Rejected);
         assert_eq!(decide_rotation(true, [Some(true), Some(false)]), RotationDecision::Accepted);

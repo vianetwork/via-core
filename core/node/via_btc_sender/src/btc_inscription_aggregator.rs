@@ -50,10 +50,6 @@ impl ViaBtcInscriptionAggregator {
     }
 
     async fn loop_iteration(&mut self, storage: &mut Connection<'_, Core>) -> Result<(), anyhow::Error> {
-        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
-            return Ok(());
-        }
-
         let latency = METRICS.inscription_preparation_time.start();
         let mut processed_inscriptions = vec![];
 
@@ -97,7 +93,6 @@ impl ViaBtcInscriptionAggregator {
 
             METRICS.track_btc_tx_metrics(storage, BlockL1Stage::Mined, processed_inscriptions).await;
             latency.observe();
-            METRICS.pending_inscription_requests.inc_by(1);
         }
         Ok(())
     }

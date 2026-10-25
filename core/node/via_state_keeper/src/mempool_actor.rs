@@ -96,7 +96,7 @@ impl MempoolFetcher {
             .await
             .context("failed creating L2 transaction filter")?;
 
-            let transactions_with_constraints = storage
+            let mut transactions_with_constraints = storage
                 .transactions_dal()
                 .sync_mempool(
                     &mempool_info.stashed_accounts,
@@ -108,6 +108,10 @@ impl MempoolFetcher {
                 .await
                 .context("failed syncing mempool")?;
 
+            storage
+                .via_transactions_dal()
+                .filter_mature_mempool(&mut transactions_with_constraints)
+                .await?;
             let transactions: Vec<_> = transactions_with_constraints
                 .iter()
                 .map(|(t, _c)| t)

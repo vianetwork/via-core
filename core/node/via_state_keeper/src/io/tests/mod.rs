@@ -890,6 +890,10 @@ async fn test_batch_params_with_protocol_upgrade_tx() {
         .save_protocol_version_with_tx(&version)
         .await
         .unwrap();
+    sqlx::query("UPDATE protocol_patches SET bitcoin_height=0,bitcoin_hash=(SELECT hash FROM via_btc_headers WHERE number=0)")
+        .execute(connection_pool.connection().await.unwrap().conn())
+        .await
+        .unwrap();
     let new_batch_params = mempool
         .wait_for_new_batch_params(&cursor, Duration::from_millis(100))
         .await

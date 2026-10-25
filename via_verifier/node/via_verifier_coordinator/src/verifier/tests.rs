@@ -4,13 +4,13 @@ use bitcoin::{
 };
 use bitcoincore_rpc::json::GetBlockStatsResult;
 use parking_lot::Mutex;
-use via_btc_client::{
-    inscriber::test_utils::{MockBitcoinOps, MockBitcoinOpsConfig},
-    types::BitcoinClientResult,
-};
+use via_btc_client::{inscriber::test_utils::MockBitcoinOps, types::BitcoinClientResult};
 use via_verifier_types::withdrawal::{CompleteWithdrawalBatch, WithdrawalRequest};
 use zksync_db_connection::instrument::InstrumentExt;
-use zksync_types::{via_wallet::SystemWalletsDetails, H256};
+use zksync_types::{
+    via_wallet::{SystemWallets, SystemWalletsDetails},
+    H256,
+};
 
 use super::*;
 
@@ -48,6 +48,24 @@ struct RecordingBitcoin {
 
 #[axum::async_trait]
 impl BitcoinOps for RecordingBitcoin {
+    async fn best_block_hash(
+        &self,
+    ) -> via_btc_client::types::BitcoinClientResult<bitcoin::BlockHash> {
+        self.inner.best_block_hash().await
+    }
+    async fn header_by_hash(
+        &self,
+        hash: &bitcoin::BlockHash,
+    ) -> via_btc_client::types::BitcoinClientResult<Option<via_btc_client::types::BlockHeaderInfo>>
+    {
+        self.inner.header_by_hash(hash).await
+    }
+    async fn canonical_header_at(
+        &self,
+        height: u32,
+    ) -> via_btc_client::types::BitcoinClientResult<via_btc_client::types::BlockHeaderInfo> {
+        self.inner.canonical_header_at(height).await
+    }
     async fn get_balance(&self, a: &Address) -> BitcoinClientResult<u128> {
         self.inner.get_balance(a).await
     }
@@ -110,56 +128,148 @@ pub(super) fn withdrawal_client() -> WithdrawalClient {
     )
 }
 
+fn bitcoin_fixture() -> MockBitcoinOps {
+    use via_btc_client::types::{BlockHeaderInfo, HeaderMembership};
+    let chain = via_test_utils::chain::Chain::with_height(6);
+    MockBitcoinOps {
+        network: Network::Bitcoin,
+        headers: chain
+            .blocks
+            .iter()
+            .map(|(&height, block)| BlockHeaderInfo {
+                height,
+                hash: block.block_hash(),
+                parent_hash: block.header.prev_blockhash,
+                membership: HeaderMembership::Canonical(
+                    std::num::NonZeroU32::new(7 - height).unwrap(),
+                ),
+            })
+            .collect(),
+        block: Some(chain.blocks[&6].clone()),
+        block_height: 6,
+        ..Default::default()
+    }
+}
+
+async fn seed_reader(
+    pool: &ConnectionPool<Verifier>,
+    wallets: &SystemWallets,
+    source: &dyn BitcoinOps,
+) -> via_btc_storage::StoredHeader {
+    use via_btc_storage::{ReaderDal, WalletSource, PROTOCOL_CONSUMER};
+    use via_reorg::chain::{Header, BlockRef};
+    let mut db = pool.connection().await.unwrap();
+    let root = source.canonical_header_at(0).await.unwrap();
+    db.via_store_mode_dal()
+        .ensure_proof_verification_mode(&via_verifier_dal::via_store_mode_dal::StoreMode {
+            proof_verification_dev_mode: false,
+            bitcoin_network: source.get_network().to_string(),
+            bitcoin_genesis_hash: root.hash.to_string(),
+        })
+        .await
+        .unwrap();
+    let mut tx = db.start_transaction().await.unwrap();
+    let mut reader = ReaderDal::new(&mut tx);
+    let head = source.canonical_header_at(6).await.unwrap();
+    reader
+        .initialize(
+            &source.get_network().to_string(),
+            root.hash,
+            Header { height: 0, block_hash: root.hash, parent_hash: root.parent_hash },
+            BlockRef { height: 6, block_hash: head.hash },
+        )
+        .await
+        .unwrap();
+    reader
+        .insert_wallets(
+            &SystemWalletsDetails::try_from(wallets.clone()).unwrap(),
+            WalletSource::Unbound(0),
+        )
+        .await
+        .unwrap();
+    let anchor = reader.header_at(0).await.unwrap().unwrap();
+    let mut previous = anchor.clone();
+    for height in 0..=6 {
+        if height > 0 {
+            let header = source.canonical_header_at(height).await.unwrap();
+            reader
+                .save_block(
+                    Header { height, block_hash: header.hash, parent_hash: header.parent_hash },
+                    &previous,
+                )
+                .await
+                .unwrap();
+            previous = reader.header_at(height).await.unwrap().unwrap();
+        }
+        for name in [PROTOCOL_CONSUMER, "withdrawals"] {
+            reader.complete_consumer(name, &previous, &anchor).await.unwrap();
+        }
+    }
+    let proof_source = reader.header_at(1).await.unwrap().unwrap();
+    reader.advance_frontier(&previous, &proof_source).await.unwrap();
+    assert!(reader.complete_replay().await.unwrap());
+    tx.commit().await.unwrap();
+    proof_source
+}
+
 async fn seed(
     pool: &ConnectionPool<Verifier>,
     wallets: &SystemWallets,
     batch: &CompleteWithdrawalBatch,
+    bitcoin: &dyn BitcoinOps,
 ) {
-    let mut db = pool.connection().await.unwrap();
-    db.via_wallet_dal()
-        .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 1)
-        .await
-        .unwrap();
-    db.via_indexer_dal()
-        .init_indexer_metadata("via_btc_watch", 1)
-        .await
-        .unwrap();
+    use via_btc_client::{
+        indexer::replay::{Included, MessageOrigin, Payload},
+        types::{L1BatchDAReferenceInput, ProofDAReferenceInput},
+    };
+    let source = seed_reader(pool, wallets, bitcoin).await;
+    let mut db = pool.start_transaction().await.unwrap();
     let proof = H256::repeat_byte(4);
-    let source_block = BlockHash::from_byte_array([5; 32]);
-    db.via_l1_block_dal()
-        .insert_l1_block(1, source_block.to_string())
-        .await
-        .unwrap();
-    db.via_votes_dal()
-        .insert_votable_transaction(
-            1,
-            H256::repeat_byte(3),
-            H256::zero(),
-            "fixture".into(),
-            proof,
-            "proof".into(),
-            "pubdata".into(),
-            batch.blob_id.clone(),
-            Some((1, source_block)),
-        )
-        .await
-        .unwrap();
+    let origin = MessageOrigin {
+        height: 1,
+        hash: source.header.block_hash,
+        transaction_index: 0,
+        message_index: 0,
+        txid: Txid::from_byte_array([3; 32]),
+    };
+    let pubdata = Included {
+        origin: origin.clone(),
+        payload: Payload {
+            input: L1BatchDAReferenceInput {
+                l1_batch_index: zksync_types::L1BatchNumber(1),
+                l1_batch_hash: H256::repeat_byte(3),
+                prev_l1_batch_hash: H256::zero(),
+                da_identifier: "fixture".into(),
+                blob_id: batch.blob_id.clone(),
+            },
+            public_key: vec![],
+            signature: vec![],
+            sender_script: None,
+        },
+    };
+    let pubdata_txid = pubdata.origin.txid;
+    let input = via_test_utils::inscription::unsigned_proof(
+        pubdata,
+        MessageOrigin { txid: Txid::from_byte_array([4; 32]), transaction_index: 1, ..origin },
+        ProofDAReferenceInput {
+            l1_batch_reveal_txid: pubdata_txid,
+            da_identifier: "fixture".into(),
+            blob_id: "proof".into(),
+        },
+    );
+    db.via_votes_dal().save_reader_proof(&input, source.id).await.unwrap();
     let id = db
         .via_votes_dal()
         .verify_votable_transaction(1, proof, true)
         .await
         .unwrap();
-    for verifier in &wallets.verifiers {
-        db.via_votes_dal()
-            .insert_vote(id, &verifier.to_string(), true, Some((1, source_block)))
-            .await
-            .unwrap();
-    }
-    assert!(db
-        .via_votes_dal()
-        .finalize_transaction_if_needed(id, 1.0, 2)
+    sqlx::query("UPDATE via_votable_transactions SET is_finalized=TRUE,finalized_header_id=proof_header_id WHERE id=$1")
+        .bind(id)
+        .execute(db.conn())
         .await
-        .unwrap());
+        .unwrap();
+    db.commit().await.unwrap();
+    let mut db = pool.connection().await.unwrap();
     db.via_withdrawal_dal()
         .import_complete_batch(
             wallets.bridge.script_pubkey().as_bytes(),
@@ -258,13 +368,12 @@ async fn run_actual_iterations(
     };
     let funding_parent = parent.clone();
     let btc = Arc::new(RecordingBitcoin {
-        inner: MockBitcoinOps::new(MockBitcoinOpsConfig {
+        inner: MockBitcoinOps {
             utxos: parent_utxos(&parent),
             transaction: Some(parent),
             fee_rate: 2,
-            block_height: 1,
-            ..Default::default()
-        }),
+            ..bitcoin_fixture()
+        },
         broadcasts: Mutex::new(Vec::new()),
         parent_fault: std::sync::atomic::AtomicU8::new(0),
         parent_fetches: std::sync::atomic::AtomicUsize::new(0),
@@ -289,7 +398,7 @@ async fn run_actual_iterations(
         ConnectionPool::<Verifier>::test_pool().await,
     ];
     for pool in &pools {
-        seed(pool, &wallets, &batch).await;
+        seed(pool, &wallets, &batch, btc.as_ref()).await;
     }
     let coordinator =
         TestCoordinator::start(pools[0].clone(), btc.clone(), &public, &keys[0], coordinator_mode)
@@ -317,7 +426,6 @@ async fn run_actual_iterations(
             btc.clone(),
             withdrawal_client(),
             bridge_config.clone(),
-            ViaBtcWatchConfig::for_tests(),
         )
         .unwrap()
     };
@@ -939,13 +1047,12 @@ async fn bounded_signing_admission_refuses_before_reserving_real_requests_and_in
                 inputs
             ],
         };
-        let btc = Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig {
+        let btc = Arc::new(MockBitcoinOps {
             utxos: parent_utxos(&parent),
             transaction: Some(parent),
             fee_rate: 2,
-            block_height: 1,
-            ..Default::default()
-        }));
+            ..bitcoin_fixture()
+        });
         let pool = ConnectionPool::<Verifier>::test_pool().await;
         let batch = CompleteWithdrawalBatch {
             batch_number: 1,
@@ -964,7 +1071,7 @@ async fn bounded_signing_admission_refuses_before_reserving_real_requests_and_in
                 inputs as u64 * 100_000 - 50_000,
             )],
         };
-        seed(&pool, &wallets, &batch).await;
+        seed(&pool, &wallets, &batch, btc.as_ref()).await;
         let coordinator = TestCoordinator::start(pool.clone(), btc, &public, &keys[0], mode).await;
         let config = &coordinator.config;
         let session = &coordinator.session;
@@ -1219,12 +1326,12 @@ async fn bounded_signing_fitting_historical_round_serves_by_actual_size_over_htt
     let (_core, parent) = heavy_parent(&wallets.bridge.script_pubkey(), 590);
     assert_eq!(bitcoin::consensus::serialize(&parent).len(), 296_953);
     let utxos = parent_utxos(&parent);
-    let btc = Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig {
+    let btc = Arc::new(MockBitcoinOps {
         utxos: utxos.clone(),
         transaction: Some(parent.clone()),
         fee_rate: 2,
-        ..Default::default()
-    }));
+        ..bitcoin_fixture()
+    });
     let builder = TransactionBuilder::new(btc.clone()).unwrap();
     let unsigned = builder
         .build_fixed_bridge_tx(
@@ -1287,6 +1394,7 @@ async fn bounded_signing_fitting_historical_round_serves_by_actual_size_over_htt
         assert!(transport::encode_snapshot(snapshot, version).is_err());
     }
     let pool = ConnectionPool::<Verifier>::test_pool().await;
+    seed_reader(&pool, &wallets, btc.as_ref()).await;
     for mode in [PeerMode::Reader, PeerMode::Writer] {
         let server =
             TestCoordinator::start(pool.clone(), btc.clone(), &public, &keys[0], mode).await;
@@ -1756,7 +1864,7 @@ async fn bounded_signing_digest_precedes_bincode_and_real_signer_admission() {
         .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 1)
         .await
         .unwrap();
-    owner.via_indexer_dal().init_indexer_metadata("via_btc_watch", 1).await.unwrap();
+
     let wallet = wallets.bridge.script_pubkey().into_bytes();
     assert!(owner.via_withdrawal_dal().acquire_withdrawal_signer_lock(&wallet).await.unwrap());
     let error = client.iteration(&mut owner, &wallet).await.unwrap_err();
@@ -1778,13 +1886,10 @@ struct TestNetwork {
 impl TestNetwork {
     async fn empty() -> Self {
         let (keys, public, wallets) = fixture_wallets(2);
-        Self {
-            keys,
-            public,
-            wallets,
-            pool: ConnectionPool::<Verifier>::test_pool().await,
-            btc: Arc::new(MockBitcoinOps::new(MockBitcoinOpsConfig::default())),
-        }
+        let pool = ConnectionPool::<Verifier>::test_pool().await;
+        let btc = Arc::new(bitcoin_fixture());
+        seed_reader(&pool, &wallets, btc.as_ref()).await;
+        Self { keys, public, wallets, pool, btc }
     }
 
     async fn coordinator(&self, mode: PeerMode, routes: ProbeRoutes) -> TestCoordinator {
@@ -1814,7 +1919,6 @@ impl TestNetwork {
                 verifiers_pub_keys: self.public.clone(),
                 bridge_address: self.wallets.bridge.to_string(),
             },
-            ViaBtcWatchConfig::for_tests(),
         )
         .unwrap()
     }

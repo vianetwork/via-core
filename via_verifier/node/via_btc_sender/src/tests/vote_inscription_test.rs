@@ -1,191 +1,366 @@
-#[cfg(test)]
-mod tests {
+use bitcoin::{hashes::Hash, Txid};
+use via_btc_client::{
+    indexer::replay::{Included, MessageOrigin, Payload},
+    inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOps},
+    traits::Serializable,
+    types::{
+        BlockHeaderInfo, HeaderMembership, InscriptionMessage, L1BatchDAReferenceInput,
+        ProofDAReferenceInput,
+    },
+};
+use via_btc_storage::{ReaderDal, WalletSource, PROTOCOL_CONSUMER};
+use via_reorg::chain::{BlockRef, Header};
+use via_test_utils::{chain::Chain, utils::test_wallets};
+use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
+use zksync_types::{H256, L1BatchNumber, via_wallet::SystemWalletsDetails};
+use crate::btc_vote_inscription::{create_request, construct_voting_inscription_message};
 
-    use tokio::{sync::watch, time};
-    use via_btc_client::{
-        inscriber::test_utils::MockBitcoinOpsConfig, traits::Serializable, types::InscriptionMessage,
+async fn fixture() -> (ConnectionPool<Verifier>, MockBitcoinOps, bitcoin::Address, i64, Txid) {
+    let pool = ConnectionPool::<Verifier>::test_pool().await;
+    let chain = Chain::with_height(1);
+    let source = MockBitcoinOps {
+        headers: (0..=1)
+            .map(|height| BlockHeaderInfo {
+                height,
+                hash: chain.blocks[&height].block_hash(),
+                parent_hash: chain.blocks[&height].header.prev_blockhash,
+                membership: HeaderMembership::Canonical(
+                    std::num::NonZeroU32::new(2 - height).unwrap(),
+                ),
+            })
+            .collect(),
+        block: Some(chain.blocks[&1].clone()),
+        block_height: 1,
+        ..MockBitcoinOps::default()
     };
-    use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
-    use zksync_config::ViaBtcSenderConfig;
-    use zksync_types::H256;
-
-    use crate::{
-        btc_vote_inscription::ViaVoteInscription,
-        tests::utils::{get_btc_sender_config, get_inscription_manager_mock},
+    let voter = get_mock_inscriber_and_conditions(source.clone()).inscriber_address().unwrap();
+    let mut wallets = test_wallets();
+    wallets.verifiers = vec![voter.clone()];
+    let mut db = pool.connection().await.unwrap();
+    db.via_store_mode_dal()
+        .ensure_proof_verification_mode(&via_verifier_dal::via_store_mode_dal::StoreMode {
+            proof_verification_dev_mode: false,
+            bitcoin_network: "regtest".into(),
+            bitcoin_genesis_hash: source.headers[0].hash.to_string(),
+        })
+        .await
+        .unwrap();
+    let mut tx = db.start_transaction().await.unwrap();
+    let mut reader = ReaderDal::new(&mut tx);
+    let root = source.headers[0];
+    reader
+        .initialize(
+            "regtest",
+            root.hash,
+            Header { height: 0, block_hash: root.hash, parent_hash: root.parent_hash },
+            BlockRef { height: 1, block_hash: source.headers[1].hash },
+        )
+        .await
+        .unwrap();
+    reader
+        .insert_wallets(&SystemWalletsDetails::try_from(wallets).unwrap(), WalletSource::Unbound(0))
+        .await
+        .unwrap();
+    let anchor = reader.header_at(0).await.unwrap().unwrap();
+    reader
+        .save_block(
+            Header { height: 1, block_hash: source.headers[1].hash, parent_hash: root.hash },
+            &anchor,
+        )
+        .await
+        .unwrap();
+    let block = reader.header_at(1).await.unwrap().unwrap();
+    for name in [PROTOCOL_CONSUMER, "withdrawals"] {
+        reader.complete_consumer(name, &anchor, &anchor).await.unwrap();
+        reader.complete_consumer(name, &block, &anchor).await.unwrap();
+    }
+    reader.advance_frontier(&block, &block).await.unwrap();
+    assert!(reader.complete_replay().await.unwrap());
+    let txid = Txid::from_byte_array(std::array::from_fn(|i| i as u8 + 1));
+    let origin = MessageOrigin {
+        height: 1,
+        hash: block.header.block_hash,
+        transaction_index: 0,
+        message_index: 0,
+        txid: Txid::from_byte_array([2; 32]),
     };
+    let payload =
+        |input| Payload { input, public_key: vec![], signature: vec![], sender_script: None };
+    let pubdata = Included {
+        origin: origin.clone(),
+        payload: payload(L1BatchDAReferenceInput {
+            l1_batch_hash: H256::repeat_byte(4),
+            l1_batch_index: L1BatchNumber(1),
+            da_identifier: "fixture".into(),
+            blob_id: "batch".into(),
+            prev_l1_batch_hash: H256::zero(),
+        }),
+    };
+    let pubdata_txid = pubdata.origin.txid;
+    let proof = via_test_utils::inscription::unsigned_proof(
+        pubdata,
+        MessageOrigin { txid, transaction_index: 1, ..origin },
+        ProofDAReferenceInput {
+            l1_batch_reveal_txid: pubdata_txid,
+            da_identifier: "fixture".into(),
+            blob_id: "proof".into(),
+        },
+    );
+    tx.via_votes_dal().save_reader_proof(&proof, block.id).await.unwrap();
+    let id = tx.via_votes_dal().pending_reader_proof().await.unwrap().unwrap().id;
+    tx.commit().await.unwrap();
+    (pool, source, voter, id, txid)
+}
 
-    pub struct ViaVoteInscriptionTest {
-        pub aggregator: ViaVoteInscription,
-        pub storage: Connection<'static, Verifier>,
-    }
+#[tokio::test]
+async fn vote_request_waits_for_verified_canonical_proof_and_is_created_once() {
+    let (pool, source, voter, id, txid) = fixture().await;
+    create_request(&pool, &source, &voter).await.unwrap();
+    let mut db = pool.connection().await.unwrap();
+    assert!(db.via_btc_sender_dal().list_new_inscription_request(10).await.unwrap().is_empty());
+    sqlx::query("UPDATE via_votable_transactions SET l1_batch_status=TRUE WHERE id=$1")
+        .bind(id)
+        .execute(db.conn())
+        .await
+        .unwrap();
+    drop(db);
+    create_request(&pool, &source, &voter).await.unwrap();
+    create_request(&pool, &source, &voter).await.unwrap();
+    let mut db = pool.connection().await.unwrap();
+    let requests = db.via_btc_sender_dal().list_new_inscription_request(10).await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let mut display = txid.to_byte_array().to_vec();
+    display.reverse();
+    assert_eq!(
+        InscriptionMessage::from_bytes(requests[0].inscription_message.as_ref().unwrap()),
+        construct_voting_inscription_message(true, display).unwrap()
+    );
+}
 
-    impl ViaVoteInscriptionTest {
-        pub async fn new(pool: ConnectionPool<Verifier>, mut config: Option<ViaBtcSenderConfig>) -> Self {
-            let storage = pool.connection().await.unwrap();
+#[tokio::test]
+async fn vote_request_refuses_incomplete_replay_and_source_outage() {
+    let (pool, mut source, voter, id, _) = fixture().await;
+    let mut db = pool.connection().await.unwrap();
+    sqlx::query("UPDATE via_votable_transactions SET l1_batch_status=TRUE WHERE id=$1")
+        .bind(id)
+        .execute(db.conn())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE via_btc_reader SET replay_ready=FALSE").execute(db.conn()).await.unwrap();
+    drop(db);
+    assert!(create_request(&pool, &source, &voter).await.is_err());
+    let mut db = pool.connection().await.unwrap();
+    sqlx::query("UPDATE via_btc_reader SET replay_ready=TRUE").execute(db.conn()).await.unwrap();
+    drop(db);
+    source.headers.clear();
+    assert!(create_request(&pool, &source, &voter).await.is_err());
+    assert!(pool
+        .connection()
+        .await
+        .unwrap()
+        .via_btc_sender_dal()
+        .list_new_inscription_request(10)
+        .await
+        .unwrap()
+        .is_empty());
+}
 
-            if config.is_none() {
-                config = Some(ViaBtcSenderConfig::for_tests());
-            }
-            let aggregator = ViaVoteInscription::new(pool, config.unwrap()).await.unwrap();
-
-            Self { aggregator, storage }
-        }
-    }
-
-    // Get the current operation (commitBatch or commitProof) to execute when there is no batches. Should return 'None'
-    #[tokio::test]
-    async fn test_get_next_ready_vote_operation() {
-        let pool = ConnectionPool::<Verifier>::test_pool().await;
-        let mut aggregator_test = ViaVoteInscriptionTest::new(pool, None).await;
-
-        let tx_id = H256::random();
-        let _ = aggregator_test
-            .storage
-            .via_votes_dal()
-            .insert_votable_transaction(
-                1,
-                H256::random(),
-                H256::random(),
-                "".to_string(),
-                tx_id,
-                "".to_string(),
-                "".to_string(),
-                "".to_string(),
-                None,
-            )
-            .await;
-
-        let op = aggregator_test.aggregator.get_voting_operation(&mut aggregator_test.storage).await.unwrap();
-        assert!(op.is_none());
-
-        let _ = aggregator_test.storage.via_votes_dal().verify_votable_transaction(1, tx_id, true).await;
-
-        let op = aggregator_test.aggregator.get_voting_operation(&mut aggregator_test.storage).await.unwrap();
-        assert!(op.is_some());
-        let (votable_transaction_id, vote, tx_id_vec) = op.unwrap();
-        assert_eq!(votable_transaction_id, 1);
-        assert!(vote);
-        assert_eq!(H256::from_slice(&tx_id_vec), tx_id);
-
-        let inscription = aggregator_test.aggregator.construct_voting_inscription_message(vote, tx_id_vec).unwrap();
-
-        aggregator_test.aggregator.loop_iteration(&mut aggregator_test.storage).await.unwrap();
-
-        let inscriptions = aggregator_test.storage.via_btc_sender_dal().list_new_inscription_request(10).await.unwrap();
-        assert_eq!(inscriptions.len(), 1);
-
-        assert_eq!(
-            InscriptionMessage::from_bytes(inscriptions.first().unwrap().inscription_message.as_ref().unwrap()),
-            inscription
-        );
-    }
-
-    #[tokio::test]
-    async fn test_verifier_vote_inscription_manager() {
-        let pool = ConnectionPool::<Verifier>::test_pool().await;
-        let config = get_btc_sender_config(1, 1);
-        let mut mock_btc_ops_config = MockBitcoinOpsConfig::default();
-        mock_btc_ops_config.set_block_height(1);
-
-        let mut aggregator_test = ViaVoteInscriptionTest::new(pool.clone(), None).await;
-
-        let tx_id = H256::random();
-
-        let _ = aggregator_test
-            .storage
-            .via_votes_dal()
-            .insert_votable_transaction(
-                1,
-                H256::random(),
-                H256::random(),
-                "".to_string(),
-                tx_id,
-                "".to_string(),
-                "".to_string(),
-                "".to_string(),
-                None,
-            )
-            .await;
-
-        let _ = aggregator_test.storage.via_votes_dal().verify_votable_transaction(1, tx_id, true).await;
-
-        run_aggregator(pool.clone()).await;
-        run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
-
-        let inflight_inscriptions_before =
-            aggregator_test.storage.via_btc_sender_dal().get_inflight_inscriptions().await.unwrap();
-
-        assert!(!inflight_inscriptions_before.is_empty());
-
-        let last_inscription_history_before = aggregator_test
-            .storage
-            .via_btc_sender_dal()
-            .get_last_inscription_request_history(inflight_inscriptions_before[0].id)
+async fn finalize(pool: &ConnectionPool<Verifier>, source: &MockBitcoinOps) -> u64 {
+    use via_btc_storage::{
+        ReaderRole,
+        transition::{ReaderSnapshot, PreparedTransition},
+    };
+    use via_btc_client::traits::BitcoinOps;
+    let mut db = pool.connection().await.unwrap();
+    let snapshot =
+        ReaderSnapshot::load(&mut ReaderDal::new(&mut db), source.reorg_safe_depth().unwrap())
             .await
             .unwrap();
+    let prepared = PreparedTransition::prepare(source, snapshot).await.unwrap();
+    prepared.revalidate(source).await.unwrap();
+    let mut tx = Verifier::OWNER.begin(&mut db).await.unwrap();
+    Verifier::lock_source(&mut tx).await.unwrap();
+    let saved = ReaderDal::new(&mut tx).finalize_ready_proofs(&prepared, 0.66).await.unwrap();
+    tx.commit().await.unwrap();
+    saved
+}
 
-        assert!(last_inscription_history_before.is_some());
+async fn save_vote(
+    db: &mut via_verifier_dal::Connection<'_, Verifier>,
+    vote: &Included<via_btc_client::types::ValidatorAttestationInput>,
+    work: &via_btc_storage::ProofWork,
+) {
+    use via_btc_storage::ReaderRole;
+    let mut tx = Verifier::OWNER.begin(db).await.unwrap();
+    Verifier::lock_source(&mut tx).await.unwrap();
+    ReaderDal::new(&mut tx).save_reader_vote(vote, work, bitcoin::Network::Regtest).await.unwrap();
+    tx.commit().await.unwrap();
+}
 
-        run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
+async fn verified_vote(
+    approved: bool,
+) -> (
+    ConnectionPool<Verifier>,
+    MockBitcoinOps,
+    via_btc_storage::ProofWork,
+    Included<via_btc_client::types::ValidatorAttestationInput>,
+) {
+    let (pool, source, voter, id, txid) = fixture().await;
+    let mut db = pool.connection().await.unwrap();
+    let work = db.via_votes_dal().pending_reader_proof().await.unwrap().unwrap();
+    sqlx::query("UPDATE via_votable_transactions SET l1_batch_status=$2 WHERE id=$1")
+        .bind(id)
+        .bind(approved)
+        .execute(db.conn())
+        .await
+        .unwrap();
+    let vote = Included {
+        origin: MessageOrigin {
+            txid: Txid::from_byte_array([7; 32]),
+            transaction_index: 2,
+            ..work.proof.origin.clone()
+        },
+        payload: Payload {
+            input: via_btc_client::types::ValidatorAttestationInput {
+                reference_txid: txid,
+                attestation: if approved {
+                    via_btc_client::types::Vote::Ok
+                } else {
+                    via_btc_client::types::Vote::NotOk
+                },
+            },
+            public_key: vec![],
+            signature: vec![],
+            sender_script: Some(voter.script_pubkey().into_bytes()),
+        },
+    };
+    save_vote(&mut db, &vote, &work).await;
+    (pool, source, work, vote)
+}
 
-        // Simulate the transaction was processed in next block
-        mock_btc_ops_config.set_block_height(11);
-        mock_btc_ops_config.set_tx_confirmation(true);
+#[tokio::test]
+async fn finalization_captures_exact_proof_and_preserves_positive_and_negative_quorum() {
+    for approved in [true, false] {
+        let (pool, source, work, _) = verified_vote(approved).await;
+        assert_eq!(finalize(&pool, &source).await, 1);
+        assert_eq!(finalize(&pool, &source).await, 0);
+        let row: (bool, i64) = sqlx::query_as(
+            "SELECT is_finalized,finalized_header_id FROM via_votable_transactions WHERE id=$1",
+        )
+        .bind(work.id)
+        .fetch_one(pool.connection().await.unwrap().conn())
+        .await
+        .unwrap();
+        assert_eq!(row, (approved, work.header_id));
+    }
+}
 
-        run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
+#[tokio::test]
+async fn finalization_waits_for_ready_mature_complete_canonical_evidence() {
+    for (name,hold) in [
+        ("replay","UPDATE via_btc_reader SET replay_ready=FALSE"),
+        ("immature","UPDATE via_btc_reader SET confirmed_number=0,confirmed_hash=(SELECT hash FROM via_btc_headers WHERE number=0)"),
+        ("local verdict","UPDATE via_votable_transactions SET l1_batch_status=NULL"),
+        ("canonical incarnation","UPDATE via_votable_transactions SET proof_header_id=proof_header_id+100"),
+        ("quorum","DELETE FROM via_votes"),
+    ] {
+        let (pool,source,_,_) = verified_vote(true).await;
+        sqlx::query(hold).execute(pool.connection().await.unwrap().conn()).await.unwrap();
+        assert_eq!(finalize(&pool,&source).await,0,"{name}");
+        let receipt:Option<i64> = sqlx::query_scalar("SELECT finalized_header_id FROM via_votable_transactions").fetch_one(pool.connection().await.unwrap().conn()).await.unwrap();
+        assert!(receipt.is_none(),"{name}");
+    }
+}
 
-        let inflight_inscriptions_after =
-            aggregator_test.storage.via_btc_sender_dal().get_inflight_inscriptions().await.unwrap();
+#[tokio::test]
+async fn canonical_vote_replay_compares_payload_and_second_occurrence_conflicts() {
+    let (pool, _, work, mut vote) = verified_vote(true).await;
+    let mut db = pool.connection().await.unwrap();
+    let mut tx = db.start_transaction().await.unwrap();
+    ReaderDal::new(&mut tx)
+        .save_reader_vote(&vote, &work, bitcoin::Network::Regtest)
+        .await
+        .unwrap();
+    vote.payload.signature.push(1);
+    let error = ReaderDal::new(&mut tx)
+        .save_reader_vote(&vote, &work, bitcoin::Network::Regtest)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>().unwrap().field,
+        "signature"
+    );
+    vote.payload.signature.clear();
+    vote.origin.message_index += 1;
+    assert!(ReaderDal::new(&mut tx)
+        .save_reader_vote(&vote, &work, bitcoin::Network::Regtest)
+        .await
+        .is_err());
+    tx.commit().await.unwrap();
+}
 
-        assert!(inflight_inscriptions_after.is_empty());
-
-        let last_inscription_history_after = aggregator_test
-            .storage
-            .via_btc_sender_dal()
-            .get_last_inscription_request_history(inflight_inscriptions_before[0].id)
+#[tokio::test]
+async fn retained_local_verdict_finalizes_only_after_canonical_vote_replacement() {
+    let (pool, source, work, vote) = verified_vote(true).await;
+    let mut db = pool.connection().await.unwrap();
+    for query in [
+        "UPDATE via_votable_transactions SET is_finalized=TRUE",
+        "UPDATE via_votes SET source_l1_block_hash='orphan'",
+    ] {
+        sqlx::query(query).execute(db.conn()).await.unwrap();
+    }
+    assert_eq!(finalize(&pool, &source).await, 0);
+    sqlx::query("DELETE FROM via_votes").execute(db.conn()).await.unwrap();
+    save_vote(&mut db, &vote, &work).await;
+    assert_eq!(finalize(&pool, &source).await, 1);
+    let verdict: bool =
+        sqlx::query_scalar("SELECT l1_batch_status FROM via_votable_transactions WHERE id=$1")
+            .bind(work.id)
+            .fetch_one(db.conn())
             .await
             .unwrap();
+    assert!(verdict);
+}
 
-        assert!(last_inscription_history_after.unwrap().confirmed_at.is_some());
-
-        // Run the manager to make sure there is no unexpected behavior
-        run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
-    }
-
-    async fn run_aggregator(pool: ConnectionPool<Verifier>) {
-        {
-            let aggregator_test = ViaVoteInscriptionTest::new(pool.clone(), None).await;
-
-            let (receiver, stop_task) = stop_after_poll();
-            aggregator_test.aggregator.run(receiver).await.unwrap();
-            if let Err(e) = stop_task.await {
-                eprintln!("Toggle task failed: {:?}", e);
+#[tokio::test]
+async fn public_sender_run_publishes_and_completes_the_current_vote() {
+    let (pool, mut source, _, id, _) = fixture().await;
+    sqlx::query("UPDATE via_votable_transactions SET l1_batch_status=TRUE WHERE id=$1")
+        .bind(id)
+        .execute(pool.connection().await.unwrap().conn())
+        .await
+        .unwrap();
+    for confirmed in [false, true] {
+        source.tx_confirmation = confirmed;
+        let mut config = super::utils::get_btc_sender_config(1, 1);
+        config.poll_interval = 1;
+        let manager =
+            super::utils::get_inscription_manager_mock(pool.clone(), config, source.clone()).await;
+        let (stop, receiver) = tokio::sync::watch::channel(false);
+        let run = tokio::spawn(manager.run(receiver));
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let pending = pool
+                    .connection()
+                    .await
+                    .unwrap()
+                    .via_btc_sender_dal()
+                    .get_inflight_inscriptions()
+                    .await
+                    .unwrap();
+                if pending.is_empty() == confirmed {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
-        }
-    }
-
-    async fn run_manager(
-        pool: ConnectionPool<Verifier>,
-        config: ViaBtcSenderConfig,
-        mock_btc_ops_config: MockBitcoinOpsConfig,
-    ) {
-        {
-            let inscription_manager_mock =
-                get_inscription_manager_mock(pool.clone(), config.clone(), mock_btc_ops_config).await;
-
-            let (receiver, stop_task) = stop_after_poll();
-            inscription_manager_mock.run(receiver).await.unwrap();
-            if let Err(e) = stop_task.await {
-                eprintln!("Toggle task failed: {:?}", e);
-            }
-        }
-    }
-    fn stop_after_poll() -> (watch::Receiver<bool>, tokio::task::JoinHandle<()>) {
-        let (sender, receiver) = watch::channel(false);
-        let task = tokio::spawn(async move {
-            time::sleep(time::Duration::from_secs(3)).await;
-            let _ = sender.send(true);
-        });
-        (receiver, task)
+        })
+        .await
+        .unwrap();
+        stop.send(true).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
     }
 }

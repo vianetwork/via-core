@@ -88,19 +88,8 @@ fee_strategies = ["fastestFee"]
 use_rpc_for_fee_rate = true
 
 [via_btc_watch]
-# The interval in milliseconds between btc sender cycles.
 poll_interval = 5000
-# The number of L1 block to mark the inscription as finalized. 
-block_confirmations = 0
-# Number of blocks that we should check when restarting the service.
-btc_blocks_lag = 1000
-# The starting L1 block number from which indexing begins.
-start_l1_block_number = 1
-# When set to true, the btc_watch starts indexing L1 blocks from the "start_l1_block_number".
-restart_indexing = false
 
-[via_reorg_detector]
-poll_interval_ms = 5000
 
 [rust]
 # `RUST_LOG` environment variable for `env_logger`
@@ -135,7 +124,6 @@ loadnext=info,\
 vm=info,\
 zksync_external_node=info,\
 zksync_snapshots_applier=debug,\
-via_main_node_reorg_detector=info,\
 """
 
 # `RUST_BACKTRACE` variable

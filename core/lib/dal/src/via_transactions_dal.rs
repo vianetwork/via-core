@@ -1,6 +1,7 @@
 use sqlx::types::chrono::NaiveDateTime;
 use via_btc_client::indexer::replay::{
-    compare_deposit_replay, retained_deposit_operation, DepositOrigin, DepositPayload, DepositReplay, ReplayConflict,
+    compare_deposit_replay, retained_deposit_operation, DepositOrigin, DepositPayload,
+    DepositReplay, ReplayConflict,
 };
 use zksync_db_connection::{connection::Connection, error::DalResult, instrument::InstrumentExt};
 use zksync_types::{l1::L1Tx, u256_to_big_decimal, Address, L1BlockNumber, PriorityOpId, H256};
@@ -13,6 +14,69 @@ pub struct ViaTransactionsDal<'c, 'a> {
 }
 
 impl ViaTransactionsDal<'_, '_> {
+    pub async fn protocol_is_mature(
+        &mut self,
+        version: zksync_types::ProtocolVersionId,
+    ) -> anyhow::Result<bool> {
+        Ok(sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM protocol_patches p JOIN via_btc_headers h
+            ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash CROSS JOIN via_btc_reader r
+            WHERE p.minor=$1 AND r.replay_ready AND r.stopped_reason IS NULL AND h.number<=r.confirmed_number)")
+            .bind(version as i32).instrument("bitcoin_mature_protocol_version").fetch_one(self.storage).await?)
+    }
+
+    pub async fn transaction_is_mature(
+        &mut self,
+        transaction: &zksync_types::Transaction,
+    ) -> anyhow::Result<bool> {
+        match &transaction.common_data {
+            zksync_types::ExecuteTransactionCommon::L2(_) => Ok(true),
+            zksync_types::ExecuteTransactionCommon::L1(_) => Ok(sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM transactions t JOIN via_btc_headers h ON h.number=t.bitcoin_height
+                    AND h.hash=t.bitcoin_hash CROSS JOIN via_btc_reader r WHERE t.hash=$1 AND t.bitcoin_payload IS NOT NULL
+                    AND r.replay_ready AND r.stopped_reason IS NULL AND h.number<=r.confirmed_number)")
+                .bind(transaction.hash().as_bytes()).instrument("bitcoin_mature_priority_operation").fetch_one(self.storage).await?),
+            zksync_types::ExecuteTransactionCommon::ProtocolUpgrade(_) => Ok(sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM protocol_versions v JOIN protocol_patches p ON p.minor=v.id
+                    JOIN via_btc_headers h ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash CROSS JOIN via_btc_reader r
+                    WHERE v.upgrade_tx_hash=$1 AND r.replay_ready AND r.stopped_reason IS NULL AND h.number<=r.confirmed_number)")
+                .bind(transaction.hash().as_bytes()).instrument("bitcoin_mature_upgrade_operation").fetch_one(self.storage).await?),
+        }
+    }
+
+    pub async fn filter_mature_mempool(
+        &mut self,
+        transactions: &mut Vec<(
+            zksync_types::Transaction,
+            zksync_types::TransactionTimeRangeConstraint,
+        )>,
+    ) -> anyhow::Result<()> {
+        let priorities: Vec<_> = transactions
+            .iter()
+            .filter(|(transaction, _)| transaction.is_l1())
+            .map(|(transaction, _)| transaction.hash().as_bytes().to_vec())
+            .collect();
+        let eligible = sqlx::query_as::<_, (Vec<u8>,)>("SELECT t.hash FROM transactions t JOIN via_btc_headers h
+            ON h.number=t.bitcoin_height AND h.hash=t.bitcoin_hash CROSS JOIN via_btc_reader r
+            WHERE t.hash=ANY($1) AND t.bitcoin_payload IS NOT NULL AND r.replay_ready AND r.stopped_reason IS NULL
+            AND h.number<=r.confirmed_number")
+            .bind(&priorities).instrument("bitcoin_mature_mempool").fetch_all(self.storage).await?;
+        let eligible: std::collections::HashSet<_> =
+            eligible.into_iter().map(|(hash,)| hash).collect();
+        let blocked: Vec<_> = priorities
+            .into_iter()
+            .filter(|hash| !eligible.contains(hash))
+            .collect();
+        sqlx::query("UPDATE transactions SET in_mempool=FALSE WHERE hash=ANY($1)")
+            .bind(&blocked)
+            .instrument("bitcoin_release_held_mempool")
+            .execute(self.storage)
+            .await?;
+        transactions.retain(|(transaction, _)| {
+            !transaction.is_l1() || eligible.contains(transaction.hash().as_bytes())
+        });
+        Ok(())
+    }
+
     /// Compare exact outpoint replay and preserve an operation already attached to L2.
     pub async fn insert_transaction_l1(
         &mut self,
@@ -45,9 +109,13 @@ impl ViaTransactionsDal<'_, '_> {
             let old_hash = old.hash.clone();
             let saved_hash = old.bitcoin_hash.take();
             let saved_payload = old.bitcoin_payload.take();
-            if let DepositReplay::NeedsRetainedCheck =
-                compare_deposit_replay(payload, &source_hash, saved_hash.as_deref(), saved_payload, attached)?
-            {
+            if let DepositReplay::NeedsRetainedCheck = compare_deposit_replay(
+                payload,
+                &source_hash,
+                saved_hash.as_deref(),
+                saved_payload,
+                attached,
+            )? {
                 let expected = retained_deposit_operation(
                     PriorityOpId(old.priority_op_id.ok_or(ReplayConflict {
                         field: "priority_id",
@@ -298,9 +366,12 @@ mod tests {
     use super::*;
     use crate::{ConnectionPool, CoreDal};
 
-    #[tokio::test]
-    async fn replay_reconciles_remine_without_replacing_execution_and_reset_keeps_local_parents(
-    ) -> anyhow::Result<()> {
+    async fn deposit_fixture() -> anyhow::Result<(
+        ConnectionPool<Core>,
+        ViaL1Deposit,
+        DepositOrigin,
+        DepositPayload,
+    )> {
         let pool = ConnectionPool::<Core>::test_pool().await;
         let mut db = pool.connection().await?;
         let deposit = ViaL1Deposit {
@@ -312,12 +383,12 @@ mod tests {
             output_vout: 0,
         };
         let original = deposit.l1_tx().unwrap();
-        let mut origin = DepositOrigin {
+        let origin = DepositOrigin {
             height: 10,
             hash: BlockHash::from_byte_array([10; 32]),
             vout: 0,
         };
-        let mut payload = Payload {
+        let payload = Payload {
             input: (
                 L1ToL2MessageInput {
                     receiver_l2_address: deposit.l2_receiver_address,
@@ -336,6 +407,16 @@ mod tests {
                 .insert_transaction_l1(&original, original.eth_block(), txid, &origin, &payload)
                 .await?
         );
+        drop(db);
+        Ok((pool, deposit, origin, payload))
+    }
+
+    #[tokio::test]
+    async fn main_remine_preserves_executed_operation() -> anyhow::Result<()> {
+        let (pool, deposit, mut origin, mut payload) = deposit_fixture().await?;
+        let mut db = pool.connection().await?;
+        let original = deposit.l1_tx().unwrap();
+        let txid = H256::repeat_byte(8);
         sqlx::query("UPDATE transactions SET miniblock_number=1,bitcoin_height=NULL,bitcoin_hash=NULL,bitcoin_vout=NULL,bitcoin_payload=NULL WHERE hash=$1")
             .bind(original.hash().as_bytes()).instrument("seed_legacy_execution").execute(&mut db).await?;
         origin.height = 11;
@@ -378,6 +459,18 @@ mod tests {
             error.downcast_ref::<ReplayConflict>().unwrap().field,
             "signature"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn main_reset_preserves_retained_parents() -> anyhow::Result<()> {
+        let (pool, deposit, mut origin, payload) = deposit_fixture().await?;
+        let mut db = pool.connection().await?;
+        let txid = H256::repeat_byte(8);
+        sqlx::query("UPDATE transactions SET miniblock_number=1")
+            .instrument("seed_retained_execution")
+            .execute(&mut db)
+            .await?;
         let pending = ViaL1Deposit {
             output_vout: 1,
             ..deposit
@@ -385,7 +478,6 @@ mod tests {
         .l1_tx()
         .unwrap();
         origin.vout = 1;
-        payload.input.0.receiver_l2_address = Address::repeat_byte(7);
         db.via_transactions_dal()
             .insert_transaction_l1(&pending, pending.eth_block(), txid, &origin, &payload)
             .await?;
@@ -395,20 +487,6 @@ mod tests {
             .instrument("seed_retained_request").execute(&mut db).await?;
         sqlx::query("INSERT INTO via_data_availability(l1_batch_number,is_proof,blob_id,sent_at,created_at,updated_at,index) VALUES (1,FALSE,'retained-da',NOW(),NOW(),NOW(),0)")
             .instrument("seed_retained_da").execute(&mut db).await?;
-        for column in [
-            "tx_hash BYTEA REFERENCES transactions(hash)",
-            "vote_id BIGINT REFERENCES via_votes(id)",
-            "proof_id BIGINT REFERENCES via_btc_finalizations(proof_id)",
-        ] {
-            sqlx::query(&format!("CREATE TABLE unreviewed_dependency ({column})"))
-                .instrument("seed_unknown_dependency").execute(&mut db).await?;
-            let mut reset = db.start_transaction().await?;
-            assert!(reset.via_indexer_dal().delete_reader_suffix(0).await.unwrap_err()
-                .to_string().contains("unknown dependent constraint"));
-            drop(reset);
-            sqlx::query("DROP TABLE unreviewed_dependency")
-                .instrument("remove_unknown_dependency").execute(&mut db).await?;
-        }
         for commit in [false, true] {
             let mut reset = db.start_transaction().await?;
             reset.via_indexer_dal().delete_reader_suffix(0).await?;
@@ -426,6 +504,35 @@ mod tests {
         let roots=sqlx::query_scalar::<_,i64>("SELECT (SELECT count(*) FROM l1_batches)+(SELECT count(*) FROM via_btc_inscriptions_request)+(SELECT count(*) FROM via_data_availability WHERE blob_id='retained-da')")
             .instrument("retained_local_roots").fetch_one(&mut db).await?;
         assert_eq!(roots, 3);
+        Ok(())
+    }
+    #[tokio::test]
+    async fn main_reset_refuses_unknown_dependents() -> anyhow::Result<()> {
+        let pool = ConnectionPool::<Core>::test_pool().await;
+        let mut db = pool.connection().await?;
+        for column in [
+            "tx_hash BYTEA REFERENCES transactions(hash)",
+            "vote_id BIGINT REFERENCES via_votes(id)",
+            "proof_id BIGINT REFERENCES via_btc_finalizations(proof_id)",
+        ] {
+            sqlx::query(&format!("CREATE TABLE unreviewed_dependency ({column})"))
+                .instrument("seed_unknown_dependency")
+                .execute(&mut db)
+                .await?;
+            let mut reset = db.start_transaction().await?;
+            assert!(reset
+                .via_indexer_dal()
+                .delete_reader_suffix(0)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("unknown dependent constraint"));
+            drop(reset);
+            sqlx::query("DROP TABLE unreviewed_dependency")
+                .instrument("remove_unknown_dependency")
+                .execute(&mut db)
+                .await?;
+        }
         Ok(())
     }
 }

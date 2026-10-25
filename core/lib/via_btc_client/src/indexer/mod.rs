@@ -562,43 +562,20 @@ impl BitcoinInscriptionIndexer {
 mod tests {
     use std::str::FromStr;
 
-    use async_trait::async_trait;
     use bitcoin::{
         absolute, block::Header, hashes::Hash, transaction, Address, Amount, Block, Network,
         OutPoint, ScriptBuf, Transaction, TxIn, TxMerkleNode, TxOut,
     };
-    use bitcoincore_rpc::json::GetBlockStatsResult;
-    use mockall::{mock, predicate::*};
+    use mockall::predicate::*;
     use zksync_types::{
         protocol_version::{ProtocolSemanticVersion, VersionPatch},
         ProtocolVersionId, H256,
     };
 
     use super::*;
-    use crate::types::{self, BitcoinClientResult, CommonFields, Vote};
+    use crate::types::{self, CommonFields, Vote};
 
-    mock! {
-        BitcoinOps {}
-        #[async_trait]
-        impl BitcoinOps for BitcoinOps {
-            async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
-            async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
-            async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
-            async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
-            async fn broadcast_signed_transaction(&self, signed_transaction: &str) -> BitcoinClientResult<Txid>;
-            async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>>;
-            async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool>;
-            async fn fetch_block_height(&self) -> BitcoinClientResult<u64>;
-            async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
-            fn get_network(&self) -> Network;
-            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
-            async fn get_fee_history(
-                &self,
-                from_block_height: usize,
-                to_block_height: usize,
-            ) -> BitcoinClientResult<Vec<u64>>;
-        }
-    }
+    use crate::inscriber::test_utils::MockBitcoinOpsExpectations as MockBitcoinOps;
 
     fn get_test_addr() -> Address {
         Address::from_str("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
@@ -1293,7 +1270,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_is_valid_message() {
+    async fn system_messages_are_retained_before_historical_membership_selection() {
         let indexer = get_indexer_with_mock(MockBitcoinOps::new());
 
         let validator_attestation =
@@ -1317,26 +1294,7 @@ mod tests {
                     prev_l1_batch_hash: zksync_basic_types::H256::zero(),
                 },
             });
-        // We didn't vote for the sequencer yet, so this message is invalid
         assert!(indexer.is_valid_system_message(&l1_batch_da_reference));
-
-        let mut l1_to_l2_message = FullInscriptionMessage::L1ToL2Message(L1ToL2Message {
-            common: get_test_common_fields(),
-            amount: Amount::from_sat(1000),
-            input: types::L1ToL2MessageInput {
-                receiver_l2_address: zksync_types::Address::zero(),
-                l2_contract_address: zksync_types::Address::zero(),
-                call_data: vec![],
-            },
-            tx_outputs: vec![TxOut {
-                value: Amount::from_sat(1000),
-                script_pubkey: indexer.wallets.bridge.script_pubkey(),
-            }],
-        });
-        assert!(indexer
-            .is_valid_bridge_message(&mut l1_to_l2_message, &mut WithdrawalParents::new())
-            .await
-            .unwrap());
 
         let system_bootstrapping =
             FullInscriptionMessage::SystemBootstrapping(types::SystemBootstrapping {
@@ -1383,6 +1341,12 @@ mod tests {
             }],
         };
         assert!(indexer.is_valid_l1_to_l2_transfer(&valid_message));
+
+        let mut bridge_message = FullInscriptionMessage::L1ToL2Message(valid_message);
+        assert!(indexer
+            .is_valid_bridge_message(&mut bridge_message, &mut WithdrawalParents::new())
+            .await
+            .unwrap());
 
         let invalid_message = L1ToL2Message {
             common: get_test_common_fields(),

@@ -215,11 +215,12 @@ impl StateKeeperIO for MempoolIO {
                 self.filter.fee_input
             );
             let mut storage = self.pool.connection_tagged("state_keeper").await?;
-            let protocol_version = storage
-                .protocol_versions_dal()
-                .protocol_version_id_by_timestamp(timestamp)
-                .await
-                .context("Failed loading protocol version")?;
+            let state = via_btc_storage::ReaderDal::new(&mut storage).state().await?.context("reader not initialized")?;
+            let Some(version) = via_btc_storage::ReaderDal::new(&mut storage).protocol_before(state.confirmed.height.saturating_add(1)).await? else {
+                tokio::time::sleep(self.delay_interval).await;
+                continue;
+            };
+            let protocol_version = version.minor;
             let previous_protocol_version = storage
                 .blocks_dal()
                 .pending_protocol_version()
@@ -316,6 +317,13 @@ impl StateKeeperIO for MempoolIO {
             get_latency.observe();
 
             if let Some((tx, constraint)) = maybe_tx {
+                let mut storage = self.pool.connection_tagged("bitcoin_cached_mempool").await?;
+                if !storage.via_transactions_dal().transaction_is_mature(&tx).await? {
+                    self.mempool.rollback(&tx);
+                    storage.via_transactions_dal().filter_mature_mempool(&mut vec![(tx, constraint)]).await?;
+                    continue;
+                }
+                drop(storage);
                 // Reject transactions with too big gas limit. They are also rejected on the API level, but
                 // we need to secure ourselves in case some tx will somehow get into mempool.
                 if tx.gas_limit() > self.max_allowed_tx_gas_limit {
@@ -427,6 +435,17 @@ impl StateKeeperIO for MempoolIO {
         version_id: ProtocolVersionId,
     ) -> anyhow::Result<Option<ProtocolUpgradeTx>> {
         let mut storage = self.pool.connection_tagged("state_keeper").await?;
+        let state = via_btc_storage::ReaderDal::new(&mut storage)
+            .state()
+            .await?
+            .context("reader not initialized")?;
+        let canonical = via_btc_storage::ReaderDal::new(&mut storage)
+            .protocol_before(state.confirmed.height.saturating_add(1))
+            .await?;
+        anyhow::ensure!(
+            canonical.is_some_and(|version| version.minor >= version_id),
+            "protocol upgrade authority held"
+        );
         storage
             .protocol_versions_dal()
             .get_protocol_upgrade_tx(version_id)

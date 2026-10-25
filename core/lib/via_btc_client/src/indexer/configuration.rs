@@ -121,27 +121,36 @@ pub fn project_wallets(
             insert(WalletRole::Sequencer, vec![input.address.clone().assume_checked()])
         }
         ConfigurationInput::Bridge(_, Some(proposal)) => {
-            insert(
-                WalletRole::Bridge,
-                vec![proposal
-                    .payload
-                    .input
-                    .bridge_musig2_address
-                    .clone()
-                    .require_network(network)?],
-            );
-            insert(
-                WalletRole::Verifier,
-                proposal
-                    .payload
-                    .input
-                    .verifier_p2wpkh_addresses
-                    .iter()
-                    .map(|address| address.clone().assume_checked())
-                    .collect(),
-            );
+            return project_bridge_wallets(&proposal.payload.input, txid, network);
         }
         ConfigurationInput::Bridge(_, None) | ConfigurationInput::Protocol(..) => {}
     }
+    Ok(SystemWalletsDetails(roles))
+}
+
+pub fn project_bridge_wallets(
+    input: &crate::types::UpdateBridgeProposalInput,
+    txid: Txid,
+    network: Network,
+) -> anyhow::Result<SystemWalletsDetails> {
+    let mut roles = HashMap::new();
+    roles.insert(
+        WalletRole::Bridge,
+        WalletInfo {
+            addresses: vec![input.bridge_musig2_address.clone().require_network(network)?],
+            txid,
+        },
+    );
+    roles.insert(
+        WalletRole::Verifier,
+        WalletInfo {
+            addresses: input
+                .verifier_p2wpkh_addresses
+                .iter()
+                .map(|address| address.clone().assume_checked())
+                .collect(),
+            txid,
+        },
+    );
     Ok(SystemWalletsDetails(roles))
 }

@@ -25,3 +25,5 @@ pub(crate) mod tests;
 pub(crate) mod types;
 pub mod updates;
 pub(crate) mod utils;
+
+pub mod bitcoin_execution;

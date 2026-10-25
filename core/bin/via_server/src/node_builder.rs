@@ -38,7 +38,6 @@ use zksync_node_framework::{
         via_da_dispatcher::DataAvailabilityDispatcherLayer,
         via_gas_adjuster::ViaGasAdjusterLayer,
         via_l1_gas::ViaL1GasLayer,
-        via_main_node_reorg_detector::ViaNodeReorgDetectorLayer,
         via_node_storage_init::ViaNodeStorageInitializerLayer,
         via_state_keeper::{
             main_batch_executor::MainBatchExecutorLayer, mempool_io::MempoolIOLayer,
@@ -175,11 +174,9 @@ impl ViaNodeBuilder {
     // VIA related layers
     fn add_init_node_storage_layer(mut self) -> anyhow::Result<Self> {
         let via_genesis_config = try_load_config!(self.configs.via_genesis_config);
-        let via_btc_watch_config = try_load_config!(self.configs.via_btc_watch_config);
 
         self.node.add_layer(ViaNodeStorageInitializerLayer {
             via_genesis_config,
-            via_btc_watch_config,
         });
         Ok(self)
     }
@@ -204,7 +201,6 @@ impl ViaNodeBuilder {
         self.node.add_layer(BtcWatchLayer {
             via_bridge_config,
             via_btc_watch_config,
-            is_main_node: true,
         });
         Ok(self)
     }
@@ -326,22 +322,29 @@ impl ViaNodeBuilder {
             response_body_size_limit: Some(rpc_config.max_response_body_size()),
             ..Default::default()
         };
-        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
-        let via_celestia_config = try_load_config!(self.configs.via_celestia_config);
-
+        let internal = self.internal_api_config(&rpc_config)?;
         self.node.add_layer(Web3ServerLayer::http(
             rpc_config.http_port,
-            InternalApiConfig::new(
-                &rpc_config,
-                &self.contracts_config,
-                &self.genesis_config,
-                Some(via_btc_client_config.network()),
-                via_celestia_config.proof_sending_mode == ProofSendingMode::OnlyRealProofs,
-            ),
+            internal,
             optional_config,
         ));
 
         Ok(self)
+    }
+
+    fn internal_api_config(
+        &self,
+        rpc: &zksync_config::configs::api::Web3JsonRpcConfig,
+    ) -> anyhow::Result<InternalApiConfig> {
+        let bitcoin = try_load_config!(self.configs.via_btc_client_config);
+        let da = try_load_config!(self.configs.via_celestia_config);
+        Ok(InternalApiConfig::new(
+            rpc,
+            &self.contracts_config,
+            &self.genesis_config,
+            Some(bitcoin.network()),
+            da.proof_sending_mode == ProofSendingMode::OnlyRealProofs,
+        ))
     }
 
     fn add_vm_runner_protective_reads_layer(mut self) -> anyhow::Result<Self> {
@@ -528,31 +531,17 @@ impl ViaNodeBuilder {
             with_extended_tracing: rpc_config.extended_api_tracing,
             ..Default::default()
         };
-        let via_btc_client_config = try_load_config!(self.configs.via_btc_client_config);
-        let via_celestia_config = try_load_config!(self.configs.via_celestia_config);
-
+        let internal = self.internal_api_config(&rpc_config)?;
         self.node.add_layer(Web3ServerLayer::ws(
             rpc_config.ws_port,
-            InternalApiConfig::new(
-                &rpc_config,
-                &self.contracts_config,
-                &self.genesis_config,
-                Some(via_btc_client_config.network()),
-                via_celestia_config.proof_sending_mode == ProofSendingMode::OnlyRealProofs,
-            ),
+            internal,
             optional_config,
         ));
 
         Ok(self)
     }
 
-    fn add_init_node_reorg_detector_layer(mut self) -> anyhow::Result<Self> {
-        let config = try_load_config!(self.configs.via_reorg_detector_config);
 
-        self.node
-            .add_layer(ViaNodeReorgDetectorLayer::new(config, true));
-        Ok(self)
-    }
 
     pub fn build(mut self, mut components: Vec<ViaComponent>) -> anyhow::Result<ZkStackService> {
         self = self
@@ -638,7 +627,7 @@ impl ViaNodeBuilder {
                 ViaComponent::Btc => {
                     self = self
                         .add_btc_client_layer()?
-                        .add_init_node_reorg_detector_layer()?
+
                         .add_gas_adjuster_layer()?
                         .add_btc_watcher_layer()?
                         .add_btc_sender_layer()?

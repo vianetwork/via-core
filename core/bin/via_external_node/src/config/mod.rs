@@ -17,7 +17,6 @@ use zksync_config::{
         via_bridge::ViaBridgeConfig,
         via_btc_client::ViaBtcClientConfig,
         via_consensus::ViaGenesisConfig,
-        via_reorg_detector::ViaReorgDetectorConfig,
         via_secrets::ViaL1Secrets,
         GeneralConfig, Secrets,
     },
@@ -1247,7 +1246,6 @@ pub(crate) struct ExternalNodeConfig<R = RemoteENConfig> {
     pub via_bridge_config: Option<ViaBridgeConfig>,
     pub via_btc_client_config: Option<ViaBtcClientConfig>,
     pub via_btc_watch_config: Option<ViaBtcWatchConfig>,
-    pub via_reorg_detector_config: Option<ViaReorgDetectorConfig>,
     pub remote: R,
 }
 
@@ -1283,10 +1281,6 @@ impl ExternalNodeConfig<()> {
             ),
             via_btc_watch_config: Some(
                 ViaBtcWatchConfig::from_env().context("Failed to load VIA BTC watch config")?,
-            ),
-            via_reorg_detector_config: Some(
-                ViaReorgDetectorConfig::from_env()
-                    .context("Failed to load VIA Reorg detector config")?,
             ),
 
             remote: (),
@@ -1352,7 +1346,6 @@ impl ExternalNodeConfig<()> {
             via_bridge_config: None,
             via_btc_client_config: None,
             via_btc_watch_config: None,
-            via_reorg_detector_config: None,
             remote: (),
         })
     }
@@ -1380,7 +1373,6 @@ impl ExternalNodeConfig<()> {
             via_bridge_config: self.via_bridge_config,
             via_btc_client_config: self.via_btc_client_config,
             via_btc_watch_config: self.via_btc_watch_config,
-            via_reorg_detector_config: self.via_reorg_detector_config,
             remote,
         })
     }
@@ -1405,7 +1397,6 @@ impl ExternalNodeConfig {
             via_bridge_config: None,
             via_btc_client_config: None,
             via_btc_watch_config: None,
-            via_reorg_detector_config: None,
             tree_component: TreeComponentConfig { api_port: None },
         }
     }

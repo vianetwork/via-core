@@ -13,14 +13,8 @@ use crate::{
 };
 
 // The immutable pre-reset finalization marker supplies the verifier Q26 exception.
-pub const READER_PROOFS_QUERY: &str = "SELECT p.id,p.bitcoin_payload AS payload,h.id AS header_id,h.number AS height,h.hash,
-                p.l1_batch_status IS NOT NULL AND p.id>m.designated_after_votable_id
-                  AND (NOT p.unverified_dev OR m.proof_verification_dev_mode) AS local_complete,
-                COALESCE(p.rotation_legacy_cutoff>=h.number,FALSE) AS rotation_exempt
-             FROM via_votable_transactions p JOIN via_btc_headers h
-               ON h.id=p.proof_header_id AND h.number=p.proof_l1_block_number AND h.hash=p.proof_l1_block_hash
-             CROSS JOIN via_verifier_store_mode m WHERE h.number<=$1 AND p.bitcoin_payload IS NOT NULL
-             ORDER BY h.number,p.transaction_index,p.message_index";
+
+// Verifier proof IDs are display-order H256 bytes; reverse at the Bitcoin Txid boundary.
 
 pub struct ViaVotesDal<'c, 'a> {
     pub(crate) storage: &'c mut Connection<'a, Verifier>,
@@ -52,7 +46,7 @@ async fn lock_source(
     .execute(&mut *storage)
     .await?;
     if let Some((height, hash)) = inclusion {
-        let current = sqlx::query("SELECT 1 FROM via_l1_blocks WHERE number=$1 AND hash=$2")
+        let current = sqlx::query("SELECT 1 FROM via_btc_headers WHERE number=$1 AND hash=$2")
             .bind(i64::from(height))
             .bind(hash.to_string())
             .instrument("source_canonical_inclusion")
@@ -71,6 +65,20 @@ async fn lock_source(
 }
 
 impl ViaVotesDal<'_, '_> {
+    pub async fn pending_reader_vote(&mut self) -> anyhow::Result<Option<(i64, bool, Vec<u8>)>> {
+        let row = sqlx::query_as::<_, (i64, bool, Vec<u8>)>("SELECT p.id,p.l1_batch_status,p.proof_reveal_tx_id
+            FROM via_votable_transactions p JOIN via_btc_headers h ON h.id=p.proof_header_id
+              AND h.number=p.proof_l1_block_number AND h.hash=p.proof_l1_block_hash
+            CROSS JOIN via_btc_reader r CROSS JOIN via_verifier_store_mode m
+            WHERE r.replay_ready AND r.stopped_reason IS NULL AND h.number<=r.confirmed_number
+              AND p.id>m.designated_after_votable_id AND (NOT p.unverified_dev OR m.proof_verification_dev_mode)
+              AND p.l1_batch_status IS NOT NULL AND p.bitcoin_payload IS NOT NULL
+              AND NOT EXISTS(SELECT 1 FROM via_l1_batch_vote_inscription_request request WHERE request.votable_transaction_id=p.id)
+            ORDER BY h.number,p.transaction_index,p.message_index LIMIT 1")
+            .instrument("pending_canonical_reader_vote").fetch_all(self.storage).await?;
+        Ok(row.into_iter().next())
+    }
+
     pub async fn pending_reader_proof(
         &mut self,
     ) -> anyhow::Result<Option<via_btc_storage::ProofWork>> {
@@ -150,6 +158,14 @@ impl ViaVotesDal<'_, '_> {
             .bind(header_id).bind(i64::from(proof.origin.height)).bind(proof.origin.hash.to_string())
             .instrument("verifier_bind_proof_source").execute(self.storage).await?;
         anyhow::ensure!(result.rows_affected() == 1, via_btc_storage::StoreError::HeadChanged);
+        sqlx::query("WITH RECURSIVE ancestors AS (
+            SELECT id,l1_batch_number,prev_l1_batch_hash,l1_batch_status FROM via_votable_transactions WHERE id=$1
+            UNION ALL SELECT p.id,p.l1_batch_number,p.prev_l1_batch_hash,p.l1_batch_status FROM via_votable_transactions p
+            JOIN ancestors child ON p.l1_batch_number=child.l1_batch_number-1 AND p.l1_batch_hash=child.prev_l1_batch_hash
+            JOIN via_btc_headers h ON h.id=p.proof_header_id AND h.number=p.proof_l1_block_number AND h.hash=p.proof_l1_block_hash)
+            UPDATE via_votable_transactions p SET l1_batch_status=FALSE,is_finalized=FALSE
+            WHERE p.id=$1 AND p.l1_batch_status IS NULL AND EXISTS(SELECT 1 FROM ancestors WHERE id<>$1 AND l1_batch_status=FALSE)")
+            .bind(proof_id).instrument("reader_inherit_rejected_ancestor").execute(self.storage).await?;
         Ok(())
     }
 
@@ -171,7 +187,7 @@ impl ViaVotesDal<'_, '_> {
         lock_source(&mut tx, source_inclusion).await?;
         let source_hash = source_inclusion.map(|(_, hash)| hash.to_string());
         let old = sqlx::query(
-            "SELECT p.*, EXISTS(SELECT 1 FROM via_l1_blocks h WHERE h.number=p.proof_l1_block_number AND h.hash=p.proof_l1_block_hash) AS canonical
+            "SELECT p.*, EXISTS(SELECT 1 FROM via_btc_headers h WHERE h.number=p.proof_l1_block_number AND h.hash=p.proof_l1_block_hash) AS canonical
              FROM via_votable_transactions p WHERE p.proof_reveal_tx_id=$1
              ORDER BY (p.proof_l1_block_hash IS NOT DISTINCT FROM $2) DESC,canonical DESC,p.id LIMIT 1 FOR UPDATE",
         )
@@ -268,247 +284,6 @@ impl ViaVotesDal<'_, '_> {
         .fetch_optional(self.storage)
         .await?;
         Ok(row.map(|r| r.id))
-    }
-
-    /// Inserts a new vote row in `via_votes`.
-    pub async fn insert_vote(
-        &mut self,
-        votable_transaction_id: i64,
-        verifier_address: &str,
-        vote: bool,
-        source_inclusion: Option<(u32, BlockHash)>,
-    ) -> DalResult<()> {
-        let mut tx = self.storage.start_transaction().await?;
-        lock_source(&mut tx, source_inclusion).await?;
-        // Serialize votes for this source, and never rehabilitate a stale parent
-        // by extending its tip to a newer canonical block.
-        let valid = sqlx::query(
-            "SELECT v.source_l1_block_number IS NULL OR EXISTS(
-                SELECT 1 FROM via_l1_blocks b WHERE b.number=v.source_l1_block_number
-                AND b.hash=v.source_l1_block_hash) AS valid
-             FROM via_votable_transactions v WHERE v.id=$1 FOR UPDATE OF v",
-        )
-        .bind(votable_transaction_id)
-        .map(|row: sqlx::postgres::PgRow| row.get::<bool, _>("valid"))
-        .instrument("vote_source_current")
-        .fetch_one(&mut tx)
-        .await?;
-        if !valid {
-            return Err(Instrumented::new("vote_source_current")
-                .with_arg("votable_transaction_id", &votable_transaction_id)
-                .constraint_error(anyhow::anyhow!(
-                    "retained vote source is no longer on the accepted local Bitcoin chain"
-                )));
-        }
-        let inserted = sqlx::query(
-            "INSERT INTO via_votes(votable_transaction_id,verifier_address,vote,
-                source_l1_block_number,source_l1_block_hash)
-             VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
-        )
-        .bind(votable_transaction_id)
-        .bind(verifier_address)
-        .bind(vote)
-        .bind(source_inclusion.map(|(height, _)| i64::from(height)))
-        .bind(source_inclusion.map(|(_, hash)| hash.to_string()))
-        .instrument("insert_vote")
-        .with_arg("votable_transaction_id", &votable_transaction_id)
-        .with_arg("verifier_address", &verifier_address)
-        .with_arg("vote", &vote)
-        .execute(&mut tx)
-        .await?;
-        if inserted.rows_affected() != 0 {
-            sqlx::query(
-                "UPDATE via_votable_transactions SET
-                 source_l1_block_hash=CASE
-                    WHEN source_l1_block_number IS NULL OR $2::bigint IS NULL THEN NULL
-                    WHEN $2 > source_l1_block_number THEN $3 ELSE source_l1_block_hash END,
-                 source_l1_block_number=CASE
-                    WHEN source_l1_block_number IS NULL OR $2::bigint IS NULL THEN NULL
-                    ELSE GREATEST(source_l1_block_number,$2) END
-                 WHERE id=$1",
-            )
-            .bind(votable_transaction_id)
-            .bind(source_inclusion.map(|(height, _)| i64::from(height)))
-            .bind(source_inclusion.map(|(_, hash)| hash.to_string()))
-            .instrument("extend_vote_source")
-            .execute(&mut tx)
-            .await?;
-        }
-        tx.commit().await?;
-        Ok(())
-    }
-
-    /// First batch whose proof or retained vote lies in the reverted suffix.
-    pub async fn get_l1_batch_number_affected_by_source_reorg(
-        &mut self,
-        last_retained_l1_block: i64,
-    ) -> DalResult<Option<i64>> {
-        sqlx::query("SELECT MIN(l1_batch_number) AS batch FROM via_votable_transactions WHERE source_l1_block_number > $1")
-            .bind(last_retained_l1_block)
-            .map(|row: sqlx::postgres::PgRow| row.get::<Option<i64>, _>("batch"))
-            .instrument("get_l1_batch_number_affected_by_source_reorg")
-            .fetch_one(self.storage)
-            .await
-    }
-
-    /// First batch whose proof itself lies in the reverted suffix.
-    pub async fn get_l1_batch_number_affected_by_proof_reorg(
-        &mut self,
-        last_retained_l1_block: i64,
-    ) -> DalResult<Option<i64>> {
-        sqlx::query("SELECT MIN(l1_batch_number) AS batch FROM via_votable_transactions WHERE proof_l1_block_number > $1")
-            .bind(last_retained_l1_block)
-            .map(|row: sqlx::postgres::PgRow| row.get::<Option<i64>, _>("batch"))
-            .instrument("get_l1_batch_number_affected_by_proof_reorg")
-            .fetch_one(self.storage)
-            .await
-    }
-
-    /// Prunes only reverted votes, retaining proof verification and canonical votes.
-    /// Caller must hold the exclusive source gate in its reorg transaction.
-    /// Returns retained parent IDs for finalization against the remaining votes.
-    pub async fn revert_votes_after_l1_block(
-        &mut self,
-        last_retained_l1_block: i64,
-    ) -> DalResult<Vec<i64>> {
-        // Data-modifying CTEs share a snapshot: explicitly exclude the deleted
-        // suffix when reading votes to rebuild coverage. NULL coverage is sticky.
-        // Proof-based rejection and competing forks survive vote pruning.
-        sqlx::query(
-            "WITH deleted AS (
-                DELETE FROM via_votes WHERE source_l1_block_number > $1
-                RETURNING votable_transaction_id
-             ), affected AS (
-                SELECT DISTINCT votable_transaction_id AS id FROM deleted
-             ), sources AS (
-                SELECT v.id, v.proof_l1_block_number AS number, v.proof_l1_block_hash AS hash
-                FROM via_votable_transactions v JOIN affected a ON a.id=v.id
-                UNION ALL
-                SELECT vote.votable_transaction_id, vote.source_l1_block_number,
-                       vote.source_l1_block_hash
-                FROM via_votes vote JOIN affected a ON a.id=vote.votable_transaction_id
-                WHERE vote.source_l1_block_number <= $1 OR vote.source_l1_block_number IS NULL
-             ), coverage AS (
-                SELECT s.id, MAX(s.number) AS number,
-                       BOOL_AND(s.number IS NOT NULL AND s.number <= $1 AND EXISTS(
-                           SELECT 1 FROM via_l1_blocks b WHERE b.number=s.number AND b.hash=s.hash
-                       )) AS complete
-                FROM sources s GROUP BY s.id
-             )
-             UPDATE via_votable_transactions v SET
-                is_finalized=CASE WHEN v.is_finalized=FALSE AND (v.l1_batch_status=FALSE OR EXISTS(
-                    SELECT 1 FROM via_votable_transactions sibling
-                    WHERE sibling.l1_batch_number=v.l1_batch_number AND sibling.id<>v.id
-                )) THEN FALSE ELSE NULL END,
-                source_l1_block_number=CASE
-                    WHEN v.source_l1_block_number IS NOT NULL AND c.complete THEN c.number END,
-                source_l1_block_hash=CASE
-                    WHEN v.source_l1_block_number IS NOT NULL AND c.complete THEN (
-                        SELECT b.hash FROM via_l1_blocks b WHERE b.number=c.number
-                    ) END,
-                updated_at=NOW()
-             FROM coverage c WHERE v.id=c.id RETURNING v.id",
-        )
-        .bind(last_retained_l1_block)
-        .map(|row: sqlx::postgres::PgRow| row.get::<i64, _>("id"))
-        .instrument("revert_votes_after_l1_block")
-        .fetch_all(self.storage)
-        .await
-    }
-
-    /// Returns (not_ok_votes, ok_votes, total_votes) for the given `votable_transaction_id`.
-    pub async fn get_vote_count(&mut self, id: i64) -> DalResult<(i64, i64, i64)> {
-        let row = sqlx::query!(
-            r#"
-            SELECT
-                COUNT(*) FILTER (
-                    WHERE
-                    vote = FALSE
-                ) AS not_ok_votes,
-                COUNT(*) FILTER (
-                    WHERE
-                    vote = TRUE
-                ) AS ok_votes,
-                COUNT(*) AS total_votes
-            FROM
-                via_votes
-            WHERE
-                votable_transaction_id = $1
-            "#,
-            id
-        )
-        .instrument("get_vote_count")
-        .fetch_one(self.storage)
-        .await?;
-
-        let not_ok_votes = row.not_ok_votes.unwrap_or(0);
-        let ok_votes = row.ok_votes.unwrap_or(0);
-        let total_votes = row.total_votes.unwrap_or(0);
-        Ok((not_ok_votes, ok_votes, total_votes))
-    }
-
-    /// Marks the transaction as finalized if #ok_votes / #total_votes >= threshold.
-    pub async fn finalize_transaction_if_needed(
-        &mut self,
-        id: i64,
-        threshold: f64,
-        number_of_verifiers: usize,
-    ) -> DalResult<bool> {
-        let row = sqlx::query!(
-            r#"
-            SELECT
-                is_finalized,
-                l1_batch_status
-            FROM
-                via_votable_transactions
-            WHERE
-                id = $1
-            "#,
-            id
-        )
-        .instrument("check_if_already_finalized")
-        .fetch_one(self.storage)
-        .await?;
-
-        if row.is_finalized.is_some() {
-            return Ok(false);
-        }
-
-        // The verifier cannot finalize the block unless the zk verification has been successfully completed.
-        if row.l1_batch_status.is_none() {
-            return Ok(false);
-        }
-
-        let (not_ok_votes, ok_votes, _total_votes) = self.get_vote_count(id).await?;
-
-        let mut current_threshold = (ok_votes as f64) / (number_of_verifiers as f64);
-        let mut is_finalized = true;
-        if not_ok_votes > ok_votes {
-            current_threshold = (not_ok_votes as f64) / (number_of_verifiers as f64);
-            is_finalized = false;
-        }
-        let is_threshold_reached = current_threshold >= threshold;
-        if !is_threshold_reached {
-            return Ok(false);
-        }
-
-        sqlx::query!(
-            r#"
-            UPDATE via_votable_transactions
-            SET
-                is_finalized = $2,
-                updated_at = NOW()
-            WHERE
-                id = $1
-            "#,
-            id,
-            is_finalized
-        )
-        .instrument("finalize_transaction_if_needed")
-        .execute(self.storage)
-        .await?;
-
-        Ok(is_finalized)
     }
 
     pub async fn get_last_finalized_l1_batch(&mut self) -> DalResult<Option<u32>> {

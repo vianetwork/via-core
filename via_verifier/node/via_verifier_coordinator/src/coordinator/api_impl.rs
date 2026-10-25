@@ -50,6 +50,12 @@ impl RestApi {
         State(this): State<Arc<Self>>,
         Extension(auth): Extension<AuthenticatedRequest>,
     ) -> Result<Response<String>, ApiError> {
+        let _authority = via_btc_storage::transition::begin_authority(
+            &this.master_connection_pool,
+            this.btc_client.as_ref(),
+            &[],
+        )
+        .await?;
         if !this.config.withdrawal_signing_enabled
             || auth.binding.principal != this.config.coordinator_public_key
         {
@@ -226,6 +232,12 @@ impl RestApi {
         State(this): State<Arc<Self>>,
         Extension(auth): Extension<AuthenticatedRequest>,
     ) -> Result<Response, ApiError> {
+        let _authority = via_btc_storage::transition::begin_authority(
+            &this.master_connection_pool,
+            this.btc_client.as_ref(),
+            &[],
+        )
+        .await?;
         let session = this.state.signing_session.read().await.clone();
         let snapshot =
             transport::snapshot(&session, this.state.verifiers_pub_keys.len(), auth.transport)?;
@@ -280,6 +292,12 @@ impl RestApi {
         Extension(auth): Extension<AuthenticatedRequest>,
         Json(batch): Json<BTreeMap<usize, PartialSignaturePair>>,
     ) -> Result<Response<String>, ApiError> {
+        let _authority = via_btc_storage::transition::begin_authority(
+            &this.master_connection_pool,
+            this.btc_client.as_ref(),
+            &[],
+        )
+        .await?;
         let mut session = this.state.signing_session.write().await;
         let count = check_round(&session, &auth)?;
         check_batch(&batch, count)?;
