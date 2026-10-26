@@ -809,7 +809,8 @@ async fn decide_rotation_candidate(
     )
     .await
     .unwrap();
-    let votes = ReaderDal::new(storage).reader_votes(1).await.unwrap();
+    let proof_ids: Vec<_> = proofs.iter().map(|proof| proof.work.id).collect();
+    let votes = ReaderDal::new(storage).reader_votes(1, &proof_ids).await.unwrap();
     let mut tx = storage.start_transaction().await.unwrap();
     let mut reader = ReaderDal::new(&mut tx);
     reader

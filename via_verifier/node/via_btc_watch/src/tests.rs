@@ -175,7 +175,7 @@ async fn verifier_protocol_loop_commits_deposit_proof_vote_and_consumer_together
     let mut db = fixture.pool.connection().await?;
     let proof = db.via_votes_dal().pending_reader_proof().await?.unwrap();
     assert_eq!(proof.proof.origin.txid, fixture.proof);
-    assert_eq!(ReaderDal::new(&mut db).reader_votes(fixture.target).await?.len(), 1);
+    assert_eq!(ReaderDal::new(&mut db).reader_votes(fixture.target, &[proof.id]).await?.len(), 1);
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM via_transactions WHERE bitcoin_height=$1")
             .bind(i64::from(fixture.target))
@@ -250,7 +250,11 @@ async fn second_member_vote_stops_the_actual_reader_durably() -> anyhow::Result<
     let state = ReaderDal::new(&mut restarted).state().await?.unwrap();
     assert!(state.stopped_reason.unwrap().contains("conflict"));
     assert!(!state.replay_ready);
-    assert_eq!(ReaderDal::new(&mut restarted).reader_votes(fixture.target + 1).await?.len(), 1);
+    let proof = restarted.via_votes_dal().pending_reader_proof().await?.unwrap();
+    assert_eq!(
+        ReaderDal::new(&mut restarted).reader_votes(fixture.target + 1, &[proof.id]).await?.len(),
+        1
+    );
     Ok(())
 }
 #[tokio::test]

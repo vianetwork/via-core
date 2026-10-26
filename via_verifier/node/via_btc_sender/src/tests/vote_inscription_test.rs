@@ -381,7 +381,7 @@ async fn votes_after_the_frozen_prefix_cannot_supply_its_quorum() {
     vote.origin.height = 2;
     vote.origin.hash = chain.blocks[&2].block_hash();
     reader.save_reader_vote(&vote, &work, bitcoin::Network::Regtest).await.unwrap();
-    let votes = reader.reader_votes(2).await.unwrap();
+    let votes = reader.reader_votes(2, &[work.id]).await.unwrap();
     assert!(matches!(
         reader.proof_quorum(&work, &votes, 1, 0.66).await.unwrap(),
         via_btc_storage::ProofQuorum::Complete(None)
@@ -430,7 +430,7 @@ async fn historical_membership_controls_old_proofs_after_rotation() {
     vote.origin.message_index = 1;
     vote.payload.sender_script = Some(replacement.script_pubkey().into_bytes());
     reader.save_reader_vote(&vote, &work, bitcoin::Network::Regtest).await.unwrap();
-    let votes = reader.reader_votes(1).await.unwrap();
+    let votes = reader.reader_votes(1, &[work.id]).await.unwrap();
     assert_eq!(votes.len(), 1);
     assert!(matches!(
         reader.proof_quorum(&work, &votes, 1, 0.66).await.unwrap(),
