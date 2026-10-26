@@ -155,7 +155,9 @@ impl BitcoinClient {
             None
         };
         if let Some(reason) = reason {
-            return Err(BitcoinError::InvalidBlockHeader { hash, reason });
+            return Err(BitcoinError::Rpc(format!(
+                "Core selection changed at {height}/{hash}: {reason}"
+            )));
         }
         Ok(header)
     }
@@ -533,7 +535,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn canonical_header_at_rejects_height_mismatch_and_chain_change() {
+    async fn canonical_header_at_holds_height_mismatch_and_chain_change() {
         for (height, membership, expected) in [
             (
                 8,
@@ -557,7 +559,7 @@ mod tests {
             let result = get_client_with_mock(rpc).canonical_header_at(7).await;
             match expected {
                 Some(expected) => assert!(matches!(result,
-                    Err(BitcoinError::InvalidBlockHeader { reason, .. }) if reason == expected)),
+                    Err(BitcoinError::Rpc(reason)) if reason.contains(&expected.to_string()))),
                 None => assert_eq!(result.unwrap().height, 7),
             }
         }

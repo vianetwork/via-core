@@ -1805,8 +1805,17 @@ impl TransactionsDal<'_, '_> {
                                 AND in_mempool = FALSE
                                 AND error IS NULL
                                 AND (
-                                    is_priority = TRUE
+                                    (is_priority = TRUE AND EXISTS (
+                                        SELECT 1 FROM via_btc_headers h CROSS JOIN via_btc_reader r
+                                        WHERE h.number = transactions.bitcoin_height
+                                            AND h.hash = transactions.bitcoin_hash
+                                            AND transactions.bitcoin_payload IS NOT NULL
+                                            AND r.replay_ready AND r.stopped_reason IS NULL
+                                            AND h.number <= r.confirmed_number
+                                    ))
                                     OR (
+                                        is_priority = FALSE
+                                        AND
                                         max_fee_per_gas >= $2
                                         AND gas_per_pubdata_limit >= $3
                                     )

@@ -330,6 +330,74 @@ async fn bounded_signing_valid_heavy_parent_downloads_signs_and_recovers() {
     .await;
 }
 
+#[tokio::test]
+async fn signing_coordinator_run_completes_round_through_its_own_api() {
+    let (keys, public, wallets) = fixture_wallets(1);
+    let btc = recording_bitcoin(funding_transaction(&wallets.bridge, 1));
+    let pool = ConnectionPool::<Verifier>::test_pool().await;
+    seed(
+        &pool,
+        &wallets,
+        &CompleteWithdrawalBatch {
+            batch_number: 1,
+            chain_id: 270,
+            network: Network::Bitcoin,
+            protocol_version: 1,
+            blob_id: "coordinator-lock".into(),
+            pubdata_hash: H256::repeat_byte(9),
+            start_block: 1,
+            end_block: 1,
+            pubdata: vec![1],
+            receipts: vec![],
+            nonpayable: vec![],
+            withdrawals: vec![fixture_withdrawal(&wallets.verifiers[0], 50_000)],
+        },
+        btc.as_ref(),
+    )
+    .await;
+    let coordinator =
+        TestCoordinator::start(pool.clone(), btc.clone(), &public, &keys[0], PeerMode::Writer)
+            .await;
+    let mut config = coordinator.config.clone();
+    config.role = ViaNodeRole::Coordinator;
+    config.wallet_address = wallets.verifiers[0].to_string();
+    config.poll_interval = 10;
+    config.verifier_request_timeout = 1;
+    let verifier = ViaWithdrawalVerifier::new(
+        config,
+        ViaWallet::new(wallets.verifiers[0].to_string(), keys[0].to_wif()),
+        pool.clone(),
+        btc.clone(),
+        withdrawal_client(),
+        ViaBridgeConfig { verifiers_pub_keys: public, bridge_address: wallets.bridge.to_string() },
+    )
+    .unwrap();
+    let (stop, receiver) = watch::channel(false);
+    let run = tokio::spawn(verifier.run(receiver));
+    let completed = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+        loop {
+            if !btc.broadcasts.lock().is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    stop.send_replace(true);
+    run.await.unwrap().unwrap();
+    completed.expect("signing coordinator never completed its round");
+    let session = coordinator.session.read().await;
+    assert!(!session.received_sigs.is_empty());
+    let mut db = pool.connection().await.unwrap();
+    let record = db
+        .via_withdrawal_dal()
+        .get_withdrawal_attempt(wallets.bridge.script_pubkey().as_bytes(), &session.round_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.state, WithdrawalAttemptState::Finalized);
+}
+
 async fn run_actual_iterations(
     heavy: bool,
     coordinator_mode: PeerMode,
@@ -344,21 +412,7 @@ async fn run_actual_iterations(
     let output_key =
         bitcoin::XOnlyPublicKey::from_slice(&bridge.script_pubkey().as_bytes()[2..]).unwrap();
     let wallet = bridge.script_pubkey().into_bytes();
-    let parent = Transaction {
-        version: transaction::Version::TWO,
-        lock_time: absolute::LockTime::ZERO,
-        input: vec![],
-        output: vec![
-            TxOut {
-                value: Amount::from_sat(100_000),
-                script_pubkey: bridge.script_pubkey(),
-            },
-            TxOut {
-                value: Amount::from_sat(100_000),
-                script_pubkey: bridge.script_pubkey(),
-            },
-        ],
-    };
+    let parent = funding_transaction(bridge, 2);
     let (core, parent) = if heavy {
         let (node, parent) = heavy_parent(&bridge.script_pubkey(), 790);
         assert!((390_000..400_000).contains(&bitcoin::consensus::serialize(&parent).len()));
@@ -367,17 +421,7 @@ async fn run_actual_iterations(
         (None, parent)
     };
     let funding_parent = parent.clone();
-    let btc = Arc::new(RecordingBitcoin {
-        inner: MockBitcoinOps {
-            utxos: parent_utxos(&parent),
-            transaction: Some(parent),
-            fee_rate: 2,
-            ..bitcoin_fixture()
-        },
-        broadcasts: Mutex::new(Vec::new()),
-        parent_fault: std::sync::atomic::AtomicU8::new(0),
-        parent_fetches: std::sync::atomic::AtomicUsize::new(0),
-    });
+    let btc = recording_bitcoin(parent);
     // A gross amount larger than either input forces a complete two-input batch.
     let batch = CompleteWithdrawalBatch {
         batch_number: 1,
@@ -1035,6 +1079,35 @@ fn fixture_wallets(signers: usize) -> (Vec<PrivateKey>, Vec<String>, SystemWalle
         ),
     };
     (keys, public, wallets)
+}
+
+fn funding_transaction(bridge: &Address, inputs: usize) -> Transaction {
+    Transaction {
+        version: transaction::Version::TWO,
+        lock_time: absolute::LockTime::ZERO,
+        input: vec![],
+        output: vec![
+            TxOut {
+                value: Amount::from_sat(100_000),
+                script_pubkey: bridge.script_pubkey()
+            };
+            inputs
+        ],
+    }
+}
+
+fn recording_bitcoin(parent: Transaction) -> Arc<RecordingBitcoin> {
+    Arc::new(RecordingBitcoin {
+        inner: MockBitcoinOps {
+            utxos: parent_utxos(&parent),
+            transaction: Some(parent),
+            fee_rate: 2,
+            ..bitcoin_fixture()
+        },
+        broadcasts: Mutex::new(Vec::new()),
+        parent_fault: std::sync::atomic::AtomicU8::new(0),
+        parent_fetches: std::sync::atomic::AtomicUsize::new(0),
+    })
 }
 
 fn parent_utxos(parent: &Transaction) -> Vec<(OutPoint, TxOut)> {

@@ -101,7 +101,11 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
         let through = mature.min(prepared.snapshot.state.confirmed.height);
         let proofs =
             DB::canonical_proofs(self.storage, through, crate::ProofScope::Finalization).await?;
-        let votes = self.reader_votes(through).await?;
+        if proofs.is_empty() {
+            return Ok(0);
+        }
+        let proof_ids: Vec<_> = proofs.iter().map(|proof| proof.work.id).collect();
+        let votes = self.reader_votes(through, &proof_ids).await?;
         let mut saved = 0;
         for proof in proofs.iter().filter(|proof| proof.local_complete) {
             let work = &proof.work;
@@ -199,14 +203,20 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
             .bind(crate::PROTOCOL_CONSUMER).instrument("bitcoin_proof_inputs_complete").fetch_one(self.storage).await?)
     }
 
-    pub async fn reader_votes(&mut self, through: u32) -> anyhow::Result<Vec<CanonicalVote>> {
+    pub async fn reader_votes(
+        &mut self,
+        through: u32,
+        proof_ids: &[i64],
+    ) -> anyhow::Result<Vec<CanonicalVote>> {
         let rows = sqlx::query(
             "SELECT v.votable_transaction_id AS proof_id,v.source_l1_block_number AS height,
             v.verifier_address AS voter,v.vote AS approved FROM via_votes v JOIN via_btc_headers h
             ON h.number=v.source_l1_block_number AND h.hash=v.source_l1_block_hash
-            WHERE h.number<=$1 AND v.bitcoin_payload IS NOT NULL ORDER BY h.number,v.transaction_index,v.message_index",
+            WHERE h.number<=$1 AND v.votable_transaction_id=ANY($2) AND v.bitcoin_payload IS NOT NULL
+            ORDER BY h.number,v.transaction_index,v.message_index",
         )
         .bind(i64::from(through))
+        .bind(proof_ids)
         .map(|row: PgRow| row)
         .instrument("bitcoin_canonical_votes")
         .fetch_all(self.storage)

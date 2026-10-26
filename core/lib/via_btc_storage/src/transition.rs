@@ -457,7 +457,8 @@ pub async fn process_next<DB: crate::ReaderRole>(
         for (height,) in heights {
             let height = u32::try_from(height)?;
             let proofs = DB::canonical_proofs(&mut tx, height, crate::ProofScope::Interpretation).await?;
-            let votes = ReaderDal::new(&mut tx).reader_votes(height).await?;
+            let proof_ids: Vec<_> = proofs.iter().map(|proof| proof.work.id).collect();
+            let votes = ReaderDal::new(&mut tx).reader_votes(height, &proof_ids).await?;
             ReaderDal::new(&mut tx)
                 .decide_configurations(
                     height,

@@ -138,15 +138,7 @@ impl ViaWithdrawalVerifier {
             tokio::select! { _ = timer.tick() => {}, _ = stop.changed() => break }
             // Never replace/reacquire this connection: a lost owner terminates the process task.
             Self::check_owner(&mut owner, &wallet).await?;
-            let authority = via_btc_storage::transition::begin_authority(&pool, self.btc_client.as_ref(), &[]).await;
-            let result = match authority {
-                Ok(guard) => {
-                    let result = self.iteration(&mut owner, &wallet).await;
-                    drop(guard);
-                    result
-                }
-                Err(error) => Err(error),
-            };
+            let result = self.iteration(&mut owner, &wallet).await;
             if let Err(error) = result {
                 crate::metrics::METRICS.errors.inc();
                 tracing::error!("Withdrawal signing deferred: {error:#}");
@@ -331,6 +323,12 @@ impl ViaWithdrawalVerifier {
             .await?;
             snapshot = self.snapshot().await?;
         }
+        let authority = via_btc_storage::transition::begin_authority(
+            &self.master_connection_pool,
+            self.btc_client.as_ref(),
+            &[],
+        )
+        .await?;
         if self
             .live
             .as_ref()
@@ -423,10 +421,12 @@ impl ViaWithdrawalVerifier {
             anyhow::bail!("Retired round cannot recreate nonce");
         }
         if let Some(bytes) = &record.finalized_transaction {
+            drop(authority);
             return self.broadcast(owner, wallet, &operation, bytes).await;
         }
         if let Some(bytes) = &record.public_signatures {
             let cached: CachedShares = serde_json::from_slice(bytes)?;
+            drop(authority);
             return self
                 .publish_cached(owner, wallet, &snapshot, &operation, &record, &cached)
                 .await;
@@ -486,6 +486,7 @@ impl ViaWithdrawalVerifier {
         let index = self.signer_index()?;
         if !contains_batch(&snapshot.nonces, &own_nonces, index)? {
             Self::check_owner(owner, wallet).await?;
+            drop(authority);
             self.request(
                 "POST",
                 "/session/nonce",
@@ -552,6 +553,7 @@ impl ViaWithdrawalVerifier {
             .via_withdrawal_dal()
             .persist_withdrawal_signatures(wallet, &snapshot.round_id, &record.content, &bytes)
             .await?;
+        drop(authority);
         self.publish_cached(owner, wallet, &snapshot, &operation, &record, &cached)
             .await
     }
@@ -600,6 +602,12 @@ impl ViaWithdrawalVerifier {
         ) {
             return Ok(());
         }
+        let authority = via_btc_storage::transition::begin_authority(
+            &self.master_connection_pool,
+            self.btc_client.as_ref(),
+            &[],
+        )
+        .await?;
         let mut transaction = operation.get_unsigned_bridge_tx().tx;
         for (input, message) in messages.iter().enumerate() {
             let nonces = snapshot.nonces[&input]
@@ -652,6 +660,7 @@ impl ViaWithdrawalVerifier {
         crate::metrics::METRICS
             .session_time
             .set(crate::utils::seconds_since_epoch().saturating_sub(snapshot.created_at) as usize);
+        drop(authority);
         self.broadcast(owner, wallet, operation, &bytes).await
     }
 
@@ -662,6 +671,12 @@ impl ViaWithdrawalVerifier {
         operation: &SessionOperation,
         bytes: &[u8],
     ) -> anyhow::Result<()> {
+        let _authority = via_btc_storage::transition::begin_authority(
+            &self.master_connection_pool,
+            self.btc_client.as_ref(),
+            &[],
+        )
+        .await?;
         if !self
             .withdrawal_session
             .before_broadcast_final_transaction(operation)

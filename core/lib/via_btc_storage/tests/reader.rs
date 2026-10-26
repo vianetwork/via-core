@@ -272,6 +272,62 @@ async fn core_fixture() -> anyhow::Result<(BitcoinCore, Arc<BitcoinClient>, Conn
     .await?;
     Ok((core, client, pool))
 }
+
+#[tokio::test]
+async fn branch_switch_between_height_and_header_holds_then_retries() -> anyhow::Result<()> {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    };
+
+    use via_test_utils::bitcoin_rpc::BitcoinRpcServer;
+    let chain = Chain::with_height(2);
+    let pool =
+        initialized_pool(fixture_header(&chain, 0), fixture_header(&chain, 2).into()).await?;
+    let chain = Arc::new(Mutex::new(chain));
+    let switched = Arc::new(AtomicBool::new(false));
+    let server = BitcoinRpcServer::new_with_errors(None, false, {
+        let chain = chain.clone();
+        let switched = switched.clone();
+        move |_, request| {
+            let mut chain = chain.lock().unwrap();
+            let result = chain.rpc(&request);
+            if request["method"] == "getblockhash"
+                && request["params"][0] == 1
+                && !switched.swap(true, Ordering::SeqCst)
+            {
+                chain.fork_at_height(0);
+            }
+            result
+        }
+    })?;
+    let client = Arc::new(BitcoinClient::new(
+        &server.url(""),
+        via_btc_client::types::NodeAuth::None,
+        zksync_config::configs::via_btc_client::ViaBtcClientConfig::for_tests(),
+    )?);
+    let mut indexer = via_btc_client::indexer::BitcoinInscriptionIndexer::new(
+        client.clone(),
+        Arc::new(via_test_utils::utils::test_wallets()),
+    );
+    let mut db = pool.connection().await?;
+    let mut tx = db.start_transaction().await?;
+    let mut reader = ReaderDal::new(&mut tx);
+    let root = reader.header_at(0).await?.unwrap();
+    reader.complete_consumer(PROTOCOL_CONSUMER, &root, &root).await?;
+    tx.commit().await?;
+    let error = transition::process_next(&mut db, &client, &mut indexer, 0.3).await.unwrap_err();
+    assert!(transition::is_held(&error), "{error:#}");
+    let state = ReaderDal::new(&mut db).state().await?.unwrap();
+    assert!(state.stopped_reason.is_none());
+    assert_eq!(ReaderDal::new(&mut db).get_highest_block().await?.unwrap().header.height, 0);
+    assert!(transition::process_next(&mut db, &client, &mut indexer, 0.3).await?);
+    assert_eq!(
+        ReaderDal::new(&mut db).get_highest_block().await?.unwrap().header,
+        fixture_header(&chain.lock().unwrap(), 1)
+    );
+    Ok(())
+}
 async fn prepare(
     client: &BitcoinClient,
     db: &mut Connection<'_, Test>,
@@ -686,6 +742,24 @@ async fn main_finalization_persists_positive_and_negative_exact_proof_quorum() -
             Some(approved)
         );
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn idle_finalization_never_queries_votes() -> anyhow::Result<()> {
+    let (_core, client, pool) = main_finalization_fixture(true).await?;
+    let mut db = pool.connection().await?;
+    let id = Test::canonical_proofs(&mut db, 1, ProofScope::Finalization).await?[0].work.id;
+    assert!(ReaderDal::new(&mut db).reader_votes(1, &[id + 1]).await?.is_empty());
+    assert_eq!(ReaderDal::new(&mut db).reader_votes(1, &[id]).await?.len(), 1);
+    assert_eq!(finalize_main(&mut db, &client).await?, 1);
+    sqlx::query("CREATE TEMP VIEW via_votes AS SELECT * FROM public.via_votes WHERE 1/0=0")
+        .instrument("idle_vote_query_trap")
+        .execute(&mut db)
+        .await?;
+    assert_eq!(finalize_main(&mut db, &client).await?, 0);
+    let error = ReaderDal::new(&mut db).reader_votes(1, &[id]).await.err().unwrap();
+    assert!(format!("{error:#}").contains("bitcoin_canonical_votes"));
     Ok(())
 }
 #[tokio::test]

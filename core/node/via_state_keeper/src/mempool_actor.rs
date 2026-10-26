@@ -277,6 +277,109 @@ mod tests {
         fetcher_task.await.unwrap().expect("fetcher errored");
     }
 
+    #[tokio::test]
+    async fn immature_deposits_cannot_starve_pending_l2_transactions() {
+        use via_btc_client::{
+            indexer::replay::{DepositOrigin, Payload},
+            types::L1ToL2MessageInput,
+        };
+        use via_btc_storage::ReaderDal;
+        use via_reorg::chain::Header;
+        use zksync_types::l1::via_l1::ViaL1Deposit;
+        let pool = ConnectionPool::<Core>::test_pool().await;
+        let mut db = pool.connection().await.unwrap();
+        insert_genesis_batch(&mut db, &GenesisParams::mock()).await.unwrap();
+        let chain = via_test_utils::chain::Chain::with_height(1);
+        let header = |height| Header {
+            height,
+            block_hash: chain.blocks[&height].block_hash(),
+            parent_hash: chain.blocks[&height].header.prev_blockhash,
+        };
+        let mut tx = db.start_transaction().await.unwrap();
+        let mut reader = ReaderDal::new(&mut tx);
+        reader
+            .initialize("regtest", header(0).block_hash, header(0), header(0).into())
+            .await
+            .unwrap();
+        let root = reader.header_at(0).await.unwrap().unwrap();
+        reader.complete_consumer(via_btc_storage::PROTOCOL_CONSUMER, &root, &root).await.unwrap();
+        reader.save_block(header(1), &root).await.unwrap();
+        sqlx::query("UPDATE protocol_patches SET bitcoin_height=0,bitcoin_hash=$1")
+            .bind(header(0).block_hash.to_string())
+            .execute(tx.conn())
+            .await
+            .unwrap();
+        assert!(ReaderDal::new(&mut tx).complete_replay().await.unwrap());
+        tx.commit().await.unwrap();
+        let payload = Payload {
+            input: (
+                L1ToL2MessageInput {
+                    receiver_l2_address: Address::repeat_byte(7),
+                    l2_contract_address: Address::zero(),
+                    call_data: vec![],
+                },
+                50_000,
+            ),
+            public_key: vec![],
+            signature: vec![],
+            sender_script: None,
+        };
+        for index in 0..3 {
+            let deposit = ViaL1Deposit {
+                l2_receiver_address: payload.input.0.receiver_l2_address,
+                amount: payload.input.1,
+                calldata: vec![],
+                l1_block_number: 1,
+                tx_index: index,
+                output_vout: 0,
+            };
+            let operation = deposit.l1_tx().unwrap();
+            db.via_transactions_dal()
+                .insert_transaction_l1(
+                    &operation,
+                    operation.eth_block(),
+                    H256::from_low_u64_be(index as u64 + 1),
+                    &DepositOrigin { height: 1, hash: header(1).block_hash, vout: 0 },
+                    &payload,
+                )
+                .await
+                .unwrap();
+        }
+        let fees: Arc<dyn BatchFeeModelInputProvider> =
+            Arc::new(MockBatchFeeParamsProvider::default());
+        let fee_input = fees.get_batch_fee_input().await.unwrap();
+        let (base_fee, gas_per_pubdata) =
+            derive_base_fee_and_gas_per_pubdata(fee_input, ProtocolVersionId::latest().into());
+        let transaction = create_l2_transaction(base_fee, gas_per_pubdata);
+        db.transactions_dal()
+            .insert_transaction_l2(
+                &transaction,
+                TransactionExecutionMetrics::default(),
+                ValidationTraces::default(),
+            )
+            .await
+            .unwrap();
+        drop(db);
+        let mempool = MempoolGuard::new(PriorityOpId(0), 100);
+        let mut fetcher = MempoolFetcher::new(
+            mempool.clone(),
+            fees,
+            &MempoolConfig { sync_batch_size: 2, ..TEST_MEMPOOL_CONFIG },
+            pool,
+        );
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        fetcher.transaction_hashes_sender = sender;
+        let (stop, stop_receiver) = watch::channel(false);
+        let run = tokio::spawn(fetcher.run(stop_receiver));
+        let synced =
+            tokio::time::timeout(Duration::from_secs(2), wait_for_new_transactions(&mut receiver))
+                .await;
+        stop.send_replace(true);
+        run.await.unwrap().unwrap();
+        assert_eq!(synced.expect("immature deposits starved L2"), [transaction.hash()]);
+        assert_eq!(mempool.stats().l2_transaction_count, 1);
+    }
+
     async fn wait_for_new_transactions(
         tx_hashes_receiver: &mut mpsc::UnboundedReceiver<Vec<H256>>,
     ) -> Vec<H256> {
