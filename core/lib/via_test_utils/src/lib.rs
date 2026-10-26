@@ -6,6 +6,8 @@ pub mod utils;
 
 /// Builds the shared reader prefix and returns actual native-source replay readiness.
 /// Callers keep role-specific evidence and explicit partial-replay state in their own fixture.
+/// One chain fixture owns the prefix; native evidence and partial readiness stay with callers.
+/// Idea only from LDK Blockchain::with_height; Via additionally seeds reader consumers/frontier and returns DAL readiness: https://github.com/lightningdevkit/rust-lightning/blob/d7a980641c6325ddda5072a0f470ef8392676cf5/lightning-block-sync/src/test_utils.rs
 pub async fn reader_at<DB: via_btc_storage::ReaderRole>(
     storage: &mut zksync_db_connection::connection::Connection<'_, DB>,
     chain: &chain::Chain,

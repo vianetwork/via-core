@@ -102,6 +102,8 @@ impl PreparedTransition {
     /// Missing/lagging/unavailable source evidence returns an error and authorizes no writes.
     /// Only Core's explicit negative confirmation proves disconnection (BDK LocalChain update).
     /// https://github.com/bitcoindevkit/bdk/blob/5dc6e959379982a1661e8f57c3ee7af334627ca5/crates/bitcoind_rpc/src/lib.rs
+    /// Body consumers fetch only after metadata planning selects the block they need.
+    /// Idea only from BDK poll_once plus poll's body callback; Via exposes a prepared DB transition: https://github.com/bitcoindevkit/bdk/blob/5dc6e959379982a1661e8f57c3ee7af334627ca5/crates/bitcoind_rpc/src/lib.rs
     pub async fn prepare_headers(
         client: &dyn BitcoinOps,
         snapshot: ReaderSnapshot,
@@ -207,6 +209,8 @@ impl PreparedTransition {
     }
 
     /// Invoke after all other RPC preparation, immediately before opening the outer transaction.
+    /// Identity and canonical membership must agree; a growing positive confirmation count may differ.
+    /// Idea only from Core blockheaderToJSON's tip-relative confirmations; Via also rechecks the selected tip: https://github.com/bitcoin/bitcoin/blob/79d6e874e1dad6822b5d7e6993aa205d21ed2cbf/src/rpc/blockchain.cpp
     pub async fn revalidate(&self, client: &dyn BitcoinOps) -> anyhow::Result<()> {
         let current = client.header_by_hash(&self.observed_head.hash).await?;
         ensure!(
@@ -551,6 +555,8 @@ pub async fn begin_authority<DB: crate::ReaderRole>(
     Ok(tx)
 }
 
+/// Both reader loops retry inconclusive source/DB errors; durable stops and integrity end the task.
+/// Idea only from Hyperlane pause versus sticky halt; Via classifies typed errors without a lease/health column: https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/693d2d45df75135504e424c5a4d16761d0016f99/rust/main/agents/scraper/src/near_head/pipeline.rs
 pub fn is_held(error: &anyhow::Error) -> bool {
     !matches!(
         error.downcast_ref::<StoreError>(),

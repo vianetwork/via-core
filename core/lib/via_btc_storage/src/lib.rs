@@ -371,6 +371,8 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
             self.storage.in_transaction(),
             StoreError::Integrity("readiness outside transaction")
         );
+        // Expose the first source blocking this role's replay instead of leaving an unexplained hold.
+        // Idea only from Hyperlane's per-cycle health diagnostics; Via reports native row identity and a replay gauge: https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/693d2d45df75135504e424c5a4d16761d0016f99/rust/main/agents/scraper/src/near_head/runtime.rs
         if let Some(source) = DB::unreconciled_source(self.storage).await? {
             crate::metrics::METRICS.replay_unreconciled[&DB::NAME].set(1);
             tracing::warn!(role = DB::NAME, %source, "Bitcoin replay waits for retained source reconciliation");

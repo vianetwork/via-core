@@ -101,6 +101,8 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
         let through = mature.min(prepared.snapshot.state.confirmed.height);
         let proofs =
             DB::canonical_proofs(self.storage, through, crate::ProofScope::Finalization).await?;
+        // Skip dependent vote I/O when there is no proof work; header observation still progresses.
+        // Idea only from BDK poll's NoMoreBlocks path, which skips the body callback; Via skips a SQL lookup: https://github.com/bitcoindevkit/bdk/blob/5dc6e959379982a1661e8f57c3ee7af334627ca5/crates/bitcoind_rpc/src/lib.rs
         if proofs.is_empty() {
             return Ok(0);
         }
@@ -203,6 +205,8 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
             .bind(crate::PROTOCOL_CONSUMER).instrument("bitcoin_proof_inputs_complete").fetch_one(self.storage).await?)
     }
 
+    /// Bound vote reads by this work set rather than scanning canonical vote history.
+    /// Idea only from Era's batch-scoped hash=ANY filter; Via scopes proof IDs and keeps source joins: https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/dal/src/transactions_dal.rs
     pub async fn reader_votes(
         &mut self,
         through: u32,

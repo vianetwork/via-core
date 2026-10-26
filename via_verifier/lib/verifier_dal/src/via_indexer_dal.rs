@@ -60,6 +60,8 @@ impl ViaIndexerDal<'_, '_> {
             .await?;
         via_btc_storage::ReaderDal::new(self.storage).delete_common_suffix(height).await?;
         // Votable rows lack a protocol-version link, so suffix deletion keeps protocol history.
+        // Protocol evidence survives rollback for interpretation of retained work.
+        // Idea only from Era's batch reverter, which retains protocol versions; Via has no safe votable/version correlation: https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/block_reverter/src/lib.rs
         for query in [
             "DELETE FROM via_votable_transactions p WHERE (p.proof_l1_block_number>$1 OR p.proof_l1_block_number IS NULL)
                 AND p.l1_batch_status IS NULL
