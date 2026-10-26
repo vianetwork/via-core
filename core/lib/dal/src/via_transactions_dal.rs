@@ -14,35 +14,6 @@ pub struct ViaTransactionsDal<'c, 'a> {
 }
 
 impl ViaTransactionsDal<'_, '_> {
-    pub async fn protocol_is_mature(
-        &mut self,
-        version: zksync_types::ProtocolVersionId,
-    ) -> anyhow::Result<bool> {
-        Ok(sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM protocol_patches p JOIN via_btc_headers h
-            ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash CROSS JOIN via_btc_reader r
-            WHERE p.minor=$1 AND r.replay_ready AND r.stopped_reason IS NULL AND h.number<=r.confirmed_number)")
-            .bind(version as i32).instrument("bitcoin_mature_protocol_version").fetch_one(self.storage).await?)
-    }
-
-    pub async fn transaction_is_mature(
-        &mut self,
-        transaction: &zksync_types::Transaction,
-    ) -> anyhow::Result<bool> {
-        match &transaction.common_data {
-            zksync_types::ExecuteTransactionCommon::L2(_) => Ok(true),
-            zksync_types::ExecuteTransactionCommon::L1(_) => Ok(sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS(SELECT 1 FROM transactions t JOIN via_btc_headers h ON h.number=t.bitcoin_height
-                    AND h.hash=t.bitcoin_hash CROSS JOIN via_btc_reader r WHERE t.hash=$1 AND t.bitcoin_payload IS NOT NULL
-                    AND r.replay_ready AND r.stopped_reason IS NULL AND h.number<=r.confirmed_number)")
-                .bind(transaction.hash().as_bytes()).instrument("bitcoin_mature_priority_operation").fetch_one(self.storage).await?),
-            zksync_types::ExecuteTransactionCommon::ProtocolUpgrade(_) => Ok(sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS(SELECT 1 FROM protocol_versions v JOIN protocol_patches p ON p.minor=v.id
-                    JOIN via_btc_headers h ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash CROSS JOIN via_btc_reader r
-                    WHERE v.upgrade_tx_hash=$1 AND r.replay_ready AND r.stopped_reason IS NULL AND h.number<=r.confirmed_number)")
-                .bind(transaction.hash().as_bytes()).instrument("bitcoin_mature_upgrade_operation").fetch_one(self.storage).await?),
-        }
-    }
-
     pub async fn filter_mature_mempool(
         &mut self,
         transactions: &mut Vec<(

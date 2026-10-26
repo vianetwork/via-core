@@ -224,41 +224,59 @@ async fn late_consumer_failure_rolls_back_native_protocol_effects() -> anyhow::R
     Ok(())
 }
 #[tokio::test]
-async fn second_member_vote_stops_the_actual_reader_durably() -> anyhow::Result<()> {
-    let mut fixture = Fixture::new().await?;
-    let mut db = fixture.pool.connection().await?;
-    let mut indexer =
-        BitcoinInscriptionIndexer::new(fixture.client.clone(), Arc::new(fixture.wallets.clone()));
-    via_btc_storage::transition::process_next(&mut db, &fixture.client, &mut indexer, 0.66).await?;
-    fixture.voter.sync_context_with_blockchain().await?;
-    fixture
-        .voter
-        .inscribe(InscriptionMessage::ValidatorAttestation(ValidatorAttestationInput {
-            reference_txid: fixture.proof,
-            attestation: Vote::NotOk,
-        }))
-        .await?;
-    fixture.core.mine(1)?;
-    let (_stop, receiver) = watch::channel(false);
-    let error = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        fixture.watcher().await?.run(receiver),
-    )
-    .await?
-    .unwrap_err();
-    assert!(matches!(
-        error.downcast_ref::<via_btc_storage::StoreError>(),
-        Some(via_btc_storage::StoreError::Stopped(_))
-    ));
-    let mut restarted = fixture.pool.connection().await?;
-    let state = ReaderDal::new(&mut restarted).state().await?.unwrap();
-    assert!(state.stopped_reason.unwrap().contains("conflict"));
-    assert!(!state.replay_ready);
-    let proof = restarted.via_votes_dal().pending_reader_proof().await?.unwrap();
-    assert_eq!(
-        ReaderDal::new(&mut restarted).reader_votes(fixture.target + 1, &[proof.id]).await?.len(),
-        1
-    );
+async fn repeated_member_ballot_is_ignored_and_conflicting_ballot_stops_reader(
+) -> anyhow::Result<()> {
+    for attestation in [Vote::Ok, Vote::NotOk] {
+        let conflicting = attestation == Vote::NotOk;
+        let mut fixture = Fixture::new().await?;
+        let mut db = fixture.pool.connection().await?;
+        let mut indexer = BitcoinInscriptionIndexer::new(
+            fixture.client.clone(),
+            Arc::new(fixture.wallets.clone()),
+        );
+        via_btc_storage::transition::process_next(&mut db, &fixture.client, &mut indexer, 0.66)
+            .await?;
+        fixture.voter.sync_context_with_blockchain().await?;
+        fixture
+            .voter
+            .inscribe(InscriptionMessage::ValidatorAttestation(ValidatorAttestationInput {
+                reference_txid: fixture.proof,
+                attestation,
+            }))
+            .await?;
+        fixture.core.mine(1)?;
+        let (stop, receiver) = watch::channel(false);
+        let watcher = fixture.watcher().await?;
+        if conflicting {
+            let error =
+                tokio::time::timeout(std::time::Duration::from_secs(10), watcher.run(receiver))
+                    .await?
+                    .unwrap_err();
+            assert!(matches!(
+                error.downcast_ref::<via_btc_storage::StoreError>(),
+                Some(via_btc_storage::StoreError::Stopped(_))
+            ));
+        } else {
+            let task = tokio::spawn(watcher.run(receiver));
+            wait_consumer(&fixture.pool, PROTOCOL_CONSUMER, fixture.target + 1).await?;
+            assert!(!task.is_finished());
+            stop.send(true)?;
+            task.await??;
+        }
+        let mut restarted = fixture.pool.connection().await?;
+        let state = ReaderDal::new(&mut restarted).state().await?.unwrap();
+        if conflicting {
+            assert!(state.stopped_reason.unwrap().contains("conflict"));
+            assert!(!state.replay_ready);
+        } else {
+            assert!(state.stopped_reason.is_none());
+        }
+        let proof = restarted.via_votes_dal().pending_reader_proof().await?.unwrap();
+        let votes =
+            ReaderDal::new(&mut restarted).reader_votes(fixture.target + 1, &[proof.id]).await?;
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes[0].height, fixture.target);
+    }
     Ok(())
 }
 #[tokio::test]

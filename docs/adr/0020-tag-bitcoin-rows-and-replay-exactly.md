@@ -17,6 +17,13 @@ Reconcile each kept executed deposit by txid, vout, amount, retained receiver an
 
 Authority stays disabled until normal replay reaches its checked cutoff and reconciles every required kept fact. A new format version is not completion. Missing required source or DA leaves the store held with data intact. The precise allowlist follows these kept roots and their transitive parent closure; unknown dependencies refuse reset rather than expand deletion. This trades a general migration interpreter for ordinary replay plus explicit retained-state checks, without replacing the existing testnet.
 
-A second vote by the same verifier on the same exact proof is a replay conflict that stops the node for diagnosis. The key includes proof and member, in addition to the source occurrence; retrying the identical occurrence compares every saved field.
+Amended 2026-10-26: one ballot is keyed by exact proof and member. An identical
+repeat is ignored without another weight or a chain lookup; a different
+ballot from that member stops the node for diagnosis. This follows
+[CometBFT AddVote](https://github.com/cometbft/cometbft/blob/99dfb19d9fb406389269b079d34aba555ee4f3d5/types/vote_set.go).
+Via compares authenticated vote input: a new Bitcoin inscription has a different
+inclusion and transaction witness signature, which are not a new ballot. The
+first canonical occurrence remains stored. This refines the earlier rule that
+every second occurrence conflicts.
 
 Only rotation evidence excludes proofs already finalized before the reset cutoff. These are pre-#469 completed history whose expired testnet DA prevents re-verification. They remain unproven, with their original row IDs and FKs; no proof incarnation or legacy recomputation route is introduced. A rotation at h is judged on canonical proofs after that cutoff through h, which the verifier verifies itself. Mainnet starts without such legacy rows. This exception grants no voting, signing, finalization or withdrawal authority.

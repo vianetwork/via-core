@@ -40,7 +40,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_btc_inscription_manager_run_one_inscription_request() {
         let pool = ConnectionPool::<Core>::test_pool().await;
-        let config = get_btc_sender_config(1, 1);
+        let mut config = get_btc_sender_config(1, 1);
+        config.block_confirmations = 2;
         let mut mock_btc_ops_config = MockBitcoinOps::default();
         mock_btc_ops_config.set_block_height(1);
 
@@ -65,17 +66,32 @@ pub(crate) mod tests {
 
         // Simulate block mint and transaction execution on chain
         mock_btc_ops_config.set_block_height(2);
-        mock_btc_ops_config.set_tx_confirmation(true);
+        mock_btc_ops_config.tx_confirmations = Some(1);
+        run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
+        assert_eq!(
+            aggregator_test
+                .storage
+                .btc_sender_dal()
+                .list_inflight_inscription_ids()
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        mock_btc_ops_config.set_block_height(7);
+        mock_btc_ops_config.tx_confirmations = Some(2);
 
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
         let inflight_inscription_ids =
             aggregator_test.storage.btc_sender_dal().list_inflight_inscription_ids().await.unwrap();
         assert_eq!(inflight_inscription_ids.len(), 0);
+        assert_eq!(crate::metrics::METRICS.report_blocked_l1_batch_inscription.get(), 0);
 
         // Start the manager
 
-        mock_btc_ops_config.set_block_height(3);
+        mock_btc_ops_config.set_block_height(8);
+        mock_btc_ops_config.tx_confirmations = None;
         mock_btc_ops_config.set_tx_confirmation(false);
 
         // Create a commit proof inscription request

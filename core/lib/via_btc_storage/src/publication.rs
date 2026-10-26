@@ -113,17 +113,6 @@ pub async fn publish_pending<DB: ReaderRole>(
     Ok(())
 }
 
-pub async fn begin_completion<DB: crate::ReaderRole>(
-    pool: &zksync_db_connection::connection_pool::ConnectionPool<DB>,
-    client: &dyn via_btc_client::traits::BitcoinOps,
-    txid: &bitcoin::Txid,
-) -> anyhow::Result<Option<zksync_db_connection::connection::Connection<'static, DB>>> {
-    if !client.is_reorg_safe(txid).await? {
-        return Ok(None);
-    }
-    crate::transition::begin_authority(pool, client, &[]).await.map(Some)
-}
-
 pub async fn stuck_inscription_height(
     client: &dyn via_btc_client::traits::BitcoinOps,
     sent_at: i64,

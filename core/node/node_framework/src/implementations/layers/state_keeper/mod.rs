@@ -42,7 +42,6 @@ pub struct Input {
     pub output_handler: OutputHandlerResource,
     pub conditional_sealer: ConditionalSealerResource,
     pub master_pool: PoolResource<MasterPool>,
-    pub btc_client: Option<crate::implementations::resources::via_btc_client::BtcClientResource>,
     #[context(default)]
     pub app_health: AppHealthCheckResource,
 }
@@ -100,21 +99,6 @@ impl WiringLayer for StateKeeperLayer {
             self.rocksdb_options,
         );
 
-        let (execution_stop, execution_receiver) = tokio::sync::watch::channel(false);
-        let batch_executor_base: Box<
-            dyn zksync_vm_executor::interface::BatchExecutorFactory<zksync_state::OwnedStorage>,
-        > = if let Some(client) = input.btc_client {
-            Box::new(
-                via_state_keeper::bitcoin_execution::BitcoinExecutionFactory::new(
-                    batch_executor_base,
-                    master_pool.get_custom(2).await?,
-                    client.default,
-                    execution_receiver,
-                ),
-            )
-        } else {
-            batch_executor_base
-        };
         let state_keeper = ZkSyncStateKeeper::new(
             io,
             batch_executor_base,
@@ -123,10 +107,7 @@ impl WiringLayer for StateKeeperLayer {
             Arc::new(storage_factory),
         );
 
-        let state_keeper = StateKeeperTask {
-            state_keeper,
-            execution_stop,
-        };
+        let state_keeper = StateKeeperTask { state_keeper };
 
         input
             .app_health
@@ -151,7 +132,6 @@ impl WiringLayer for StateKeeperLayer {
 #[derive(Debug)]
 pub struct StateKeeperTask {
     state_keeper: ZkSyncStateKeeper,
-    execution_stop: tokio::sync::watch::Sender<bool>,
 }
 
 impl StateKeeperTask {
@@ -168,11 +148,7 @@ impl Task for StateKeeperTask {
     }
 
     async fn run(self: Box<Self>, stop_receiver: StopReceiver) -> anyhow::Result<()> {
-        let mut stop = stop_receiver.0.clone();
-        tokio::select! {
-            result = self.state_keeper.run(stop_receiver.0) => result,
-            _ = stop.changed() => { let _ = self.execution_stop.send(true); Ok(()) }
-        }
+        self.state_keeper.run(stop_receiver.0).await
     }
 }
 

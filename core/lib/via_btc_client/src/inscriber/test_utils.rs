@@ -27,6 +27,7 @@ pub struct MockBitcoinOps {
     pub fee_rate: u64,
     pub block_height: u64,
     pub tx_confirmation: bool,
+    pub tx_confirmations: Option<u32>,
     pub transaction: Option<Transaction>,
     pub block: Option<Block>,
     pub headers: Vec<crate::types::BlockHeaderInfo>,
@@ -42,6 +43,7 @@ impl Default for MockBitcoinOps {
             fee_rate: 0,
             block_height: 0,
             tx_confirmation: false,
+            tx_confirmations: None,
             transaction: None,
             block: None,
             headers: Vec::new(),
@@ -128,9 +130,11 @@ impl BitcoinOps for MockBitcoinOps {
     async fn check_tx_confirmation(
         &self,
         _txid: &Txid,
-        _conf_num: u32,
+        conf_num: u32,
     ) -> BitcoinClientResult<bool> {
-        BitcoinClientResult::Ok(self.tx_confirmation)
+        BitcoinClientResult::Ok(
+            self.tx_confirmations.map_or(self.tx_confirmation, |count| count >= conf_num),
+        )
     }
 
     async fn fetch_block_height(&self) -> BitcoinClientResult<u64> {

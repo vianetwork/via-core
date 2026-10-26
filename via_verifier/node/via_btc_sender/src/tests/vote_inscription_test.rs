@@ -245,29 +245,28 @@ async fn finalization_waits_for_ready_mature_complete_canonical_evidence() {
 }
 
 #[tokio::test]
-async fn canonical_vote_replay_compares_payload_and_second_occurrence_conflicts() {
+async fn repeated_ballot_ignores_new_inclusion_and_witness_but_conflicting_vote_fails() {
     let (pool, _, work, mut vote) = verified_vote(true).await;
     let mut db = pool.connection().await.unwrap();
     let mut tx = db.start_transaction().await.unwrap();
+    vote.payload.signature.push(1);
+    vote.origin.message_index += 1;
     ReaderDal::new(&mut tx)
         .save_reader_vote(&vote, &work, bitcoin::Network::Regtest)
         .await
         .unwrap();
-    vote.payload.signature.push(1);
+    let votes = ReaderDal::new(&mut tx).reader_votes(1, &[work.id]).await.unwrap();
+    assert_eq!(votes.len(), 1);
+    assert_eq!(votes[0].height, 1);
+    vote.payload.input.attestation = via_btc_client::types::Vote::NotOk;
     let error = ReaderDal::new(&mut tx)
         .save_reader_vote(&vote, &work, bitcoin::Network::Regtest)
         .await
         .unwrap_err();
     assert_eq!(
         error.downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>().unwrap().field,
-        "signature"
+        "vote"
     );
-    vote.payload.signature.clear();
-    vote.origin.message_index += 1;
-    assert!(ReaderDal::new(&mut tx)
-        .save_reader_vote(&vote, &work, bitcoin::Network::Regtest)
-        .await
-        .is_err());
     tx.commit().await.unwrap();
 }
 

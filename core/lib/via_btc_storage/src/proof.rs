@@ -274,9 +274,13 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
             ).bind(proof.id).bind(voter).instrument("bitcoin_compare_member_vote")
                 .fetch_optional(self.storage).await?.flatten()
                 .context(via_btc_client::indexer::replay::ReplayConflict { field: "vote_key" })?;
-            // Exact occurrence retry is idempotent.
-            // Second occurrence from same member conflicts, including same decision (Q28).
-            vote.compare(&serde_json::from_value(saved)?)?;
+            // Re-inscription changes the Bitcoin witness and origin, but not the member's ballot.
+            // Idea only from CometBFT AddVote's duplicate/conflict rule; Via compares authenticated input because witness signatures bind transactions: https://github.com/cometbft/cometbft/blob/99dfb19d9fb406389269b079d34aba555ee4f3d5/types/vote_set.go
+            let saved: Included<ValidatorAttestationInput> = serde_json::from_value(saved)?;
+            via_btc_client::indexer::replay::compare_fields([(
+                "vote",
+                vote.payload.input == saved.payload.input,
+            )])?;
         }
         Ok(())
     }

@@ -14,8 +14,11 @@ The verifier's withdrawal observer has a separate consumer, so missing DA or pro
 Each consumer also stores its oldest still-needed position in the same transaction as its effects.
 
 Irreversible actions require complete initial replay, mature canonical inputs and a fresh source check.
-This includes votes, signatures, L2 execution, finalization and withdrawals, including cached or resumed work.
-A source outage holds those actions. Inclusive maturity is `tip - source_height + 1 >= N`:
+This includes votes, signatures, finalization and withdrawals, including cached or resumed work.
+A source outage holds those actions. Deposit maturity and replay readiness are checked at mempool selection;
+L2 execution consumes admitted transactions without a Bitcoin RPC or a per-block reader-state gate.
+Sender completion uses its configured `block_confirmations`; the guarded DB write does not wait for its own
+inscription to reach the reader's content depth. Inclusive content maturity is `tip - source_height + 1 >= N`:
 
 | Network | N |
 |---|---:|
