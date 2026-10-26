@@ -29,64 +29,80 @@ async fn external_node_basics(components_str: &'static str) {
     let l2_client = utils::mock_l2_client(&env);
     let eth_client = utils::mock_eth_client(env.config.l1_diamond_proxy_address());
 
-    let node_handle = tokio::task::spawn_blocking(move || {
-        std::thread::spawn(move || {
-            let mut node = ExternalNodeBuilder::new(env.config)?;
-            inject_test_layers(
-                &mut node,
-                env.sigint_receiver,
-                env.app_health_sender,
-                eth_client,
-                l2_client,
-            );
+    let (reopen_stop, reopen_receiver) = tokio::sync::oneshot::channel();
+    let (reopen_health, reopen_health_receiver) = tokio::sync::oneshot::channel();
+    for (config, sigint_sender, sigint_receiver, app_health_sender, app_health_receiver) in [
+        (
+            env.config,
+            env_handles.sigint_sender,
+            env.sigint_receiver,
+            env.app_health_sender,
+            env_handles.app_health_receiver,
+        ),
+        (env.reopen_config, reopen_stop, reopen_receiver, reopen_health, reopen_health_receiver),
+    ] {
+        let components = env.components.clone();
+        let l2_client = l2_client.clone();
+        let eth_client = eth_client.clone();
+        let node_handle = tokio::task::spawn_blocking(move || {
+            std::thread::spawn(move || {
+                let mut node = ExternalNodeBuilder::new(config)?;
+                inject_test_layers(
+                    &mut node,
+                    sigint_receiver,
+                    app_health_sender,
+                    eth_client,
+                    l2_client,
+                );
 
-            let node = node.build(env.components.0.into_iter().collect())?;
-            node.run(None)?;
-            anyhow::Ok(())
-        })
-        .join()
-        .unwrap()
-    });
+                let node = node.build(components.0.into_iter().collect())?;
+                node.run(None)?;
+                anyhow::Ok(())
+            })
+            .join()
+            .unwrap()
+        });
 
-    // Wait until the node is ready.
-    let app_health = match env_handles.app_health_receiver.await {
-        Ok(app_health) => app_health,
-        Err(_) if node_handle.is_finished() => {
-            node_handle.await.unwrap().unwrap();
-            unreachable!("Node tasks should have panicked or errored");
+        // Wait until the node is ready.
+        let app_health = match app_health_receiver.await {
+            Ok(app_health) => app_health,
+            Err(_) if node_handle.is_finished() => {
+                node_handle.await.unwrap().unwrap();
+                unreachable!("Node tasks should have panicked or errored");
+            }
+            Err(_) => unreachable!("Node tasks should have panicked or errored"),
+        };
+
+        loop {
+            let health_data = app_health.check_health().await;
+            tracing::info!(?health_data, "received health data");
+            if matches!(health_data.inner().status(), HealthStatus::Ready)
+                && expected_health_components
+                    .iter()
+                    .all(|name| health_data.components().contains_key(name))
+            {
+                break;
+            }
+            tokio::time::sleep(POLL_INTERVAL).await;
         }
-        Err(_) => unreachable!("Node tasks should have panicked or errored"),
-    };
 
-    loop {
+        // Stop the node and check that it timely terminates.
+        sigint_sender.send(()).unwrap();
+
+        tokio::time::timeout(SHUTDOWN_TIMEOUT, node_handle)
+            .await
+            .expect("Node hanged up during shutdown")
+            .expect("Node panicked")
+            .expect("Node errored");
+
+        // Check that the node health was appropriately updated.
         let health_data = app_health.check_health().await;
-        tracing::info!(?health_data, "received health data");
-        if matches!(health_data.inner().status(), HealthStatus::Ready)
-            && expected_health_components
-                .iter()
-                .all(|name| health_data.components().contains_key(name))
-        {
-            break;
+        tracing::info!(?health_data, "final health data");
+        assert_matches!(health_data.inner().status(), HealthStatus::ShutDown);
+        for &name in &expected_health_components {
+            let component_health = &health_data.components()[name];
+            assert_matches!(component_health.status(), HealthStatus::ShutDown);
         }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
-
-    // Stop the node and check that it timely terminates.
-    env_handles.sigint_sender.send(()).unwrap();
-
-    tokio::time::timeout(SHUTDOWN_TIMEOUT, node_handle)
-        .await
-        .expect("Node hanged up during shutdown")
-        .expect("Node panicked")
-        .expect("Node errored");
-
-    // Check that the node health was appropriately updated.
-    let health_data = app_health.check_health().await;
-    tracing::info!(?health_data, "final health data");
-    assert_matches!(health_data.inner().status(), HealthStatus::ShutDown);
-    for name in expected_health_components {
-        let component_health = &health_data.components()[name];
-        assert_matches!(component_health.status(), HealthStatus::ShutDown);
     }
 }
 

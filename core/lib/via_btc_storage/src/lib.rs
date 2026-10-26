@@ -130,9 +130,7 @@ pub mod metrics;
 pub mod protocol;
 pub mod publication;
 pub mod transition;
-mod wallet;
 pub use configuration::{StoredConfiguration, WalletSource};
-pub use wallet::WalletDal;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {

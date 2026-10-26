@@ -288,7 +288,6 @@ async fn materialize_work(
             pubdata: Included { origin, payload: source_payload(batch) },
         }),
     };
-    tx.via_l1_block_dal().insert_l1_block(1, header(1).block_hash.to_string()).await.unwrap();
     tx.via_votes_dal().save_reader_proof(&input, block.id).await.unwrap();
     let raw = via_btc_client::indexer::replay::transaction_hash(txid);
     let id = tx.via_votes_dal().get_votable_transaction_id(raw.as_bytes()).await.unwrap().unwrap();

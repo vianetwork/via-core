@@ -411,6 +411,106 @@ mod tests {
         Ok((pool, deposit, origin, payload))
     }
 
+    async fn assert_deposit_refused(
+        db: &mut Connection<'_, Core>,
+        operation: &L1Tx,
+        origin: &DepositOrigin,
+        payload: &DepositPayload,
+        field: &str,
+    ) {
+        let error = db
+            .via_transactions_dal()
+            .insert_transaction_l1(
+                operation,
+                operation.eth_block(),
+                H256::repeat_byte(8),
+                origin,
+                payload,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.downcast_ref::<ReplayConflict>().unwrap().field, field);
+    }
+
+    #[tokio::test]
+    async fn unattached_main_replay_requires_the_same_inclusion() -> anyhow::Result<()> {
+        let (pool, deposit, mut origin, payload) = deposit_fixture().await?;
+        let mut db = pool.connection().await?;
+        let tx = deposit.l1_tx().unwrap();
+        let txid = H256::repeat_byte(8);
+        assert!(
+            !db.via_transactions_dal()
+                .insert_transaction_l1(&tx, tx.eth_block(), txid, &origin, &payload)
+                .await?
+        );
+        origin.hash = BlockHash::from_byte_array([11; 32]);
+        assert_deposit_refused(&mut db, &tx, &origin, &payload, "deposit_inclusion").await;
+        let saved: String = sqlx::query_scalar("SELECT bitcoin_hash FROM transactions")
+            .instrument("unchanged_pending_source")
+            .fetch_one(&mut db)
+            .await?;
+        assert_eq!(saved, BlockHash::from_byte_array([10; 32]).to_string());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unattached_main_legacy_payload_is_not_rebound() -> anyhow::Result<()> {
+        let (pool, deposit, origin, payload) = deposit_fixture().await?;
+        let mut db = pool.connection().await?;
+        sqlx::query("UPDATE transactions SET bitcoin_payload=NULL")
+            .instrument("unbound_pending_payload")
+            .execute(&mut db)
+            .await?;
+        let tx = deposit.l1_tx().unwrap();
+        assert_deposit_refused(&mut db, &tx, &origin, &payload, "unreconciled_deposit").await;
+        let saved: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT bitcoin_payload FROM transactions")
+                .instrument("still_unbound_pending_payload")
+                .fetch_one(&mut db)
+                .await?;
+        assert!(saved.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ambiguous_main_outpoint_leaves_both_candidates_unchanged() -> anyhow::Result<()> {
+        let (pool, deposit, origin, payload) = deposit_fixture().await?;
+        let mut db = pool.connection().await?;
+        let other = ViaL1Deposit {
+            output_vout: 1,
+            ..deposit.clone()
+        }
+        .l1_tx()
+        .unwrap();
+        let txid = H256::repeat_byte(8);
+        let other_origin = DepositOrigin {
+            vout: 1,
+            height: origin.height,
+            hash: origin.hash,
+        };
+        db.via_transactions_dal()
+            .insert_transaction_l1(&other, other.eth_block(), txid, &other_origin, &payload)
+            .await?;
+        sqlx::query("UPDATE transactions SET bitcoin_vout=0")
+            .instrument("ambiguous_outpoint_fixture")
+            .execute(&mut db)
+            .await?;
+        let before: serde_json::Value =
+            sqlx::query_scalar("SELECT jsonb_agg(t ORDER BY hash) FROM transactions t")
+                .instrument("before_ambiguous_replay")
+                .fetch_one(&mut db)
+                .await?;
+        let tx = deposit.l1_tx().unwrap();
+        assert_deposit_refused(&mut db, &tx, &origin, &payload, "ambiguous_outpoint").await;
+        let after: serde_json::Value =
+            sqlx::query_scalar("SELECT jsonb_agg(t ORDER BY hash) FROM transactions t")
+                .instrument("after_ambiguous_replay")
+                .fetch_one(&mut db)
+                .await?;
+        assert_eq!(after, before);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn main_remine_preserves_executed_operation() -> anyhow::Result<()> {
         let (pool, deposit, mut origin, mut payload) = deposit_fixture().await?;

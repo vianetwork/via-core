@@ -149,9 +149,14 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn cached_priority_execution_requires_current_source_and_observes_stop(
-    ) -> anyhow::Result<()> {
+    async fn execution_fixture() -> anyhow::Result<(
+        BitcoinCore,
+        ConnectionPool<Core>,
+        Connection<'static, Core>,
+        watch::Sender<bool>,
+        Box<dyn BatchExecutor<OwnedStorage>>,
+        Transaction,
+    )> {
         let core = BitcoinCore::new()?;
         core.mine(1)?;
         let client = core.client()?;
@@ -223,27 +228,84 @@ mod tests {
             crate::testonly::test_batch_executor::TestBatchExecutorBuilder::default();
         scripted.push_successful_transactions(&[hash]);
         let (stop, receiver) = watch::channel(false);
-        let mut factory = BitcoinExecutionFactory::new(Box::new(scripted), pool, client, receiver);
+        let mut factory =
+            BitcoinExecutionFactory::new(Box::new(scripted), pool.clone(), client, receiver);
         let env = crate::tests::pending_batch_data(vec![]);
-        let mut executor = factory.init_batch(
+        let executor = factory.init_batch(
             OwnedStorage::boxed(InMemoryStorage::default()),
             env.l1_batch_env,
             env.system_env,
             env.pubdata_params,
         );
+        Ok((core, pool, db, stop, executor, transaction))
+    }
+
+    async fn held<T>(
+        future: impl std::future::Future<Output = anyhow::Result<T>>,
+        stop: watch::Sender<bool>,
+    ) {
+        tokio::pin!(future);
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(250), &mut future)
+            .await
+            .is_err());
+        stop.send(true).unwrap();
+        assert!(future.await.is_err());
+    }
+
+    #[tokio::test]
+    async fn cached_priority_execution_requires_current_source_and_observes_stop(
+    ) -> anyhow::Result<()> {
+        let (_core, _pool, mut db, stop, mut executor, transaction) = execution_fixture().await?;
+        let hash = transaction.hash();
         executor.execute_tx(transaction.clone()).await?;
         sqlx::query("DELETE FROM transactions WHERE hash=$1")
             .bind(hash.as_bytes())
             .execute(db.conn())
             .await?;
-        // Scripted executor has no second result: reaching it again panics, including if admission moves after execution.
-        let pending = executor.execute_tx(transaction);
-        tokio::pin!(pending);
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(250), &mut pending)
-            .await
-            .is_err());
-        stop.send(true)?;
-        assert!(pending.await.is_err());
+        held(executor.execute_tx(transaction), stop).await;
+        Ok(())
+    }
+    #[tokio::test]
+    async fn cached_priority_execution_rechecks_actual_core_membership() -> anyhow::Result<()> {
+        let (core, _pool, mut db, stop, mut executor, transaction) = execution_fixture().await?;
+        executor.execute_tx(transaction.clone()).await?;
+        let hash: String = sqlx::query_scalar("SELECT hash FROM via_btc_headers WHERE number=1")
+            .fetch_one(db.conn())
+            .await?;
+        core.rpc::<serde_json::Value>("invalidateblock", &[serde_json::json!(hash)])?;
+        held(executor.execute_tx(transaction), stop).await;
+        Ok(())
+    }
+    #[tokio::test]
+    async fn cached_upgrade_waits_when_its_protocol_patch_loses_authority() -> anyhow::Result<()> {
+        let (_core, _pool, mut db, stop, mut executor, _) = execution_fixture().await?;
+        let upgrade: Transaction =
+            crate::testonly::test_batch_executor::random_upgrade_tx(1).into();
+        sqlx::query("UPDATE protocol_versions SET upgrade_tx_hash=$1")
+            .bind(upgrade.hash().as_bytes())
+            .execute(db.conn())
+            .await?;
+        sqlx::query("UPDATE protocol_patches SET bitcoin_hash='orphan'").execute(db.conn()).await?;
+        held(executor.execute_tx(upgrade), stop).await;
+        Ok(())
+    }
+    #[tokio::test]
+    async fn block_continuation_waits_for_source_authority_and_observes_stop() -> anyhow::Result<()>
+    {
+        let (_core, _pool, mut db, stop, mut executor, _) = execution_fixture().await?;
+        let env = crate::tests::pending_batch_data(vec![]).l1_batch_env.first_l2_block;
+        executor.start_next_l2_block(env).await?;
+        sqlx::query("UPDATE via_btc_reader SET replay_ready=FALSE").execute(db.conn()).await?;
+        held(executor.start_next_l2_block(env), stop).await;
+        Ok(())
+    }
+    #[tokio::test]
+    async fn batch_finishing_waits_for_source_authority_and_observes_stop() -> anyhow::Result<()> {
+        let (_core, _pool, mut db, stop, executor, _) = execution_fixture().await?;
+        sqlx::query("UPDATE via_btc_reader SET replay_ready=FALSE").execute(db.conn()).await?;
+        held(executor.finish_batch(), stop).await;
+        let (_core, _pool, _db, _stop, executor, _) = execution_fixture().await?;
+        executor.finish_batch().await?;
         Ok(())
     }
 }

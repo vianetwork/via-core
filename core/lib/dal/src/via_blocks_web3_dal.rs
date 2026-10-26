@@ -20,7 +20,7 @@ impl ViaBlocksWeb3Dal<'_, '_> {
         &mut self,
         l1_batch_number: L1BatchNumber,
     ) -> DalResult<Option<L1BatchDetails>> {
-        let l1_batch_details = sqlx::query_as!(
+        let mut l1_batch_details = sqlx::query_as!(
             ViaStorageL1BatchDetails,
             r#"
             WITH
@@ -47,7 +47,7 @@ impl ViaBlocksWeb3Dal<'_, '_> {
                 commit_history.confirmed_at AS "committed_at?",
                 proof_history.reveal_tx_id AS "prove_tx_hash?",
                 proof_history.confirmed_at AS "proven_at?",
-                bir.is_finalized AS "is_finalized?",
+                NULL::BOOLEAN AS "is_finalized?",
                 bir.updated_at AS "executed_at?",
                 mb.l1_gas_price,
                 mb.l2_fair_gas_price,
@@ -84,6 +84,13 @@ impl ViaBlocksWeb3Dal<'_, '_> {
         .fetch_optional(self.storage)
         .await?;
 
+        if let Some(details) = &mut l1_batch_details {
+            details.is_finalized = crate::ViaBlocksDal {
+                storage: self.storage,
+            }
+            .get_canonical_finalization(l1_batch_number)
+            .await?;
+        }
         Ok(l1_batch_details.map(Into::into))
     }
 
@@ -91,7 +98,7 @@ impl ViaBlocksWeb3Dal<'_, '_> {
         &mut self,
         block_number: L2BlockNumber,
     ) -> DalResult<Option<BlockDetails>> {
-        let storage_block_details = sqlx::query_as!(
+        let mut storage_block_details = sqlx::query_as!(
             ViaStorageBlockDetails,
             r#"
             SELECT
@@ -115,7 +122,7 @@ impl ViaBlocksWeb3Dal<'_, '_> {
                 commit_history.confirmed_at AS "committed_at?",
                 proof_history.reveal_tx_id AS "prove_tx_hash?",
                 proof_history.confirmed_at AS "proven_at?",
-                bir.is_finalized,
+                NULL::BOOLEAN AS is_finalized,
                 bir.updated_at AS "executed_at?",
                 miniblocks.l1_gas_price,
                 miniblocks.l2_fair_gas_price,
@@ -154,6 +161,13 @@ impl ViaBlocksWeb3Dal<'_, '_> {
         .fetch_optional(self.storage)
         .await?;
 
+        if let Some(details) = &mut storage_block_details {
+            details.is_finalized = crate::ViaBlocksDal {
+                storage: self.storage,
+            }
+            .get_canonical_finalization(L1BatchNumber(details.l1_batch_number as u32))
+            .await?;
+        }
         Ok(storage_block_details.map(Into::into))
     }
 }

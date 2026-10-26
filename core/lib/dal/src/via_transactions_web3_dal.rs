@@ -13,7 +13,7 @@ impl ViaTransactionsWeb3Dal<'_, '_> {
         &mut self,
         hash: H256,
     ) -> DalResult<Option<TransactionDetails>> {
-        let row = sqlx::query_as!(
+        let mut row = sqlx::query_as!(
             ViaStorageTransactionDetails,
             r#"
             SELECT
@@ -28,7 +28,8 @@ impl ViaTransactionsWeb3Dal<'_, '_> {
                 transactions.refunded_gas,
                 commit_history.reveal_tx_id AS "commit_tx_hash?",
                 proof_history.reveal_tx_id AS "prove_tx_hash?",
-                bir.is_finalized
+                miniblocks.l1_batch_number AS "l1_batch_number?",
+                NULL::BOOLEAN AS is_finalized
             FROM
                 transactions
             LEFT JOIN miniblocks ON miniblocks.number = transactions.miniblock_number
@@ -61,6 +62,15 @@ impl ViaTransactionsWeb3Dal<'_, '_> {
         .fetch_optional(self.storage)
         .await?;
 
+        if let Some(details) = &mut row {
+            if let Some(batch) = details.l1_batch_number {
+                details.is_finalized = crate::ViaBlocksDal {
+                    storage: self.storage,
+                }
+                .get_canonical_finalization(zksync_types::L1BatchNumber(batch as u32))
+                .await?;
+            }
+        }
         Ok(row.map(Into::into))
     }
 }

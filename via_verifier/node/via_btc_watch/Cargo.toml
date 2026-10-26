@@ -33,3 +33,4 @@ via_verifier_dal.workspace = true
 [dev-dependencies]
 via_test_utils.workspace = true
 serde_json.workspace = true
+via_reorg.workspace = true

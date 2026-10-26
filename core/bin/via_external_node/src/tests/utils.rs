@@ -56,6 +56,7 @@ pub(super) struct TestEnvironment {
     pub(super) app_health_sender: oneshot::Sender<Arc<AppHealthCheck>>,
     pub(super) components: ComponentsToRun,
     pub(super) config: ExternalNodeConfig,
+    pub(super) reopen_config: ExternalNodeConfig,
     pub(super) genesis_params: GenesisBatchParams,
     pub(super) genesis_l2_block: L2BlockHeader,
     // We have to prevent object from dropping the temp dir, so we store it here.
@@ -84,11 +85,15 @@ impl TestEnvironment {
             .unwrap()
             .expect("No genesis L2 block");
         let wallets = test_wallets();
-        storage
-            .via_wallet_dal()
-            .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 0)
+        let mut tx = storage.start_transaction().await.unwrap();
+        via_btc_storage::ReaderDal::new(&mut tx)
+            .insert_wallets(
+                &SystemWalletsDetails::try_from(wallets.clone()).unwrap(),
+                via_btc_storage::WalletSource::Unbound(0),
+            )
             .await
             .unwrap();
+        tx.commit().await.unwrap();
 
         let native = storage
             .protocol_versions_dal()
@@ -99,7 +104,10 @@ impl TestEnvironment {
         drop(storage);
 
         let components: ComponentsToRun = components_str.parse().unwrap();
-        let mut config = ExternalNodeConfig::mock(&temp_dir, &connection_pool);
+        let mut configurations = [
+            ExternalNodeConfig::mock(&temp_dir, &connection_pool),
+            ExternalNodeConfig::mock(&temp_dir, &connection_pool),
+        ];
         let core = Arc::new(BitcoinCore::new().unwrap());
         let bootstrap = core.bootstrap(&native, &wallets).await.unwrap();
         let bitcoin_rpc = BitcoinRpcServer::new_with_errors(
@@ -114,22 +122,25 @@ impl TestEnvironment {
             },
         )
         .unwrap();
-        config.via_secrets = Some(ViaL1Secrets {
-            rpc_url: bitcoin_rpc.url("").parse().unwrap(),
-            rpc_user: String::new(),
-            rpc_password: String::new(),
-        });
-        config.via_genesis_config =
-            Some(ViaGenesisConfig { bootstrap_txids: vec![bootstrap.to_string()] });
-        config.via_bridge_config = Some(ViaBridgeConfig {
-            bridge_address: wallets.bridge.to_string(),
-            verifiers_pub_keys: Vec::new(),
-        });
-        config.via_btc_client_config = Some(ViaBtcClientConfig::for_tests());
-        config.via_btc_watch_config = Some(ViaBtcWatchConfig::for_tests());
-        if components.0.contains(&Component::TreeApi) {
-            config.tree_component.api_port = Some(0);
+        for config in &mut configurations {
+            config.via_secrets = Some(ViaL1Secrets {
+                rpc_url: bitcoin_rpc.url("").parse().unwrap(),
+                rpc_user: String::new(),
+                rpc_password: String::new(),
+            });
+            config.via_genesis_config =
+                Some(ViaGenesisConfig { bootstrap_txids: vec![bootstrap.to_string()] });
+            config.via_bridge_config = Some(ViaBridgeConfig {
+                bridge_address: wallets.bridge.to_string(),
+                verifiers_pub_keys: Vec::new(),
+            });
+            config.via_btc_client_config = Some(ViaBtcClientConfig::for_tests());
+            config.via_btc_watch_config = Some(ViaBtcWatchConfig::for_tests());
+            if components.0.contains(&Component::TreeApi) {
+                config.tree_component.api_port = Some(0);
+            }
         }
+        let [config, reopen_config] = configurations;
         drop(connection_pool);
 
         // Generate channels to control the node.
@@ -141,6 +152,7 @@ impl TestEnvironment {
             app_health_sender,
             components,
             config,
+            reopen_config,
             genesis_params,
             genesis_l2_block,
             _temp_dir: temp_dir,

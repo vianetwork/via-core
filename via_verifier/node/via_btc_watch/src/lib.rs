@@ -160,3 +160,6 @@ impl VerifierBtcWatch {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

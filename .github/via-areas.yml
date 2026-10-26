@@ -7,10 +7,10 @@
 # This file should be kept in sync with .github/sibling-paths.yml where possible.
 
 mappings:
-  - path: "core/node/via_main_node_reorg_detector/**"
+  - path: "**/src/via_indexer_dal.rs"
     area: reorg
 
-  - path: "via_verifier/node/via_reorg_detector/**"
+  - path: "core/lib/via_btc_storage/**"
     area: reorg
 
   - path: "core/node/via_btc_watch/**"

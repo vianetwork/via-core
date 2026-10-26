@@ -28,3 +28,4 @@ bincode.workspace = true
 tokio.workspace = true
 via_test_utils.workspace = true
 zksync_dal.workspace = true
+via_verifier_dal.workspace = true

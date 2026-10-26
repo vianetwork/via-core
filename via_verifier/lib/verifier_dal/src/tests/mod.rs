@@ -737,6 +737,71 @@ async fn completed_deposit_fixture(
     Ok((db, origin, payload))
 }
 
+async fn pending_deposit_fixture(
+) -> anyhow::Result<(Connection<'static, Verifier>, DepositOrigin, DepositPayload)> {
+    let (mut db, origin, payload) = completed_deposit_fixture().await?;
+    sqlx::query("UPDATE via_transactions SET status=NULL,l1_batch_number=NULL,bitcoin_height=$1,bitcoin_hash=$2,bitcoin_vout=$3,bitcoin_payload=$4")
+        .bind(i64::from(origin.height)).bind(origin.hash.to_string()).bind(i64::from(origin.vout)).bind(serde_json::to_value(&payload)?)
+        .instrument("pending_deposit_source").execute(&mut db).await?;
+    Ok((db, origin, payload))
+}
+
+#[tokio::test]
+async fn unattached_verifier_replay_requires_the_same_inclusion() -> anyhow::Result<()> {
+    let (mut db, mut origin, payload) = pending_deposit_fixture().await?;
+    let transaction = deposit_transaction(10, Address::repeat_byte(7), 0);
+    assert!(
+        !db.via_transactions_dal()
+            .insert_transaction(
+                deposit_transaction(10, Address::repeat_byte(7), 0),
+                &origin,
+                &payload
+            )
+            .await?
+    );
+    origin.hash = BlockHash::from_byte_array([11; 32]);
+    let error = db
+        .via_transactions_dal()
+        .insert_transaction(transaction, &origin, &payload)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>().unwrap().field,
+        "deposit_inclusion"
+    );
+    let saved: String = sqlx::query_scalar("SELECT bitcoin_hash FROM via_transactions")
+        .instrument("unchanged_verifier_pending_source")
+        .fetch_one(&mut db)
+        .await?;
+    assert_eq!(saved, BlockHash::from_byte_array([10; 32]).to_string());
+    Ok(())
+}
+
+#[tokio::test]
+async fn unattached_verifier_legacy_payload_is_not_rebound() -> anyhow::Result<()> {
+    let (mut db, origin, payload) = pending_deposit_fixture().await?;
+    sqlx::query("UPDATE via_transactions SET bitcoin_payload=NULL")
+        .instrument("unbound_verifier_pending_payload")
+        .execute(&mut db)
+        .await?;
+    let error = db
+        .via_transactions_dal()
+        .insert_transaction(deposit_transaction(10, Address::repeat_byte(7), 0), &origin, &payload)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>().unwrap().field,
+        "unreconciled_deposit"
+    );
+    let saved: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT bitcoin_payload FROM via_transactions")
+            .instrument("still_unbound_verifier_payload")
+            .fetch_one(&mut db)
+            .await?;
+    assert!(saved.is_none());
+    Ok(())
+}
+
 #[tokio::test]
 async fn verifier_remine_preserves_execution_and_rejects_conflicts() -> anyhow::Result<()> {
     let (mut db, mut origin, mut payload) = completed_deposit_fixture().await?;

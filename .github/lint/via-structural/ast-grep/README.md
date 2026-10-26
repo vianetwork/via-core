@@ -10,9 +10,9 @@ ast-grep provides fast, structural (tree-sitter based) pattern matching on Rust 
 
 | Rule File                    | ID                            | Purpose                                                                 | Status    |
 |------------------------------|-------------------------------|-------------------------------------------------------------------------|-----------|
-| `reorg-ordering.yml`         | `via-reorg-buffer-unordered`  | Flags `buffer_unordered` inside reorg detector crates. Results lose request order. | Advisory  |
-| `via-reorg-height-association-required.yml` | `via-reorg-height-association-required` | Targets common dangerous zip patterns after async fetches in reorg detectors (range zips, `.iter().zip`, `.into_iter().zip`, `.iter_mut().zip`). Includes suppression guidance (`// height-order-guaranteed`). Best used together with `via-reorg-buffer-unordered`. | Advisory |
-| `via-reorg-empty-l1-blocks-nonfatal.yml` | `via-reorg-empty-l1-blocks-nonfatal` | Flags fatal `get_last_l1_block()` empty-table handling in reorg detectors. Empty `via_l1_blocks` is a valid bootstrap / inconclusive state and should lazy-bootstrap or return successfully. | Advisory |
+| `reorg-ordering.yml`         | `via-reorg-buffer-unordered`  | Flags `buffer_unordered` inside the Bitcoin reader crates. Results lose request order. | Advisory  |
+| `via-reorg-height-association-required.yml` | `via-reorg-height-association-required` | Targets common dangerous zip patterns after async fetches in the Bitcoin reader (range zips, `.iter().zip`, `.into_iter().zip`, `.iter_mut().zip`). Includes suppression guidance (`// height-order-guaranteed`). Best used together with `via-reorg-buffer-unordered`. | Advisory |
+| `via-reorg-empty-l1-blocks-nonfatal.yml` | `via-reorg-empty-l1-blocks-nonfatal` | Retained historical fixture rule. Its detector targets have been retired; no active scan scope. | Advisory |
 | `via-da-batch-before-proof.yml` | `via-da-batch-before-proof` | Flags calls to `dispatch_real_proofs` in the DA dispatcher. Advisory heuristic for batch-before-proof ordering. Requires scoping and review. | Candidate / Advisory |
 | `via-avoid-duplicate-export.yml` | `via-avoid-duplicate-export` | Flags `pub use $B::$C` when `pub mod $B` is declared in the same file. Prevents unnecessary public API duplication and multiple canonical paths to the same item. | Advisory |
 
@@ -93,7 +93,7 @@ ast-grep run \
   via_verifier/node/via_reorg_detector/src/lib.rs
 ```
 
-**Tested note**: The pattern and rewrite above were run against the current detector sources. The structural matcher successfully handled both single-line and multi-line call sites and correctly substituted the metavariables.
+**Historical example**: This rewrite was tested against the now-retired detector sources. The structural matcher handled both single-line and multi-line call sites and substituted the metavariables. The current reader does not expose this `fetch_blocks` call.
 
 ### Practical notes from testing
 
@@ -178,18 +178,13 @@ Example (from current `sgconfig.yml`):
 rules:
   - include: "via-reorg-buffer-unordered"
     glob:
-      - "core/node/via_main_node_reorg_detector/**/*.rs"
-      - "via_verifier/node/via_reorg_detector/**/*.rs"
+      - "core/lib/via_reorg/**/*.rs"
+      - "core/lib/via_btc_storage/**/*.rs"
 
   - include: "via-reorg-height-association-required"
     glob:
-      - "core/node/via_main_node_reorg_detector/**/*.rs"
-      - "via_verifier/node/via_reorg_detector/**/*.rs"
-
-  - include: "via-reorg-empty-l1-blocks-nonfatal"
-    glob:
-      - "core/node/via_main_node_reorg_detector/**/*.rs"
-      - "via_verifier/node/via_reorg_detector/**/*.rs"
+      - "core/lib/via_reorg/**/*.rs"
+      - "core/lib/via_btc_storage/**/*.rs"
 ```
 
 **Guideline for new rules:**

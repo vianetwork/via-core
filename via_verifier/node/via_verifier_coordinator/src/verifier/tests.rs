@@ -742,6 +742,44 @@ async fn run_actual_iterations(
         .unwrap();
     assert!(btc.broadcasts.lock().is_empty());
 
+    if heavy {
+        use std::sync::atomic::Ordering;
+        let shares = coordinator.faults.shares.load(Ordering::SeqCst);
+        sqlx::query("UPDATE via_btc_reader SET replay_ready=FALSE")
+            .execute(owner_a.conn())
+            .await
+            .unwrap();
+        owner_a.via_withdrawal_dal().release_withdrawal_signer_lock(&wallet).await.unwrap();
+        drop(owner_a);
+        let (stop, receiver) = tokio::sync::watch::channel(false);
+        let run = tokio::spawn(first.run(receiver));
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        stop.send(true).unwrap();
+        run.await.unwrap().unwrap();
+        owner_a = pools[0].connection().await.unwrap();
+        let held = owner_a
+            .via_withdrawal_dal()
+            .get_withdrawal_attempt(&wallet, &round)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(held.state, WithdrawalAttemptState::Signed);
+        assert_eq!(held.public_signatures.as_ref(), Some(&durable_shares));
+        assert!(held.finalized_transaction.is_none());
+        assert!(btc.broadcasts.lock().is_empty());
+        assert_eq!(coordinator.faults.shares.load(Ordering::SeqCst), shares);
+        sqlx::query("UPDATE via_btc_reader SET replay_ready=TRUE")
+            .execute(owner_a.conn())
+            .await
+            .unwrap();
+        assert!(owner_a
+            .via_withdrawal_dal()
+            .acquire_withdrawal_signer_lock(&wallet)
+            .await
+            .unwrap());
+        first = make_verifier(0);
+    }
+
     // Lose every secret nonce and the coordinator's in-memory public transcript.
     // The restarted coordinator reconstructs its round from its durable shares;
     // the second signer republishes its durable batch over authenticated HTTP.
@@ -1092,6 +1130,27 @@ async fn bounded_signing_admission_refuses_before_reserving_real_requests_and_in
         let envelope = Envelope::sign(binding.clone(), Vec::new(), &keys[0].inner).unwrap();
         let label = SigningSizeLabel { stage: SigningSizeStage::Admission };
         let before = METRICS.signing_size_refusals[&label].get();
+        if mode == PeerMode::Writer && inputs == 150 {
+            for hold in [
+                "UPDATE via_btc_reader SET replay_ready=FALSE",
+                "UPDATE via_votable_transactions SET proof_l1_block_hash='orphan'",
+            ] {
+                let mut db = pool.connection().await.unwrap();
+                sqlx::query(hold).execute(db.conn()).await.unwrap();
+                let mut held_binding = binding.clone();
+                held_binding.challenge = random_id();
+                let held = Envelope::sign(held_binding, Vec::new(), &keys[0].inner).unwrap();
+                let _response = reqwest::Client::new()
+                    .post(format!("{}/session/new", config.coordinator_http_url))
+                    .json(&held).send().await.unwrap();
+                assert_eq!(withdrawal_reservation_counts(&mut db).await, (0, 0, 0));
+                assert!(session.read().await.session_op.is_none());
+                sqlx::query("UPDATE via_btc_reader SET replay_ready=TRUE")
+                    .execute(db.conn()).await.unwrap();
+                sqlx::query("UPDATE via_votable_transactions SET proof_l1_block_hash=(SELECT hash FROM via_btc_headers WHERE number=1)")
+                    .execute(db.conn()).await.unwrap();
+            }
+        }
         let response = reqwest::Client::new()
             .post(format!("{}/session/new", config.coordinator_http_url))
             .json(&envelope)
@@ -1859,11 +1918,15 @@ async fn bounded_signing_digest_precedes_bincode_and_real_signer_admission() {
     let mut client = network.writer(&server);
     let (pool, wallets) = (&network.pool, &network.wallets);
     let mut owner = pool.connection().await.unwrap();
-    owner
-        .via_wallet_dal()
-        .insert_wallets(&SystemWalletsDetails::try_from(wallets.clone()).unwrap(), 1)
+    let mut tx = owner.start_transaction().await.unwrap();
+    via_btc_storage::ReaderDal::new(&mut tx)
+        .insert_wallets(
+            &SystemWalletsDetails::try_from(wallets.clone()).unwrap(),
+            via_btc_storage::WalletSource::Unbound(1),
+        )
         .await
         .unwrap();
+    tx.commit().await.unwrap();
 
     let wallet = wallets.bridge.script_pubkey().into_bytes();
     assert!(owner.via_withdrawal_dal().acquire_withdrawal_signer_lock(&wallet).await.unwrap());

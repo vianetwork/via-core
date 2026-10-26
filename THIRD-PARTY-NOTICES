@@ -1,0 +1,21 @@
+# Copied and adapted components
+
+Licence texts are in LICENSE-APACHE and LICENSE-MIT. Retain source copyright and
+origin comments. No applicable NOTICE file was found in the pinned donor trees.
+This list is attribution, not an automated provenance or drift check.
+
+| Component | Copyright or authorship | Licence | Pinned source |
+| --- | --- | --- | --- |
+| LDK fork-walk loop | LDK authors recorded in source/version control | Apache-2.0 option | lightningdevkit/rust-lightning@d7a980641c6325ddda5072a0f470ef8392676cf5 |
+| Midnight save_block transaction idea; no copied SQL | Idea only; source authorship at pin | Apache-2.0 | midnightntwrk/midnight-indexer@8b6ea73ea310d60519b3deb17b9f4d1c2342d9c9 |
+| Hyperlane confirmed-frontier and transaction ideas; Via SQL | Idea only; source notices at pin | Apache-2.0 | hyperlane-xyz/hyperlane-monorepo@693d2d45df75135504e424c5a4d16761d0016f99 |
+| Alpen maturity functions | Copyright (c) 2024 Strata contributors | MIT option | alpenlabs/alpen@882107abd8ec691f870dced0a680267124dd8294 |
+| Era DB connection/transaction patterns | Copyright (c) 2019 Matter Labs | MIT/Apache-2.0 | matter-labs/zksync-era@ff5f519b11cff863edcfa0f75af10fea113806b0 |
+| Bitcoin Core valid-fork test constructor | Copyright (c) 2015-present The Bitcoin Core developers | MIT | bitcoin/bitcoin@79d6e874e1dad6822b5d7e6993aa205d21ed2cbf |
+
+Each copied region names its donor function, changes and pinned file permalink.
+BDK scenarios, Reth consumer progression, World Chain stale-save comparison,
+TigerBeetle conflicts and consensus membership rules are ideas unless an exact
+source region is explicitly copied. No World Chain code is selected for copying.
+
+The chain fixture, Sui typed store/sequential commit boundary, PostgreSQL replication-slot positions and SQLx owned pool transactions use the pinned origins cited at their governing parts. These are idea-only or adapted parts as labelled there; the Via SQL is not represented as copied donor code.

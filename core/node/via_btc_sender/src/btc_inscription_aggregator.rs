@@ -49,7 +49,17 @@ impl ViaBtcInscriptionAggregator {
         Ok(())
     }
 
-    async fn loop_iteration(&mut self, storage: &mut Connection<'_, Core>) -> Result<(), anyhow::Error> {
+    async fn loop_iteration(
+        &mut self,
+        storage: &mut Connection<'_, Core>,
+    ) -> Result<(), anyhow::Error> {
+        if !via_btc_storage::ReaderDal::new(storage)
+            .state()
+            .await?
+            .is_some_and(|state| state.replay_ready && state.stopped_reason.is_none())
+        {
+            return Ok(());
+        }
         let latency = METRICS.inscription_preparation_time.start();
         let mut processed_inscriptions = vec![];
 

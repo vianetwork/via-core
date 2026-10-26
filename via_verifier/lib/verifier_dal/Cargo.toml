@@ -38,5 +38,6 @@ sqlx = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+via_test_utils.workspace = true
 tokio = { workspace = true, features = ["full"] }
 rand = { workspace = true }

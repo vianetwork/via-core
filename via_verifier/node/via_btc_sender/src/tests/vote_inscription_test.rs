@@ -3,10 +3,7 @@ use via_btc_client::{
     indexer::replay::{Included, MessageOrigin, Payload},
     inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOps},
     traits::Serializable,
-    types::{
-        BlockHeaderInfo, HeaderMembership, InscriptionMessage, L1BatchDAReferenceInput,
-        ProofDAReferenceInput,
-    },
+    types::{BlockHeaderInfo, HeaderMembership, InscriptionMessage, ProofDAReferenceInput},
 };
 use via_btc_storage::{ReaderDal, WalletSource, PROTOCOL_CONSUMER};
 use via_reorg::chain::{BlockRef, Header};
@@ -84,18 +81,14 @@ async fn fixture() -> (ConnectionPool<Verifier>, MockBitcoinOps, bitcoin::Addres
         message_index: 0,
         txid: Txid::from_byte_array([2; 32]),
     };
-    let payload =
-        |input| Payload { input, public_key: vec![], signature: vec![], sender_script: None };
-    let pubdata = Included {
-        origin: origin.clone(),
-        payload: payload(L1BatchDAReferenceInput {
-            l1_batch_hash: H256::repeat_byte(4),
-            l1_batch_index: L1BatchNumber(1),
-            da_identifier: "fixture".into(),
-            blob_id: "batch".into(),
-            prev_l1_batch_hash: H256::zero(),
-        }),
-    };
+    let pubdata = via_test_utils::inscription::batch_reference(
+        origin.clone(),
+        L1BatchNumber(1),
+        H256::repeat_byte(4),
+        H256::zero(),
+        "fixture",
+        "batch",
+    );
     let pubdata_txid = pubdata.origin.txid;
     let proof = via_test_utils::inscription::unsigned_proof(
         pubdata,
@@ -363,4 +356,111 @@ async fn public_sender_run_publishes_and_completes_the_current_vote() {
             .unwrap()
             .unwrap();
     }
+}
+
+#[tokio::test]
+async fn votes_after_the_frozen_prefix_cannot_supply_its_quorum() {
+    let (pool, _, work, mut vote) = verified_vote(true).await;
+    let mut db = pool.connection().await.unwrap();
+    sqlx::query("DELETE FROM via_votes").execute(db.conn()).await.unwrap();
+    let chain = Chain::with_height(2);
+    let mut tx = db.start_transaction().await.unwrap();
+    let mut reader = ReaderDal::new(&mut tx);
+    let previous = reader.header_at(1).await.unwrap().unwrap();
+    reader
+        .save_block(
+            Header {
+                height: 2,
+                block_hash: chain.blocks[&2].block_hash(),
+                parent_hash: previous.header.block_hash,
+            },
+            &previous,
+        )
+        .await
+        .unwrap();
+    vote.origin.height = 2;
+    vote.origin.hash = chain.blocks[&2].block_hash();
+    reader.save_reader_vote(&vote, &work, bitcoin::Network::Regtest).await.unwrap();
+    let votes = reader.reader_votes(2).await.unwrap();
+    assert!(matches!(
+        reader.proof_quorum(&work, &votes, 1, 0.66).await.unwrap(),
+        via_btc_storage::ProofQuorum::Complete(None)
+    ));
+    assert!(matches!(
+        reader.proof_quorum(&work, &votes, 2, 0.66).await.unwrap(),
+        via_btc_storage::ProofQuorum::Complete(Some(true))
+    ));
+    tx.commit().await.unwrap();
+}
+
+#[tokio::test]
+async fn historical_membership_controls_old_proofs_after_rotation() {
+    use via_btc_client::{indexer::configuration::ConfigurationInput, types::UpdateGovernanceInput};
+    let (pool, _, work, mut vote) = verified_vote(true).await;
+    let mut db = pool.connection().await.unwrap();
+    let replacement = test_wallets().governance;
+    let mut tx = db.start_transaction().await.unwrap();
+    let mut reader = ReaderDal::new(&mut tx);
+    let change = Included {
+        origin: MessageOrigin { transaction_index: 3, ..work.proof.origin.clone() },
+        payload: Payload {
+            input: ConfigurationInput::Governance(UpdateGovernanceInput {
+                inputs: vec![],
+                address: replacement.as_unchecked().clone(),
+            }),
+            public_key: vec![],
+            signature: vec![],
+            sender_script: None,
+        },
+    };
+    let id = reader.save_configuration(&change).await.unwrap();
+    let mut details = SystemWalletsDetails::default();
+    details.0.insert(
+        zksync_types::via_wallet::WalletRole::Verifier,
+        zksync_types::via_wallet::WalletInfo {
+            addresses: vec![replacement.clone()],
+            txid: change.origin.txid,
+        },
+    );
+    reader.decide_configuration(id, true, &details).await.unwrap();
+    assert_eq!(
+        reader.wallets_before(2).await.unwrap().unwrap().verifiers,
+        vec![replacement.clone()]
+    );
+    vote.origin.message_index = 1;
+    vote.payload.sender_script = Some(replacement.script_pubkey().into_bytes());
+    reader.save_reader_vote(&vote, &work, bitcoin::Network::Regtest).await.unwrap();
+    let votes = reader.reader_votes(1).await.unwrap();
+    assert_eq!(votes.len(), 1);
+    assert!(matches!(
+        reader.proof_quorum(&work, &votes, 1, 0.66).await.unwrap(),
+        via_btc_storage::ProofQuorum::Complete(Some(true))
+    ));
+}
+
+#[tokio::test]
+async fn only_pre_cutoff_finalized_history_is_exempt_from_rotation_evidence() {
+    use via_btc_storage::{ReaderRole, ProofScope};
+    let (pool, _, _, _, _) = fixture().await;
+    let mut db = pool.connection().await.unwrap();
+    sqlx::query("UPDATE via_votable_transactions SET is_finalized=TRUE,rotation_legacy_cutoff=1")
+        .execute(db.conn())
+        .await
+        .unwrap();
+    let proofs = Verifier::canonical_proofs(&mut db, 1, ProofScope::Interpretation).await.unwrap();
+    assert!(proofs[0].rotation_exempt);
+    assert_eq!(
+        ReaderDal::new(&mut db).rotation_decision(&proofs, true, &[], 1, 0.66).await.unwrap(),
+        via_reorg::configuration::RotationDecision::Accepted
+    );
+    sqlx::query("UPDATE via_votable_transactions SET rotation_legacy_cutoff=0")
+        .execute(db.conn())
+        .await
+        .unwrap();
+    let proofs = Verifier::canonical_proofs(&mut db, 1, ProofScope::Interpretation).await.unwrap();
+    assert!(!proofs[0].rotation_exempt);
+    assert_eq!(
+        ReaderDal::new(&mut db).rotation_decision(&proofs, true, &[], 1, 0.66).await.unwrap(),
+        via_reorg::configuration::RotationDecision::NotReady
+    );
 }

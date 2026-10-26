@@ -58,18 +58,18 @@ ALLOWED_FORM_TYPES = {
 # empty list means the entry is an intentional non-path label.
 COMPONENT_LABELS: dict[str, list[str]] = {
     # L1 / BTC / reorg source paths.
-    "core/node/via_main_node_reorg_detector": ["core/node/via_main_node_reorg_detector"],
-    "via_verifier/node/via_reorg_detector": ["via_verifier/node/via_reorg_detector"],
+    "core/lib/via_reorg": ["core/lib/via_reorg"],
+    "core/lib/via_btc_storage": ["core/lib/via_btc_storage"],
     "core/node/via_btc_watch": ["core/node/via_btc_watch"],
     "via_verifier/node/via_btc_watch": ["via_verifier/node/via_btc_watch"],
     "core/node/via_btc_sender": ["core/node/via_btc_sender"],
     "via_verifier/node/via_btc_sender": ["via_verifier/node/via_btc_sender"],
     "core/lib/via_btc_client": ["core/lib/via_btc_client"],
-    "core/lib/dal/src/via_l1_block_dal.rs": ["core/lib/dal/src/via_l1_block_dal.rs"],
-    "via_verifier/lib/verifier_dal/src/via_l1_block_dal.rs": [
-        "via_verifier/lib/verifier_dal/src/via_l1_block_dal.rs"
+    "core/lib/dal/src/via_indexer_dal.rs": ["core/lib/dal/src/via_indexer_dal.rs"],
+    "via_verifier/lib/verifier_dal/src/via_indexer_dal.rs": [
+        "via_verifier/lib/verifier_dal/src/via_indexer_dal.rs"
     ],
-    "core/lib/config via_btc_* / via_reorg_detector": ["core/lib/config"],
+    "core/lib/config via_btc_*": ["core/lib/config"],
     "deployment / kube-state / helm values": [],
     "deployment/kube-state or helm-charts desired state": [],
     "external-node bootstrap": [],

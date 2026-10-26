@@ -1202,8 +1202,7 @@ pub(super) mod tests {
         assert_eq!(deposit.common.output_vout, Some(0));
     }
 
-    #[test]
-    fn governance_occurrences_keep_carrier_order_including_equal_role_changes() {
+    fn governance_transaction() -> Transaction {
         let address = "bcrt1qx2lk0unukm80qmepjp49hwf9z6xnz0s73k9j56";
         let output = [
             OP_RETURN_UPDATE_GOVERNANCE_PREFIX,
@@ -1221,12 +1220,17 @@ pub(super) mod tests {
             }
         })
         .collect();
-        let tx = Transaction {
+        Transaction {
             version: bitcoin::transaction::Version::TWO,
             lock_time: absolute::LockTime::ZERO,
             input: vec![bitcoin::TxIn::default()],
             output,
-        };
+        }
+    }
+
+    #[test]
+    fn governance_occurrences_keep_carrier_order_including_equal_role_changes() {
+        let tx = governance_transaction();
         let mut messages = MessageParser::new(Network::Regtest)
             .parse_protocol_upgrade_transactions(&TransactionWithMetadata::new(tx.clone(), 7), 20);
         assert_eq!(messages.len(), 3);
@@ -1246,6 +1250,35 @@ pub(super) mod tests {
         assert!(matches!(messages[1], FullInscriptionMessage::UpdateSequencer(_)));
         assert!(matches!(messages[2], FullInscriptionMessage::UpdateGovernance(_)));
     }
+    fn mixed_messages(height: u32, index: usize) -> Vec<FullInscriptionMessage> {
+        MessageParser::new(Network::Regtest).parse_protocol_upgrade_transactions(
+            &TransactionWithMetadata::new(governance_transaction(), index),
+            height,
+        )
+    }
+
+    #[test]
+    fn mixed_message_order_starts_with_block_height() {
+        let mut messages = mixed_messages(21, 0);
+        messages.extend(mixed_messages(20, 9));
+        let ordered = FullInscriptionMessage::sort_messages(messages);
+        assert_eq!(
+            ordered.iter().map(|m| m.common().block_height).collect::<Vec<_>>(),
+            vec![20, 20, 20, 21, 21, 21]
+        );
+    }
+
+    #[test]
+    fn mixed_message_order_uses_transaction_index_within_a_block() {
+        let mut messages = mixed_messages(20, 9);
+        messages.extend(mixed_messages(20, 2));
+        let ordered = FullInscriptionMessage::sort_messages(messages);
+        assert_eq!(
+            ordered.iter().map(|m| m.common().tx_index.unwrap()).collect::<Vec<_>>(),
+            vec![2, 2, 2, 9, 9, 9]
+        );
+    }
+
     #[test]
     fn truncated_op_return_deposit_is_rejected_without_stopping_parser() {
         let wallets = system_wallets();

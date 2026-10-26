@@ -259,7 +259,6 @@ async fn canonical(storage: &mut Connection<'_, Verifier>, height: u32, hash: Bl
     sqlx::query("INSERT INTO via_btc_headers(number,hash,parent_hash) VALUES($1,$2,$3) ON CONFLICT DO NOTHING")
         .bind(i64::from(height)).bind(hash.to_string()).bind(BlockHash::all_zeros().to_string())
         .instrument("fixture_canonical_header").execute(&mut *storage).await.unwrap();
-    storage.via_l1_block_dal().insert_l1_block(i64::from(height), hash.to_string()).await.unwrap();
 }
 
 async fn prune_headers(storage: &mut Connection<'_, Verifier>, through: i64) {
@@ -267,12 +266,6 @@ async fn prune_headers(storage: &mut Connection<'_, Verifier>, through: i64) {
         .bind(through)
         .instrument("fixture_remove_headers")
         .execute(&mut *storage)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM via_l1_blocks WHERE number>$1")
-        .bind(through)
-        .instrument("fixture_remove_legacy_headers")
-        .execute(storage)
         .await
         .unwrap();
 }
@@ -2674,4 +2667,97 @@ async fn missing_or_changed_source_blocks_import_replay_and_signing() {
             .await
             .is_err());
     }
+}
+
+#[tokio::test]
+async fn vote_removal_cannot_rehabilitate_a_canonical_descendant_of_a_rejected_proof() {
+    use via_btc_client::{
+        indexer::replay::{Included, MessageOrigin, Payload},
+        types::{L1BatchDAReferenceInput, ProofDAReferenceInput},
+    };
+    let pool = ConnectionPool::<Verifier>::test_pool().await;
+    let mut db = pool.connection().await.unwrap();
+    let hash = BlockHash::from_byte_array([10; 32]);
+    canonical(&mut db, 10, hash).await;
+    canonical(&mut db, 20, BlockHash::from_byte_array([20; 32])).await;
+    reader_context(&mut db, BlockHash::all_zeros(), 20, BlockHash::from_byte_array([20; 32])).await;
+    let mut tx = db.start_transaction().await.unwrap();
+    let header = via_btc_storage::ReaderDal::new(&mut tx).header_at(10).await.unwrap().unwrap();
+    let mut child_id = 0;
+    for number in 1..=2u32 {
+        let origin = MessageOrigin {
+            height: 10,
+            hash,
+            transaction_index: number * 2,
+            message_index: 0,
+            txid: Txid::from_byte_array([number as u8 + 10; 32]),
+        };
+        let parent = Included {
+            origin: origin.clone(),
+            payload: Payload {
+                input: L1BatchDAReferenceInput {
+                    l1_batch_index: zksync_types::L1BatchNumber(number),
+                    l1_batch_hash: H256::repeat_byte(number as u8),
+                    prev_l1_batch_hash: H256::repeat_byte((number - 1) as u8),
+                    da_identifier: "fixture".into(),
+                    blob_id: format!("batch-{number}"),
+                },
+                public_key: vec![],
+                signature: vec![],
+                sender_script: None,
+            },
+        };
+        let proof = via_test_utils::inscription::unsigned_proof(
+            parent,
+            MessageOrigin {
+                txid: Txid::from_byte_array([number as u8; 32]),
+                transaction_index: number * 2 + 1,
+                ..origin.clone()
+            },
+            ProofDAReferenceInput {
+                l1_batch_reveal_txid: origin.txid,
+                da_identifier: "fixture".into(),
+                blob_id: format!("proof-{number}"),
+            },
+        );
+        tx.via_votes_dal().save_reader_proof(&proof, header.id).await.unwrap();
+        let id = tx
+            .via_votes_dal()
+            .get_votable_transaction_id(H256::repeat_byte(number as u8).as_bytes())
+            .await
+            .unwrap()
+            .unwrap();
+        if number == 1 {
+            sqlx::query("UPDATE via_votable_transactions SET l1_batch_status=FALSE WHERE id=$1")
+                .bind(id)
+                .execute(tx.conn())
+                .await
+                .unwrap();
+        } else {
+            child_id = id;
+        }
+    }
+    legacy_vote(&mut tx, child_id, "later", true, Some((20, BlockHash::from_byte_array([20; 32]))))
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut reorg = db.start_transaction().await.unwrap();
+    reorg.via_indexer_dal().delete_reader_suffix(15).await.unwrap();
+    prune_headers(&mut reorg, 15).await;
+    reorg.commit().await.unwrap();
+    let rejected: Option<bool> =
+        sqlx::query_scalar("SELECT l1_batch_status FROM via_votable_transactions WHERE id=$1")
+            .bind(child_id)
+            .instrument("canonical_descendant_rejection")
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(rejected, Some(false));
+    assert!(retained_votes(&mut db).await.is_empty());
+    let candidate = batch(2, vec![request(2)]);
+    assert!(db
+        .via_withdrawal_dal()
+        .import_complete_batch(wallet().as_bytes(), H256::repeat_byte(2).as_bytes(), &candidate)
+        .await
+        .is_err());
 }

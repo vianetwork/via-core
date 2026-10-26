@@ -156,21 +156,11 @@ reviews:
         Review for explicit height/hash comparison; never rely on Vec position, zip order, or async completion order
         unless the ordering contract is proven and tested. Consider impact on sparse via_l1_blocks rows.
 
-    - path: "core/node/via_main_node_reorg_detector/**"
+    - path: "core/lib/via_btc_storage/**"
       instructions: |
-        Main-node reorg detector. Review together with via_verifier/node/via_reorg_detector when behavior overlaps.
-        Enforce explicit height/hash identity. Audit sparse rows, async fetch ordering, and Vec/zip usage.
-
-        Before adding or modifying logic here, check whether equivalent behavior exists in via_verifier/node/via_reorg_detector/.
-        Follow the root AGENTS.md → "Reuse and duplication discipline". If duplication is being introduced, it must be explicitly justified with a clear invariant or ownership boundary.
-
-    - path: "via_verifier/node/via_reorg_detector/**"
-      instructions: |
-        Verifier reorg detector. Treat as sibling of the main-node version; check both when either changes.
-        Preserve explicit height/hash identity and DB ordering assumptions.
-
-        Before adding or modifying logic here, check whether equivalent behavior exists in core/node/via_main_node_reorg_detector/.
-        Follow the root AGENTS.md → "Reuse and duplication discipline". If duplication is being introduced, it must be explicitly justified with a clear invariant or ownership boundary.
+        Shared Bitcoin reader storage. Review canonical header identity, confirmed frontier,
+        transactional effects and consumer progress, replay readiness, and authority admission.
+        Check both native DAL adapters through .github/sibling-paths.yml and root AGENTS.md.
 
     - path: "core/node/node_framework/src/implementations/layers/*reorg_detector*.rs"
       instructions: |
@@ -180,13 +170,10 @@ reviews:
         When modifying these layers, consider impact on both main-node and verifier reorg detectors.
         Follow the root AGENTS.md → "Reuse and duplication discipline" if changes affect duplicated behavior.
 
-    - path: "core/lib/dal/src/via_l1_block_dal.rs"
+    - path: "**/src/via_indexer_dal.rs"
       instructions: |
-        via_l1_blocks DAL. Height/hash identity, sparse rows, query ordering, and index behavior are first-class concerns.
-
-    - path: "via_verifier/lib/verifier_dal/src/via_l1_block_dal.rs"
-      instructions: |
-        Verifier-side via_l1_blocks DAL. Keep identity invariants aligned with the main DAL unless divergence is intentional.
+        Native reader adapter. Preserve role-specific SQL, retained roots and source byte order.
+        Compare main and verifier adapters using the root reuse rules and sibling map.
 
     - path: "core/lib/via_da_clients/**"
       instructions: |
@@ -268,7 +255,7 @@ reviews:
     # Additional Via-specific Performance & Safety Guidance
     # ======================================================
     # High-risk Via-specific areas (detailed guidance)
-    - path: "**/via_*reorg_detector*/**"
+    - path: "core/lib/via_btc_storage/**"
       instructions: |
         This is high-risk Via-specific code. Apply strong scrutiny across these review lenses:
         - Identity and ordering assumptions (especially around heights, hashes, and async results)

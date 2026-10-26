@@ -1,5 +1,5 @@
 name: L1 / BTC / reorg / sync bug
-description: Use for via_l1_blocks, BTC watch/sender, reorg detector, verifier sync, or external-node bootstrap issues
+description: Use for via_btc_headers, BTC watch/sender, Bitcoin reader, verifier sync, or external-node bootstrap issues
 title: "bug: l1-btc: <component>: <symptom>"
 labels:
   - bug
@@ -8,7 +8,7 @@ body:
     attributes:
       value: |
         Use this template for bugs involving:
-        - `via_l1_blocks`;
+        - `via_btc_headers`;
         - BTC watch, BTC sender, or BTC client behavior;
         - main-node or verifier reorg detection;
         - external-node bootstrap;
@@ -29,16 +29,16 @@ body:
       label: Affected path
       multiple: true
       options:
-        - core/node/via_main_node_reorg_detector
-        - via_verifier/node/via_reorg_detector
+        - core/lib/via_reorg
+        - core/lib/via_btc_storage
         - core/node/via_btc_watch
         - via_verifier/node/via_btc_watch
         - core/node/via_btc_sender
         - via_verifier/node/via_btc_sender
         - core/lib/via_btc_client
-        - core/lib/dal/src/via_l1_block_dal.rs
-        - via_verifier/lib/verifier_dal/src/via_l1_block_dal.rs
-        - core/lib/config via_btc_* / via_reorg_detector
+        - core/lib/dal/src/via_indexer_dal.rs
+        - via_verifier/lib/verifier_dal/src/via_indexer_dal.rs
+        - core/lib/config via_btc_*
         - external-node bootstrap
         - deployment / kube-state / helm values
         - not sure
@@ -60,7 +60,7 @@ body:
       description: Describe the observed L1/BTC/reorg/sync failure.
       placeholder: |
         Example:
-        The reorg detector reported a reorg at height 100891 during external-node
+        The Bitcoin reader reported a reorg at height 100891 during external-node
         bootstrap even though the canonical Bitcoin hash for height 100891 matched
         the DB row when checked directly.
     validations:
@@ -86,9 +86,12 @@ body:
       render: sql
       placeholder: |
         SELECT number, hash
-        FROM via_l1_blocks
+        FROM via_btc_headers
         WHERE number BETWEEN <start_height> AND <end_height>
         ORDER BY number ASC;
+
+        SELECT * FROM via_btc_reader;
+        SELECT * FROM via_btc_consumers;
     validations:
       required: true
 
@@ -155,16 +158,16 @@ body:
       value: |
         | Surface | Checked? | Finding |
         | --- | --- | --- |
-        | core/node/via_main_node_reorg_detector |  |  |
-        | via_verifier/node/via_reorg_detector |  |  |
-        | core/lib/dal/src/via_l1_block_dal.rs |  |  |
-        | via_verifier/lib/verifier_dal/src/via_l1_block_dal.rs |  |  |
+        | core/lib/via_reorg |  |  |
+        | core/lib/via_btc_storage |  |  |
+        | core/lib/dal/src/via_indexer_dal.rs |  |  |
+        | via_verifier/lib/verifier_dal/src/via_indexer_dal.rs |  |  |
         | core/node/via_btc_watch |  |  |
         | via_verifier/node/via_btc_watch |  |  |
         | core/node/via_btc_sender |  |  |
         | via_verifier/node/via_btc_sender |  |  |
         | core/lib/via_btc_client |  |  |
-        | core/lib/config via_btc_* / via_reorg_detector |  |  |
+        | core/lib/config via_btc_* |  |  |
         | deployment/kube-state or helm-charts desired state |  |  |
     validations:
       required: true
@@ -210,10 +213,10 @@ body:
       value: |
         The regression test should prove:
 
-        - [ ] sparse `via_l1_blocks` rows cannot cause height/hash miscomparison
+        - [ ] sparse `via_btc_headers` rows cannot cause height/hash miscomparison
         - [ ] canonical hashes are compared by explicit height
         - [ ] out-of-order async block fetch completion cannot corrupt comparison or insertion
-        - [ ] `sync_l1_blocks` cannot insert a hash under the wrong height
+        - [ ] the reader cannot commit effects under the wrong header or advance a consumer without its effects
         - [ ] verifier and main/external-node detector paths are covered or explicitly ruled out
 
         Old-code failure:

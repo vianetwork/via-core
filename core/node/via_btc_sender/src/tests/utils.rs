@@ -150,16 +150,16 @@ pub async fn get_inscription_manager_mock(
     let inscriber = get_mock_inscriber_and_conditions(mock_btc_ops_config);
     let mut wallets = test_wallets();
     wallets.sequencer = inscriber.inscriber_address().unwrap();
-    pool.connection()
-        .await
-        .unwrap()
-        .via_wallet_dal()
-        .insert_wallets(&SystemWalletsDetails::try_from(wallets).unwrap(), 0)
-        .await
-        .unwrap();
     let mut db = pool.connection().await.unwrap();
     let mut tx = db.start_transaction().await.unwrap();
     let mut reader = via_btc_storage::ReaderDal::new(&mut tx);
+    reader
+        .insert_wallets(
+            &SystemWalletsDetails::try_from(wallets).unwrap(),
+            via_btc_storage::WalletSource::Unbound(0),
+        )
+        .await
+        .unwrap();
     let root = &chain.blocks[&0];
     let tip = *chain.blocks.keys().last().unwrap();
     reader
