@@ -274,7 +274,7 @@ async fn core_fixture() -> anyhow::Result<(BitcoinCore, Arc<BitcoinClient>, Conn
 }
 
 #[tokio::test]
-async fn branch_switch_between_height_and_header_holds_then_retries() -> anyhow::Result<()> {
+async fn header_lookup_retries_branch_switch_but_stops_inconsistent_height() -> anyhow::Result<()> {
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Mutex,
@@ -286,12 +286,21 @@ async fn branch_switch_between_height_and_header_holds_then_retries() -> anyhow:
         initialized_pool(fixture_header(&chain, 0), fixture_header(&chain, 2).into()).await?;
     let chain = Arc::new(Mutex::new(chain));
     let switched = Arc::new(AtomicBool::new(false));
+    let inconsistent_height = Arc::new(AtomicBool::new(false));
     let server = BitcoinRpcServer::new_with_errors(None, false, {
         let chain = chain.clone();
         let switched = switched.clone();
+        let inconsistent_height = inconsistent_height.clone();
         move |_, request| {
             let mut chain = chain.lock().unwrap();
-            let result = chain.rpc(&request);
+            let result = if inconsistent_height.load(Ordering::SeqCst)
+                && request["method"] == "getblockhash"
+                && request["params"][0] == 2
+            {
+                Ok(chain.blocks[&1].block_hash().to_string().into())
+            } else {
+                chain.rpc(&request)
+            };
             if request["method"] == "getblockhash"
                 && request["params"][0] == 1
                 && !switched.swap(true, Ordering::SeqCst)
@@ -326,6 +335,26 @@ async fn branch_switch_between_height_and_header_holds_then_retries() -> anyhow:
         ReaderDal::new(&mut db).get_highest_block().await?.unwrap().header,
         fixture_header(&chain.lock().unwrap(), 1)
     );
+    inconsistent_height.store(true, Ordering::SeqCst);
+    let error = transition::process_next(&mut db, &client, &mut indexer, 0.3).await.unwrap_err();
+    assert!(
+        matches!(error.downcast_ref::<StoreError>(), Some(StoreError::Stopped(_))),
+        "{error:#}"
+    );
+    assert!(!transition::is_held(&error));
+    let state = ReaderDal::new(&mut db).state().await?.unwrap();
+    assert!(state.stopped_reason.is_some());
+    assert!(!state.replay_ready);
+    assert_eq!(ReaderDal::new(&mut db).get_highest_block().await?.unwrap().header.height, 1);
+    inconsistent_height.store(false, Ordering::SeqCst);
+    drop(db);
+    let mut reopened = pool.connection().await?;
+    let error =
+        transition::process_next(&mut reopened, &client, &mut indexer, 0.3).await.unwrap_err();
+    assert!(matches!(error.downcast_ref::<StoreError>(), Some(StoreError::Stopped(_))));
+    let reopened_state = ReaderDal::new(&mut reopened).state().await?.unwrap();
+    assert_eq!(reopened_state.stopped_reason, state.stopped_reason);
+    assert!(!reopened_state.replay_ready);
     Ok(())
 }
 
