@@ -63,7 +63,7 @@ async fn external_node_basics(components_str: &'static str) {
             .unwrap()
         });
 
-        // Wait until the node is ready.
+        // Wait until node is ready.
         let app_health = match app_health_receiver.await {
             Ok(app_health) => app_health,
             Err(_) if node_handle.is_finished() => {
@@ -86,7 +86,7 @@ async fn external_node_basics(components_str: &'static str) {
             tokio::time::sleep(POLL_INTERVAL).await;
         }
 
-        // Stop the node and check that it timely terminates.
+        // Stop node and check that it terminates in time.
         sigint_sender.send(()).unwrap();
 
         tokio::time::timeout(SHUTDOWN_TIMEOUT, node_handle)
@@ -95,7 +95,7 @@ async fn external_node_basics(components_str: &'static str) {
             .expect("Node panicked")
             .expect("Node errored");
 
-        // Check that the node health was appropriately updated.
+        // Check that node health was updated.
         let health_data = app_health.check_health().await;
         tracing::info!(?health_data, "final health data");
         assert_matches!(health_data.inner().status(), HealthStatus::ShutDown);

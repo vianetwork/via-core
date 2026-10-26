@@ -59,8 +59,8 @@ async fn difference(
     .await
 }
 
-// LDK equal/shorter/longer fork cases, adapted to the one shared Via chain fixture and recovery start.
-// https://github.com/lightningdevkit/rust-lightning/blob/d7a980641c6325ddda5072a0f470ef8392676cf5/lightning-block-sync/src/lib.rs
+// Fork shapes cover equal, shorter and longer forks on one shared Via chain fixture and recovery start.
+// Adapted from rust-lightning's fork tests: https://github.com/lightningdevkit/rust-lightning/blob/d7a980641c6325ddda5072a0f470ef8392676cf5/lightning-block-sync/src/lib.rs
 #[tokio::test]
 async fn fork_shapes_and_inclusive_old_side_limit() {
     for depth in [1, 6, 100] {

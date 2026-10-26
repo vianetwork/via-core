@@ -139,7 +139,7 @@ impl ViaTransactionsDal<'_, '_> {
         Ok(priority_id.unwrap_or(0))
     }
 
-    /// A second proof of one batch reuses its complete settled set; it cannot consume later deposits.
+    /// deposits_for_proof returns batch's complete settled deposit set. Second proof of one batch reuses that set and cannot consume later deposits.
     pub async fn deposits_for_proof(
         &mut self,
         batch: i64,

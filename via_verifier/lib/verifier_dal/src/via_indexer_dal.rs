@@ -21,8 +21,8 @@ pub struct ViaIndexerDal<'a, 'c> {
 }
 
 impl ViaIndexerDal<'_, '_> {
-    // Era rollback's child-before-parent transaction; completed/local proof parents are retained.
-    // https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/block_reverter/src/lib.rs
+    // delete_reader_suffix deletes children before parents in one transaction. Completed and local proof parents are retained.
+    // Adapted from Era block reverter rollback order: https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/block_reverter/src/lib.rs
     pub async fn delete_reader_suffix(&mut self, height: u32) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.storage.in_transaction(),

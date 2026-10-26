@@ -38,7 +38,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
         Ok(())
     }
 
-    /// Main stores minor provenance on its patch; verifier also persists the executed-minor source.
+    /// bind_reader_protocol persists executed-minor source as well as patch source. Main stores minor provenance on its patch only.
     pub async fn bind_reader_protocol(
         &mut self,
         change: &via_btc_storage::StoredConfiguration,

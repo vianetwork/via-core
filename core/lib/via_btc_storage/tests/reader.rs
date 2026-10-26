@@ -405,7 +405,7 @@ async fn core_shallow_rewind_commits_native_deletes_consumer_and_frontier() -> a
     use zksync_types::via_wallet::SystemWalletsDetails;
     let core = BitcoinCore::new()?;
     let mut client = core.client()?;
-    // Exercise the six-block policy against actual isolated Core headers; startup network validation is tested separately.
+    // Six-block policy runs against actual isolated Core headers. Startup network validation is tested separately.
     Arc::get_mut(&mut client).unwrap().config.network = "bitcoin".into();
     core.mine(101)?;
     let wallets = via_test_utils::utils::test_wallets();

@@ -448,7 +448,7 @@ async fn approve_and_assert_state(
 #[tokio::test]
 async fn stale_work_cannot_complete_and_fresh_work_completes_once() {
     let (mut storage, old, deposit, pubdata) = approval_fixture(false, false).await;
-    // Rebuild exactly the same source occurrence. BIGSERIAL identities are never reset.
+    // Rebuild exactly same source occurrence. BIGSERIAL identities are never reset.
     sqlx::query("DELETE FROM via_votable_transactions WHERE id=$1")
         .bind(old.id)
         .execute(storage.conn())
@@ -489,7 +489,7 @@ async fn distinct_same_batch_proof_can_record_approval() {
 async fn retained_completed_proof_remining_keeps_its_identity_and_verdict() {
     let (mut storage, work, _, pubdata) = approval_fixture(false, false).await;
     record_approval(&mut storage, &work, Approval::Verified, &pubdata, None).await.unwrap();
-    // Retained inputs entering reset still name their old, now noncanonical inclusions.
+    // Retained inputs entering reset name their old, now noncanonical inclusions.
     let mut retained = work.proof.clone();
     retained.origin.height = 9;
     retained.origin.hash = "09".repeat(32).parse().unwrap();

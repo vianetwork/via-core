@@ -2,10 +2,9 @@
 
 use std::{collections::HashSet, hash::Hash};
 
-/// Count each historical member once for one exact proof/inclusion, preserving Via's ratio and
-/// approval-on-tie rule. Conflicting payloads for a stored vote identity fail at insertion.
-/// Historical membership and distinct voters follow CometBFT; its weighted threshold is not used.
-/// https://github.com/cometbft/cometbft/blob/99dfb19d9fb406389269b079d34aba555ee4f3d5/types/validation.go
+/// tally counts each historical member once for one exact proof inclusion, preserving Via's ratio and approval-on-tie rule.
+/// Conflicting payloads for stored vote identity fail at insertion.
+/// Idea only from CometBFT commit verification, which counts distinct voters against historical validator set and uses weighted threshold Via does not: https://github.com/cometbft/cometbft/blob/99dfb19d9fb406389269b079d34aba555ee4f3d5/types/validation.go
 pub fn tally<P: Eq, V: Eq + Hash>(
     proof: &P,
     verifiers: &[V],

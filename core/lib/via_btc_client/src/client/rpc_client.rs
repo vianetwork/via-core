@@ -318,8 +318,8 @@ impl BitcoinRpc for BitcoinRpcClient {
 
         let hash = *hash;
         self.retry_rpc("getblockheader", move |client| {
-            // Core's -1 is authoritative non-membership; -5 means this source does not know the hash.
-            // https://github.com/bitcoin/bitcoin/blob/e8e7e91a1144c378dff4da2e2a562eb0f3f2e1d6/src/rpc/blockchain.cpp
+            // Confirmations -1 is Core's authoritative answer that block is off main chain. Error -5 means unknown hash, so None.
+            // Any other error is source failure. Both meanings follow bitcoin/bitcoin RPC blockchain.cpp: https://github.com/bitcoin/bitcoin/blob/e8e7e91a1144c378dff4da2e2a562eb0f3f2e1d6/src/rpc/blockchain.cpp
             let header = match client.get_block_header_info(&hash) {
                 Ok(header) => header,
                 Err(bitcoincore_rpc::Error::JsonRpc(jsonrpc::Error::Rpc(error)))

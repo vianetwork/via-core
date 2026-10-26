@@ -343,8 +343,8 @@ async fn report_watermarks(storage: &mut Connection<'_, Verifier>) -> anyhow::Re
     Ok((indexed, valid))
 }
 
-/// Records the local approval with its deposit and upgrade effects in one transaction.
-/// Returns false for a replaced row/header, an incomplete prefix or a concurrent reorg.
+/// record_approval records local approval with its deposit and upgrade effects in one transaction.
+/// Returns false, with nothing written, for replaced row or header, incomplete prefix or concurrent reorg.
 async fn record_approval(
     storage: &mut Connection<'_, Verifier>,
     work: &ProofWork,
@@ -356,8 +356,8 @@ async fn record_approval(
     transaction.via_indexer_dal().lock_btc_watch().await?;
     transaction.via_indexer_dal().lock_withdrawal_invalidation().await?;
     // Replay readiness waits for rotation decisions, which wait for local proof verdicts.
-    // This local save breaks that cycle only after this proof's complete, mature inputs are fixed;
-    // votes, signatures, L2 execution, finalization and withdrawals still require global readiness.
+    // This local save breaks that cycle only after this proof's complete, mature inputs are fixed.
+    // Votes, signatures, L2 execution, finalization and withdrawals keep requiring global readiness.
     if !ReaderDal::new(&mut transaction).proof_inputs_complete(work).await? {
         return Ok(false);
     }

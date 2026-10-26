@@ -137,7 +137,7 @@ impl BitcoinInscriptionIndexer {
         block_height: u32,
     ) -> BitcoinIndexerResult<Vec<FullInscriptionMessage>> {
         let block_hash = block.block_hash();
-        // TODO: deal with malicious sequencer, verifiers from being able to make trouble by sending invalid messages / valid messages with invalid data
+        // TODO: handle malicious sequencer or verifiers sending invalid messages or valid messages with invalid data.
 
         let mut valid_messages = Vec::new();
 
@@ -386,7 +386,7 @@ impl BitcoinInscriptionIndexer {
     #[instrument(skip(self, message), target = "bitcoin_indexer")]
     fn is_valid_system_message(&self, message: &FullInscriptionMessage) -> bool {
         match message {
-            // Retain historical voters; membership belongs to the proof-inclusion tally.
+            // Historical voters stay valid here. Membership is decided by proof-inclusion tally.
             FullInscriptionMessage::ValidatorAttestation(m) => m.common.p2wpkh_address.is_some(),
             FullInscriptionMessage::L1BatchDAReference(m) => m
                 .common

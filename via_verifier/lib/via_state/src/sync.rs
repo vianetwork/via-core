@@ -13,6 +13,7 @@ impl ViaState {
     pub fn new(pool: ConnectionPool<Verifier>, btc_client: Arc<dyn BitcoinOps>) -> Self {
         Self { pool, btc_client }
     }
+    /// is_sync_in_progress is true until replay is ready and protocol consumer reached mature height.
     pub async fn is_sync_in_progress(&self) -> anyhow::Result<bool> {
         let mut storage = self.pool.connection().await?;
         let mut reader = via_btc_storage::ReaderDal::new(&mut storage);
@@ -30,6 +31,7 @@ impl ViaState {
             .context("protocol consumer is missing")?;
         Ok(!state.replay_ready || consumer.applied.header.height < mature)
     }
+    /// is_reorg_in_progress is true while reader holds durable stop reason.
     pub async fn is_reorg_in_progress(&self) -> anyhow::Result<bool> {
         let mut storage = self.pool.connection().await?;
         Ok(via_btc_storage::ReaderDal::new(&mut storage)

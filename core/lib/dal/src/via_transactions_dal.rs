@@ -77,7 +77,8 @@ impl ViaTransactionsDal<'_, '_> {
         Ok(())
     }
 
-    /// Compare exact outpoint replay and preserve an operation already attached to L2.
+    /// insert_transaction_l1 inserts new deposit, or on same outpoint compares replay and keeps operation already attached to L2.
+    /// Returns true only when new row was inserted.
     pub async fn insert_transaction_l1(
         &mut self,
         tx: &L1Tx,

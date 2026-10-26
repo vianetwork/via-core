@@ -12,10 +12,7 @@ use crate::{
     models::storage_vote::CanonicalChainStatus, Verifier, WITHDRAWAL_INVALIDATION_LOCK_KEY,
 };
 
-// The immutable pre-reset finalization marker supplies the verifier Q26 exception.
-
-// Verifier proof IDs are display-order H256 bytes; reverse at the Bitcoin Txid boundary.
-
+// Verifier proof IDs are display-order H256 bytes. Reverse them at Bitcoin Txid boundary.
 pub struct ViaVotesDal<'c, 'a> {
     pub(crate) storage: &'c mut Connection<'a, Verifier>,
 }

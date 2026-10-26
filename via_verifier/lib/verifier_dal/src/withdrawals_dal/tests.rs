@@ -2451,7 +2451,7 @@ async fn legacy_vote_reorg_cannot_supply_current_finalization_receipt() {
     let proof = H256::from_low_u64_be(1);
     legacy_vote(&mut db, id, "reverted", true, Some((20, reverted_hash))).await.unwrap();
     legacy_vote(&mut db, id, "retained", true, Some((15, retained_hash))).await.unwrap();
-    // One transaction cannot occur twice on the selected Bitcoin chain.
+    // One transaction cannot occur twice on selected Bitcoin chain.
     let conflict = proof_at(&mut db, &candidate, Some((20, reverted_hash))).await.unwrap_err();
     assert_eq!(
         conflict.downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>().unwrap().field,

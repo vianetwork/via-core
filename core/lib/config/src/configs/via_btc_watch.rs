@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 pub struct ViaBtcWatchConfig {
     /// Service interval in milliseconds.
     pub poll_interval: u64,
-    /// Independent indexer start; protocol readers use the checked bootstrap anchor.
+    /// start_l1_block_number starts only independent indexer. Protocol readers start from checked bootstrap anchor.
     pub start_l1_block_number: u32,
-    /// Reset only the independent indexer.
+    /// restart_indexing resets only independent indexer. Protocol readers reset through reader format check.
     pub restart_indexing: bool,
 }
 

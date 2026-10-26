@@ -114,9 +114,9 @@ impl<H: Copy + Eq, R: FnMut(H) -> Option<Header<H>>> Walk<'_, H, R> {
         Ok(WalkHeader { header: parent, retained: header.retained })
     }
 
-    // LDK find_difference_from_header: loop unchanged; checked retained ancestry and N/frontier
-    // bounds live in the Via adapter. Source catch-up starts at min(old height, selected height).
-    // https://github.com/lightningdevkit/rust-lightning/blob/d7a980641c6325ddda5072a0f470ef8392676cf5/lightning-block-sync/src/lib.rs
+    // find_difference_from_header keeps LDK's loop byte-identical, including its comments.
+    // Via adapter adds retained ancestry checks and N/frontier bounds around it. Catch-up starts at min(old, selected height).
+    // Copied from rust-lightning lightning-block-sync find_difference_from_header: https://github.com/lightningdevkit/rust-lightning/blob/d7a980641c6325ddda5072a0f470ef8392676cf5/lightning-block-sync/src/lib.rs
     #[rustfmt::skip]
     async fn find_difference_from_header<P: HeaderSource<H>>(
         &mut self, current_header: WalkHeader<H>, prev_header: &WalkHeader<H>, chain_poller: &mut P,
@@ -154,8 +154,8 @@ impl<H: Copy + Eq, R: FnMut(H) -> Option<Header<H>>> Walk<'_, H, R> {
     }
 }
 
-/// Prepare recovery from the selected canonical header at min(stored height, selected height).
-/// Forward ingestion is separate; only disconnected old blocks consume the N-depth budget.
+/// find_difference prepares recovery from selected canonical header at min(stored height, selected height).
+/// Forward ingestion is separate. Only disconnected old blocks consume N-depth budget.
 pub async fn find_difference<H: Copy + Eq, P: HeaderSource<H>>(
     current: Header<H>,
     previous: Header<H>,

@@ -4,15 +4,13 @@ use zksync_db_connection::{connection::Connection, instrument::InstrumentExt};
 
 use crate::Core;
 
-// Exact pre-reset outbound receipt identity supplies the main-node Q26 exception.
-
-// Sender history keeps raw Txid bytes at this boundary.
-
 pub struct ViaVotesDal<'c, 'a> {
     pub(crate) storage: &'c mut Connection<'a, Core>,
 }
 
 impl ViaVotesDal<'_, '_> {
+    /// save_reader_proof stores proof once per canonical inclusion and compares replay against stored payload.
+    /// Txid is stored as raw bytes, matching sender history at this boundary.
     pub async fn save_reader_proof(
         &mut self,
         proof: &Included<ProofInput>,

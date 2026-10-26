@@ -31,7 +31,7 @@ pub enum HeaderMembership {
     Noncanonical,
 }
 
-/// The source answered about this exact hash. A missing hash is `None`; source failure is an error.
+/// BlockHeaderInfo is source's answer about this exact hash. Missing hash is `None`. Source failure is error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockHeaderInfo {
     pub hash: bitcoin::BlockHash,

@@ -1,6 +1,6 @@
 //! Isolated regtest processes use the provisioned, checksum-pinned executable, never PATH discovery.
-// Adapt corepc's explicit executable/process owner; it terminates and waits on failed startup and Drop.
-// https://git.rust-bitcoin.org/rust-bitcoin/corepc/src/commit/eca585605f6fbf79a1c8ce81ce86e2e4205cdf31/bitcoind/src/lib.rs
+// BitcoinCore owns one explicit executable and process. Process is terminated and waited on failed startup and on Drop.
+// Adapted from corepc bitcoind process owner, provisioned executable replaces PATH lookup: https://git.rust-bitcoin.org/rust-bitcoin/corepc/src/commit/eca585605f6fbf79a1c8ce81ce86e2e4205cdf31/bitcoind/src/lib.rs
 
 use std::{
     path::PathBuf,
@@ -85,9 +85,8 @@ impl BitcoinCore {
         )?))
     }
 
-    /// Only the fee estimate is fixed; transaction and broadcast RPCs still execute on this Core.
-    // Core requires fee-history samples which an isolated fixture deliberately does not create.
-    // https://github.com/bitcoin/bitcoin/blob/79d6e874e1dad6822b5d7e6993aa205d21ed2cbf/src/rpc/fees.cpp
+    /// inscriber_client fixes only fee estimate. Transaction and broadcast RPCs still execute on this Core.
+    /// Core needs fee-history samples that isolated fixture never creates, per Core fee estimation RPC: https://github.com/bitcoin/bitcoin/blob/79d6e874e1dad6822b5d7e6993aa205d21ed2cbf/src/rpc/fees.cpp
     pub fn inscriber_client(&self) -> anyhow::Result<Arc<BitcoinClient>> {
         let node = self.node.clone();
         let server = BitcoinRpcServer::new_with_errors(
@@ -171,8 +170,8 @@ impl BitcoinCore {
         Ok(())
     }
 
-    /// Port Core's named fixture: build on the current tip without submitting any block yet.
-    // https://github.com/bitcoin/bitcoin/blob/79d6e874e1dad6822b5d7e6993aa205d21ed2cbf/test/functional/test_framework/blocktools.py
+    /// create_empty_fork builds blocks on current tip without submitting any.
+    /// Ported from Core's functional test block tools, which build fork blocks before submission: https://github.com/bitcoin/bitcoin/blob/79d6e874e1dad6822b5d7e6993aa205d21ed2cbf/test/functional/test_framework/blocktools.py
     pub fn create_empty_fork(&self, fork_length: u32) -> anyhow::Result<Vec<Block>> {
         let mut parent: BlockHash = self.rpc("getbestblockhash", &[])?;
         let mut height: u32 = self.rpc("getblockcount", &[])?;

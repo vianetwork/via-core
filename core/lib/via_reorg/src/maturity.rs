@@ -2,9 +2,9 @@
 
 type L1Height = u32;
 
-// Alpen compute_confirmation_depth and is_l1_reorg_safe: functions unchanged; local height alias.
+// compute_confirmation_depth and is_l1_reorg_safe are copied unchanged with local height alias, doc comments included.
 // Copyright (c) 2024 Strata contributors. Licensed under the MIT option (LICENSE-MIT).
-// https://github.com/alpenlabs/alpen/blob/882107abd8ec691f870dced0a680267124dd8294/crates/primitives/src/l1/mod.rs
+// Copied from Alpen primitives L1 module: https://github.com/alpenlabs/alpen/blob/882107abd8ec691f870dced0a680267124dd8294/crates/primitives/src/l1/mod.rs
 /// Computes how many confirmations an L1 block at `observed_height` has under
 /// `current_tip`, counting the block itself as one confirmation.
 ///

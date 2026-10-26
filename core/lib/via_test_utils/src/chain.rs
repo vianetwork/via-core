@@ -1,6 +1,5 @@
 //! One hash-retaining chain model for both reader adapters. Transport barriers remain test-local.
-// Adapt LDK's competing-fork and missing-data fixture behavior to the existing JSON-RPC server.
-// https://github.com/lightningdevkit/rust-lightning/blob/d7a980641c6325ddda5072a0f470ef8392676cf5/lightning-block-sync/src/test_utils.rs
+// Chain adapts rust-lightning's competing-fork and missing-data fixture behaviour to existing JSON-RPC server: https://github.com/lightningdevkit/rust-lightning/blob/d7a980641c6325ddda5072a0f470ef8392676cf5/lightning-block-sync/src/test_utils.rs
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
