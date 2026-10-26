@@ -247,22 +247,14 @@ async fn materialize_work(
     wallets: SystemWallets,
 ) -> ProofWork {
     let chain = Chain::with_height(1);
-    let header = |height| via_reorg::chain::Header {
-        height,
-        block_hash: chain.blocks[&height].block_hash(),
-        parent_hash: chain.blocks[&height].header.prev_blockhash,
-    };
     let mut tx = storage.start_transaction().await.unwrap();
+    via_test_utils::reader_at(&mut tx, &chain, 1, 1, bitcoin::Network::Regtest).await.unwrap();
+    sqlx::query("DELETE FROM via_btc_consumers WHERE name='withdrawals'")
+        .execute(tx.conn())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE via_btc_reader SET replay_ready=FALSE").execute(tx.conn()).await.unwrap();
     let mut reader = ReaderDal::new(&mut tx);
-    if reader.state().await.unwrap().is_none() {
-        reader
-            .initialize("regtest", header(0).block_hash, header(0), header(1).into())
-            .await
-            .unwrap();
-        let root = reader.header_at(0).await.unwrap().unwrap();
-        reader.save_block(header(1), &root).await.unwrap();
-        reader.complete_consumer(via_btc_storage::PROTOCOL_CONSUMER, &root, &root).await.unwrap();
-    }
     reader
         .insert_wallets(
             &SystemWalletsDetails::try_from(wallets).unwrap(),
@@ -271,12 +263,9 @@ async fn materialize_work(
         .await
         .unwrap();
     let block = reader.header_at(1).await.unwrap().unwrap();
-    let oldest = reader.header_at(0).await.unwrap().unwrap();
-    reader.complete_consumer(via_btc_storage::PROTOCOL_CONSUMER, &block, &oldest).await.unwrap();
-    reader.advance_frontier(&block, &block).await.unwrap();
     let origin = MessageOrigin {
         height: 1,
-        hash: header(1).block_hash,
+        hash: block.header.block_hash,
         transaction_index: 0,
         message_index: 0,
         txid: proof.l1_batch_reveal_txid,

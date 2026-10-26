@@ -152,65 +152,19 @@ pub async fn get_inscription_manager_mock(
     wallets.sequencer = inscriber.inscriber_address().unwrap();
     let mut db = pool.connection().await.unwrap();
     let mut tx = db.start_transaction().await.unwrap();
-    let mut reader = via_btc_storage::ReaderDal::new(&mut tx);
-    reader
+    let tip = *chain.blocks.keys().last().unwrap();
+    sqlx::query("UPDATE protocol_patches SET bitcoin_height=0,bitcoin_hash=$1 WHERE bitcoin_payload IS NULL")
+        .bind(chain.blocks[&0].block_hash().to_string()).execute(tx.conn()).await.unwrap();
+    assert!(via_test_utils::reader_at(&mut tx, &chain, tip, tip, bitcoin::Network::Regtest)
+        .await
+        .unwrap());
+    via_btc_storage::ReaderDal::new(&mut tx)
         .insert_wallets(
             &SystemWalletsDetails::try_from(wallets).unwrap(),
             via_btc_storage::WalletSource::Unbound(0),
         )
         .await
         .unwrap();
-    let root = &chain.blocks[&0];
-    let tip = *chain.blocks.keys().last().unwrap();
-    reader
-        .initialize(
-            "regtest",
-            root.block_hash(),
-            via_reorg::chain::Header {
-                height: 0,
-                block_hash: root.block_hash(),
-                parent_hash: root.header.prev_blockhash,
-            },
-            via_reorg::chain::BlockRef { height: tip, block_hash: chain.blocks[&tip].block_hash() },
-        )
-        .await
-        .unwrap();
-    let oldest = reader.header_at(0).await.unwrap().unwrap();
-    if reader.consumer(via_btc_storage::PROTOCOL_CONSUMER).await.unwrap().is_none() {
-        reader
-            .complete_consumer(via_btc_storage::PROTOCOL_CONSUMER, &oldest, &oldest)
-            .await
-            .unwrap();
-    }
-    for (&height, block) in chain.blocks.range(1..) {
-        let previous = reader.get_highest_block().await.unwrap().unwrap();
-        if height > previous.header.height {
-            reader
-                .save_block(
-                    via_reorg::chain::Header {
-                        height,
-                        block_hash: block.block_hash(),
-                        parent_hash: block.header.prev_blockhash,
-                    },
-                    &previous,
-                )
-                .await
-                .unwrap();
-        }
-        let stored = reader.header_at(height).await.unwrap().unwrap();
-        let cursor = reader.consumer(via_btc_storage::PROTOCOL_CONSUMER).await.unwrap().unwrap();
-        if height > cursor.applied.header.height {
-            reader
-                .complete_consumer(via_btc_storage::PROTOCOL_CONSUMER, &stored, &oldest)
-                .await
-                .unwrap();
-        }
-    }
-    let head = reader.get_highest_block().await.unwrap().unwrap();
-    reader.advance_frontier(&head, &head).await.unwrap();
-    sqlx::query("UPDATE protocol_patches SET bitcoin_height=0,bitcoin_hash=$1 WHERE bitcoin_payload IS NULL")
-        .bind(root.block_hash().to_string()).execute(tx.conn()).await.unwrap();
-    assert!(via_btc_storage::ReaderDal::new(&mut tx).complete_replay().await.unwrap());
     tx.commit().await.unwrap();
     Result::unwrap(ViaBtcInscriptionManager::new(inscriber, pool, config).await)
 }

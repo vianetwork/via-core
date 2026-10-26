@@ -156,8 +156,7 @@ async fn seed_reader(
     wallets: &SystemWallets,
     source: &dyn BitcoinOps,
 ) -> via_btc_storage::StoredHeader {
-    use via_btc_storage::{ReaderDal, WalletSource, PROTOCOL_CONSUMER};
-    use via_reorg::chain::{Header, BlockRef};
+    use via_btc_storage::{ReaderDal, WalletSource};
     let mut db = pool.connection().await.unwrap();
     let root = source.canonical_header_at(0).await.unwrap();
     db.via_store_mode_dal()
@@ -169,17 +168,16 @@ async fn seed_reader(
         .await
         .unwrap();
     let mut tx = db.start_transaction().await.unwrap();
+    assert!(via_test_utils::reader_at(
+        &mut tx,
+        &via_test_utils::chain::Chain::with_height(6),
+        6,
+        1,
+        source.get_network()
+    )
+    .await
+    .unwrap());
     let mut reader = ReaderDal::new(&mut tx);
-    let head = source.canonical_header_at(6).await.unwrap();
-    reader
-        .initialize(
-            &source.get_network().to_string(),
-            root.hash,
-            Header { height: 0, block_hash: root.hash, parent_hash: root.parent_hash },
-            BlockRef { height: 6, block_hash: head.hash },
-        )
-        .await
-        .unwrap();
     reader
         .insert_wallets(
             &SystemWalletsDetails::try_from(wallets.clone()).unwrap(),
@@ -187,27 +185,7 @@ async fn seed_reader(
         )
         .await
         .unwrap();
-    let anchor = reader.header_at(0).await.unwrap().unwrap();
-    let mut previous = anchor.clone();
-    for height in 0..=6 {
-        if height > 0 {
-            let header = source.canonical_header_at(height).await.unwrap();
-            reader
-                .save_block(
-                    Header { height, block_hash: header.hash, parent_hash: header.parent_hash },
-                    &previous,
-                )
-                .await
-                .unwrap();
-            previous = reader.header_at(height).await.unwrap().unwrap();
-        }
-        for name in [PROTOCOL_CONSUMER, "withdrawals"] {
-            reader.complete_consumer(name, &previous, &anchor).await.unwrap();
-        }
-    }
     let proof_source = reader.header_at(1).await.unwrap().unwrap();
-    reader.advance_frontier(&previous, &proof_source).await.unwrap();
-    assert!(reader.complete_replay().await.unwrap());
     tx.commit().await.unwrap();
     proof_source
 }

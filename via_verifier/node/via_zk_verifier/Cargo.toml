@@ -42,7 +42,6 @@ via_verifier_dal.workspace = true
 [dev-dependencies]
 zksync_contracts.workspace = true
 via_test_utils.workspace = true
-via_reorg.workspace = true
 via_verifier_storage_init.workspace = true
 bitcoin.workspace = true
 serde_json.workspace = true

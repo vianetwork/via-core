@@ -12,6 +12,8 @@ pub struct ReaderMetrics {
     #[metrics(labels = ["role"])]
     pub replay_ready: LabeledFamily<&'static str, Gauge<usize>, 1>,
     #[metrics(labels = ["role"])]
+    pub replay_unreconciled: LabeledFamily<&'static str, Gauge<usize>, 1>,
+    #[metrics(labels = ["role"])]
     pub stopped: LabeledFamily<&'static str, Gauge<usize>, 1>,
     #[metrics(labels = ["role", "consumer"])]
     pub consumer: LabeledFamily<(&'static str, &'static str), Gauge<usize>, 2>,

@@ -45,7 +45,6 @@ indexmap = "2.2"
 
 [dev-dependencies]
 via_test_utils.workspace = true
-via_reorg.workspace = true
 tokio-stream.workspace = true
 bitcoind = { version = "=0.43.2", default-features = false, features = ["28_2"] }
 zksync_da_clients.workspace = true

@@ -38,4 +38,3 @@ hex = "0.4"
 sqlx.workspace = true
 via_test_utils.workspace = true
 zksync_node_test_utils.workspace = true
-via_reorg.workspace = true

@@ -328,13 +328,63 @@ async fn branch_switch_between_height_and_header_holds_then_retries() -> anyhow:
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn authority_validates_headers_once_without_downloading_unused_body() -> anyhow::Result<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let chain = Chain::with_height(1);
+    let root = fixture_header(&chain, 0);
+    let pool = initialized_pool(root, root.into()).await?;
+    let mut tx = pool.start_transaction().await?;
+    let mut reader = ReaderDal::new(&mut tx);
+    let stored = reader.header_at(0).await?.unwrap();
+    reader.complete_consumer(PROTOCOL_CONSUMER, &stored, &stored).await?;
+    assert!(reader.complete_replay().await?);
+    tx.commit().await?;
+    let bodies = Arc::new(AtomicUsize::new(0));
+    let tips = Arc::new(AtomicUsize::new(0));
+    let server = via_test_utils::bitcoin_rpc::BitcoinRpcServer::new_with_errors(None, false, {
+        let bodies = bodies.clone();
+        let tips = tips.clone();
+        let confirmations = AtomicUsize::new(1);
+        move |_, request| {
+            let mut result = chain.rpc(&request)?;
+            match request["method"].as_str() {
+                Some("getblock") => {
+                    bodies.fetch_add(1, Ordering::SeqCst);
+                }
+                Some("getbestblockhash") => {
+                    tips.fetch_add(1, Ordering::SeqCst);
+                }
+                Some("getblockheader") => {
+                    result["confirmations"] = confirmations.fetch_add(1, Ordering::SeqCst).into();
+                }
+                _ => {}
+            }
+            Ok(result)
+        }
+    })?;
+    let client = BitcoinClient::new(
+        &server.url(""),
+        via_btc_client::types::NodeAuth::None,
+        zksync_config::configs::via_btc_client::ViaBtcClientConfig::for_tests(),
+    )?;
+    let error = transition::begin_authority(&pool, &client, &[]).await.err().unwrap();
+    assert!(
+        matches!(error.downcast_ref::<StoreError>(), Some(StoreError::AuthorityHeld)),
+        "{error:#}"
+    );
+    assert_eq!(bodies.load(Ordering::SeqCst), 0);
+    assert!(tips.load(Ordering::SeqCst) <= 2);
+    Ok(())
+}
 async fn prepare(
     client: &BitcoinClient,
     db: &mut Connection<'_, Test>,
 ) -> anyhow::Result<PreparedTransition> {
     let snapshot =
         ReaderSnapshot::load(&mut ReaderDal::new(db), client.reorg_safe_depth()?).await?;
-    PreparedTransition::prepare(client, snapshot).await
+    PreparedTransition::prepare_headers(client, snapshot).await
 }
 async fn apply_first_and_complete(
     client: &BitcoinClient,
@@ -871,32 +921,17 @@ async fn role_fixture<DB: ReaderRole>() -> anyhow::Result<Connection<'static, DB
     let chain = Chain::with_height(2);
     let pool = ConnectionPool::<DB>::test_pool().await;
     let mut tx = pool.start_transaction().await?;
-    let mut reader = ReaderDal::new(&mut tx);
-    reader
-        .initialize(
-            "regtest",
-            fixture_header(&chain, 0).block_hash,
-            fixture_header(&chain, 0),
-            fixture_header(&chain, 2).into(),
-        )
-        .await?;
-    reader
+    assert!(via_test_utils::reader_at(&mut tx, &chain, 2, 0, Network::Regtest).await?);
+    ReaderDal::new(&mut tx)
         .insert_wallets(
             &SystemWalletsDetails::try_from(via_test_utils::utils::test_wallets())?,
             WalletSource::Unbound(0),
         )
         .await?;
-    let root = reader.header_at(0).await?.unwrap();
-    for height in 0..=2 {
-        if height > 0 {
-            let previous = reader.get_highest_block().await?.unwrap();
-            reader.save_block(fixture_header(&chain, height), &previous).await?;
-        }
-        let block = reader.header_at(height).await?.unwrap();
-        for consumer in DB::REQUIRED_CONSUMERS {
-            reader.complete_consumer(consumer, &block, &root).await?;
-        }
-    }
+    sqlx::query("UPDATE via_btc_reader SET replay_ready=FALSE")
+        .instrument("partial_protocol_fixture")
+        .execute(&mut tx)
+        .await?;
     Ok(tx)
 }
 async fn main_protocol_fixture() -> anyhow::Result<Connection<'static, Test>> {
@@ -1090,6 +1125,7 @@ async fn readiness_reconciles<DB: ReaderRole>(
     tx: &mut Connection<'_, DB>,
     broken: &str,
     reconciled: &str,
+    expected_source: Option<String>,
 ) -> anyhow::Result<()> {
     sqlx::query("UPDATE via_btc_reader SET replay_ready=FALSE")
         .instrument("begin_retained_replay")
@@ -1097,15 +1133,19 @@ async fn readiness_reconciles<DB: ReaderRole>(
         .await?;
     sqlx::query(broken).instrument("unreconciled_retained_source").execute(tx).await?;
     assert!(!ReaderDal::new(tx).complete_replay().await?, "{broken}");
+    assert_eq!(DB::unreconciled_source(tx).await?, expected_source, "{broken}");
+    assert_eq!(metrics::METRICS.replay_unreconciled[&DB::NAME].get(), 1);
     sqlx::query(reconciled).instrument("reconciled_retained_source").execute(tx).await?;
     assert!(ReaderDal::new(tx).complete_replay().await?, "{reconciled}");
+    assert!(DB::unreconciled_source(tx).await?.is_none());
+    assert_eq!(metrics::METRICS.replay_unreconciled[&DB::NAME].get(), 0);
     Ok(())
 }
 #[tokio::test]
 async fn main_used_protocol_without_bound_patch_holds_replay() -> anyhow::Result<()> {
     let mut tx = main_protocol_fixture().await?;
     sqlx::query("INSERT INTO l1_batches(number,timestamp,l1_tx_count,l2_tx_count,bloom,priority_ops_onchain_data,created_at,updated_at,initial_bootloader_heap_content,used_contract_hashes,protocol_version) VALUES(1,0,0,0,'','{}',NOW(),NOW(),'[]','[]',27)").instrument("retained_main_protocol_use").execute(&mut tx).await?;
-    readiness_reconciles(&mut tx,"UPDATE protocol_patches SET bitcoin_hash='orphan'","UPDATE protocol_patches SET bitcoin_hash=(SELECT hash FROM via_btc_headers WHERE number=0)").await
+    readiness_reconciles(&mut tx,"UPDATE protocol_patches SET bitcoin_hash='orphan'","UPDATE protocol_patches SET bitcoin_hash=(SELECT hash FROM via_btc_headers WHERE number=0)", Some("protocol_minor:27".into())).await
 }
 #[tokio::test]
 async fn verifier_executed_protocol_requires_bound_patch_and_minor() -> anyhow::Result<()> {
@@ -1117,9 +1157,32 @@ async fn verifier_executed_protocol_requires_bound_patch_and_minor() -> anyhow::
             &format!(
                 "UPDATE {table} SET bitcoin_hash=(SELECT hash FROM via_btc_headers WHERE number=0)"
             ),
+            Some("protocol_minor:27".into()),
         )
         .await?;
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn verifier_suffix_keeps_protocol_evidence_without_votable_history() -> anyhow::Result<()> {
+    let mut tx = verifier_protocol_fixture().await?;
+    for query in [
+        "UPDATE protocol_versions SET executed=FALSE,bitcoin_height=1",
+        "UPDATE protocol_patches SET bitcoin_height=1",
+    ] {
+        sqlx::query(query).instrument("unexecuted_protocol_evidence").execute(&mut tx).await?;
+    }
+    via_verifier_dal::Verifier::delete_suffix(&mut tx, 0).await?;
+    let retained: (bool, bool) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM protocol_versions WHERE id=27),
+        EXISTS(SELECT 1 FROM protocol_patches WHERE minor=27)",
+    )
+    .instrument("retained_protocol_evidence")
+    .fetch_all(&mut tx)
+    .await?
+    .remove(0);
+    assert_eq!(retained, (true, true));
     Ok(())
 }
 #[tokio::test]
@@ -1163,6 +1226,7 @@ async fn main_executed_deposit_without_canonical_source_holds_replay() -> anyhow
         &mut tx,
         "UPDATE transactions SET bitcoin_hash='orphan'",
         "UPDATE transactions SET bitcoin_hash=(SELECT hash FROM via_btc_headers WHERE number=1)",
+        Some(format!("deposit:{:x}", operation.hash())),
     )
     .await
 }
@@ -1172,7 +1236,7 @@ async fn verifier_assigned_or_completed_deposit_requires_canonical_source() -> a
         let mut tx = verifier_protocol_fixture().await?;
         sqlx::query(&format!("INSERT INTO via_transactions(priority_id,tx_id,receiver,value,canonical_tx_hash,l1_batch_number,status,bitcoin_height,bitcoin_hash,bitcoin_payload) VALUES(1,decode(repeat('01',32),'hex'),'0x07',50000,decode(repeat('02',32),'hex'),1,{state},1,'orphan','{{}}')"))
             .instrument("retained_verifier_deposit").execute(&mut tx).await?;
-        readiness_reconciles(&mut tx,"UPDATE via_transactions SET bitcoin_payload=NULL","UPDATE via_transactions SET bitcoin_payload='{}',bitcoin_hash=(SELECT hash FROM via_btc_headers WHERE number=1)").await?;
+        readiness_reconciles(&mut tx,"UPDATE via_transactions SET bitcoin_payload=NULL","UPDATE via_transactions SET bitcoin_payload='{}',bitcoin_hash=(SELECT hash FROM via_btc_headers WHERE number=1)", Some(format!("deposit:{}", "02".repeat(32)))).await?;
     }
     Ok(())
 }
@@ -1184,6 +1248,7 @@ async fn main_retained_receipt_requires_matching_canonical_proof_hash() -> anyho
         &mut tx,
         "UPDATE via_btc_proofs SET block_hash='orphan'",
         "UPDATE via_btc_proofs SET block_hash=(SELECT hash FROM via_btc_headers WHERE number=1)",
+        None,
     )
     .await
 }
@@ -1223,14 +1288,17 @@ async fn verifier_retained_proof_requires_binding_and_matching_hash() -> anyhow:
             },
         );
         tx.via_votes_dal().save_reader_proof(&proof, block.id).await?;
+        let raw = via_btc_client::indexer::replay::transaction_hash(proof.origin.txid);
+        let id = tx.via_votes_dal().get_votable_transaction_id(raw.as_bytes()).await?.unwrap();
         sqlx::query("UPDATE via_votable_transactions SET l1_batch_status=TRUE")
             .instrument("retained_proof_verdict")
             .execute(&mut tx)
             .await?;
         sqlx::query(broken).instrument("unbound_retained_proof").execute(&mut tx).await?;
+        assert_eq!(Verifier::unreconciled_source(&mut tx).await?, Some(format!("votable:{id}")));
         assert!(!ReaderDal::new(&mut tx).complete_replay().await?);
         tx.via_votes_dal().save_reader_proof(&proof, block.id).await?;
-        assert!(!Verifier::has_unreconciled_sources(&mut tx).await?);
+        assert!(Verifier::unreconciled_source(&mut tx).await?.is_none());
         assert!(ReaderDal::new(&mut tx).complete_replay().await?);
     }
     Ok(())

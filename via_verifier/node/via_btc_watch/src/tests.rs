@@ -7,7 +7,10 @@ use via_btc_client::{
         ValidatorAttestationInput, Vote,
     },
 };
-use via_btc_storage::{WalletSource, PROTOCOL_CONSUMER};
+use via_btc_storage::{
+    transition::{PreparedTransition, ReaderSnapshot},
+    WalletSource, PROTOCOL_CONSUMER,
+};
 use via_reorg::chain::{BlockRef, Header};
 use via_test_utils::{bitcoin_core::BitcoinCore, utils::test_wallets};
 use zksync_types::{
@@ -195,13 +198,16 @@ async fn late_consumer_failure_rolls_back_native_protocol_effects() -> anyhow::R
     ))
     .execute(db.conn())
     .await?;
-    let (_stop, receiver) = watch::channel(false);
-    assert!(tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        fixture.watcher().await?.run(receiver)
-    )
-    .await?
-    .is_err());
+    let before = METRICS.errors.get();
+    let (stop, receiver) = watch::channel(false);
+    let task = tokio::spawn(fixture.watcher().await?.run(receiver));
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while METRICS.errors.get() == before {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    assert!(!task.is_finished());
     assert_eq!(ReaderDal::new(&mut db).get_highest_block().await?.unwrap(), parent);
     for table in ["via_transactions", "via_votable_transactions", "via_votes"] {
         let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
@@ -212,8 +218,6 @@ async fn late_consumer_failure_rolls_back_native_protocol_effects() -> anyhow::R
     sqlx::query("ALTER TABLE via_btc_consumers DROP CONSTRAINT late_consumer_failure")
         .execute(db.conn())
         .await?;
-    let (stop, receiver) = watch::channel(false);
-    let task = tokio::spawn(fixture.watcher().await?.run(receiver));
     wait_consumer(&fixture.pool, PROTOCOL_CONSUMER, fixture.target).await?;
     stop.send(true)?;
     task.await??;
@@ -264,7 +268,7 @@ async fn withdrawal_observation_advances_while_protocol_and_proof_work_trail() -
     let watcher = fixture.watcher().await?;
     assert!(watcher.withdrawal_fulfillment.is_none());
     let mut db = fixture.pool.connection().await?;
-    let prepared = PreparedTransition::prepare(
+    let prepared = PreparedTransition::prepare_headers(
         fixture.client.as_ref(),
         ReaderSnapshot::load(&mut ReaderDal::new(&mut db), fixture.client.reorg_safe_depth()?)
             .await?,
@@ -307,10 +311,9 @@ async fn stale_fulfillment_policy_holds_before_source_rpc() -> anyhow::Result<()
         1,
     )?;
     fixture.core.rpc::<serde_json::Value>("stop", &[])?;
-    let mut db = fixture.pool.connection().await?;
-    watcher.reconcile_withdrawals(&mut db).await?;
+    watcher.reconcile_withdrawals().await?;
     watcher.withdrawal_fulfillment.as_mut().unwrap().config.bridge_address =
         fixture.wallets.bridge.clone();
-    assert!(watcher.reconcile_withdrawals(&mut db).await.is_err());
+    assert!(watcher.reconcile_withdrawals().await.is_err());
     Ok(())
 }

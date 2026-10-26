@@ -59,6 +59,7 @@ impl ViaIndexerDal<'_, '_> {
             )
             .await?;
         via_btc_storage::ReaderDal::new(self.storage).delete_common_suffix(height).await?;
+        // Votable rows lack a protocol-version link, so suffix deletion keeps protocol history.
         for query in [
             "DELETE FROM via_votable_transactions p WHERE (p.proof_l1_block_number>$1 OR p.proof_l1_block_number IS NULL)
                 AND p.l1_batch_status IS NULL
@@ -66,12 +67,6 @@ impl ViaIndexerDal<'_, '_> {
                 AND NOT EXISTS(SELECT 1 FROM via_l1_batch_vote_inscription_request r WHERE r.votable_transaction_id=p.id)
                 AND NOT EXISTS(SELECT 1 FROM via_l1_batch_bridge_withdrawals b WHERE b.proof_reveal_tx_id=p.proof_reveal_tx_id)
                 AND NOT EXISTS(SELECT 1 FROM via_withdrawal_batches b WHERE b.proof_txid=p.proof_reveal_tx_id)",
-            "DELETE FROM protocol_patches p USING protocol_versions v WHERE p.minor=v.id AND NOT v.executed
-                AND (p.bitcoin_height>$1 OR p.bitcoin_height IS NULL)
-                AND NOT EXISTS(SELECT 1 FROM via_votable_transactions)",
-            "DELETE FROM protocol_versions v WHERE NOT v.executed AND (v.bitcoin_height>$1 OR v.bitcoin_height IS NULL)
-                AND NOT EXISTS(SELECT 1 FROM protocol_patches p WHERE p.minor=v.id)
-                AND NOT EXISTS(SELECT 1 FROM via_votable_transactions)",
             "DELETE FROM via_transactions WHERE COALESCE(bitcoin_height,l1_block_number)>$1
                 AND status IS NULL AND l1_batch_number IS NULL",
         ] {
@@ -211,18 +206,19 @@ impl via_btc_storage::ReaderRole for Verifier {
         Ok(())
     }
 
-    async fn has_unreconciled_sources(storage: &mut Connection<'_, Self>) -> anyhow::Result<bool> {
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM via_transactions t WHERE t.bitcoin_payload IS NULL
-                OR NOT EXISTS(SELECT 1 FROM via_btc_headers h WHERE h.number=t.bitcoin_height AND h.hash=t.bitcoin_hash))
-             OR EXISTS(SELECT 1 FROM via_votable_transactions p WHERE p.bitcoin_payload IS NULL
-                OR NOT EXISTS(SELECT 1 FROM via_btc_headers h WHERE h.id=p.proof_header_id AND h.hash=p.proof_l1_block_hash))
-             OR EXISTS(SELECT 1 FROM protocol_versions v WHERE v.executed AND (
+    async fn unreconciled_source(
+        storage: &mut Connection<'_, Self>,
+    ) -> anyhow::Result<Option<String>> {
+        sqlx::query_scalar::<_, String>("(SELECT 'deposit:' || encode(t.canonical_tx_hash,'hex') FROM via_transactions t
+            WHERE t.bitcoin_payload IS NULL OR NOT EXISTS(SELECT 1 FROM via_btc_headers h
+                WHERE h.number=t.bitcoin_height AND h.hash=t.bitcoin_hash) LIMIT 1)
+            UNION ALL (SELECT 'votable:' || p.id::TEXT FROM via_votable_transactions p WHERE p.bitcoin_payload IS NULL
+                OR NOT EXISTS(SELECT 1 FROM via_btc_headers h WHERE h.id=p.proof_header_id AND h.hash=p.proof_l1_block_hash) LIMIT 1)
+            UNION ALL (SELECT 'protocol_minor:' || v.id::TEXT FROM protocol_versions v WHERE v.executed AND (
                 NOT EXISTS(SELECT 1 FROM via_btc_headers h WHERE h.number=v.bitcoin_height AND h.hash=v.bitcoin_hash)
                 OR NOT EXISTS(SELECT 1 FROM protocol_patches p JOIN via_btc_headers h
-                    ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash WHERE p.minor=v.id)))")
-            .instrument("bitcoin_reader_retained_reconciliation")
-            .fetch_one(storage)
-            .await.map_err(Into::into)
+                    ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash WHERE p.minor=v.id)) LIMIT 1) LIMIT 1")
+            .instrument("bitcoin_reader_retained_reconciliation").fetch_optional(storage).await.map_err(Into::into)
     }
 
     async fn retained_boundary(storage: &mut Connection<'_, Self>) -> anyhow::Result<Option<u32>> {

@@ -330,6 +330,6 @@ impl<DB: DbMarker> ReaderDal<'_, '_, DB> {
                 ProofQuorum::Complete(quorum) => quorums.push(quorum),
             }
         }
-        Ok(via_reorg::configuration::decide_rotation(true, quorums))
+        Ok(via_reorg::configuration::decide_rotation(quorums))
     }
 }

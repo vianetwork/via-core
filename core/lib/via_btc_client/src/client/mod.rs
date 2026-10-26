@@ -263,12 +263,14 @@ impl BitcoinOps for BitcoinClient {
     }
 
     async fn is_reorg_safe(&self, txid: &Txid) -> BitcoinClientResult<bool> {
-        let Some((_, header, _)) = self.canonical_transaction(txid).await? else {
+        let info = self.rpc.get_raw_transaction_info(txid).await?;
+        let Some(hash) = info.blockhash else { return Ok(false) };
+        let depth = self.reorg_safe_depth()?.get();
+        if !info.confirmations.is_some_and(|confirmations| confirmations >= depth) {
             return Ok(false);
-        };
-        Ok(
-            matches!(header.membership, HeaderMembership::Canonical(n) if n.get()>=self.reorg_safe_depth()?.get()),
-        )
+        }
+        Ok(self.header_by_hash(&hash).await?.is_some_and(|header|
+            matches!(header.membership, HeaderMembership::Canonical(n) if n.get() >= depth)))
     }
 
     #[instrument(skip(self), target = "bitcoin_client")]
@@ -660,6 +662,39 @@ mod tests {
         let txid = Txid::all_zeros();
         let confirmed = client.check_tx_confirmation(&txid, 2).await.unwrap();
         assert!(confirmed);
+    }
+
+    #[tokio::test]
+    async fn confirmation_maturity_checks_membership_without_downloading_body() {
+        for (confirmations, canonical, expected) in
+            [(6, true, true), (6, false, false), (5, true, false)]
+        {
+            let hash = BlockHash::from_byte_array([7; 32]);
+            let mut rpc = MockBitcoinRpc::new();
+            rpc.expect_get_raw_transaction_info().return_once(move |_| {
+                Ok(serde_json::from_value(serde_json::json!({
+                    "hex":"", "txid":Txid::all_zeros(), "hash":Wtxid::all_zeros(),
+                    "size":0, "vsize":0, "version":2, "locktime":0, "vin":[], "vout":[],
+                    "blockhash":hash, "confirmations":confirmations,
+                }))
+                .unwrap())
+            });
+            rpc.expect_get_block_header().returning(move |_| {
+                Ok(Some(BlockHeaderInfo {
+                    height: 7,
+                    hash,
+                    parent_hash: BlockHash::from_byte_array([6; 32]),
+                    membership: if canonical {
+                        HeaderMembership::Canonical(6.try_into().unwrap())
+                    } else {
+                        HeaderMembership::Noncanonical
+                    },
+                }))
+            });
+            let mut client = get_client_with_mock(rpc);
+            client.config.network = Network::Bitcoin.to_string();
+            assert_eq!(client.is_reorg_safe(&Txid::all_zeros()).await.unwrap(), expected);
+        }
     }
 
     #[tokio::test]

@@ -56,7 +56,10 @@ Mainnet starts without those rows. Later canonical proofs through the rotation h
 ## Monitoring
 
 The `via_bitcoin_reader` metric family labels the role as `core` or `verifier`.
-Inspect `head`, `frontier`, `replay_ready`, `stopped` and `consumer` together; consumer metrics also label the consumer.
+Inspect `head`, `frontier`, `replay_ready`, `replay_unreconciled`, `stopped` and `consumer` together;
+consumer metrics also label the consumer. `replay_unreconciled=1` means retained source rows still need
+canonical binding. Each replay attempt warns with its first deposit hash, votable ID or protocol minor;
+the gauge returns to zero when those bindings and retained proof bindings are complete.
 A healthy HTTP endpoint does not establish reader readiness. The durable reader row carries the diagnostic reason.
 Publication metrics include pending and in-flight requests, errors, inscription and confirmation durations,
 and account balance with the actual signing address. Dashboard and alert rollout belongs to deployment repositories.

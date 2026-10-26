@@ -44,8 +44,11 @@ impl BtcWatch {
             }
 
             }
-            let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
-            match self.loop_iteration(&mut storage).await {
+            let result = async {
+                let mut storage = pool.connection_tagged(BtcWatch::module_name()).await?;
+                self.loop_iteration(&mut storage).await
+            }.await;
+            match result {
                 Ok(next) => progressed = next,
                 Err(err) => {
                     progressed = false;

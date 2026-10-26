@@ -25,14 +25,9 @@ pub enum RotationDecision {
     Rejected,
 }
 
-/// Later votes cannot rescue this frozen prefix. Incomplete local evidence is retryable.
-pub fn decide_rotation(
-    inputs_complete: bool,
-    quorums: impl IntoIterator<Item = Option<bool>>,
-) -> RotationDecision {
-    if !inputs_complete {
-        RotationDecision::NotReady
-    } else if quorums.into_iter().all(|quorum| quorum.is_some()) {
+/// Later votes cannot rescue this frozen prefix.
+pub fn decide_rotation(quorums: impl IntoIterator<Item = Option<bool>>) -> RotationDecision {
+    if quorums.into_iter().all(|quorum| quorum.is_some()) {
         RotationDecision::Accepted
     } else {
         RotationDecision::Rejected
@@ -53,9 +48,8 @@ mod tests {
     }
 
     #[test]
-    fn rotation_decision_requires_complete_evidence() {
-        assert_eq!(decide_rotation(false, [Some(true)]), RotationDecision::NotReady);
-        assert_eq!(decide_rotation(true, [Some(true), None]), RotationDecision::Rejected);
-        assert_eq!(decide_rotation(true, [Some(true), Some(false)]), RotationDecision::Accepted);
+    fn rotation_decision_requires_prefix_quorums() {
+        assert_eq!(decide_rotation([Some(true), None]), RotationDecision::Rejected);
+        assert_eq!(decide_rotation([Some(true), Some(false)]), RotationDecision::Accepted);
     }
 }

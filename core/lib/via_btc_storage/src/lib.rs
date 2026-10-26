@@ -75,9 +75,9 @@ pub trait ReaderRole: DbMarker + Sized {
         storage: &mut Connection<'_, Self>,
         bootstrap: &via_btc_client::bootstrap::CheckedBootstrap,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
-    fn has_unreconciled_sources(
+    fn unreconciled_source(
         storage: &mut Connection<'_, Self>,
-    ) -> impl Future<Output = anyhow::Result<bool>> + Send;
+    ) -> impl Future<Output = anyhow::Result<Option<String>>> + Send;
     /// retained_boundary returns the greatest reconciled source needed by already-kept effects.
     /// Replay protects old work admitted at weaker depth. Higher frontier grants no new maturity.
     /// Idea only from Hyperlane's monotone confirmed frontier, which refuses deletion below protected history: https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/693d2d45df75135504e424c5a4d16761d0016f99/rust/main/agents/scraper/src/near_head/store.rs
@@ -371,11 +371,14 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
             self.storage.in_transaction(),
             StoreError::Integrity("readiness outside transaction")
         );
-        if DB::has_unreconciled_sources(self.storage).await? {
+        if let Some(source) = DB::unreconciled_source(self.storage).await? {
+            crate::metrics::METRICS.replay_unreconciled[&DB::NAME].set(1);
+            tracing::warn!(role = DB::NAME, %source, "Bitcoin replay waits for retained source reconciliation");
             return Ok(false);
         }
         let unbound = DB::retained_proof_txids(self.storage).await?;
         if let Some(txid) = unbound.first() {
+            crate::metrics::METRICS.replay_unreconciled[&DB::NAME].set(1);
             tracing::warn!(%txid, remaining=unbound.len(), "Bitcoin replay waits for retained proof source binding");
             return Ok(false);
         }
@@ -388,6 +391,7 @@ impl<'c, 'a, DB: DbMarker> ReaderDal<'c, 'a, DB> {
                      WHERE c.name=required.name AND h.number>=r.replay_cutoff_number))
              AND NOT EXISTS(SELECT 1 FROM via_btc_configuration WHERE l1_block_number<=r.replay_cutoff_number AND accepted IS NULL)",
         ).bind(DB::REQUIRED_CONSUMERS).instrument("bitcoin_reader_complete_replay").execute(self.storage).await?;
+        crate::metrics::METRICS.replay_unreconciled[&DB::NAME].set(0);
         Ok(result.rows_affected() == 1)
     }
 

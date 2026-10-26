@@ -43,6 +43,7 @@ impl WithdrawalObserver {
                     if !via_btc_storage::transition::is_held(&error) {
                         return Err(error);
                     }
+                    super::metrics::METRICS.errors.inc();
                     tracing::warn!(%error, "Withdrawal observer held");
                     false
                 }
@@ -60,7 +61,7 @@ impl WithdrawalObserver {
             self.client.reorg_safe_depth()?,
         )
         .await?;
-        let prepared = PreparedTransition::prepare(self.client.as_ref(), snapshot).await?;
+        let prepared = PreparedTransition::prepare_headers(self.client.as_ref(), snapshot).await?;
         if !matches!(
             prepared.transition,
             via_btc_storage::transition::Transition::Idle

@@ -355,16 +355,18 @@ impl via_btc_storage::ReaderRole for Core {
     // jscpd:ignore-end
 
     // jscpd:ignore-start ReaderRole trait signatures and role-owned SQL tails.
-    async fn has_unreconciled_sources(storage: &mut Connection<'_, Self>) -> anyhow::Result<bool> {
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM transactions t WHERE t.is_priority AND t.upgrade_id IS NULL
-                AND (t.bitcoin_payload IS NULL OR NOT EXISTS(SELECT 1 FROM via_btc_headers h
-                    WHERE h.number=t.bitcoin_height AND h.hash=t.bitcoin_hash)))
-            OR EXISTS(SELECT 1 FROM protocol_versions v WHERE (
+    async fn unreconciled_source(
+        storage: &mut Connection<'_, Self>,
+    ) -> anyhow::Result<Option<String>> {
+        sqlx::query_scalar::<_, String>("(SELECT 'deposit:' || encode(t.hash,'hex') FROM transactions t
+            WHERE t.is_priority AND t.upgrade_id IS NULL AND (t.bitcoin_payload IS NULL
+                OR NOT EXISTS(SELECT 1 FROM via_btc_headers h WHERE h.number=t.bitcoin_height AND h.hash=t.bitcoin_hash)) LIMIT 1)
+            UNION ALL (SELECT 'protocol_minor:' || v.id::TEXT FROM protocol_versions v WHERE (
                 EXISTS(SELECT 1 FROM l1_batches b WHERE b.protocol_version=v.id)
                 OR EXISTS(SELECT 1 FROM miniblocks b WHERE b.protocol_version=v.id))
                 AND NOT EXISTS(SELECT 1 FROM protocol_patches p JOIN via_btc_headers h
-                    ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash WHERE p.minor=v.id))")
-            .instrument("bitcoin_reader_retained_reconciliation").fetch_one(storage).await.map_err(Into::into)
+                    ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash WHERE p.minor=v.id) LIMIT 1) LIMIT 1")
+            .instrument("bitcoin_reader_retained_reconciliation").fetch_optional(storage).await.map_err(Into::into)
     }
     // jscpd:ignore-end
 

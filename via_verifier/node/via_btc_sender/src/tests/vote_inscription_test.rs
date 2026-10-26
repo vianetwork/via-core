@@ -5,8 +5,8 @@ use via_btc_client::{
     traits::Serializable,
     types::{BlockHeaderInfo, HeaderMembership, InscriptionMessage, ProofDAReferenceInput},
 };
-use via_btc_storage::{ReaderDal, WalletSource, PROTOCOL_CONSUMER};
-use via_reorg::chain::{BlockRef, Header};
+use via_btc_storage::{ReaderDal, WalletSource};
+use via_reorg::chain::Header;
 use via_test_utils::{chain::Chain, utils::test_wallets};
 use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use zksync_types::{H256, L1BatchNumber, via_wallet::SystemWalletsDetails};
@@ -43,36 +43,15 @@ async fn fixture() -> (ConnectionPool<Verifier>, MockBitcoinOps, bitcoin::Addres
         .await
         .unwrap();
     let mut tx = db.start_transaction().await.unwrap();
-    let mut reader = ReaderDal::new(&mut tx);
-    let root = source.headers[0];
-    reader
-        .initialize(
-            "regtest",
-            root.hash,
-            Header { height: 0, block_hash: root.hash, parent_hash: root.parent_hash },
-            BlockRef { height: 1, block_hash: source.headers[1].hash },
-        )
+    assert!(via_test_utils::reader_at(&mut tx, &chain, 1, 1, bitcoin::Network::Regtest)
         .await
-        .unwrap();
+        .unwrap());
+    let mut reader = ReaderDal::new(&mut tx);
     reader
         .insert_wallets(&SystemWalletsDetails::try_from(wallets).unwrap(), WalletSource::Unbound(0))
         .await
         .unwrap();
-    let anchor = reader.header_at(0).await.unwrap().unwrap();
-    reader
-        .save_block(
-            Header { height: 1, block_hash: source.headers[1].hash, parent_hash: root.hash },
-            &anchor,
-        )
-        .await
-        .unwrap();
     let block = reader.header_at(1).await.unwrap().unwrap();
-    for name in [PROTOCOL_CONSUMER, "withdrawals"] {
-        reader.complete_consumer(name, &anchor, &anchor).await.unwrap();
-        reader.complete_consumer(name, &block, &anchor).await.unwrap();
-    }
-    reader.advance_frontier(&block, &block).await.unwrap();
-    assert!(reader.complete_replay().await.unwrap());
     let txid = Txid::from_byte_array(std::array::from_fn(|i| i as u8 + 1));
     let origin = MessageOrigin {
         height: 1,
@@ -169,7 +148,7 @@ async fn finalize(pool: &ConnectionPool<Verifier>, source: &MockBitcoinOps) -> u
         ReaderSnapshot::load(&mut ReaderDal::new(&mut db), source.reorg_safe_depth().unwrap())
             .await
             .unwrap();
-    let prepared = PreparedTransition::prepare(source, snapshot).await.unwrap();
+    let prepared = PreparedTransition::prepare_headers(source, snapshot).await.unwrap();
     prepared.revalidate(source).await.unwrap();
     let mut tx = Verifier::OWNER.begin(&mut db).await.unwrap();
     Verifier::lock_source(&mut tx).await.unwrap();

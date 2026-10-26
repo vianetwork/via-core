@@ -138,10 +138,10 @@ impl BatchExecutor<OwnedStorage> for BitcoinExecution {
 mod tests {
     use via_btc_client::{
         indexer::replay::{DepositOrigin, Payload},
+        traits::BitcoinOps,
         types::L1ToL2MessageInput,
     };
-    use via_btc_storage::{ReaderDal, PROTOCOL_CONSUMER};
-    use via_reorg::chain::{BlockRef, Header};
+    use via_btc_storage::ReaderDal;
     use via_test_utils::bitcoin_core::BitcoinCore;
     use zksync_multivm::interface::storage::InMemoryStorage;
     use zksync_node_genesis::{insert_genesis_batch, GenesisParams};
@@ -166,30 +166,15 @@ mod tests {
         let genesis = client.canonical_header_at(0).await?;
         let source = client.canonical_header_at(1).await?;
         let mut tx = db.start_transaction().await?;
-        let mut reader = ReaderDal::new(&mut tx);
-        reader
-            .initialize(
-                "regtest",
-                genesis.hash,
-                Header { height: 0, block_hash: genesis.hash, parent_hash: genesis.parent_hash },
-                BlockRef { height: 1, block_hash: source.hash },
-            )
-            .await?;
-        let root = reader.header_at(0).await?.unwrap();
-        reader
-            .save_block(
-                Header { height: 1, block_hash: source.hash, parent_hash: source.parent_hash },
-                &root,
-            )
-            .await?;
-        let head = reader.header_at(1).await?.unwrap();
-        reader.complete_consumer(PROTOCOL_CONSUMER, &root, &root).await?;
-        reader.complete_consumer(PROTOCOL_CONSUMER, &head, &root).await?;
-        reader.advance_frontier(&head, &head).await?;
         sqlx::query("UPDATE protocol_patches SET bitcoin_height=0,bitcoin_hash=$1")
             .bind(genesis.hash.to_string())
             .execute(tx.conn())
             .await?;
+        let mut chain = via_test_utils::chain::Chain::default();
+        for height in 0..=1 {
+            chain.blocks.insert(height, client.fetch_block(u128::from(height)).await?);
+        }
+        assert!(via_test_utils::reader_at(&mut tx, &chain, 1, 1, bitcoin::Network::Regtest).await?);
         let deposit = ViaL1Deposit {
             l2_receiver_address: Address::repeat_byte(7),
             amount: 50_000,

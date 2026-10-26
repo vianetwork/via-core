@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use anyhow::{ensure, Context};
-use bitcoin::{Block, BlockHash};
+use bitcoin::BlockHash;
 use via_btc_client::{
     client::BitcoinClient,
     traits::BitcoinOps,
@@ -45,7 +45,7 @@ impl ReaderSnapshot {
 
 pub enum Transition {
     Idle,
-    Append { header: Header<BlockHash>, body: Block },
+    Append { header: BlockHeaderInfo },
     Rewind { ancestor: StoredHeader },
     Stop(String),
 }
@@ -102,7 +102,7 @@ impl PreparedTransition {
     /// Missing/lagging/unavailable source evidence returns an error and authorizes no writes.
     /// Only Core's explicit negative confirmation proves disconnection (BDK LocalChain update).
     /// https://github.com/bitcoindevkit/bdk/blob/5dc6e959379982a1661e8f57c3ee7af334627ca5/crates/bitcoind_rpc/src/lib.rs
-    pub async fn prepare(
+    pub async fn prepare_headers(
         client: &dyn BitcoinOps,
         snapshot: ReaderSnapshot,
     ) -> anyhow::Result<Self> {
@@ -167,10 +167,7 @@ impl PreparedTransition {
                     next.parent_hash == old.hash,
                     StoreError::SourceHeld("source parent changed")
                 );
-                Transition::Append {
-                    header: header(next),
-                    body: client.checked_block(&next).await?,
-                }
+                Transition::Append { header: next }
             }
         };
         let committed_height = match &transition {
@@ -211,13 +208,16 @@ impl PreparedTransition {
 
     /// Invoke after all other RPC preparation, immediately before opening the outer transaction.
     pub async fn revalidate(&self, client: &dyn BitcoinOps) -> anyhow::Result<()> {
+        let current = client.header_by_hash(&self.observed_head.hash).await?;
         ensure!(
-            client.header_by_hash(&self.observed_head.hash).await? == Some(self.observed_head),
+            current.is_some_and(|current| header(current) == header(self.observed_head)
+                && matches!(current.membership, HeaderMembership::Canonical(_))
+                    == matches!(self.observed_head.membership, HeaderMembership::Canonical(_))),
             StoreError::SourceHeld("source membership changed")
         );
         if let Transition::Append { header, .. } = &self.transition {
             ensure!(
-                client.canonical_header_at(header.height).await?.hash == header.block_hash,
+                client.canonical_header_at(header.height).await?.hash == header.hash,
                 StoreError::SourceHeld("prepared block changed")
             );
         }
@@ -311,8 +311,8 @@ impl PreparedTransition {
             StoreError::HeadChanged
         );
         match &self.transition {
-            Transition::Append { header, .. } => {
-                reader.save_block(*header, &self.snapshot.head).await?;
+            Transition::Append { header: next } => {
+                reader.save_block(header(*next), &self.snapshot.head).await?;
             }
             Transition::Rewind { ancestor } => {
                 reader.rewind_headers(&self.snapshot.head, ancestor, self.selected).await?
@@ -343,7 +343,11 @@ pub async fn process_next<DB: crate::ReaderRole>(
     let result: anyhow::Result<bool> = async {
         let snapshot =
             ReaderSnapshot::load(&mut ReaderDal::new(storage), client.reorg_safe_depth()?).await?;
-        let prepared = PreparedTransition::prepare(client, snapshot).await?;
+        let prepared = PreparedTransition::prepare_headers(client, snapshot).await?;
+        let append_body = match &prepared.transition {
+            Transition::Append { header } => Some(client.checked_block(header).await?),
+            _ => None,
+        };
         let mut block = None;
         let cursor = ReaderDal::new(storage)
             .consumer(crate::PROTOCOL_CONSUMER)
@@ -354,10 +358,10 @@ pub async fn process_next<DB: crate::ReaderRole>(
                 cursor.applied.header.height.checked_add(1).context("Bitcoin height overflow")?;
             let mut target = ReaderDal::new(storage).header_at(next).await?;
             let mut body = None;
-            if let Transition::Append { header, body: checked } = &prepared.transition {
-                if header.height == next {
-                    target = Some(StoredHeader { id: 0, header: *header });
-                    body = Some(checked);
+            if let Transition::Append { header: source } = &prepared.transition {
+                if source.height == next {
+                    target = Some(StoredHeader { id: 0, header: header(*source) });
+                    body = append_body.as_ref();
                 }
             }
             if let (Some(target), Some(wallets)) =
@@ -495,6 +499,7 @@ pub async fn process_next<DB: crate::ReaderRole>(
         crate::metrics::METRICS.head[&DB::NAME].set(height as usize);
         crate::metrics::METRICS.frontier[&DB::NAME].set(state.confirmed.height as usize);
         crate::metrics::METRICS.replay_ready[&DB::NAME].set(usize::from(ready));
+        if ready { crate::metrics::METRICS.replay_unreconciled[&DB::NAME].set(0); }
         crate::metrics::METRICS.stopped[&DB::NAME].set(0);
         crate::metrics::METRICS.consumer[&(DB::NAME, crate::PROTOCOL_CONSUMER)].set(through as usize);
         Ok(progressed)
@@ -531,8 +536,7 @@ pub async fn begin_authority<DB: crate::ReaderRole>(
     let mut storage = pool.connection().await?;
     let snapshot =
         ReaderSnapshot::load(&mut ReaderDal::new(&mut storage), client.reorg_safe_depth()?).await?;
-    let prepared = PreparedTransition::prepare(client, snapshot).await?;
-    prepared.revalidate(client).await?;
+    let prepared = PreparedTransition::prepare_headers(client, snapshot).await?;
     drop(storage);
     let mut tx = pool.start_transaction().await?;
     DB::OWNER.acquire(&mut tx).await?;
@@ -548,10 +552,12 @@ pub async fn begin_authority<DB: crate::ReaderRole>(
 }
 
 pub fn is_held(error: &anyhow::Error) -> bool {
-    matches!(
+    !matches!(
         error.downcast_ref::<StoreError>(),
-        Some(StoreError::AuthorityHeld | StoreError::HeadChanged | StoreError::SourceHeld(_))
-    ) || error
-        .downcast_ref::<BitcoinError>()
-        .is_some_and(|error| matches!(error, BitcoinError::Rpc(_)))
+        Some(StoreError::Stopped(_) | StoreError::Integrity(_))
+    ) && !error.is::<via_btc_client::indexer::replay::ReplayConflict>()
+        && !matches!(
+            error.downcast_ref::<BitcoinError>(),
+            Some(BitcoinError::InvalidBlockHeader { .. } | BitcoinError::InvalidBlockBody(_))
+        )
 }

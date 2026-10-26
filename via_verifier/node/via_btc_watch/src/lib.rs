@@ -7,12 +7,9 @@ use via_btc_client::{
     client::BitcoinClient,
     indexer::{BitcoinInscriptionIndexer, WithdrawalScanMode},
 };
-use via_btc_storage::{
-    ReaderDal, ReaderRole,
-    transition::{PreparedTransition, ReaderSnapshot},
-};
+use via_btc_storage::ReaderDal;
 use via_musig2::{transaction_builder::TransactionBuilder, types::TransactionBuilderConfig};
-use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
+use via_verifier_dal::{ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcWatchConfig;
 use crate::metrics::METRICS;
 
@@ -68,15 +65,18 @@ impl VerifierBtcWatch {
                 if !progressed {
                     tokio::select! { _ = timer.tick() => {}, _ = stop.changed() => break }
                 }
-                let mut storage = self.pool.connection_tagged("bitcoin_reader").await?;
-                match via_btc_storage::transition::process_next(
-                    &mut storage,
-                    &self.client,
-                    &mut self.indexer,
-                    via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD,
-                )
-                .await
-                {
+                let result = async {
+                    let mut storage = self.pool.connection_tagged("bitcoin_reader").await?;
+                    via_btc_storage::transition::process_next(
+                        &mut storage,
+                        &self.client,
+                        &mut self.indexer,
+                        via_consensus::consensus::BATCH_FINALIZATION_THRESHOLD,
+                    )
+                    .await
+                }
+                .await;
+                match result {
                     Ok(next) => progressed = next,
                     Err(error) => {
                         progressed = false;
@@ -88,7 +88,7 @@ impl VerifierBtcWatch {
                     }
                 }
                 if !progressed {
-                    if let Err(error) = self.reconcile_withdrawals(&mut storage).await {
+                    if let Err(error) = self.reconcile_withdrawals().await {
                         tracing::debug!(%error, "Withdrawal fulfillment held");
                     }
                 }
@@ -98,31 +98,27 @@ impl VerifierBtcWatch {
         tokio::try_join!(protocol, observer.run(observer_stop, interval))?;
         Ok(())
     }
-    async fn reconcile_withdrawals(
-        &self,
-        storage: &mut Connection<'_, Verifier>,
-    ) -> anyhow::Result<()> {
-        let Some(policy) = &self.withdrawal_fulfillment else {
-            return Ok(());
-        };
-        if ReaderDal::new(storage).mature_wallets().await?.bridge != policy.config.bridge_address {
-            return Ok(());
+    async fn reconcile_withdrawals(&self) -> anyhow::Result<()> {
+        let Some(policy) = &self.withdrawal_fulfillment else { return Ok(()) };
+        {
+            let mut storage = self.pool.connection().await?;
+            if ReaderDal::new(&mut storage).mature_wallets().await?.bridge
+                != policy.config.bridge_address
+            {
+                return Ok(());
+            }
         }
-        let prepared = PreparedTransition::prepare(
-            self.client.as_ref(),
-            ReaderSnapshot::load(&mut ReaderDal::new(storage), self.client.reorg_safe_depth()?)
-                .await?,
-        )
-        .await?;
-        prepared.revalidate(self.client.as_ref()).await?;
-        let mut tx = <Verifier as ReaderRole>::OWNER.begin(storage).await?;
-        <Verifier as ReaderRole>::lock_source(&mut tx).await?;
-        prepared.require_authority(&mut ReaderDal::new(&mut tx), &[]).await?;
+        let mut tx =
+            via_btc_storage::transition::begin_authority(&self.pool, self.client.as_ref(), &[])
+                .await?;
         anyhow::ensure!(
             ReaderDal::new(&mut tx).mature_wallets().await?.bridge == policy.config.bridge_address,
             via_btc_storage::StoreError::AuthorityHeld
         );
-        let tip = prepared.selected.height;
+        // Authority requires frontier = selected tip - N + 1, so this recovers its checked tip.
+        let tip = ReaderDal::new(&mut tx).state().await?.unwrap().confirmed.height
+            + self.client.reorg_safe_depth()?.get()
+            - 1;
         let wallet = policy.config.bridge_address.script_pubkey();
         let observations =
             tx.via_withdrawal_dal().pending_withdrawal_observations(wallet.as_bytes()).await?;
