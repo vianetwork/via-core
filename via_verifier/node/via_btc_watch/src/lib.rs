@@ -115,7 +115,7 @@ impl VerifierBtcWatch {
             ReaderDal::new(&mut tx).mature_wallets().await?.bridge == policy.config.bridge_address,
             via_btc_storage::StoreError::AuthorityHeld
         );
-        // Authority requires frontier = selected tip - N + 1, so this recovers its checked tip.
+        // Authority holds frontier at selected tip minus N plus one, which gives back checked tip here.
         let tip = ReaderDal::new(&mut tx).state().await?.unwrap().confirmed.height
             + self.client.reorg_safe_depth()?.get()
             - 1;

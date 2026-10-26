@@ -147,8 +147,8 @@ impl BitcoinClient {
         let header = self.header_by_hash(&hash).await?.ok_or_else(|| {
             BitcoinError::Rpc(format!("Core does not know selected header {height}/{hash}"))
         })?;
-        // A hash has one block-index height; only canonical membership can race between these calls.
-        // Idea only from Core blockheaderToJSON's fixed nHeight; Via treats a differing height as integrity: https://github.com/bitcoin/bitcoin/blob/79d6e874e1dad6822b5d7e6993aa205d21ed2cbf/src/rpc/blockchain.cpp
+        // Block hash fixes its height. Only canonical membership changes between these calls.
+        // Idea only from Bitcoin Core blockheaderToJSON, whose height belongs to block index entry: https://github.com/bitcoin/bitcoin/blob/79d6e874e1dad6822b5d7e6993aa205d21ed2cbf/src/rpc/blockchain.cpp
         let reason = if header.height != height {
             Some(HeaderValidationError::HeightMismatch)
         } else if !matches!(header.membership, HeaderMembership::Canonical(_)) {
@@ -267,8 +267,8 @@ impl BitcoinOps for BitcoinClient {
         Ok(utxos)
     }
 
-    // Transaction depth and current header membership suffice here; no full block is interpreted.
-    // Idea only from Core TxToJSON's confirmation context; Via checks the named header at its existing N: https://github.com/bitcoin/bitcoin/blob/79d6e874e1dad6822b5d7e6993aa205d21ed2cbf/src/rpc/rawtransaction.cpp
+    // is_reorg_safe needs only transaction depth and header membership. No block body is downloaded.
+    // Idea only from Bitcoin Core TxToJSON, which reports block hash and confirmations per transaction: https://github.com/bitcoin/bitcoin/blob/79d6e874e1dad6822b5d7e6993aa205d21ed2cbf/src/rpc/rawtransaction.cpp
     async fn is_reorg_safe(&self, txid: &Txid) -> BitcoinClientResult<bool> {
         let info = self.rpc.get_raw_transaction_info(txid).await?;
         let Some(hash) = info.blockhash else { return Ok(false) };

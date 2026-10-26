@@ -269,8 +269,9 @@ impl ViaWithdrawalVerifier {
         Ok(snapshot)
     }
 
-    /// HTTP handlers acquire the same owner, so local signer steps reacquire authority after I/O.
-    /// Idea only from Temporal AssertOwnership, which unlocks before persistence I/O; Via uses fresh DB guards: https://github.com/temporalio/temporal/blob/5baee6e5efb99a1dc4fa5816aa396696ff7f1746/service/history/shard/context_impl.go
+    /// iteration takes reader authority only around local signer steps, never across HTTP calls to coordinator.
+    /// Coordinator handlers take same lock, so holding it across call would deadlock.
+    /// Idea only from Temporal shard context, which releases ownership lock before persistence I/O: https://github.com/temporalio/temporal/blob/5baee6e5efb99a1dc4fa5816aa396696ff7f1746/service/history/shard/context_impl.go
     async fn iteration(
         &mut self,
         owner: &mut Connection<'_, Verifier>,

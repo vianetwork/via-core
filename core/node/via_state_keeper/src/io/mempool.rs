@@ -317,8 +317,6 @@ impl StateKeeperIO for MempoolIO {
             get_latency.observe();
 
             if let Some((tx, constraint)) = maybe_tx {
-                // Deposit maturity is decided at selection; execution consumes the admitted queue.
-                // Idea only from Era MempoolIO's local queue checks without L1 RPCs: https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/state_keeper/src/io/mempool.rs
                 // Reject transactions with too big gas limit. They are also rejected on the API level, but
                 // we need to secure ourselves in case some tx will somehow get into mempool.
                 if tx.gas_limit() > self.max_allowed_tx_gas_limit {

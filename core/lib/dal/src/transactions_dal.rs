@@ -1784,8 +1784,8 @@ impl TransactionsDal<'_, '_> {
         .await?;
 
         // Note, that transactions are updated in order of their hashes to avoid deadlocks with other UPDATE queries.
-        // Held deposits must be excluded before LIMIT so priority ordering cannot starve L2.
-        // Adapted from Era sync_mempool's priority gate; Via replaces its L1 flag with canonical maturity: https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/dal/src/transactions_dal.rs
+        // Immature deposits are excluded before LIMIT. Priority ordering then cannot starve L2 transactions.
+        // Adapted from Era sync_mempool's priority gate, with canonical Bitcoin maturity replacing its L1 flag: https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/lib/dal/src/transactions_dal.rs
         let transactions = sqlx::query_as!(
             StorageTransaction,
             r#"
