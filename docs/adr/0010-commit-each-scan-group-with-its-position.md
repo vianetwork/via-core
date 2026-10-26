@@ -1,9 +1,12 @@
 ---
-status: accepted
+status: superseded by ADR-0019
 date: 2026-10-22
 ---
 
 # Each scan group commits its effects with its own scan position
+
+Superseded by [ADR 0019](0019-one-reader-position-with-trailing-consumers.md). The original record follows unchanged as history.
+
 
 ## In short
 

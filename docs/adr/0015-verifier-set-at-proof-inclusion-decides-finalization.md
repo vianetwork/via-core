@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-22
+date: 2026-10-24
 ---
 
 # The verifier set at a proof's inclusion block decides its finalization
@@ -63,13 +63,26 @@ This decision says which of those configurations judges a proof.
    ([#454](https://github.com/vianetwork/via-core/issues/454)) is fixed by this
    tally. Each role keeps its own proof-verification prerequisite before it
    counts.
-3. **No verifier-set rotation while a proof is unfinalized.** The rule bounds
-   how long a retired set keeps authority over a proof. An `UpdateBridge`
-   message that Bitcoin includes while an earlier proof is unfinalized is
-   rejected for good. It stays as evidence but never takes effect, and
-   governance sends a new message after the proof is finalized. Each node
-   decides this from the same Bitcoin prefix, so all nodes agree. This
-   changes which messages Via accepts.
+3. **Wait for complete evidence and decide from one fixed prefix.** For a
+   rotation in block h, use the canonical prefix through the end of h,
+   including every proof and vote in that block. Proofs use the set active at
+   their inclusion, so a proof in h uses configuration through h - 1. Wait
+   with `NotReady` if prefix ingestion, earlier configuration decisions or
+   required local proof/deposit evidence is incomplete. Local worker timing
+   or unavailable DA never causes permanent rejection.
+
+   Once those inputs are complete, reject the occurrence for good if any
+   proof included through h lacks its exact-proof quorum in that prefix;
+   otherwise accept it from h + 1. Governance sends a new message after a
+   rejected occurrence. Later votes cannot rescue it. For this interpretation
+   decision, the quorum includes canonical prefix votes without a maturity
+   filter. Actual finalization and authority based on the new configuration
+   still require N-deep canonical dependencies under ADR 0009. A reorg
+   rewinds the provisional interpretation with its source blocks. This
+   proposed variant avoids an extra N-block proof-free interval while keeping
+   irreversible actions behind maturity. If required proof DA is permanently
+   gone and no sufficient kept verdict exists, `NotReady` can last forever.
+   This changes which messages Via accepts; the exact variant needs approval.
 
 This changes consensus interpretation across rotations. Today each vote is
 admitted under the set at its own block. After this decision, every vote for a
@@ -160,6 +173,11 @@ lists every donor with its licence and verdict.
 
 - Whether any `UpdateBridge` message has been included on testnet4. That
   decides whether past votes crossed a rotation, and needs a chain census.
+  Before authorizing reset, a read-only census of an isolated testnet database
+  copy and its matching Bitcoin history must identify every historical rotation,
+  its prefix proofs, retained verdicts and required DA availability. Missing
+  evidence leaves the reset blocked; it is not a negative configuration verdict.
+  The maintainer must authorize that census separately. It has not run.
 
 This decision builds on
 [ADR 0010](0010-commit-each-scan-group-with-its-position.md) and

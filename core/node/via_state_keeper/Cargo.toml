@@ -21,6 +21,7 @@ zksync_state.workspace = true
 zksync_storage.workspace = true
 zksync_mempool.workspace = true
 via_mempool.workspace = true
+via_btc_storage.workspace = true
 zksync_shared_metrics.workspace = true
 zksync_config.workspace = true
 zksync_contracts.workspace = true
@@ -43,12 +44,17 @@ serde.workspace = true
 hex.workspace = true
 
 [dev-dependencies]
+via_btc_client.workspace = true
+serde_json.workspace = true
+via_test_utils.workspace = true
+via_reorg.workspace = true
+bitcoin.workspace = true
+sqlx.workspace = true
 assert_matches.workspace = true
 rand.workspace = true
 tempfile.workspace = true
 test-casing.workspace = true
 futures.workspace = true
-via_btc_client.workspace = true
 zksync_test_contracts.workspace = true
 zksync_node_fee_model.workspace = true
 

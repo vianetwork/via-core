@@ -1,101 +1,68 @@
-# Reorg handling
+# Bitcoin reader and reorg handling
 
-## Sequencer
+Each main, external and verifier node follows its configured Bitcoin Core source through one reader.
+The shared reader stores canonical headers, a confirmed frontier and separate consumer positions.
+Node tasks own polling and shutdown; each role's DAL owns its SQL and dependent-row deletion.
+See [ADR 0019](../adr/0019-one-reader-position-with-trailing-consumers.md),
+[ADR 0020](../adr/0020-tag-bitcoin-rows-and-replay-exactly.md) and
+[ADR 0021](../adr/0021-automatic-shallow-recovery-above-confirmed-frontier.md).
 
-When a user deposits BTC on Bitcoin, the indexer waits for **6 confirmations** before minting tokens on VIA. This is the
-recommended threshold to assume a block is final and safe from reorgs. However, in rare cases, the network can
-experience deeper reorgs. In such situations, it is critical to have a resilient mechanism that can revert the impacted
-batches. The sequencer implements a **reorg detector** to identify when a Bitcoin chain reorganization occurs and to
-react accordingly. The **VIA reorg detector** is a background task that continuously monitors Bitcoin blocks for signs
-of a reorg. When a reorg is detected, all components interacting with the Bitcoin node and Celestia immediately stop
-posting data. At this point, a developer must manually execute a block revert using the
-[`via_block_reverter`](core/bin/via_block_reverter) CLI tool before the system can safely resume operation.
+## Observation and authority
 
-### BtcWatch Re-indexing
+Headers are observed at the tip. Protocol inputs commit with the protocol consumer's applied position.
+The verifier's withdrawal observer has a separate consumer, so missing DA or proof work can trail header ingestion.
+Each consumer also stores its oldest still-needed position in the same transaction as its effects.
 
-**BtcWatch** is the entry point for transactions coming from Bitcoin (e.g., deposits and upgrades). If a reorg happens,
-it is essential to **reindex transactions** to prevent double deposits and to ensure the system state can be
-reconstructed correctly. A double deposit scenario could look like this:
+Irreversible actions require complete initial replay, mature canonical inputs and a fresh source check.
+This includes votes, signatures, finalization and withdrawals, including cached or resumed work.
+A source outage holds those actions. Deposit maturity and replay readiness are checked at mempool selection;
+L2 execution consumes admitted transactions without a Bitcoin RPC or a per-block reader-state gate.
+Sender completion uses its configured `block_confirmations`; the guarded DB write does not wait for its own
+inscription to reach the reader's content depth. Inclusive content maturity is `tip - source_height + 1 >= N`:
 
-- Alice deposits **1 BTC** in block 100.
-- BtcWatch indexes Alice’s deposit and mints **1 BTC** on VIA.
-- A reorg occurs at block 90.
-- Alice’s transaction is pushed back into the Bitcoin mempool and later included in block 110.
-- Without reindexing, BtcWatch would index block 110 and mint **another 1 BTC** for Alice.
-- Result: **1 deposit, 2 mints (invalid state).**
+| Network | N |
+|---|---:|
+| Bitcoin mainnet | 6 |
+| Testnet4 | 100 |
+| Signet | 100 |
+| Isolated regtest | 1 |
 
-To avoid this, BtcWatch reindexes the Bitcoin chain starting from the **last valid block**.
+Replay readiness waits for historical configuration decisions, which can depend on local proof verdicts.
+Requiring readiness for those verdicts would create a cycle. Local verification and verdict save can run
+while replay continues, provided that proof's canonical inputs are complete and mature.
+This exception grants no publication or signing authority.
 
-The main-node reader, detector, reverter, and storage initializers share a PostgreSQL transaction
-advisory lock. A scan commits its database effects and progress together. Recovery cannot move
-progress beyond the reader's stored position, and it preserves zero or missing progress.
-Hard recovery retains its existing extra replay block before the last canonical height.
+## Shallow recovery
 
-For a soft reorg, the detector first commits pending metadata. It then acquires ownership again
-and completes the rewind in a fresh transaction. A restarted detector resumes pending soft recovery.
-The reader waits while recovery is pending, without relying on a timed pause. This lock coordinates
-Bitcoin ingestion and recovery. Other node components still require the existing stopped-node
-procedure for a manual hard reversion.
+Automatic recovery requires fewer than N disconnected old blocks and an ancestor at or above the saved frontier.
+The reader checks the old suffix and its parent chain even when Core has no replacement block yet.
+Native dependent deletion, canonical-header rewind, consumer rewind and frontier preservation commit together.
+The existing owner and source fences exclude competing reader changes during each protected action.
 
-The sequencer maintains an internal mapping of L1 blocks in a table `<number, hash>`. During recovery, the last valid
-block is compared against the Bitcoin client, and all data is rolled back in the database to this valid state.
+For example, at tip 100 with N=6 the mature boundary is block 95. If block 100 is replaced, the reader
+can rewind to 99 and remove an unexecuted deposit from the abandoned block. A replacement inclusion
+gets a new header identity. Replay compares the same Bitcoin outpoint and payload before admission;
+it preserves any already-executed operation instead of minting another operation for the remine.
 
-The rollback process includes:
+## Stops and retained history
 
-- Deleting all L1 transactions (deposits and upgrades).
-- Resetting the indexer’s **“last processed block”** to the last valid block.
+A reorg of N or more old blocks, a frontier crossing, missing retained history or a replay conflict stops the reader.
+The first reason is durable and readiness is cleared. Restarting does not clear the reason or authorize repair.
+Keep the database and matching Bitcoin history for diagnosis. This build supplies no automatic deep-recovery procedure.
+The main-node L2 block-reverter command remains a separate operation with its existing cascades.
 
-This ensures that deposits are reindexed consistently and only minted once.
+Reset retains completed rows, signing risk and their required parents until canonical source replay reconciles them.
+For rotation evidence only, proofs finalized before the reset cutoff remain exempt: they are pre-#469 history,
+and expired testnet DA makes re-verification impossible. Their original rows and FKs remain unproven and unchanged.
+Mainnet starts without those rows. Later canonical proofs through the rotation height require local verification.
 
-### Handling L2 Transactions
+## Monitoring
 
-For **L2 transactions**, the process is simpler:
-
-- Transactions are pushed back into the mempool.
-- The sequencer reprocesses them in upcoming batches. Some L2 transactions may fail during reprocessing. This typically
-  happens if the transaction depends on a deposit that has not yet been reindexed (e.g., insufficient funds).
-
-## Verifier
-
-The verifier has two main layers responsible for detecting and handling reorgs:
-
-- Reorg detector layer.
-- Block reverter layer. Continuously monitors for Bitcoin chain reorg. When a reorg is detected, it notifies all
-  components that a reorg is in progress. Affected components pause their operations until the reorg is resolved. The
-  block reverter executes the rollback to the last valid block and restores the system state to ensure consistency. Once
-  the rollback is complete, the verifier resumes normal operation, including batch processing, zero-knowledge (ZK)
-  verification, and withdrawal handling.
-- If the reorg impacted already finalized transactions, the verifier can revert the finalized batches and process from
-  the last valid batch.
-
-### Verifier progress and proof-gap pause
-
-The verifier stores how far it has read Bitcoin in the `via_btc_watch` row of
-`via_indexer_metadata`. After a reorg, recovery only ever moves that position
-back, to where the reader really is or to the block before the reorg, whichever
-is lower. The reorg height itself still decides which data is deleted and which
-withdrawals are invalidated.
-
-The reader, the reorg detector, the startup code and recovery take one
-PostgreSQL advisory lock before they read the position or fetch blocks, so only
-one of them changes it at a time. The reader holds that lock while it fetches
-blocks, so slow Bitcoin calls can delay recovery. On the main branch, scans also
-take the withdrawal invalidation lock before checking the withdrawal wallet, so
-withdrawal and vote writes wait during a scan.
-
-If the reader finds a proof whose parent batch is missing, it rolls back the
-scan and pauses. The gauge `via_verifier_btc_watch_proof_continuity_blocked` is
-1 while paused. Alert on `via_verifier_btc_watch_proof_continuity_blocked == 1`.
-Setting up that alert and its delivery is an infrastructure task. A verifier
-that answers HTTP requests can still be paused, so check this gauge, not only
-the health endpoint. Only proofs from the configured sequencer address can
-trigger the pause.
-
-Before restarting a paused verifier, find out which proof is missing and why.
-Keep proof verdicts, votes, withdrawal obligations and signing risk as they are.
-A restart clears the pause, but if the history is still missing, the reader
-pauses again. Re-reading old history needs a separately approved procedure and a
-rehearsal on a copy of the database. Never mark batches final by hand, and never
-move the position forward to get past the pause.
-[ADR 0007](../adr/0007-serialize-verifier-scans-and-cap-recovery.md) explains
-the decision.
+The `via_bitcoin_reader` metric family labels the role as `core` or `verifier`.
+Inspect `head`, `frontier`, `replay_ready`, `replay_unreconciled`, `stopped` and `consumer` together;
+consumer metrics also label the consumer. `replay_unreconciled=1` means retained source rows still need
+canonical binding. Each replay attempt warns with its first deposit hash, votable ID or protocol minor;
+the gauge returns to zero when those bindings and retained proof bindings are complete.
+A healthy HTTP endpoint does not establish reader readiness. The durable reader row carries the diagnostic reason.
+Publication metrics include pending and in-flight requests, errors, inscription and confirmation durations,
+and account balance with the actual signing address. Dashboard and alert rollout belongs to deployment repositories.

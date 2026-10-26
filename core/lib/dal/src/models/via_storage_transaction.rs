@@ -17,6 +17,7 @@ pub(crate) struct ViaStorageTransactionDetails {
     pub gas_per_pubdata_limit: Option<BigDecimal>,
     pub received_at: NaiveDateTime,
     pub miniblock_number: Option<i64>,
+    pub l1_batch_number: Option<i64>,
     pub error: Option<String>,
     pub effective_gas_price: Option<BigDecimal>,
     pub refunded_gas: i64,

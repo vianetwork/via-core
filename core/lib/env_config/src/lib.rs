@@ -25,7 +25,6 @@ mod via_btc_client;
 mod via_btc_sender;
 mod via_celestia;
 mod via_consensus;
-mod via_reorg_detector;
 mod via_wallets;
 
 mod via_verifier;

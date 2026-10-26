@@ -1,9 +1,12 @@
 ---
-status: accepted
+status: superseded by ADR-0021
 date: 2026-10-22
 ---
 
 # Recovery repairs only reversible, provable steps, and inspection is read-only
+
+Superseded by [ADR 0021](0021-automatic-shallow-recovery-above-confirmed-frontier.md). The original record follows unchanged as history.
+
 
 ## In short
 

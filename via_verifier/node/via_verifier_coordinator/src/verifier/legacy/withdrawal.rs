@@ -192,16 +192,7 @@ impl WithdrawalSession {
 
     async fn get_system_wallets(&self) -> anyhow::Result<SystemWallets> {
         let mut storage = self.master_connection_pool.connection().await?;
-        let height = storage.via_indexer_dal().get_last_processed_l1_block("via_btc_watch").await?;
-        let wallets = storage
-            .via_wallet_dal()
-            .get_system_wallets_raw(
-                i64::try_from(height)
-                    .context("Withdrawal observation cursor exceeds storage range")?,
-            )
-            .await?
-            .context("System wallets unavailable at withdrawal observation cursor")?;
-        SystemWallets::try_from(wallets)
+        via_btc_storage::ReaderDal::new(&mut storage).mature_wallets().await
     }
 }
 

@@ -13,6 +13,7 @@ categories.workspace = true
 [dependencies]
 vise.workspace = true
 via_btc_client.workspace = true
+via_btc_storage.workspace = true
 via_da_dispatcher.workspace = true
 via_verifier_dal.workspace = true
 zksync_config.workspace = true
@@ -33,3 +34,6 @@ hex = "0.4"
 
 [dev-dependencies]
 zksync_node_test_utils.workspace = true
+via_reorg.workspace = true
+via_test_utils.workspace = true
+sqlx.workspace = true

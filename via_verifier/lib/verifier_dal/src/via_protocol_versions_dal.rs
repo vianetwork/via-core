@@ -15,6 +15,90 @@ pub struct ViaProtocolVersionsDal<'a, 'c> {
 }
 
 impl ViaProtocolVersionsDal<'_, '_> {
+    pub async fn bind_reader_bootstrap(
+        &mut self,
+        bootstrap: &via_btc_client::bootstrap::CheckedBootstrap,
+    ) -> anyhow::Result<()> {
+        let state = &bootstrap.state;
+        let uninitialized = self.latest_protocol_semantic_version().await?.is_none();
+        self.save_protocol_version(
+            state.protocol_version,
+            state.bootloader_hash.as_bytes(),
+            state.abstract_account_hash.as_bytes(),
+            H256::zero().as_bytes(),
+            state.snark_wrapper_vk_hash.as_bytes(),
+        )
+        .await?;
+        if uninitialized {
+            self.mark_upgrade_as_executed(H256::zero().as_bytes()).await?;
+        }
+        sqlx::query("UPDATE protocol_versions SET bitcoin_height=$1,bitcoin_hash=$2 WHERE id=$3 AND bitcoin_payload IS NULL")
+            .bind(i64::from(bootstrap.starting.height)).bind(bootstrap.starting.hash.to_string()).bind(state.protocol_version.minor as i32)
+            .instrument("verifier_bootstrap_minor_source").execute(self.storage).await?;
+        Ok(())
+    }
+
+    /// bind_reader_protocol persists executed-minor source as well as patch source. Main stores minor provenance on its patch only.
+    pub async fn bind_reader_protocol(
+        &mut self,
+        change: &via_btc_storage::StoredConfiguration,
+    ) -> anyhow::Result<()> {
+        use anyhow::Context;
+        let via_btc_client::indexer::configuration::ConfigurationInput::Protocol(_, proposals) =
+            &change.change.payload.input
+        else {
+            anyhow::bail!("non-protocol candidate at verifier protocol owner");
+        };
+        let input = &proposals.first().context("missing checked protocol proposal")?.payload.input;
+        let hash = zksync_types::via_protocol_upgrade::ViaProtocolUpgrade::default()
+            .get_canonical_tx_hash(input.version, input.system_contracts.clone())?;
+        self.save_protocol_version(
+            input.version,
+            input.bootloader_code_hash.as_bytes(),
+            input.default_account_code_hash.as_bytes(),
+            hash.as_bytes(),
+            input.recursion_scheduler_level_vk_hash.as_bytes(),
+        )
+        .await?;
+        via_btc_storage::ReaderDal::new(self.storage).bind_protocol(change).await?;
+        sqlx::query("UPDATE protocol_versions v SET bitcoin_height=p.bitcoin_height,bitcoin_hash=p.bitcoin_hash,bitcoin_payload=p.bitcoin_payload
+            FROM protocol_patches p JOIN via_btc_configuration c ON p.bitcoin_height=c.l1_block_number AND p.bitcoin_hash=c.block_hash
+            WHERE c.id=$1 AND c.accepted AND p.minor=v.id AND v.bitcoin_payload IS NULL")
+            .bind(change.id).instrument("verifier_bind_protocol_minor").execute(self.storage).await?;
+        Ok(())
+    }
+
+    pub async fn versions_for_proof(
+        &mut self,
+        height: u32,
+        upgrade: Option<H256>,
+    ) -> anyhow::Result<Vec<ProtocolSemanticVersion>> {
+        let rows = sqlx::query("SELECT p.minor,p.patch FROM protocol_patches p JOIN protocol_versions v ON v.id=p.minor
+            JOIN via_btc_headers h ON h.number=p.bitcoin_height AND h.hash=p.bitcoin_hash
+            JOIN via_btc_headers m ON m.number=v.bitcoin_height AND m.hash=v.bitcoin_hash
+            WHERE h.number<$1 AND m.number<$1 AND (v.executed OR v.upgrade_tx_hash=$2)
+            ORDER BY p.minor DESC,p.patch DESC")
+            .bind(i64::from(height)).bind(upgrade.map(|hash| hash.as_bytes().to_vec()))
+            .try_map(|row: PgRow| Ok((row.try_get::<i32,_>("minor")?,row.try_get::<i32,_>("patch")?)))
+            .instrument("historical_protocol_for_proof").fetch_all(self.storage).await?;
+        let mut versions = Vec::new();
+        for (minor, patch) in
+            rows.iter().take_while(|row| Some(row.0) == rows.first().map(|row| row.0))
+        {
+            versions.push(ProtocolSemanticVersion {
+                minor: u16::try_from(*minor)?.try_into()?,
+                patch: VersionPatch((*patch).try_into()?),
+            });
+        }
+        Ok(versions)
+    }
+
+    pub async fn pending_upgrade_before(&mut self, height: u32) -> anyhow::Result<Option<H256>> {
+        Ok(sqlx::query_scalar::<_, Vec<u8>>("SELECT v.upgrade_tx_hash FROM protocol_versions v JOIN via_btc_headers h
+            ON h.number=v.bitcoin_height AND h.hash=v.bitcoin_hash WHERE NOT v.executed AND h.number<$1 ORDER BY v.id LIMIT 1")
+            .bind(i64::from(height)).instrument("historical_pending_upgrade").fetch_optional(self.storage).await?.map(|raw|H256::from_slice(&raw)))
+    }
+
     pub async fn save_protocol_version(
         &mut self,
         version: ProtocolSemanticVersion,
@@ -22,8 +106,31 @@ impl ViaProtocolVersionsDal<'_, '_> {
         default_account_code_hash: &[u8],
         upgrade_tx_hash: &[u8],
         recursion_scheduler_level_vk_hash: &[u8],
-    ) -> DalResult<()> {
+    ) -> anyhow::Result<()> {
+        use via_btc_client::indexer::replay::compare_fields;
         let mut db_transaction = self.storage.start_transaction().await?;
+        if let Some(saved) = sqlx::query!(
+            "SELECT bootloader_code_hash, default_account_code_hash,
+            upgrade_tx_hash, recursion_scheduler_level_vk_hash FROM protocol_versions WHERE id=$1",
+            version.minor as i32
+        )
+        .instrument("protocol_version_replay")
+        .fetch_optional(&mut db_transaction)
+        .await?
+        {
+            compare_fields([
+                ("bootloader_code_hash", saved.bootloader_code_hash == bootloader_code_hash),
+                (
+                    "default_account_code_hash",
+                    saved.default_account_code_hash == default_account_code_hash,
+                ),
+                ("upgrade_tx_hash", saved.upgrade_tx_hash == upgrade_tx_hash),
+                (
+                    "recursion_scheduler_level_vk_hash",
+                    saved.recursion_scheduler_level_vk_hash == recursion_scheduler_level_vk_hash,
+                ),
+            ])?;
+        }
 
         sqlx::query!(
             r#"
@@ -39,11 +146,7 @@ impl ViaProtocolVersionsDal<'_, '_> {
             )
             VALUES
             ($1, $2, $3, $4, $5, FALSE, NOW())
-            ON CONFLICT (id) DO
-            UPDATE
-            SET
-            upgrade_tx_hash = excluded.upgrade_tx_hash,
-            executed = FALSE;
+            ON CONFLICT (id) DO NOTHING;
             "#,
             version.minor as i32,
             bootloader_code_hash,
@@ -283,6 +386,50 @@ impl ViaProtocolVersionsDal<'_, '_> {
         .instrument("mark_upgrade_as_executed")
         .fetch_optional(self.storage)
         .await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ConnectionPool, VerifierDal};
+
+    #[tokio::test]
+    async fn replay_preserves_executed_upgrade_and_rejects_changed_payload() -> anyhow::Result<()> {
+        let pool = ConnectionPool::<Verifier>::test_pool().await;
+        let mut connection = pool.connection().await?;
+        let version =
+            ProtocolSemanticVersion { minor: ProtocolVersionId::Version28, patch: VersionPatch(0) };
+        connection
+            .via_protocol_versions_dal()
+            .save_protocol_version(version, &[1; 32], &[2; 32], &[3; 32], &[4; 32])
+            .await?;
+        connection.via_protocol_versions_dal().mark_upgrade_as_executed(&[3; 32]).await?;
+        connection
+            .via_protocol_versions_dal()
+            .save_protocol_version(version, &[1; 32], &[2; 32], &[3; 32], &[4; 32])
+            .await?;
+        assert_eq!(
+            connection.via_protocol_versions_dal().latest_protocol_semantic_version().await?,
+            Some(version)
+        );
+        let conflict = connection
+            .via_protocol_versions_dal()
+            .save_protocol_version(version, &[9; 32], &[2; 32], &[3; 32], &[4; 32])
+            .await
+            .unwrap_err();
+        assert_eq!(
+            conflict
+                .downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>()
+                .unwrap()
+                .field,
+            "bootloader_code_hash"
+        );
+        assert_eq!(
+            connection.via_protocol_versions_dal().latest_protocol_semantic_version().await?,
+            Some(version)
+        );
         Ok(())
     }
 }

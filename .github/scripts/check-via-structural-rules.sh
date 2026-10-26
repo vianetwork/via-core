@@ -185,16 +185,12 @@ run_scoped_rule() {
 # in this repo setup, so the runner enforces scope via CLI globs. Keep this list
 # in sync with .github/lint/via-structural/ast-grep/sgconfig.yml.
 run_scoped_rule "via-reorg-buffer-unordered" \
-    "core/node/via_main_node_reorg_detector/**/*.rs" \
-    "via_verifier/node/via_reorg_detector/**/*.rs"
+    "core/lib/via_btc_storage/**/*.rs" \
+    "core/lib/via_reorg/**/*.rs"
 
 run_scoped_rule "via-reorg-height-association-required" \
-    "core/node/via_main_node_reorg_detector/**/*.rs" \
-    "via_verifier/node/via_reorg_detector/**/*.rs"
-
-run_scoped_rule "via-reorg-empty-l1-blocks-nonfatal" \
-    "core/node/via_main_node_reorg_detector/**/*.rs" \
-    "via_verifier/node/via_reorg_detector/**/*.rs"
+    "core/lib/via_btc_storage/**/*.rs" \
+    "core/lib/via_reorg/**/*.rs"
 
 run_scoped_rule "via-da-batch-before-proof" \
     "core/node/via_da_dispatcher/**/*.rs"

@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n            via_transactions (\n                priority_id,\n                tx_id,\n                receiver,\n                value,\n                calldata,\n                canonical_tx_hash,\n                l1_block_number, bitcoin_height, bitcoin_hash, bitcoin_vout, bitcoin_payload\n            )\n            VALUES\n            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)\n            ON CONFLICT DO NOTHING RETURNING tx_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tx_id",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bytea",
+        "Varchar",
+        "Int8",
+        "Bytea",
+        "Bytea",
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "97b30a8ed0ab7c602243e35fa484055114b8f69d6e758bbab0b90d69a88e0436"
+}

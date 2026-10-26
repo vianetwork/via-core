@@ -1,58 +1,44 @@
 use std::sync::Arc;
-
+use anyhow::Context;
 use via_btc_client::traits::BitcoinOps;
-use via_verifier_dal::{Verifier, VerifierDal};
-use zksync_config::ViaBtcWatchConfig;
+use via_verifier_dal::Verifier;
 use zksync_dal::ConnectionPool;
 
 #[derive(Debug, Clone)]
 pub struct ViaState {
     pool: ConnectionPool<Verifier>,
     btc_client: Arc<dyn BitcoinOps>,
-    via_btc_watch_config: ViaBtcWatchConfig,
 }
-
 impl ViaState {
-    pub fn new(
-        pool: ConnectionPool<Verifier>,
-        btc_client: Arc<dyn BitcoinOps>,
-        via_btc_watch_config: ViaBtcWatchConfig,
-    ) -> Self {
-        Self {
-            pool,
-            btc_client,
-            via_btc_watch_config,
-        }
+    pub fn new(pool: ConnectionPool<Verifier>, btc_client: Arc<dyn BitcoinOps>) -> Self {
+        Self { pool, btc_client }
     }
-
-    /// Check if the btc_watch is in sync with the current Bitcoin node
+    /// is_sync_in_progress is true until replay is ready and protocol consumer reached mature height.
     pub async fn is_sync_in_progress(&self) -> anyhow::Result<bool> {
-        let last_indexed_l1_block_number = self
-            .pool
-            .connection_tagged("verifier task")
+        let mut storage = self.pool.connection().await?;
+        let mut reader = via_btc_storage::ReaderDal::new(&mut storage);
+        let state = reader.state().await?.context("Bitcoin reader is not initialized")?;
+        let selected = self.btc_client.best_block_hash().await?;
+        let tip = self
+            .btc_client
+            .header_by_hash(&selected)
             .await?
-            .via_indexer_dal()
-            .get_last_processed_l1_block("via_btc_watch")
-            .await?;
-        let current_l1_block_number = self.btc_client.fetch_block_height().await?;
-
-        Ok(
-            current_l1_block_number - self.via_btc_watch_config.block_confirmations
-                > last_indexed_l1_block_number,
-        )
+            .context("selected Bitcoin header unavailable")?;
+        let mature = tip.height.saturating_sub(self.btc_client.reorg_safe_depth()?.get() - 1);
+        let consumer = reader
+            .consumer(via_btc_storage::PROTOCOL_CONSUMER)
+            .await?
+            .context("protocol consumer is missing")?;
+        Ok(!state.replay_ready || consumer.applied.header.height < mature)
     }
-
-    /// Check if there is a reorg in progress
+    /// is_reorg_in_progress is true while reader holds durable stop reason.
     pub async fn is_reorg_in_progress(&self) -> anyhow::Result<bool> {
-        let is_reorg = self
-            .pool
-            .connection()
+        let mut storage = self.pool.connection().await?;
+        Ok(via_btc_storage::ReaderDal::new(&mut storage)
+            .state()
             .await?
-            .via_l1_block_dal()
-            .has_reorg_in_progress()
-            .await?
-            .is_some();
-
-        Ok(is_reorg)
+            .context("Bitcoin reader is not initialized")?
+            .stopped_reason
+            .is_some())
     }
 }

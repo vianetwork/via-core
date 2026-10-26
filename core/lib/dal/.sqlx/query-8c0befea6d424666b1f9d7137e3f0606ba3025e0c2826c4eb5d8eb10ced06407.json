@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT f.approved FROM via_btc_finalizations f\n            JOIN via_btc_proofs p ON p.id=f.proof_id\n            JOIN via_btc_headers h ON h.id=p.proof_header_id AND h.number=p.l1_block_number AND h.hash=p.block_hash\n            JOIN via_l1_batch_inscription_request r ON r.l1_batch_number=p.l1_batch_number\n            JOIN via_btc_inscriptions_request i ON i.id=r.commit_proof_inscription_id\n            JOIN via_btc_inscriptions_request_history sent ON sent.id=i.confirmed_inscriptions_request_history_id\n                AND sent.reveal_tx_id=p.proof_reveal_tx_id\n            CROSS JOIN via_btc_reader reader\n            WHERE p.l1_batch_number=$1 AND reader.replay_ready AND reader.stopped_reason IS NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "approved",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8c0befea6d424666b1f9d7137e3f0606ba3025e0c2826c4eb5d8eb10ced06407"
+}

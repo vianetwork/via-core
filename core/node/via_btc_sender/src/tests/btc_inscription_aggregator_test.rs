@@ -1,8 +1,6 @@
 #[cfg(test)]
 pub(crate) mod tests {
-    use via_btc_client::inscriber::test_utils::{
-        get_mock_inscriber_and_conditions, MockBitcoinOpsConfig,
-    };
+    use via_btc_client::inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOps};
     use super::super::ViaBtcInscriptionAggregator;
     use zksync_config::ViaBtcSenderConfig;
     use zksync_dal::{ConnectionPool, Core, CoreDal};
@@ -126,7 +124,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn run_aggregator(pool: ConnectionPool<Core>, config: ViaBtcSenderConfig) {
-        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
+        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOps::default());
         let mut aggregator =
             ViaBtcInscriptionAggregator::new(inscriber, pool.clone(), config).await.unwrap();
         aggregator.loop_iteration(&mut pool.connection().await.unwrap()).await.unwrap();
@@ -138,7 +136,7 @@ pub(crate) mod tests {
         let mut config = get_btc_sender_config(1, 1);
         config.poll_interval = 60_000;
         let mut fixture = ready_batches(pool.clone(), config.clone(), 1).await;
-        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOpsConfig::default());
+        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOps::default());
         let actor = ViaBtcInscriptionAggregator::new(inscriber, pool, config).await.unwrap();
         let (stop, receiver) = tokio::sync::watch::channel(false);
         let mut task = tokio::spawn(actor.run(receiver));
@@ -164,6 +162,27 @@ pub(crate) mod tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    async fn proof_aggregation_waits_for_replay_before_creating_outbound_work() {
+        let pool = ConnectionPool::<Core>::test_pool().await;
+        let config = get_btc_sender_config(1, 1);
+        let mut fixture = ready_batches(pool.clone(), config.clone(), 1).await;
+        let inscriber = get_mock_inscriber_and_conditions(MockBitcoinOps::default());
+        let mut actor = ViaBtcInscriptionAggregator::new(inscriber, pool, config).await.unwrap();
+        sqlx::query("UPDATE via_btc_reader SET replay_ready=FALSE")
+            .execute(fixture.storage.conn())
+            .await
+            .unwrap();
+        actor.loop_iteration(&mut fixture.storage).await.unwrap();
+        pending(&mut fixture, 0).await;
+        sqlx::query("UPDATE via_btc_reader SET replay_ready=TRUE")
+            .execute(fixture.storage.conn())
+            .await
+            .unwrap();
+        actor.loop_iteration(&mut fixture.storage).await.unwrap();
+        pending(&mut fixture, 1).await;
+    }
+
     async fn ready_batches(
         pool: ConnectionPool<Core>,
         config: zksync_config::ViaBtcSenderConfig,
@@ -173,8 +192,8 @@ pub(crate) mod tests {
         let mut fixture = ViaAggregatorTest::new(
             first.protocol_version.unwrap(),
             first.base_system_contracts_hashes,
-            pool,
-            Some(config),
+            pool.clone(),
+            Some(config.clone()),
         )
         .await;
         fixture.create_genesis_l1_batch().await.unwrap();
@@ -188,6 +207,8 @@ pub(crate) mod tests {
                 .await;
             fixture.insert_proof_da(header.number).await;
         }
+        crate::tests::utils::get_inscription_manager_mock(pool, config, MockBitcoinOps::default())
+            .await;
         fixture
     }
 

@@ -18,3 +18,48 @@ pub fn inscription_script(internal: XOnlyPublicKey, kind: &[u8], fields: &[Vec<u
         .push_opcode(bitcoin::opcodes::all::OP_ENDIF)
         .into_script()
 }
+
+pub fn unsigned_proof(
+    pubdata: via_btc_client::indexer::replay::Included<
+        via_btc_client::types::L1BatchDAReferenceInput,
+    >,
+    origin: via_btc_client::indexer::replay::MessageOrigin,
+    reference: via_btc_client::types::ProofDAReferenceInput,
+) -> via_btc_client::indexer::replay::Included<via_btc_client::indexer::replay::ProofInput> {
+    use via_btc_client::indexer::replay::{Included, Payload, ProofInput};
+    Included {
+        origin,
+        payload: Payload {
+            input: ProofInput { proof: reference, pubdata },
+            public_key: Vec::new(),
+            signature: Vec::new(),
+            sender_script: None,
+        },
+    }
+}
+
+pub fn batch_reference(
+    origin: via_btc_client::indexer::replay::MessageOrigin,
+    number: zksync_types::L1BatchNumber,
+    hash: zksync_types::H256,
+    previous: zksync_types::H256,
+    da_identifier: &str,
+    blob_id: &str,
+) -> via_btc_client::indexer::replay::Included<via_btc_client::types::L1BatchDAReferenceInput> {
+    use via_btc_client::indexer::replay::{Included, Payload};
+    Included {
+        origin,
+        payload: Payload {
+            input: via_btc_client::types::L1BatchDAReferenceInput {
+                l1_batch_hash: hash,
+                l1_batch_index: number,
+                da_identifier: da_identifier.into(),
+                blob_id: blob_id.into(),
+                prev_l1_batch_hash: previous,
+            },
+            public_key: Vec::new(),
+            signature: Vec::new(),
+            sender_script: None,
+        },
+    }
+}

@@ -79,9 +79,19 @@ This section provides a physical map of folders & files in this repository.
     - `/vm`: ULightweight out-of-circuit VM interface.
     - `/web3_decl`: Declaration of the Web3 API.
     - `via_btc_client`: Module providing an interface to interact with a Bitcoin node.
+    - `via_reorg`: Dependency-free chain, maturity, configuration and quorum policies.
+    - `via_btc_storage`: Shared header journal, frontier, consumers, replay and action admission.
+      Typed role methods keep native SQL in the main and verifier DALs.
+    - `via_test_utils`: Shared Bitcoin RPC fixtures and isolated, pinned Core processes.
     - `via_da_clients`: Implementation of the Via DA (Celestia) client.
 
   - `/node`: Via Node Framework implementation.
+
+  Main and external state keepers wrap VM execution with the shared Bitcoin authority gate,
+  including cached batch replay. The main and verifier watcher tasks call the same reader transition;
+  the verifier also runs an independent withdrawal observer. Proof workers may trail observation.
+  Initial replay readiness and fresh source checks govern externally usable actions.
+  See [Bitcoin reader and reorg handling](reorg.md).
 
 - `/prover`: ZKsync Prover orchestrator application.
 

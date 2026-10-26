@@ -12,18 +12,13 @@ ruleDirs:
 rules:
   - include: "via-reorg-buffer-unordered"
     glob:
-      - "core/node/via_main_node_reorg_detector/**/*.rs"
-      - "via_verifier/node/via_reorg_detector/**/*.rs"
+      - "core/lib/via_btc_storage/**/*.rs"
+      - "core/lib/via_reorg/**/*.rs"
 
   - include: "via-reorg-height-association-required"
     glob:
-      - "core/node/via_main_node_reorg_detector/**/*.rs"
-      - "via_verifier/node/via_reorg_detector/**/*.rs"
-
-  - include: "via-reorg-empty-l1-blocks-nonfatal"
-    glob:
-      - "core/node/via_main_node_reorg_detector/**/*.rs"
-      - "via_verifier/node/via_reorg_detector/**/*.rs"
+      - "core/lib/via_btc_storage/**/*.rs"
+      - "core/lib/via_reorg/**/*.rs"
 
   - include: "via-da-batch-before-proof"
     glob:

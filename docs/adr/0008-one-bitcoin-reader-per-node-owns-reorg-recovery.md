@@ -1,9 +1,13 @@
 ---
 status: accepted
-date: 2026-10-22
+date: 2026-10-24
 ---
 
 # One Bitcoin reader per Via node owns ordering, reorg detection and recovery
+
+Amended 2026-10-24: decisions 2 and 5–7 supersede the older four-group,
+100-block and recovery descriptions below. Their historical rationale is retained.
+
 
 ## In short
 
@@ -72,12 +76,11 @@ The same split shows up elsewhere:
    detects reorgs, reverts and applies blocks in sequence. Startup and pending
    recovery run inside its lifecycle, not as separate tasks. A configured start
    height never moves a stored scan position forward without evidence.
-2. **One scan position per scan group.** A scan group is a set of processors
-   that must commit together. Its scan position is stored as `(height, hash)`.
-   A consumer that must progress independently gets its own position.
-   Withdrawal observation is the expected case.
-   [ADR 0010](0010-commit-each-scan-group-with-its-position.md) sets the
-   verifier's groups.
+2. **One reader position per node.** The highest committed canonical header
+   is the reader position. Slow consumers keep their own durable completion,
+   as [ADR 0019](0019-one-reader-position-with-trailing-consumers.md) specifies.
+   A proof gap holds dependent work, not Bitcoin observation.
+
 3. **Full block ancestry.** The reader stores `(height, hash, parent_hash)` for
    every block it advances over, including blocks with no Via messages. This
    is the history it uses to prove a fork point. `via_l1_blocks` cannot serve,
@@ -90,27 +93,24 @@ The same split shows up elsewhere:
    The reader then holds actions that need fresh evidence, deletes nothing and
    does not invent a fork point. A failover pool of Bitcoin nodes is not
    assumed. A pool would need its own handoff rule.
-5. **A bounded hash walk finds the fork point.** The reader asks for the stored
-   tip by hash, not by height. On `confirmations: -1` it commits the recovery
-   barrier at once, which withholds new authority. It then walks parent hashes
-   back on both branches until they share a block, and it proves that block
-   before any destructive undo. The walk replaces the fixed window.
-6. **Three failure outcomes stay distinct.** "Source unavailable" means the
-   Bitcoin node did not answer. "Insufficient local history" means a stored
-   header that the walk needs is missing. "Beyond the rollback-search limit"
-   means no shared block was found within the limit. In each case the reader
-   deletes nothing and reports the last proved facts. An unavailable source is
-   inconclusive and is handled as in point 4. The other two outcomes keep the
-   recovery barrier and stop recovery loudly until an operator acts.
-7. **The rollback-search limit is 100 old-branch blocks, inclusive.** A fork
-   point exactly 100 blocks below the stored tip is accepted, if the other
-   repair conditions pass. At 101 blocks the reader stops. Forward catch-up on
-   the new branch does not count toward the limit. The limit is separate from
-   the maturity depth
-   ([ADR 0009](0009-observe-at-the-tip-and-act-behind-maturity-depth.md)) and
-   from the repair boundary
-   ([#436](https://github.com/vianetwork/via-core/issues/436)). It limits
-   search cost. It is not a safety guarantee.
+5. **A bounded hash walk finds the fork point.** On proved disconnection,
+   commit the existing admission hold, then walk checked parents on both
+   branches to the exact shared block before destructive undo. Count old-side
+   removals only. No sparse-window edge is an ancestor.
+
+6. **Inconclusive source, missing history and unsafe recovery stay distinct.**
+   An unavailable/unknown source holds fresh authority and retries without
+   deletes. Missing local ancestry, N or more old-side removals, crossing the
+   durable confirmed frontier or unreconciled retained effects stops the node
+   before suffix deletion, with last proved identities for diagnosis.
+
+7. **Automatic recovery requires d < N and a preserved confirmed frontier.**
+   N is 6 mainnet, 100 testnet4, 100 signet and 1 isolated regtest. The frontier
+   stores a protected height and hash and never moves backward. This replaces
+   the former independent 100-block search limit. At d >= N or a frontier
+   crossing the node stops for diagnosis; no stopped-node repair command is
+   promised here. [ADR 0021](0021-automatic-shallow-recovery-above-confirmed-frontier.md)
+   gives the durable boundary.
 
 ## Considered options
 

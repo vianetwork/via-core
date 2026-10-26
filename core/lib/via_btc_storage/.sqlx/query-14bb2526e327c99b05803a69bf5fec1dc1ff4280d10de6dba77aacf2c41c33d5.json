@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM via_btc_reader WHERE singleton",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "singleton",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "format_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "bitcoin_network",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "genesis_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "bootstrap_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "bootstrap_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "replay_cutoff_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "replay_cutoff_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "confirmed_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "confirmed_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "replay_ready",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "stopped_reason",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "14bb2526e327c99b05803a69bf5fec1dc1ff4280d10de6dba77aacf2c41c33d5"
+}

@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n            transactions (\n                hash,\n                is_priority,\n                initiator_address,\n                gas_limit,\n                max_fee_per_gas,\n                gas_per_pubdata_limit,\n                data,\n                priority_op_id,\n                full_fee,\n                layer_2_tip_fee,\n                contract_address,\n                l1_block_number,\n                value,\n                paymaster,\n                paymaster_input,\n                tx_format,\n                l1_tx_mint,\n                l1_tx_refund_recipient,\n                received_at,\n                signature,\n                created_at,\n                updated_at, bitcoin_height, bitcoin_hash, bitcoin_vout, bitcoin_payload\n            )\n            VALUES\n            (\n                $1,\n                TRUE,\n                $2,\n                $3,\n                $4,\n                $5,\n                $6,\n                $7,\n                $8,\n                $9,\n                $10,\n                $11,\n                $12,\n                $13,\n                $14,\n                $15,\n                $16,\n                $17,\n                $18,\n                $19,\n                NOW(),\n                NOW(), $20, $21, $22, $23\n            )\n            ON CONFLICT (hash) DO NOTHING RETURNING hash\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Bytea",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Jsonb",
+        "Int8",
+        "Numeric",
+        "Numeric",
+        "Bytea",
+        "Int4",
+        "Numeric",
+        "Bytea",
+        "Bytea",
+        "Int4",
+        "Numeric",
+        "Bytea",
+        "Timestamp",
+        "Bytea",
+        "Int8",
+        "Text",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f3b46d597c90c3f6453bd3092f35ed80d81f675a8c18024aca4c4fa0cfb18f81"
+}

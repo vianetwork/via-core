@@ -182,7 +182,7 @@ mod tests {
     use bitcoin::{
         absolute, hashes::Hash, transaction, Network, ScriptBuf, Sequence, TxIn, Txid, Witness,
     };
-    use via_btc_client::inscriber::test_utils::{MockBitcoinOps, MockBitcoinOpsConfig};
+    use via_btc_client::inscriber::test_utils::{MockBitcoinOps};
 
     use super::*;
 
@@ -203,93 +203,55 @@ mod tests {
         )
     }
 
+    fn test_utxos(address: &Address, amounts: &[u64]) -> Vec<(OutPoint, TxOut)> {
+        amounts
+            .iter()
+            .map(|&amount| {
+                (
+                    OutPoint { txid: Txid::all_zeros(), vout: 0 },
+                    TxOut {
+                        value: Amount::from_sat(amount),
+                        script_pubkey: address.script_pubkey(),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn test_manager(utxos: &[(OutPoint, TxOut)], minimum: u64, limit: usize) -> UtxoManager {
+        let mut client = MockBitcoinOps::default();
+        client.set_utxos(utxos.to_vec());
+        UtxoManager::new(Arc::new(client), Amount::from_sat(minimum), limit)
+    }
+
     #[tokio::test]
     async fn test_get_available_utxos() {
-        let bridge_address = bridge_address();
-        let mut config = MockBitcoinOpsConfig::default();
-        let utxos = vec![(
-            OutPoint {
-                txid: Txid::all_zeros(),
-                vout: 0,
-            },
-            TxOut {
-                value: Amount::from_sat(700),
-                script_pubkey: bridge_address.script_pubkey(),
-            },
-        )];
-        config.set_utxos(utxos.clone());
-
-        let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, Amount::ZERO, 100);
-        let utxos_out = manager.get_available_utxos(bridge_address).await.unwrap();
-
-        assert_eq!(utxos, utxos_out);
+        let address = bridge_address();
+        let utxos = test_utxos(&address, &[700]);
+        let mut client = MockBitcoinOps::default();
+        client.set_utxos(utxos.clone());
+        let manager = UtxoManager::new(Arc::new(client), Amount::ZERO, 100);
+        assert_eq!(manager.get_available_utxos(address).await.unwrap(), utxos);
     }
 
     #[tokio::test]
     async fn test_get_utxos_to_merge_all_gt_minimum_amount() {
         let bridge_address = bridge_address();
-        let mut config = MockBitcoinOpsConfig::default();
-        let utxos = vec![
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 0,
-                },
-                TxOut {
-                    value: Amount::from_sat(600),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 0,
-                },
-                TxOut {
-                    value: Amount::from_sat(500),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-        ];
+        let mut config = MockBitcoinOps::default();
+        let utxos = test_utxos(&bridge_address, &[600, 500]);
         config.set_utxos(utxos.clone());
-
-        let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
-        let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
-
-        assert_eq!(utxos, utxos_out);
+        let manager = UtxoManager::new(Arc::new(config), Amount::from_sat(500), 100);
+        assert_eq!(manager.get_utxos_to_merge(bridge_address).await.unwrap(), utxos);
     }
 
     #[tokio::test]
     async fn test_get_utxos_to_merge_when_merge_limit() {
         let bridge_address = bridge_address();
-        let mut config = MockBitcoinOpsConfig::default();
-        let utxos = vec![
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 0,
-                },
-                TxOut {
-                    value: Amount::from_sat(600),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 0,
-                },
-                TxOut {
-                    value: Amount::from_sat(500),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-        ];
+        let mut config = MockBitcoinOps::default();
+        let utxos = test_utxos(&bridge_address, &[600, 500]);
         config.set_utxos(utxos.clone());
 
-        let client = Arc::new(MockBitcoinOps::new(config));
+        let client = Arc::new(config);
         let merge_limit = 2;
         let manager = UtxoManager::new(client, Amount::from_sat(0), merge_limit);
         let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
@@ -300,43 +262,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_utxos_to_merge_some_gt_minimum_amount() {
         let bridge_address = bridge_address();
-        let mut config = MockBitcoinOpsConfig::default();
-        let utxos = vec![
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 0,
-                },
-                TxOut {
-                    value: Amount::from_sat(100),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 0,
-                },
-                TxOut {
-                    value: Amount::from_sat(500),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 0,
-                },
-                TxOut {
-                    value: Amount::from_sat(600),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-        ];
-        config.set_utxos(utxos.clone());
-
-        let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
+        let utxos = test_utxos(&bridge_address, &[100, 500, 600]);
+        let manager = test_manager(&utxos, 500, 100);
         let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
         let expected_utxos = vec![utxos[2].clone(), utxos[1].clone()];
         assert_eq!(expected_utxos, utxos_out);
@@ -345,21 +272,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_utxos_to_merge_when_one_utxo_and_lt_minimum_amount() {
         let bridge_address = bridge_address();
-        let mut config = MockBitcoinOpsConfig::default();
-        let utxos = vec![(
-            OutPoint {
-                txid: Txid::all_zeros(),
-                vout: 0,
-            },
-            TxOut {
-                value: Amount::from_sat(100),
-                script_pubkey: bridge_address.script_pubkey(),
-            },
-        )];
-        config.set_utxos(utxos.clone());
-
-        let client = Arc::new(MockBitcoinOps::new(config));
-        let manager = UtxoManager::new(client, Amount::from_sat(500), 100);
+        let utxos = test_utxos(&bridge_address, &[100]);
+        let manager = test_manager(&utxos, 500, 100);
         let utxos_out = manager.get_utxos_to_merge(bridge_address).await.unwrap();
         let expected_utxos: Vec<(OutPoint, TxOut)> = vec![];
         assert_eq!(expected_utxos, utxos_out);
@@ -368,7 +282,7 @@ mod tests {
     #[tokio::test]
     async fn test_chainned_utxos_one_after_one() {
         let bridge_address = bridge_address();
-        let mut config = MockBitcoinOpsConfig::default();
+        let mut config = MockBitcoinOps::default();
         let utxos = vec![(
             OutPoint {
                 txid: Txid::from_str(
@@ -385,7 +299,7 @@ mod tests {
         config.set_utxos(utxos.clone());
         config.set_tx_confirmation(true);
 
-        let client = Arc::new(MockBitcoinOps::new(config));
+        let client = Arc::new(config);
         let manager = UtxoManager::new(client.clone(), Amount::from_sat(500), 100);
 
         //--------------------------------------------------------------------
@@ -482,45 +396,14 @@ mod tests {
     #[tokio::test]
     async fn test_utxos_sorted_by_value() {
         let bridge_address = bridge_address();
-        let mut config = MockBitcoinOpsConfig::default();
+        let mut config = MockBitcoinOps::default();
 
         // Create UTXOs with different values in unsorted order
-        let utxos = vec![
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 0,
-                },
-                TxOut {
-                    value: Amount::from_sat(300),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 1,
-                },
-                TxOut {
-                    value: Amount::from_sat(700),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-            (
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 2,
-                },
-                TxOut {
-                    value: Amount::from_sat(500),
-                    script_pubkey: bridge_address.script_pubkey(),
-                },
-            ),
-        ];
+        let utxos = test_utxos(&bridge_address, &[300, 700, 500]);
 
         config.set_utxos(utxos.clone());
 
-        let client = Arc::new(MockBitcoinOps::new(config));
+        let client = Arc::new(config);
         let manager = UtxoManager::new(client, Amount::ZERO, 100);
 
         // Get available UTXOs which should be sorted

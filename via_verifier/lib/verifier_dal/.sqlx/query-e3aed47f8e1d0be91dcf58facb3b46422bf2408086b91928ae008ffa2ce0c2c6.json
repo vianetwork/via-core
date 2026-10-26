@@ -1,0 +1,107 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM via_transactions WHERE tx_id=$1 AND COALESCE(bitcoin_vout, priority_id & 65535)=$2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "priority_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "tx_id",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "receiver",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "value",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "calldata",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "canonical_tx_hash",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 9,
+        "name": "l1_block_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "l1_batch_number",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "bitcoin_height",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "bitcoin_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "bitcoin_vout",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "bitcoin_payload",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e3aed47f8e1d0be91dcf58facb3b46422bf2408086b91928ae008ffa2ce0c2c6"
+}

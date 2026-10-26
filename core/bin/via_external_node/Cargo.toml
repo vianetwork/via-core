@@ -64,6 +64,8 @@ semver.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+via_btc_storage.workspace = true
+via_btc_client.workspace = true
 bitcoin.workspace = true
 via_test_utils.workspace = true
 assert_matches.workspace = true

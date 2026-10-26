@@ -1,4 +1,4 @@
-use via_btc_client::inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOpsConfig};
+use via_btc_client::inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOps};
 use via_verifier_dal::{ConnectionPool, Verifier};
 use zksync_config::ViaBtcSenderConfig;
 
@@ -14,7 +14,9 @@ pub fn get_btc_sender_config(
 }
 
 pub async fn get_inscription_manager_mock(
-    pool: ConnectionPool<Verifier>, config: ViaBtcSenderConfig, mock_btc_ops_config: MockBitcoinOpsConfig,
+    pool: ConnectionPool<Verifier>,
+    config: ViaBtcSenderConfig,
+    mock_btc_ops_config: MockBitcoinOps,
 ) -> ViaBtcInscriptionManager {
     let inscriber = get_mock_inscriber_and_conditions(mock_btc_ops_config);
     Result::unwrap(ViaBtcInscriptionManager::new(inscriber, pool, config).await)

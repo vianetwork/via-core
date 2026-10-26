@@ -2,6 +2,12 @@
 status: decided
 ---
 
+> Superseded design scope, 2026-10-24. The text below records the earlier design.
+> Current reader positions, block-tagged replay and recovery are defined by
+> [ADR 0019](../../adr/0019-one-reader-position-with-trailing-consumers.md),
+> [ADR 0020](../../adr/0020-tag-bitcoin-rows-and-replay-exactly.md) and
+> [ADR 0021](../../adr/0021-automatic-shallow-recovery-above-confirmed-frontier.md).
+
 # Bitcoin reader redesign: design and rationale
 
 This record explains how Via nodes will read Bitcoin, notice reorgs and recover from them, and why.
@@ -21,6 +27,18 @@ comparison project. The accepted decisions are recorded as ADRs 0008 to 0015, li
 work is tracked on the [reader map #426](https://github.com/vianetwork/via-core/issues/426). This
 record describes intended behavior, not deployed behavior, and authorizes no migration, deployment
 or live recovery.
+
+## Current replay and admission rules
+
+ADRs 0019–0021 supersede the scan-group and general repair design described below. The shared storage crate owns one selected-header transition and the common consumer commit. Each native DAL implements typed role methods and owns its SQL; SQL strings do not cross that boundary. Each consumer saves both applied and oldest-still-needed header positions with its effects. Advancing applied progress cannot release history required after a crash.
+
+Initial replay readiness depends on historical configuration decisions, and bridge rotation decisions depend on local proof verdicts. Requiring global replay readiness for those verdicts would create a dependency cycle. Local verification and verdict save may proceed during replay, gated per proof on complete and mature canonical inputs. Global replay readiness remains mandatory for votes, signatures, L2 execution, finalization and withdrawals. Every final admission also checks fresh selected-source membership, the current mature prefix and its required consumer positions under the existing owner/source fences.
+
+A rotation at h uses canonical proofs after the reset cutoff through h, verified by the verifier itself. Proofs finalized before the reset cutoff are excluded only from that evidence requirement: they are pre-#469 finalized history, and expired testnet DA makes re-verification impossible. Their completed rows and FKs remain unchanged and unproven; there is no new legacy proof incarnation or recomputation route. Mainnet starts with no such rows. The exception confers no other authority. Withdrawal finalization receipts bind the current exact proof-header incarnation, so a retained completed flag alone cannot enable payment after replay or a remine.
+
+A second vote from one member on one exact proof is a replay conflict, even from a different source position or with the same choice. The identical occurrence may retry after all immutable fields compare equal. A conflict persists the stop reason and escapes the reader task for diagnosis.
+
+The committed reader metrics use the `via_bitcoin_reader` prefix and a `role` label: head, frontier, replay_ready, stopped, consumer position, pending and in-flight publication counts, inscription and confirmation latency, account balance and inscription errors. Consumer position also has a `consumer` label. The old role-specific broadcast-time and transient-inscription-error metrics are replaced by these shared publication metrics; pending counts come from committed database state. No matching dashboards or alerts are stored in this repository. Deployment repositories must update metric consumers when rolling out this source change.
 
 ## Decision status
 

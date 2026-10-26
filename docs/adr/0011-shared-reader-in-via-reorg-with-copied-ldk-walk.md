@@ -1,9 +1,14 @@
 ---
 status: accepted
-date: 2026-10-22
+date: 2026-10-24
 ---
 
 # The shared Bitcoin reader lives in `via_reorg` and copies LDK's fork walk
+
+Amended 2026-10-24: one reader position replaces scan groups; the N/frontier
+boundary replaces the search limit; copied code uses pinned comments and a
+short attribution list without automated provenance or drift tooling.
+
 
 ## In short
 
@@ -48,21 +53,22 @@ detecting and recovering.
 
 1. **The shared reader grows inside `core/lib/via_reorg`.** That crate already
    owns the shared chain comparison. It becomes the reader: block identities,
-   full ancestry, ordered apply and undo, and one scan position per scan
-   group. It does not import either node's DAL.
-2. **Each node supplies fallible adapters.** An adapter prepares one scan
-   group's inputs outside the database transaction, including any Bitcoin RPC
-   calls, and then applies the prepared group inside the transaction. An
-   adapter can return an error, such as a SQL error or a proof continuity gap,
-   and the reader keeps that group's scan position unchanged. Scheduling,
-   shutdown and the choice of processors stay in the node layer. The main node
-   and the external node supply only the groups that apply to them.
+   full ancestry, ordered apply and undo, and one reader position with
+   trailing consumer completion. It does not import either node's DAL.
+2. **Each node supplies fallible adapters.** Prepare hash-bound block input
+   outside SQL, then apply immediate rows and the one reader position in one
+   transaction. Slow consumers follow with their own progress under
+   [ADR 0019](0019-one-reader-position-with-trailing-consumers.md). Scheduling,
+   shutdown and per-node delete lists stay in the node layer. Identical reader
+   state SQL is shared once over `Connection<'a, DB: DbMarker>` in a small
+   shared storage crate; SQL stays outside pure `via_reorg`.
+
 3. **The fork walk is copied from LDK.** The copy keeps LDK's loop and its
    traversal order unchanged: walk back the side with the greater height, or
    both sides at equal height, until the hashes match. Via adapts the header
    type, the lookups (stored side from Via's ancestry table, node side through
-   `via_btc_client`), the error type and the rollback-search limit from ADR
-   0008. Each copied function carries an origin comment with the pinned
+   `via_btc_client`), the error type and the N/confirmed-frontier boundary from ADR
+   0021. Each copied function carries an origin comment with the pinned
    permalink and the changes made.
 4. **No BDK or LDK runtime dependency.**
 5. **Headers come from the authoritative node through `via_btc_client`.** The
@@ -138,10 +144,11 @@ records the dependency probes and links each source at a fixed commit.
 - LDK's proof-of-work and chainwork checks are not copied. The reader relies
   on its authoritative Bitcoin Core node, which validates the chain it reports.
 - If LDK changes the walk, Via does not get the change automatically. The
-  origin comment names the commit to compare against, and a weekly check
-  opens an issue when the donor file changes.
-- No third-party notice file is added. LDK's licence, MIT or Apache-2.0, is
-  the one Via already ships, and LDK has no NOTICE file.
+  origin comment names the commit to compare against, for manual source comparison. No provenance executable, automated textual
+  gate, weekly drift checker or donor-issue automation is included.
+- The root already ships LICENSE-APACHE and LICENSE-MIT. Keep a short
+  component/copyright/licence/pin list, preserve source notices and include
+  any applicable donor NOTICE. Do not duplicate the full licence texts.
 
 ## Not decided here
 

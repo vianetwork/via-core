@@ -1,9 +1,18 @@
 ---
 status: accepted
-date: 2026-10-22
+date: 2026-10-24
 ---
 
 # Observe Bitcoin at the tip and act only behind a maturity depth
+
+Amended 2026-10-24: only decision 7 changes. References below to a separate
+rollback-search limit describe the previous decision; the depth evidence and
+considered options are retained.
+
+Amended 2026-10-26: deposit maturity is enforced at mempool selection, without
+an L1 RPC or reader-state gate around VM execution. Sender completion uses its
+configured confirmation count independently of the reader's content maturity.
+
 
 ## In short
 
@@ -12,9 +21,9 @@ undo. Actions that cannot be undone, such as votes, finalization and payouts,
 wait until the block that justifies them has reached the network's maturity
 depth. The inclusion block counts as the first confirmation. The depths are 6
 on mainnet, 100 on testnet4, 100 on signet and 1 on regtest. The same depth
-decides when the sender treats its own transaction as complete. How far back
-recovery may search for a fork point is a separate setting, the
-rollback-search limit.
+governs acting on content. The sender separately uses its configured
+`block_confirmations` to mark its own transaction complete. The confirmed
+frontier and depth bound recovery under decision 7.
 
 ## Background for a new reader
 
@@ -72,16 +81,23 @@ third number, hard-coded and not tied to either.
    | signet, if used | 100 |
    | regtest, isolated tests only | 1 |
 
-5. **One policy for authority and sender completion.** The same depth decides
-   when a source grants authority and when the sender treats its own
-   transaction as complete. There are no separate depths per action.
+5. **Separate content maturity from sender completion.** Acting on content
+   uses the network depth. The sender confirms its own inscription at its
+   configured `block_confirmations`, then saves the result under reader
+   authority. Deposit eligibility is checked at mempool selection only; VM
+   execution consumes admitted transactions without an L1 RPC or a replacement
+   per-block reader-state gate. This follows Era's admission/execution split
+   and configured sender confirmation path.
 6. **Protective steps do not wait.** Observing at the tip, adding a
    preventive hold and revoking authority whose source left the chain happen
    immediately.
-7. **Keep the rollback-search limit separate.** How far back recovery may
-   search for a fork point is its own setting, not derived from the maturity
-   depth. [ADR 0008](0008-one-bitcoin-reader-per-node-owns-reorg-recovery.md)
-   sets it.
+7. **Keep a durable confirmed frontier and stop at depth N.** Recovery may
+   disconnect only d < N old blocks and must preserve the frontier's height
+   and hash. It never lowers that frontier. N or more, or a frontier crossing,
+   stops the node for diagnosis under
+   [ADR 0021](0021-automatic-shallow-recovery-above-confirmed-frontier.md).
+   This replaces the former separate rollback-search setting; decisions 1–6
+   and the network maturity policy are unchanged.
 
 ## Considered options
 

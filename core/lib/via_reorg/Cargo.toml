@@ -1,6 +1,6 @@
 [package]
 name = "via_reorg"
-description = "Shared, pure helpers for Via L1 reorg detectors (main-node and verifier)."
+description = "Pure Bitcoin chain, maturity and voting rules for Via readers."
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -11,3 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+bitcoin.workspace = true
+tokio.workspace = true
+via_test_utils.workspace = true

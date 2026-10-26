@@ -1,7 +1,7 @@
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::btc_inscription_aggregator::test_support::tests::run_aggregator;
-    use via_btc_client::inscriber::test_utils::MockBitcoinOpsConfig;
+    use via_btc_client::inscriber::test_utils::MockBitcoinOps;
     use zksync_config::ViaBtcSenderConfig;
     use zksync_dal::{ConnectionPool, Core, CoreDal};
     use zksync_node_test_utils::l1_batch_metadata_to_commitment_artifacts;
@@ -25,7 +25,7 @@ pub(crate) mod tests {
         )
         .await;
         fixture.create_genesis_l1_batch().await.unwrap();
-        run_manager(pool.clone(), config, MockBitcoinOpsConfig::default()).await;
+        run_manager(pool.clone(), config, MockBitcoinOps::default()).await;
         assert!(pool
             .connection()
             .await
@@ -40,8 +40,9 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_btc_inscription_manager_run_one_inscription_request() {
         let pool = ConnectionPool::<Core>::test_pool().await;
-        let config = get_btc_sender_config(1, 1);
-        let mut mock_btc_ops_config = MockBitcoinOpsConfig::default();
+        let mut config = get_btc_sender_config(1, 1);
+        config.block_confirmations = 2;
+        let mut mock_btc_ops_config = MockBitcoinOps::default();
         mock_btc_ops_config.set_block_height(1);
 
         let mut aggregator_test = single_batch(pool.clone(), config.clone()).await;
@@ -65,17 +66,32 @@ pub(crate) mod tests {
 
         // Simulate block mint and transaction execution on chain
         mock_btc_ops_config.set_block_height(2);
-        mock_btc_ops_config.set_tx_confirmation(true);
+        mock_btc_ops_config.tx_confirmations = Some(1);
+        run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
+        assert_eq!(
+            aggregator_test
+                .storage
+                .btc_sender_dal()
+                .list_inflight_inscription_ids()
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        mock_btc_ops_config.set_block_height(7);
+        mock_btc_ops_config.tx_confirmations = Some(2);
 
         run_manager(pool.clone(), config.clone(), mock_btc_ops_config.clone()).await;
 
         let inflight_inscription_ids =
             aggregator_test.storage.btc_sender_dal().list_inflight_inscription_ids().await.unwrap();
         assert_eq!(inflight_inscription_ids.len(), 0);
+        assert_eq!(crate::metrics::METRICS.report_blocked_l1_batch_inscription.get(), 0);
 
         // Start the manager
 
-        mock_btc_ops_config.set_block_height(3);
+        mock_btc_ops_config.set_block_height(8);
+        mock_btc_ops_config.tx_confirmations = None;
         mock_btc_ops_config.set_tx_confirmation(false);
 
         // Create a commit proof inscription request
@@ -93,7 +109,7 @@ pub(crate) mod tests {
     async fn run_manager(
         pool: ConnectionPool<Core>,
         config: ViaBtcSenderConfig,
-        mock_btc_ops_config: MockBitcoinOpsConfig,
+        mock_btc_ops_config: MockBitcoinOps,
     ) {
         let mut manager =
             get_inscription_manager_mock(pool.clone(), config, mock_btc_ops_config).await;
@@ -114,8 +130,7 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .remove(0);
-        let manager =
-            get_inscription_manager_mock(pool, config, MockBitcoinOpsConfig::default()).await;
+        let manager = get_inscription_manager_mock(pool, config, MockBitcoinOps::default()).await;
         let (stop, receiver) = tokio::sync::watch::channel(false);
         let task = tokio::spawn(manager.run(receiver));
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
@@ -140,6 +155,38 @@ pub(crate) mod tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    async fn cached_publication_requires_current_source_and_mature_sequencer() {
+        let pool = ConnectionPool::<Core>::test_pool().await;
+        let config = get_btc_sender_config(1, 1);
+        let mut fixture = single_batch(pool.clone(), config.clone()).await;
+        run_aggregator(pool.clone(), config.clone()).await;
+        let mut manager =
+            get_inscription_manager_mock(pool.clone(), config, MockBitcoinOps::default()).await;
+        let sequencer: String =
+            sqlx::query_scalar("SELECT address FROM via_wallets WHERE role='Sequencer'")
+                .fetch_one(fixture.storage.conn())
+                .await
+                .unwrap();
+        for hold in ["UPDATE via_btc_reader SET replay_ready=FALSE","UPDATE via_btc_reader SET confirmed_hash=genesis_hash","UPDATE via_wallets SET address=(SELECT address FROM via_wallets WHERE role='Gov' LIMIT 1) WHERE role='Sequencer'"] {
+            sqlx::query(hold).execute(fixture.storage.conn()).await.unwrap();
+            assert!(manager.loop_iteration(&mut fixture.storage).await.is_err());
+            assert!(fixture.storage.btc_sender_dal().list_inflight_inscription_ids().await.unwrap().is_empty());
+            sqlx::query("UPDATE via_btc_reader SET replay_ready=TRUE,confirmed_hash=(SELECT hash FROM via_btc_headers WHERE number=confirmed_number)").execute(fixture.storage.conn()).await.unwrap();
+        }
+        sqlx::query("UPDATE via_wallets SET address=$1 WHERE role='Sequencer'")
+            .bind(sequencer)
+            .execute(fixture.storage.conn())
+            .await
+            .unwrap();
+        sqlx::query("UPDATE via_btc_reader SET confirmed_hash=(SELECT hash FROM via_btc_headers WHERE number=confirmed_number)").execute(fixture.storage.conn()).await.unwrap();
+        manager.loop_iteration(&mut fixture.storage).await.unwrap();
+        assert_eq!(
+            fixture.storage.btc_sender_dal().list_inflight_inscription_ids().await.unwrap().len(),
+            1
+        );
+    }
+
     async fn single_batch(
         pool: ConnectionPool<Core>,
         config: ViaBtcSenderConfig,
@@ -149,7 +196,7 @@ pub(crate) mod tests {
             header.protocol_version.unwrap(),
             header.base_system_contracts_hashes,
             pool.clone(),
-            Some(config),
+            Some(config.clone()),
         )
         .await;
         fixture.create_genesis_l1_batch().await.unwrap();
@@ -160,7 +207,7 @@ pub(crate) mod tests {
             )
             .await;
         fixture.insert_proof_da(header.number).await;
-
+        get_inscription_manager_mock(pool, config, MockBitcoinOps::default()).await;
         fixture
     }
 

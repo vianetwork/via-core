@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+mockall = { version = "0.13.0", optional = true }
 vise.workspace = true
 zksync_types.workspace = true
 zksync_config.workspace = true
@@ -52,6 +53,7 @@ tracing-test = "0.2.0"
 
 [features]
 regtest = []
+test-utils = ["dep:mockall"]
 
 [[example]]
 name = "indexer"

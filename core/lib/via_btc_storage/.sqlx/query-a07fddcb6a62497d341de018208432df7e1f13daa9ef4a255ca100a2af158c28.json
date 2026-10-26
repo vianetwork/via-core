@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM via_btc_headers WHERE number>$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a07fddcb6a62497d341de018208432df7e1f13daa9ef4a255ca100a2af158c28"
+}

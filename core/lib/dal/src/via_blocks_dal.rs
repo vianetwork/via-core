@@ -18,6 +18,32 @@ pub struct ViaBlocksDal<'a, 'c> {
 }
 
 impl ViaBlocksDal<'_, '_> {
+    /// Returns the canonical verdict for the exact confirmed outbound proof while reader authority is ready.
+    /// Web3 details share this lookup so retained sender flags cannot imply current settlement.
+    /// Idea only from Hyperlane near-head confirm, which publishes checked canonical results: https://github.com/hyperlane-xyz/hyperlane-monorepo/blob/693d2d45df75135504e424c5a4d16761d0016f99/rust/main/agents/scraper/src/near_head/store.rs
+    pub async fn get_canonical_finalization(
+        &mut self,
+        batch: L1BatchNumber,
+    ) -> DalResult<Option<bool>> {
+        sqlx::query_scalar!(
+            r#"
+            SELECT f.approved FROM via_btc_finalizations f
+            JOIN via_btc_proofs p ON p.id=f.proof_id
+            JOIN via_btc_headers h ON h.id=p.proof_header_id AND h.number=p.l1_block_number AND h.hash=p.block_hash
+            JOIN via_l1_batch_inscription_request r ON r.l1_batch_number=p.l1_batch_number
+            JOIN via_btc_inscriptions_request i ON i.id=r.commit_proof_inscription_id
+            JOIN via_btc_inscriptions_request_history sent ON sent.id=i.confirmed_inscriptions_request_history_id
+                AND sent.reveal_tx_id=p.proof_reveal_tx_id
+            CROSS JOIN via_btc_reader reader
+            WHERE p.l1_batch_number=$1 AND reader.replay_ready AND reader.stopped_reason IS NULL
+            "#,
+            i64::from(batch.0)
+        )
+        .instrument("get_canonical_finalization")
+        .fetch_optional(self.storage)
+        .await
+    }
+
     /// Inserts an inscription request ID for a given L1 batch.
     /// Handles both commit batch and commit proof inscription types.
     pub async fn insert_l1_batch_inscription_request_id(
@@ -249,9 +275,10 @@ impl ViaBlocksDal<'_, '_> {
             SELECT
                 MIN(l1_batch_number) AS l1_batch_number
             FROM
-                via_l1_batch_inscription_request
+                via_btc_proofs p JOIN via_btc_finalizations f ON f.proof_id=p.id
+                JOIN via_btc_headers h ON h.id=p.proof_header_id AND h.number=p.l1_block_number AND h.hash=p.block_hash
             WHERE
-                is_finalized = FALSE
+                NOT f.approved
             "#
         )
         .instrument("get_reverted_batch_by_verifier_network")
@@ -487,9 +514,11 @@ impl ViaBlocksDal<'_, '_> {
             SELECT
                 MAX(l1_batch_number) AS l1_batch_number
             FROM
-                via_l1_batch_inscription_request
+                via_btc_proofs p JOIN via_btc_finalizations f ON f.proof_id=p.id
+                JOIN via_btc_headers h ON h.id=p.proof_header_id AND h.number=p.l1_block_number AND h.hash=p.block_hash
+                CROSS JOIN via_btc_reader reader
             WHERE
-                is_finalized = TRUE
+                f.approved AND reader.replay_ready AND reader.stopped_reason IS NULL
             "#
         )
         .instrument("get_last_finalized_l1_batch")

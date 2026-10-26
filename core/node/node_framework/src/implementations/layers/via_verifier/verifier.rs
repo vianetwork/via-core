@@ -2,10 +2,9 @@ use anyhow::Context;
 use via_verifier_coordinator::verifier::ViaWithdrawalVerifier;
 use via_withdrawal_client::client::WithdrawalClient;
 use zksync_config::{
-    configs::{
-        via_bridge::ViaBridgeConfig, via_btc_client::ViaBtcClientConfig, via_wallets::ViaWallet,
-    },
-    ViaBtcWatchConfig, ViaVerifierConfig,
+    // jscpd:ignore-start node_framework FromContext/IntoContext declarations require these imports.
+    configs::{via_bridge::ViaBridgeConfig, via_wallets::ViaWallet},
+    ViaVerifierConfig,
 };
 
 use crate::{
@@ -24,10 +23,9 @@ use crate::{
 /// Wiring layer for verifier task
 #[derive(Debug)]
 pub struct ViaWithdrawalVerifierLayer {
+    // jscpd:ignore-end
     via_bridge_config: ViaBridgeConfig,
-    via_btc_client: ViaBtcClientConfig,
     verifier_config: ViaVerifierConfig,
-    btc_watch_config: ViaBtcWatchConfig,
     wallet: ViaWallet,
 }
 
@@ -50,16 +48,12 @@ pub struct Output {
 impl ViaWithdrawalVerifierLayer {
     pub fn new(
         via_bridge_config: ViaBridgeConfig,
-        via_btc_client: ViaBtcClientConfig,
         verifier_config: ViaVerifierConfig,
-        btc_watch_config: ViaBtcWatchConfig,
         wallet: ViaWallet,
     ) -> Self {
         Self {
             via_bridge_config,
-            via_btc_client,
             verifier_config,
-            btc_watch_config,
             wallet,
         }
     }
@@ -78,13 +72,12 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
         let master_pool = input.master_pool.get().await?;
         let query_client_l22 = input.query_client_l2.0;
 
+        let btc_client = input.btc_client_resource.verifier.unwrap();
         let withdrawal_client = WithdrawalClient::new(
             input.da_client.0,
-            self.via_btc_client.network(),
+            via_btc_client::traits::BitcoinOps::get_network(btc_client.as_ref()),
             query_client_l22,
         );
-
-        let btc_client = input.btc_client_resource.verifier.unwrap();
 
         let via_withdrawal_verifier_task = ViaWithdrawalVerifier::new(
             self.verifier_config,
@@ -93,7 +86,6 @@ impl WiringLayer for ViaWithdrawalVerifierLayer {
             btc_client,
             withdrawal_client,
             self.via_bridge_config,
-            self.btc_watch_config,
         )
         .context("Error to init the via withdrawal verifier")?;
 

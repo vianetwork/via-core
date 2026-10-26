@@ -189,6 +189,16 @@ impl<'a, DB: DbMarker> Connection<'a, DB> {
         }
     }
 
+    pub(crate) fn from_transaction(transaction: Transaction<'a, Postgres>) -> Self {
+        Self {
+            inner: ConnectionInner::Transaction {
+                transaction,
+                tags: None,
+            },
+            _marker: PhantomData,
+        }
+    }
+
     /// Starts a transaction or a new checkpoint within the current transaction.
     pub async fn start_transaction(&mut self) -> DalResult<Connection<'_, DB>> {
         let (conn, tags) = self.conn_and_tags();

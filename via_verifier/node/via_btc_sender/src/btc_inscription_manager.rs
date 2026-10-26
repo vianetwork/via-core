@@ -1,10 +1,9 @@
-use anyhow::{Context, Result};
-use bincode::serialize;
+use anyhow::Result;
 use tokio::sync::watch;
-use via_btc_client::{inscriber::Inscriber, traits::Serializable, types::InscriptionMessage};
+use via_btc_client::inscriber::Inscriber;
+use via_btc_storage::publication::{begin_completion, publish_pending, stuck_inscription_height};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
-use zksync_types::via_btc_sender::ViaBtcInscriptionRequest;
 
 use crate::metrics::METRICS;
 
@@ -46,24 +45,30 @@ impl ViaBtcInscriptionManager {
         Ok(())
     }
 
-    async fn loop_iteration(&mut self, storage: &mut Connection<'_, Verifier>) -> Result<(), anyhow::Error> {
-        if storage.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
-            return Ok(());
-        }
-
+    async fn loop_iteration(
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
+    ) -> Result<(), anyhow::Error> {
+        crate::btc_vote_inscription::create_request(
+            &self.pool,
+            self.inscriber.get_client().await,
+            &self.inscriber.inscriber_address()?,
+        )
+        .await?;
         self.update_inscription_status_or_resend(storage).await?;
-        self.send_new_inscription_txs(storage).await?;
+        publish_pending(&self.pool, &mut self.inscriber, self.config.max_txs_in_flight).await?;
         Ok(())
     }
 
     async fn update_inscription_status_or_resend(
-        &mut self, storage: &mut Connection<'_, Verifier>,
+        &mut self,
+        storage: &mut Connection<'_, Verifier>,
     ) -> anyhow::Result<()> {
         self.inscriber.sync_context_with_blockchain().await?;
 
         let inflight_inscriptions = storage.via_btc_sender_dal().get_inflight_inscriptions().await?;
 
-        METRICS.inflight_inscriptions.set(inflight_inscriptions.len());
+        via_btc_storage::metrics::METRICS.in_flight[&"verifier"].set(inflight_inscriptions.len());
 
         METRICS.track_block_numbers(storage).await?;
 
@@ -73,32 +78,29 @@ impl ViaBtcInscriptionManager {
             if let Some(last_inscription_history) =
                 storage.via_btc_sender_dal().get_last_inscription_request_history(inscription.id).await?
             {
-                let is_confirmed = self
-                    .inscriber
-                    .get_client()
-                    .await
-                    .check_tx_confirmation(&last_inscription_history.reveal_tx_id, self.config.block_confirmations)
-                    .await?;
-
-                if is_confirmed {
-                    storage
+                if let Some(mut authority) = begin_completion(
+                    &self.pool,
+                    self.inscriber.get_client().await,
+                    &last_inscription_history.reveal_tx_id,
+                    self.config.block_confirmations,
+                ).await? {
+                    authority
                         .via_btc_sender_dal()
                         .confirm_inscription(inscription.id, last_inscription_history.id)
                         .await?;
+                    authority.commit().await?;
                     tracing::info!(
                         "Inscription confirmed {reveal_tx}",
                         reveal_tx = last_inscription_history.reveal_tx_id,
                     );
 
-                    METRICS.track_inscription_confirmation(last_inscription_history.created_at);
+                    via_btc_storage::metrics::METRICS.confirmed("verifier",last_inscription_history.created_at);
                 } else {
-                    let current_block = self.inscriber.get_client().await.fetch_block_height().await?;
-
-                    if last_inscription_history.sent_at_block + self.config.stuck_inscription_block_number() as i64
-                        > current_block as i64
-                    {
-                        continue;
-                    }
+                    let Some(current_block) = stuck_inscription_height(
+                        self.inscriber.get_client().await,
+                        last_inscription_history.sent_at_block,
+                        self.config.stuck_inscription_block_number(),
+                    ).await? else { continue };
 
                     if report_blocked_l1_batch_inscription.is_none() {
                         let l1_batch_number = storage
@@ -122,82 +124,6 @@ impl ViaBtcInscriptionManager {
             }
         }
 
-        let balance = self.inscriber.get_balance().await?;
-        METRICS.btc_sender_account_balance[&self.config.wallet_address.clone()].set(balance as usize);
-
-        Ok(())
-    }
-
-    async fn send_new_inscription_txs(&mut self, storage: &mut Connection<'_, Verifier>) -> anyhow::Result<()> {
-        let number_inflight_txs = storage.via_btc_sender_dal().get_inflight_inscriptions().await?.len();
-
-        tracing::debug!("Inflight inscriptions: {count}", count = number_inflight_txs);
-
-        let number_of_available_slots_for_inscription_txs =
-            self.config.max_txs_in_flight.saturating_sub(number_inflight_txs as i64);
-
-        tracing::debug!(
-            "Available slots to process inscriptions: {count}",
-            count = number_of_available_slots_for_inscription_txs
-        );
-
-        if number_of_available_slots_for_inscription_txs > 0 {
-            let list_new_inscription_request = storage
-                .via_btc_sender_dal()
-                .list_new_inscription_request(number_of_available_slots_for_inscription_txs)
-                .await?;
-
-            for inscription in list_new_inscription_request {
-                self.send_inscription_tx(storage, &inscription).await?;
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) async fn send_inscription_tx(
-        &mut self, storage: &mut Connection<'_, Verifier>, tx: &ViaBtcInscriptionRequest,
-    ) -> anyhow::Result<()> {
-        let sent_at_block = self.inscriber.get_client().await.fetch_block_height().await? as i64;
-
-        let input = InscriptionMessage::from_bytes(&tx.inscription_message.clone().unwrap_or_default());
-
-        let latency = METRICS.broadcast_time.start();
-        let inscribe_info = match self.inscriber.inscribe(input).await {
-            Ok(info) => info,
-            Err(e) => {
-                METRICS.l1_transient_errors.inc();
-                return Err(anyhow::anyhow!(e));
-            }
-        };
-        latency.observe();
-
-        let signed_commit_tx =
-            serialize(&inscribe_info.final_commit_tx.tx).with_context(|| "Error serializing the commit tx")?;
-
-        let signed_reveal_tx =
-            serialize(&inscribe_info.final_reveal_tx.tx).with_context(|| "Error serializing the reveal tx")?;
-
-        let actual_fees =
-            inscribe_info.reveal_tx_output_info._reveal_fee + inscribe_info.commit_tx_output_info.commit_tx_fee;
-
-        tracing::info!(
-            "New inscription created {commit_tx} {reveal_tx}",
-            commit_tx = inscribe_info.final_commit_tx.txid,
-            reveal_tx = inscribe_info.final_reveal_tx.txid,
-        );
-
-        storage
-            .via_btc_sender_dal()
-            .insert_inscription_request_history(
-                inscribe_info.final_commit_tx.txid.to_string(),
-                inscribe_info.final_reveal_tx.txid.to_string(),
-                tx.id,
-                signed_commit_tx,
-                signed_reveal_tx,
-                actual_fees.to_sat() as i64,
-                sent_at_block,
-            )
-            .await?;
         Ok(())
     }
 }

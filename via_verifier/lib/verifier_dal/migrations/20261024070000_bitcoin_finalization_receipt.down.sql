@@ -1,0 +1,1 @@
+ALTER TABLE via_votable_transactions DROP COLUMN finalized_header_id;

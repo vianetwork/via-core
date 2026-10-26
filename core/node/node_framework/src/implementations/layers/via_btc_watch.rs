@@ -22,8 +22,8 @@ use crate::{
 #[derive(Debug)]
 pub struct BtcWatchLayer {
     pub via_bridge_config: ViaBridgeConfig,
+    // jscpd:ignore-start node_framework FromContext/IntoContext declarations require this shape.
     pub via_btc_watch_config: ViaBtcWatchConfig,
-    pub is_main_node: bool,
 }
 
 #[derive(Debug, FromContext)]
@@ -36,6 +36,7 @@ pub struct Input {
 #[derive(Debug, IntoContext)]
 #[context(crate = crate)]
 pub struct Output {
+    // jscpd:ignore-end
     pub system_wallets_resource: ViaSystemWalletsResource,
     pub btc_indexer_resource: BtcIndexerResource,
     #[context(task)]
@@ -67,9 +68,7 @@ impl WiringLayer for BtcWatchLayer {
             indexer,
             client,
             main_pool,
-            self.is_main_node,
-        )
-        .await?;
+        );
 
         Ok(Output {
             system_wallets_resource,

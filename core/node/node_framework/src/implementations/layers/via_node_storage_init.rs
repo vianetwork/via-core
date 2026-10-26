@@ -1,5 +1,4 @@
-use via_node_storage_init::ViaMainNodeStorageInitializer;
-use zksync_config::{configs::via_consensus::ViaGenesisConfig, ViaBtcWatchConfig};
+use zksync_config::{configs::via_consensus::ViaGenesisConfig};
 
 use crate::{
     implementations::resources::{
@@ -7,13 +6,12 @@ use crate::{
         via_btc_client::BtcClientResource,
     },
     wiring_layer::{WiringError, WiringLayer},
-    FromContext, IntoContext,
+    FromContext,
 };
 
 #[derive(Debug)]
 pub struct ViaNodeStorageInitializerLayer {
     pub via_genesis_config: ViaGenesisConfig,
-    pub via_btc_watch_config: ViaBtcWatchConfig,
 }
 
 #[derive(Debug, FromContext)]
@@ -23,14 +21,10 @@ pub struct Input {
     pub btc_client_resource: BtcClientResource,
 }
 
-#[derive(Debug, IntoContext)]
-#[context(crate = crate)]
-pub struct Output {}
-
 #[async_trait::async_trait]
 impl WiringLayer for ViaNodeStorageInitializerLayer {
     type Input = Input;
-    type Output = Output;
+    type Output = ();
 
     fn layer_name(&self) -> &'static str {
         "Via_node_storage_initializer"
@@ -40,14 +34,8 @@ impl WiringLayer for ViaNodeStorageInitializerLayer {
         let client = input.btc_client_resource.default;
         let pool = input.master_pool.get().await?;
 
-        ViaMainNodeStorageInitializer::new(
-            pool,
-            client.clone(),
-            self.via_genesis_config,
-            self.via_btc_watch_config,
-        )
-        .await?;
+        via_btc_storage::initialize_reader(&pool, client, self.via_genesis_config).await?;
 
-        Ok(Output {})
+        Ok(())
     }
 }

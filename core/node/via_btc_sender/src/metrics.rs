@@ -1,8 +1,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use chrono::NaiveDateTime;
 use vise::{
-    Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Histogram, LabeledFamily, Metrics, Unit,
+    Buckets, Counter, EncodeLabelSet, EncodeLabelValue, Family, Gauge, Histogram, Metrics, Unit,
 };
 use zksync_dal::{Connection, Core, CoreDal};
 use zksync_shared_metrics::{BlockL1Stage, BlockStage, APP_METRICS};
@@ -13,7 +12,6 @@ use zksync_types::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EncodeLabelSet, EncodeLabelValue)]
 #[metrics(label = "block_number_variant", rename_all = "snake_case")]
-#[allow(clippy::enum_variant_names)]
 pub(super) enum BlockNumberVariant {
     Latest,
     Finalized,
@@ -26,29 +24,14 @@ pub struct ViaBtcSenderMetrics {
     #[metrics(buckets = Buckets::LATENCIES, unit = Unit::Seconds)]
     metrics_latency: Histogram<Duration>,
 
-    /// Time taken to broadcast a transaction
-    #[metrics(buckets = Buckets::LATENCIES, unit = Unit::Seconds)]
-    pub broadcast_time: Histogram<Duration>,
 
     /// Time taken to prepare inscription data
     #[metrics(buckets = Buckets::LATENCIES, unit = Unit::Seconds)]
     pub inscription_preparation_time: Histogram<Duration>,
 
-    /// Time between inscription submission and confirmation
-    #[metrics(buckets = Buckets::exponential(60.0..=86400.0, 5.0), unit = vise::Unit::Seconds)]
-    pub inscription_confirmation_time: Histogram<Duration>,
-
-    /// Number of pending inscription requests (not yet submitted)
-    pub pending_inscription_requests: Gauge<usize>,
-
-    /// Number of inflight inscriptions (submitted but not confirmed)
-    pub inflight_inscriptions: Gauge<usize>,
-
     /// The first l1_batch number blocked inscription.
     pub report_blocked_l1_batch_inscription: Gauge<usize>,
 
-    /// Error when broadcast a transaction.
-    pub l1_transient_errors: Counter,
 
     /// Aggregator errors.
     pub aggregator_errors: Counter,
@@ -59,9 +42,6 @@ pub struct ViaBtcSenderMetrics {
     /// Last L1 block observed by the Ethereum sender.
     pub last_known_l1_block: Family<BlockNumberVariant, Gauge<usize>>,
 
-    /// The BTC balance of the account used to created inscriptions.
-    #[metrics(labels = ["address"])]
-    pub btc_sender_account_balance: LabeledFamily<String, Gauge<usize>>,
 }
 
 impl ViaBtcSenderMetrics {
@@ -113,11 +93,7 @@ impl ViaBtcSenderMetrics {
         metrics_latency.observe();
     }
 
-    pub fn track_inscription_confirmation(&self, created_at: NaiveDateTime) {
-        let confirmation_delay = seconds_since_epoch() - created_at.and_utc().timestamp() as u64;
 
-        self.inscription_confirmation_time.observe(Duration::from_secs(confirmation_delay));
-    }
 }
 
 #[vise::register]

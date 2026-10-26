@@ -24,6 +24,7 @@ tokio = { workspace = true, features = ["time", "fs"] }
 tracing.workspace = true
 
 [dev-dependencies]
+via_btc_client.workspace = true
 sqlx.workspace = true
 assert_matches.workspace = true
 async-trait.workspace = true

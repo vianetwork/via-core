@@ -420,7 +420,11 @@ impl ViaDataAvailabilityDispatcher {
     }
 
     async fn is_rollback_required(&self, conn: &mut Connection<'_, Core>) -> anyhow::Result<bool> {
-        if conn.via_l1_block_dal().has_reorg_in_progress().await?.is_some() {
+        if via_btc_storage::ReaderDal::new(conn)
+            .state()
+            .await?
+            .map_or(true, |state| !state.replay_ready || state.stopped_reason.is_some())
+        {
             return Ok(true);
         }
 

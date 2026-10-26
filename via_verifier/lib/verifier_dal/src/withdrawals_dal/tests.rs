@@ -40,6 +40,96 @@ fn input(id: u8) -> (OutPoint, TxOut) {
     )
 }
 
+#[tokio::test]
+async fn reader_reset_keeps_completed_verdict_and_signed_risk_parent_closure() {
+    let (pool, batch, proof) = imported(vec![request(1)]).await;
+    let mut db = pool.connection().await.unwrap();
+    let bridge = wallet();
+    db.via_store_mode_dal()
+        .ensure_proof_verification_mode(&crate::via_store_mode_dal::StoreMode {
+            proof_verification_dev_mode: false,
+            bitcoin_network: "regtest".into(),
+            bitcoin_genesis_hash: "00".repeat(32),
+        })
+        .await
+        .unwrap();
+    db.via_withdrawal_dal()
+        .admit_withdrawal_attempt(
+            bridge.as_bytes(),
+            &[1; 32],
+            b"reset-risk",
+            &batch.withdrawals,
+            &[input(4)],
+        )
+        .await
+        .unwrap();
+    db.via_withdrawal_dal()
+        .persist_withdrawal_nonces(bridge.as_bytes(), &[1; 32], b"reset-risk", b"retained-nonces")
+        .await
+        .unwrap();
+    db.via_withdrawal_dal()
+        .mark_withdrawal_may_have_signed(bridge.as_bytes(), &[1; 32], b"reset-risk")
+        .await
+        .unwrap();
+    let tables = [
+        "via_verifier_store_mode",
+        "via_votable_transactions",
+        "via_withdrawal_attempts",
+        "via_withdrawal_request_reservations",
+        "via_withdrawal_input_reservations",
+        "via_withdrawal_expected",
+        "via_withdrawal_origins",
+        "via_withdrawal_batches",
+        "via_withdrawal_authority_domain",
+        "via_withdrawal_active_wallet",
+    ];
+    let mut before = Vec::new();
+    for table in tables {
+        before.push(
+            sqlx::query_scalar::<_, serde_json::Value>(&format!(
+                "SELECT jsonb_agg(to_jsonb(t)) FROM {table} t"
+            ))
+            .instrument("reset_kept_before")
+            .fetch_one(&mut db)
+            .await
+            .unwrap(),
+        );
+    }
+    let mut reset = db.start_transaction().await.unwrap();
+    reset.via_indexer_dal().delete_reader_suffix(0).await.unwrap();
+    reset.commit().await.unwrap();
+    for (table, expected) in tables.into_iter().zip(before) {
+        let actual = sqlx::query_scalar::<_, serde_json::Value>(&format!(
+            "SELECT jsonb_agg(to_jsonb(t)) FROM {table} t"
+        ))
+        .instrument("reset_kept_after")
+        .fetch_one(&mut db)
+        .await
+        .unwrap();
+        assert_eq!(actual, expected, "{table}");
+    }
+    assert!(db
+        .via_withdrawal_dal()
+        .admit_withdrawal_attempt(
+            bridge.as_bytes(),
+            &[2; 32],
+            b"replacement",
+            &batch.withdrawals,
+            &[input(5)]
+        )
+        .await
+        .is_err());
+    let verdict = sqlx::query_scalar::<_, bool>(
+        "SELECT l1_batch_status FROM via_votable_transactions WHERE proof_reveal_tx_id=$1",
+    )
+    .bind(proof)
+    .instrument("reset_kept_verdict")
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert!(verdict);
+}
+
 fn batch(number: u32, requests: Vec<WithdrawalRequest>) -> CompleteWithdrawalBatch {
     CompleteWithdrawalBatch {
         batch_number: number,
@@ -57,6 +147,26 @@ fn batch(number: u32, requests: Vec<WithdrawalRequest>) -> CompleteWithdrawalBat
     }
 }
 
+async fn reader_context(
+    storage: &mut Connection<'_, Verifier>,
+    genesis: BlockHash,
+    height: u32,
+    hash: BlockHash,
+) {
+    storage
+        .via_store_mode_dal()
+        .ensure_proof_verification_mode(&crate::via_store_mode_dal::StoreMode {
+            proof_verification_dev_mode: false,
+            bitcoin_network: "regtest".into(),
+            bitcoin_genesis_hash: "00".repeat(32),
+        })
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO via_btc_reader(singleton,format_version,bitcoin_network,genesis_hash,bootstrap_number,bootstrap_hash,replay_cutoff_number,replay_cutoff_hash,confirmed_number,confirmed_hash,replay_ready) VALUES(TRUE,1,'regtest',$1,0,$1,$2,$3,$2,$3,TRUE) ON CONFLICT DO NOTHING")
+        .bind(genesis.to_string()).bind(i64::from(height)).bind(hash.to_string())
+        .instrument("withdrawal_fixture_reader").execute(storage).await.unwrap();
+}
+
 async fn source(
     storage: &mut Connection<'_, Verifier>,
     batch: &CompleteWithdrawalBatch,
@@ -65,6 +175,8 @@ async fn source(
     let proof = proof_hash.as_bytes().to_vec();
     let source_hash = BlockHash::from_byte_array([200; 32]);
     canonical(storage, 0, source_hash).await;
+    reader_context(storage, source_hash, 0, source_hash).await;
+
     storage
         .via_votes_dal()
         .insert_votable_transaction(
@@ -80,7 +192,7 @@ async fn source(
         )
         .await
         .unwrap();
-    sqlx::query("UPDATE via_votable_transactions SET is_finalized=TRUE,l1_batch_status=TRUE WHERE proof_reveal_tx_id=$1")
+    sqlx::query("UPDATE via_votable_transactions SET is_finalized=TRUE,l1_batch_status=TRUE,proof_header_id=(SELECT id FROM via_btc_headers WHERE number=0),finalized_header_id=(SELECT id FROM via_btc_headers WHERE number=0) WHERE proof_reveal_tx_id=$1")
         .bind(&proof).instrument("withdrawal_test_source").execute(storage).await.unwrap();
     proof
 }
@@ -137,9 +249,23 @@ fn observation(
 }
 
 async fn canonical(storage: &mut Connection<'_, Verifier>, height: u32, hash: BlockHash) {
-    storage
-        .via_l1_block_dal()
-        .insert_l1_block(i64::from(height), hash.to_string())
+    sqlx::query("DELETE FROM via_btc_headers WHERE number=$1 AND hash<>$2")
+        .bind(i64::from(height))
+        .bind(hash.to_string())
+        .instrument("fixture_replace_header")
+        .execute(&mut *storage)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO via_btc_headers(number,hash,parent_hash) VALUES($1,$2,$3) ON CONFLICT DO NOTHING")
+        .bind(i64::from(height)).bind(hash.to_string()).bind(BlockHash::all_zeros().to_string())
+        .instrument("fixture_canonical_header").execute(&mut *storage).await.unwrap();
+}
+
+async fn prune_headers(storage: &mut Connection<'_, Verifier>, through: i64) {
+    sqlx::query("DELETE FROM via_btc_headers WHERE number>$1")
+        .bind(through)
+        .instrument("fixture_remove_headers")
+        .execute(&mut *storage)
         .await
         .unwrap();
 }
@@ -651,11 +777,7 @@ async fn fulfillment_requires_canonical_inclusion_and_reorg_never_releases_payme
         .fulfill_withdrawal_observation(wallet().as_bytes(), &observed, &batch.withdrawals, 11, 2)
         .await
         .unwrap());
-    storage
-        .via_l1_block_dal()
-        .delete_l1_blocks(9)
-        .await
-        .unwrap();
+    prune_headers(&mut storage, 9).await;
     canonical(&mut storage, 10, block).await;
     canonical(&mut storage, 11, BlockHash::from_byte_array([12; 32])).await;
     assert!(!storage
@@ -678,11 +800,7 @@ async fn fulfillment_requires_canonical_inclusion_and_reorg_never_releases_payme
         .invalidate_withdrawals_from_l1_height(10)
         .await
         .unwrap();
-    storage
-        .via_l1_block_dal()
-        .delete_l1_blocks(9)
-        .await
-        .unwrap();
+    prune_headers(&mut storage, 9).await;
     assert!(!storage
         .via_withdrawal_dal()
         .fulfill_withdrawal_observation(wallet().as_bytes(), &observed, &batch.withdrawals, 11, 2)
@@ -1202,19 +1320,19 @@ async fn complete_empty_import_marks_source_without_inventing_requests() {
     );
 }
 
+async fn invalidate_withdrawal_suffix(storage: &mut Connection<'_, Verifier>, from: u32) {
+    let mut reorg = storage.start_transaction().await.unwrap();
+    reorg.via_withdrawal_dal().invalidate_withdrawals_from_l1_height(from).await.unwrap();
+    prune_headers(&mut reorg, i64::from(from) - 1).await;
+    reorg.commit().await.unwrap();
+}
+
 #[tokio::test]
 async fn soft_bitcoin_reorg_keeps_older_unsigned_source_admissible() {
     let (pool, batch, proof) = imported(vec![request(1)]).await;
     let mut storage = pool.connection().await.unwrap();
     canonical(&mut storage, 10, BlockHash::from_byte_array([10; 32])).await;
-    let mut reorg = storage.start_transaction().await.unwrap();
-    reorg
-        .via_withdrawal_dal()
-        .invalidate_withdrawals_from_l1_height(10)
-        .await
-        .unwrap();
-    reorg.via_l1_block_dal().delete_l1_blocks(9).await.unwrap();
-    reorg.commit().await.unwrap();
+    invalidate_withdrawal_suffix(&mut storage, 10).await;
     assert_eq!(
         storage
             .via_withdrawal_dal()
@@ -1520,25 +1638,14 @@ async fn rebroadcast_inclusion_tracks_canonical_hash_and_height_without_fulfillm
         .observed_withdrawal_transaction_has_canonical_inclusion(bridge.as_bytes(), &txid)
         .await
         .unwrap());
-    storage
-        .via_l1_block_dal()
-        .delete_l1_blocks(8)
-        .await
-        .unwrap();
+    prune_headers(&mut storage, 8).await;
     canonical(&mut storage, 10, hash).await;
     assert!(storage
         .via_withdrawal_dal()
         .observed_withdrawal_transaction_has_canonical_inclusion(bridge.as_bytes(), &txid)
         .await
         .unwrap());
-    let mut reorg = storage.start_transaction().await.unwrap();
-    reorg
-        .via_withdrawal_dal()
-        .invalidate_withdrawals_from_l1_height(10)
-        .await
-        .unwrap();
-    reorg.via_l1_block_dal().delete_l1_blocks(9).await.unwrap();
-    reorg.commit().await.unwrap();
+    invalidate_withdrawal_suffix(&mut storage, 10).await;
     assert!(!storage
         .via_withdrawal_dal()
         .observed_withdrawal_transaction_has_canonical_inclusion(bridge.as_bytes(), &txid)
@@ -1990,11 +2097,7 @@ async fn recovery_listing_excludes_canonical_payments_and_restores_them_after_re
         .await
         .unwrap()
         .is_empty());
-    storage
-        .via_l1_block_dal()
-        .delete_l1_blocks(9)
-        .await
-        .unwrap();
+    prune_headers(&mut storage, 9).await;
     assert_eq!(
         storage
             .via_withdrawal_dal()
@@ -2254,7 +2357,7 @@ async fn proof_at(
     storage: &mut Connection<'_, Verifier>,
     batch: &CompleteWithdrawalBatch,
     inclusion: Option<(u32, BlockHash)>,
-) -> zksync_db_connection::error::DalResult<()> {
+) -> anyhow::Result<()> {
     let proof = H256::from_low_u64_be(u64::from(batch.batch_number));
     storage
         .via_votes_dal()
@@ -2269,7 +2372,37 @@ async fn proof_at(
             batch.blob_id.clone(),
             inclusion,
         )
+        .await.map(|_| ())
+}
+
+async fn legacy_vote(
+    storage: &mut Connection<'_, Verifier>,
+    id: i64,
+    voter: &str,
+    approved: bool,
+    inclusion: Option<(u32, BlockHash)>,
+) -> anyhow::Result<()> {
+    sqlx::query("INSERT INTO via_votes(votable_transaction_id,verifier_address,vote,source_l1_block_number,source_l1_block_hash) VALUES($1,$2,$3,$4,$5)")
+        .bind(id).bind(voter).bind(approved).bind(inclusion.map(|(h,_)|i64::from(h)))
+        .bind(inclusion.map(|(_,hash)|hash.to_string())).instrument("legacy_vote_fact").execute(storage).await?;
+    Ok(())
+}
+
+async fn recorded_finality(storage: &mut Connection<'_, Verifier>, id: i64) {
+    sqlx::query("UPDATE via_votable_transactions SET is_finalized=TRUE WHERE id=$1")
+        .bind(id)
+        .instrument("legacy_finality_fact")
+        .execute(storage)
         .await
+        .unwrap();
+}
+
+async fn retained_votes(storage: &mut Connection<'_, Verifier>) -> Vec<(String, bool)> {
+    sqlx::query_as("SELECT verifier_address,vote FROM via_votes ORDER BY verifier_address")
+        .instrument("retained_vote_facts")
+        .fetch_all(storage)
+        .await
+        .unwrap()
 }
 
 async fn prune_votes_at(storage: &mut Connection<'_, Verifier>, cut: i64) {
@@ -2280,113 +2413,65 @@ async fn prune_votes_at(storage: &mut Connection<'_, Verifier>, cut: i64) {
         .execute(&mut reorg)
         .await
         .unwrap();
-    reorg
-        .via_l1_block_dal()
-        .delete_l1_blocks(cut)
-        .await
-        .unwrap();
-    reorg
-        .via_votes_dal()
-        .revert_votes_after_l1_block(cut)
+    prune_headers(&mut reorg, cut).await;
+    via_btc_storage::ReaderDal::new(&mut reorg)
+        .delete_common_suffix(cut.try_into().unwrap())
         .await
         .unwrap();
     reorg.commit().await.unwrap();
 }
 
-#[tokio::test]
-async fn vote_reorg_rebuilds_tip_from_out_of_order_canonical_votes() {
+async fn legacy_vote_history(
+    inclusion: Option<(u32, BlockHash)>,
+) -> (Connection<'static, Verifier>, CompleteWithdrawalBatch, i64) {
     let pool = ConnectionPool::<Verifier>::test_pool().await;
     let mut db = pool.connection().await.unwrap();
+    for height in [10, 15, 20] {
+        canonical(&mut db, height, BlockHash::from_byte_array([height as u8; 32])).await;
+    }
+    reader_context(&mut db, BlockHash::all_zeros(), 20, BlockHash::from_byte_array([20; 32])).await;
+    let candidate = batch(1, vec![request(1)]);
+    proof_at(&mut db, &candidate, inclusion).await.unwrap();
+    let id = db
+        .via_votes_dal()
+        .verify_votable_transaction(1, H256::from_low_u64_be(1), true)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE via_votable_transactions SET proof_header_id=(SELECT id FROM via_btc_headers WHERE number=$2),finalized_header_id=NULL WHERE id=$1")
+        .bind(id).bind(inclusion.map(|(h,_)|i64::from(h))).instrument("legacy_history_proof_binding").execute(&mut db).await.unwrap();
+    (db, candidate, id)
+}
+
+#[tokio::test]
+async fn legacy_vote_reorg_cannot_supply_current_finalization_receipt() {
     let proof_hash = BlockHash::from_byte_array([10; 32]);
     let retained_hash = BlockHash::from_byte_array([15; 32]);
     let reverted_hash = BlockHash::from_byte_array([20; 32]);
-    canonical(&mut db, 10, proof_hash).await;
-    canonical(&mut db, 15, retained_hash).await;
-    canonical(&mut db, 20, reverted_hash).await;
-    let candidate = batch(1, vec![request(1)]);
-    proof_at(&mut db, &candidate, Some((10, proof_hash)))
-        .await
-        .unwrap();
+    let (mut db, candidate, id) = legacy_vote_history(Some((10, proof_hash))).await;
     let proof = H256::from_low_u64_be(1);
-    let id = db
-        .via_votes_dal()
-        .verify_votable_transaction(1, proof, true)
-        .await
-        .unwrap();
-    db.via_votes_dal()
-        .insert_vote(id, "reverted", true, Some((20, reverted_hash)))
-        .await
-        .unwrap();
-    db.via_votes_dal()
-        .insert_vote(id, "retained", true, Some((15, retained_hash)))
-        .await
-        .unwrap();
-    // A duplicate does not move either immutable inclusion anchor.
-    proof_at(&mut db, &candidate, Some((20, reverted_hash)))
-        .await
-        .unwrap();
-    db.via_votes_dal()
-        .insert_vote(id, "retained", false, Some((20, reverted_hash)))
-        .await
-        .unwrap();
+    legacy_vote(&mut db, id, "reverted", true, Some((20, reverted_hash))).await.unwrap();
+    legacy_vote(&mut db, id, "retained", true, Some((15, retained_hash))).await.unwrap();
+    // One transaction cannot occur twice on selected Bitcoin chain.
+    let conflict = proof_at(&mut db, &candidate, Some((20, reverted_hash))).await.unwrap_err();
     assert_eq!(
-        db.via_votes_dal()
-            .get_l1_batch_number_affected_by_proof_reorg(15)
-            .await
-            .unwrap(),
-        None
+        conflict.downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>().unwrap().field,
+        "duplicate_canonical_inclusion"
     );
-    assert!(db
-        .via_votes_dal()
-        .finalize_transaction_if_needed(id, 1.0, 2)
-        .await
-        .unwrap());
+    recorded_finality(&mut db, id).await;
     prune_votes_at(&mut db, 15).await;
-    assert_eq!(
-        db.via_votes_dal().get_vote_count(id).await.unwrap(),
-        (0, 1, 1)
-    );
-    assert!(!db
-        .via_votes_dal()
-        .finalize_transaction_if_needed(id, 1.0, 2)
-        .await
-        .unwrap());
-    assert_eq!(
-        db.via_votes_dal()
-            .get_l1_batch_number_affected_by_source_reorg(14)
-            .await
-            .unwrap(),
-        Some(1)
-    );
-    assert_eq!(
-        db.via_votes_dal()
-            .get_l1_batch_number_affected_by_source_reorg(15)
-            .await
-            .unwrap(),
-        None
-    );
+    assert_eq!(retained_votes(&mut db).await, vec![("retained".into(), true)]);
     let replacement = BlockHash::from_byte_array([21; 32]);
     canonical(&mut db, 20, replacement).await;
-    db.via_votes_dal()
-        .insert_vote(id, "reverted", true, Some((20, replacement)))
-        .await
-        .unwrap();
-    // No second zk-verification is needed to finalize the retained proof.
-    assert!(db
-        .via_votes_dal()
-        .finalize_transaction_if_needed(id, 1.0, 2)
-        .await
-        .unwrap());
-    db.via_withdrawal_dal()
+    legacy_vote(&mut db, id, "reverted", true, Some((20, replacement))).await.unwrap();
+    assert!(db.via_withdrawal_dal()
         .import_complete_batch(wallet().as_bytes(), proof.as_bytes(), &candidate)
-        .await
-        .unwrap();
+        .await.is_err());
     assert_eq!(
         db.via_withdrawal_dal()
             .list_eligible_withdrawals(wallet().as_bytes(), 0, 10)
             .await
             .unwrap(),
-        candidate.withdrawals
+        vec![]
     );
 }
 
@@ -2399,40 +2484,19 @@ async fn vote_reorg_never_rehabilitates_unknown_or_noncanonical_provenance() {
         "stale_proof",
         "stale_vote",
     ] {
-        let pool = ConnectionPool::<Verifier>::test_pool().await;
-        let mut db = pool.connection().await.unwrap();
         let proof_hash = BlockHash::from_byte_array([10; 32]);
         let retained_hash = BlockHash::from_byte_array([15; 32]);
         let reverted_hash = BlockHash::from_byte_array([20; 32]);
-        canonical(&mut db, 10, proof_hash).await;
-        canonical(&mut db, 15, retained_hash).await;
-        canonical(&mut db, 20, reverted_hash).await;
-        let candidate = batch(1, vec![request(1)]);
-        proof_at(
-            &mut db,
-            &candidate,
-            (case != "legacy").then_some((10, proof_hash)),
-        )
-        .await
-        .unwrap();
+        let (mut db, candidate, id) = legacy_vote_history((case != "legacy").then_some((10, proof_hash))).await;
         let proof = H256::from_low_u64_be(1);
-        let id = db
-            .via_votes_dal()
-            .verify_votable_transaction(1, proof, true)
-            .await
-            .unwrap();
-        db.via_votes_dal()
-            .insert_vote(
+        legacy_vote(&mut db,
                 id,
                 "retained",
                 true,
                 (case != "unknown_vote").then_some((15, retained_hash)),
-            )
-            .await
+            ).await
             .unwrap();
-        db.via_votes_dal()
-            .insert_vote(id, "reverted", true, Some((20, reverted_hash)))
-            .await
+        legacy_vote(&mut db, id, "reverted", true, Some((20, reverted_hash))).await
             .unwrap();
         if case == "poisoned" {
             // Complete-looking anchors must not upgrade previously lost coverage.
@@ -2440,7 +2504,7 @@ async fn vote_reorg_never_rehabilitates_unknown_or_noncanonical_provenance() {
                 .bind(id).instrument("withdrawal_test_poisoned_source").execute(&mut db).await.unwrap();
         }
         if case == "stale_proof" || case == "stale_vote" {
-            sqlx::query("UPDATE via_l1_blocks SET hash=$2 WHERE number=$1")
+            sqlx::query("UPDATE via_btc_headers SET hash=$2 WHERE number=$1")
                 .bind(if case == "stale_proof" {
                     10_i64
                 } else {
@@ -2452,19 +2516,10 @@ async fn vote_reorg_never_rehabilitates_unknown_or_noncanonical_provenance() {
                 .await
                 .unwrap();
         }
+        recorded_finality(&mut db, id).await;
         prune_votes_at(&mut db, 15).await;
-        assert_eq!(
-            db.via_votes_dal().get_vote_count(id).await.unwrap(),
-            (0, 1, 1),
-            "{case}"
-        );
-        assert!(
-            db.via_votes_dal()
-                .finalize_transaction_if_needed(id, 1.0, 1)
-                .await
-                .unwrap(),
-            "{case}"
-        );
+        let retained = if case == "unknown_vote" { vec![] } else { vec![("retained".into(), true)] };
+        assert_eq!(retained_votes(&mut db).await, retained, "{case}");
         assert!(
             db.via_withdrawal_dal()
                 .import_complete_batch(wallet().as_bytes(), proof.as_bytes(), &candidate)
@@ -2473,80 +2528,6 @@ async fn vote_reorg_never_rehabilitates_unknown_or_noncanonical_provenance() {
             "{case}"
         );
     }
-}
-
-#[tokio::test]
-async fn source_reorg_boundary_covers_proof_and_latest_inserted_vote() {
-    let pool = ConnectionPool::<Verifier>::test_pool().await;
-    let mut db = pool.connection().await.unwrap();
-    let hash = BlockHash::from_byte_array([10; 32]);
-    let later = BlockHash::from_byte_array([20; 32]);
-    canonical(&mut db, 10, hash).await;
-    canonical(&mut db, 20, later).await;
-    proof_at(&mut db, &batch(2, vec![]), Some((10, hash)))
-        .await
-        .unwrap();
-    assert_eq!(
-        db.via_votes_dal()
-            .get_l1_batch_number_affected_by_source_reorg(9)
-            .await
-            .unwrap(),
-        Some(2)
-    );
-    assert_eq!(
-        db.via_votes_dal()
-            .get_l1_batch_number_affected_by_source_reorg(10)
-            .await
-            .unwrap(),
-        None
-    );
-    let id = db
-        .via_votes_dal()
-        .get_votable_transaction_id(H256::from_low_u64_be(2).as_bytes())
-        .await
-        .unwrap()
-        .unwrap();
-    db.via_votes_dal()
-        .insert_vote(id, "first", true, Some((20, later)))
-        .await
-        .unwrap();
-    db.via_votes_dal()
-        .insert_vote(id, "older", false, Some((10, hash)))
-        .await
-        .unwrap();
-    // Duplicate observations do not replace a retained vote or erase coverage.
-    db.via_votes_dal()
-        .insert_vote(id, "first", false, None)
-        .await
-        .unwrap();
-    assert_eq!(
-        db.via_votes_dal().get_vote_count(id).await.unwrap(),
-        (1, 1, 2)
-    );
-    assert_eq!(
-        db.via_votes_dal()
-            .get_l1_batch_number_affected_by_source_reorg(19)
-            .await
-            .unwrap(),
-        Some(2)
-    );
-    assert_eq!(
-        db.via_votes_dal()
-            .get_l1_batch_number_affected_by_source_reorg(20)
-            .await
-            .unwrap(),
-        None
-    );
-    proof_at(&mut db, &batch(1, vec![]), Some((20, later)))
-        .await
-        .unwrap();
-    assert_eq!(
-        db.via_votes_dal()
-            .get_l1_batch_number_affected_by_source_reorg(19)
-            .await
-            .unwrap(),
-        Some(1)
-    );
 }
 
 #[tokio::test]
@@ -2566,15 +2547,8 @@ async fn legacy_source_and_unknown_vote_cannot_acquire_withdrawal_authority() {
         .verify_votable_transaction(1, proof, true)
         .await
         .unwrap();
-    db.via_votes_dal()
-        .insert_vote(id, "fresh", true, Some((10, hash)))
-        .await
-        .unwrap();
-    assert!(db
-        .via_votes_dal()
-        .finalize_transaction_if_needed(id, 1.0, 1)
-        .await
-        .unwrap());
+    legacy_vote(&mut db, id, "fresh", true, Some((10, hash))).await.unwrap();
+    recorded_finality(&mut db, id).await;
     assert!(db
         .via_withdrawal_dal()
         .import_complete_batch(wallet().as_bytes(), proof.as_bytes(), &legacy_batch)
@@ -2601,14 +2575,14 @@ async fn legacy_source_and_unknown_vote_cannot_acquire_withdrawal_authority() {
         .await
         .unwrap()
         .unwrap();
-    db.via_votes_dal()
-        .insert_vote(known_id, "unknown", true, None)
+    sqlx::query("UPDATE via_votable_transactions SET finalized_header_id=NULL WHERE id=$1")
+        .bind(known_id)
+        .instrument("fixture_legacy_finalization")
+        .execute(&mut db)
         .await
         .unwrap();
-    db.via_votes_dal()
-        .insert_vote(known_id, "fresh", true, Some((10, hash)))
-        .await
-        .unwrap();
+    legacy_vote(&mut db, known_id, "unknown", true, None).await.unwrap();
+    legacy_vote(&mut db, known_id, "fresh", true, Some((10, hash))).await.unwrap();
     assert!(db
         .via_withdrawal_dal()
         .import_complete_batch(wallet().as_bytes(), &known_proof, &known)
@@ -2617,7 +2591,7 @@ async fn legacy_source_and_unknown_vote_cannot_acquire_withdrawal_authority() {
 }
 
 #[tokio::test]
-async fn stale_scans_and_stale_parent_cannot_write_source_votes() {
+async fn stale_scans_cannot_register_legacy_proof() {
     let pool = ConnectionPool::<Verifier>::test_pool().await;
     let mut db = pool.connection().await.unwrap();
     let old = BlockHash::from_byte_array([10; 32]);
@@ -2635,28 +2609,6 @@ async fn stale_scans_and_stale_parent_cannot_write_source_votes() {
     proof_at(&mut db, &batch(1, vec![]), Some((10, current)))
         .await
         .unwrap();
-    let id = db
-        .via_votes_dal()
-        .get_votable_transaction_id(H256::from_low_u64_be(1).as_bytes())
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(db
-        .via_votes_dal()
-        .insert_vote(id, "stale", true, Some((10, old)))
-        .await
-        .is_err());
-    db.via_l1_block_dal().delete_l1_blocks(9).await.unwrap();
-    canonical(&mut db, 20, old).await;
-    assert!(db
-        .via_votes_dal()
-        .insert_vote(id, "newer", true, Some((20, old)))
-        .await
-        .is_err());
-    assert_eq!(
-        db.via_votes_dal().get_vote_count(id).await.unwrap(),
-        (0, 0, 0)
-    );
 }
 
 #[tokio::test]
@@ -2678,7 +2630,7 @@ async fn missing_or_changed_source_blocks_import_replay_and_signing() {
             .persist_withdrawal_nonces(wallet().as_bytes(), &[2; 32], b"admitted", b"nonces")
             .await
             .unwrap();
-        db.via_l1_block_dal().delete_l1_blocks(-1).await.unwrap();
+        prune_headers(&mut db,-1).await;
         if let Some(hash) = replacement {
             canonical(&mut db, 0, hash).await;
         }
@@ -2715,4 +2667,97 @@ async fn missing_or_changed_source_blocks_import_replay_and_signing() {
             .await
             .is_err());
     }
+}
+
+#[tokio::test]
+async fn vote_removal_cannot_rehabilitate_a_canonical_descendant_of_a_rejected_proof() {
+    use via_btc_client::{
+        indexer::replay::{Included, MessageOrigin, Payload},
+        types::{L1BatchDAReferenceInput, ProofDAReferenceInput},
+    };
+    let pool = ConnectionPool::<Verifier>::test_pool().await;
+    let mut db = pool.connection().await.unwrap();
+    let hash = BlockHash::from_byte_array([10; 32]);
+    canonical(&mut db, 10, hash).await;
+    canonical(&mut db, 20, BlockHash::from_byte_array([20; 32])).await;
+    reader_context(&mut db, BlockHash::all_zeros(), 20, BlockHash::from_byte_array([20; 32])).await;
+    let mut tx = db.start_transaction().await.unwrap();
+    let header = via_btc_storage::ReaderDal::new(&mut tx).header_at(10).await.unwrap().unwrap();
+    let mut child_id = 0;
+    for number in 1..=2u32 {
+        let origin = MessageOrigin {
+            height: 10,
+            hash,
+            transaction_index: number * 2,
+            message_index: 0,
+            txid: Txid::from_byte_array([number as u8 + 10; 32]),
+        };
+        let parent = Included {
+            origin: origin.clone(),
+            payload: Payload {
+                input: L1BatchDAReferenceInput {
+                    l1_batch_index: zksync_types::L1BatchNumber(number),
+                    l1_batch_hash: H256::repeat_byte(number as u8),
+                    prev_l1_batch_hash: H256::repeat_byte((number - 1) as u8),
+                    da_identifier: "fixture".into(),
+                    blob_id: format!("batch-{number}"),
+                },
+                public_key: vec![],
+                signature: vec![],
+                sender_script: None,
+            },
+        };
+        let proof = via_test_utils::inscription::unsigned_proof(
+            parent,
+            MessageOrigin {
+                txid: Txid::from_byte_array([number as u8; 32]),
+                transaction_index: number * 2 + 1,
+                ..origin.clone()
+            },
+            ProofDAReferenceInput {
+                l1_batch_reveal_txid: origin.txid,
+                da_identifier: "fixture".into(),
+                blob_id: format!("proof-{number}"),
+            },
+        );
+        tx.via_votes_dal().save_reader_proof(&proof, header.id).await.unwrap();
+        let id = tx
+            .via_votes_dal()
+            .get_votable_transaction_id(H256::repeat_byte(number as u8).as_bytes())
+            .await
+            .unwrap()
+            .unwrap();
+        if number == 1 {
+            sqlx::query("UPDATE via_votable_transactions SET l1_batch_status=FALSE WHERE id=$1")
+                .bind(id)
+                .execute(tx.conn())
+                .await
+                .unwrap();
+        } else {
+            child_id = id;
+        }
+    }
+    legacy_vote(&mut tx, child_id, "later", true, Some((20, BlockHash::from_byte_array([20; 32]))))
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut reorg = db.start_transaction().await.unwrap();
+    reorg.via_indexer_dal().delete_reader_suffix(15).await.unwrap();
+    prune_headers(&mut reorg, 15).await;
+    reorg.commit().await.unwrap();
+    let rejected: Option<bool> =
+        sqlx::query_scalar("SELECT l1_batch_status FROM via_votable_transactions WHERE id=$1")
+            .bind(child_id)
+            .instrument("canonical_descendant_rejection")
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(rejected, Some(false));
+    assert!(retained_votes(&mut db).await.is_empty());
+    let candidate = batch(2, vec![request(2)]);
+    assert!(db
+        .via_withdrawal_dal()
+        .import_complete_batch(wallet().as_bytes(), H256::repeat_byte(2).as_bytes(), &candidate)
+        .await
+        .is_err());
 }

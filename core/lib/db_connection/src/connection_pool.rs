@@ -380,6 +380,18 @@ impl<DB: DbMarker> ConnectionPool<DB> {
         self.connection_inner(None).await
     }
 
+    /// start_transaction owns its pool checkout until commit or rollback on drop.
+    /// Callers can retain exclusion across an asynchronous action without a self-referential connection.
+    /// Adapted from SQLx Pool::begin, wrapping its transaction in Via's marker and error context: https://github.com/launchbadge/sqlx/blob/10bec327703303eca5f8ec5809c4713a4294313d/sqlx-core/src/pool/mod.rs#L369-L371
+    pub async fn start_transaction(&self) -> DalResult<Connection<'static, DB>> {
+        let transaction = self
+            .inner
+            .begin()
+            .await
+            .map_err(|error| DalConnectionError::start_transaction(error, None))?;
+        Ok(Connection::from_transaction(transaction))
+    }
+
     /// A version of `connection` that would also expose the duration of the connection
     /// acquisition tagged to the `requester` name. It also tracks the caller location for the purposes
     /// of logging (e.g., long-living connections) and debugging (when used with a test connection pool).

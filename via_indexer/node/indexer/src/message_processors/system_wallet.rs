@@ -4,14 +4,15 @@ use via_btc_client::{
     client::BitcoinClient,
     indexer::{BitcoinInscriptionIndexer, MessageParser},
     traits::BitcoinOps,
-    types::{
-        BitcoinAddress, FullInscriptionMessage, UpdateBridge, UpdateGovernance, UpdateSequencer,
-    },
+    types::{FullInscriptionMessage, UpdateBridge, UpdateGovernance, UpdateSequencer},
 };
 use via_indexer_dal::{Connection, Indexer, IndexerDal};
-use zksync_types::via_wallet::{SystemWallets, SystemWalletsDetails, WalletInfo, WalletRole};
+use zksync_types::via_wallet::{SystemWallets, WalletRole};
 
 use crate::message_processors::MessageProcessor;
+use via_btc_client::indexer::configuration::{
+    ConfigurationInput, project_wallets, project_bridge_wallets,
+};
 
 #[derive(Debug)]
 pub struct SystemWalletProcessor {
@@ -105,12 +106,12 @@ impl SystemWalletProcessor {
                         .await?
                         .unwrap_or_default();
 
-                    // jscpd:ignore-start Indexer wallet validation and payload projection belong to its independent SQL transaction.
                     let system_wallets = SystemWallets::try_from(system_wallets_map)?;
 
                     let new_bridge_address = match update_bridge_msg
                         .input
                         .bridge_musig2_address
+                        .clone()
                         .require_network(self.btc_client.get_network())
                     {
                         Ok(address) => address,
@@ -126,32 +127,8 @@ impl SystemWalletProcessor {
                         return Ok(false);
                     }
 
-                    let mut wallets_details = SystemWalletsDetails::default();
-
-                    wallets_details.0.insert(
-                        WalletRole::Bridge,
-                        WalletInfo {
-                            addresses: vec![new_bridge_address.clone()],
-                            txid: update_bridge_msg.common.tx_id,
-                        },
-                    );
-
-                    let verifier_addresses = update_bridge_msg
-                        .input
-                        .verifier_p2wpkh_addresses
-                        .iter()
-                        .map(|addr| addr.clone().assume_checked())
-                        .collect::<Vec<BitcoinAddress>>();
-
-                    wallets_details.0.insert(
-                        WalletRole::Verifier,
-                        WalletInfo {
-                            addresses: verifier_addresses.clone(),
-                            txid: update_bridge_msg.common.tx_id,
-                        },
-                    );
-
-                    // jscpd:ignore-end
+                    let wallets_details = project_bridge_wallets(&update_bridge_msg.input, update_bridge_msg.common.tx_id, self.btc_client.get_network())?;
+                    let verifier_addresses = wallets_details.0[&WalletRole::Verifier].addresses.clone();
                     storage
                         .via_wallet_dal()
                         .insert_wallets(&wallets_details)
@@ -182,30 +159,24 @@ impl SystemWalletProcessor {
     ) -> anyhow::Result<bool> {
         tracing::info!("Received UpdateSequencer message");
 
-        // jscpd:ignore-start Indexer selects and validates its wallet projection within indexer's SQL owner.
         let system_wallets_map =
             storage.via_wallet_dal().get_system_wallets_raw().await.unwrap().unwrap_or_default();
 
         let system_wallets = SystemWallets::try_from(system_wallets_map)?;
 
-        let new_sequencer_address = update_sequencer_msg.input.address.assume_checked();
+        let new_sequencer_address = update_sequencer_msg.input.address.clone().assume_checked();
 
         // Skip if sequencer already registered
         if system_wallets.sequencer == new_sequencer_address {
             tracing::info!("Sequencer wallet already exists, skipping");
             return Ok(false);
         }
-        // jscpd:ignore-end
 
-        let mut wallets_details = SystemWalletsDetails::default();
-
-        wallets_details.0.insert(
-            WalletRole::Sequencer,
-            WalletInfo {
-                addresses: vec![new_sequencer_address.clone()],
-                txid: update_sequencer_msg.common.tx_id,
-            },
-        );
+        let wallets_details = project_wallets(
+            &ConfigurationInput::Sequencer(update_sequencer_msg.input),
+            update_sequencer_msg.common.tx_id,
+            self.btc_client.get_network(),
+        )?;
 
         storage
             .via_wallet_dal()
@@ -227,30 +198,24 @@ impl SystemWalletProcessor {
     ) -> anyhow::Result<bool> {
         tracing::info!("Received UpdateGovernance message");
 
-        // jscpd:ignore-start Indexer selects and validates its wallet projection within indexer's SQL owner.
         let system_wallets_map =
             storage.via_wallet_dal().get_system_wallets_raw().await.unwrap().unwrap_or_default();
 
         let system_wallets = SystemWallets::try_from(system_wallets_map)?;
 
-        let new_governance_address = update_governance_msg.input.address.assume_checked();
+        let new_governance_address = update_governance_msg.input.address.clone().assume_checked();
 
         // Skip if sequencer already registered
         if system_wallets.governance == new_governance_address {
             tracing::info!("Sequencer wallet already exists, skipping");
             return Ok(false);
         }
-        // jscpd:ignore-end
 
-        let mut wallets_details = SystemWalletsDetails::default();
-
-        wallets_details.0.insert(
-            WalletRole::Gov,
-            WalletInfo {
-                addresses: vec![new_governance_address.clone()],
-                txid: update_governance_msg.common.tx_id,
-            },
-        );
+        let wallets_details = project_wallets(
+            &ConfigurationInput::Governance(update_governance_msg.input),
+            update_governance_msg.common.tx_id,
+            self.btc_client.get_network(),
+        )?;
 
         storage
             .via_wallet_dal()

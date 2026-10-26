@@ -32,11 +32,11 @@ them. _Avoid_: watcher, reorg detector, ordering owner.
 **Authoritative Bitcoin node**: The one Bitcoin Core node whose view of the chain a Via component accepts. _Avoid_:
 backend, provider, RPC endpoint.
 
-**Scan group**: A set of Via processors that commit their effects and one scan position together. _Avoid_: consumer,
-consumer group.
+**Reader position**: The height and hash through which a Via node has committed Bitcoin observation. _Avoid_: scan group
+position, which belongs to the superseded four-group design.
 
-**Scan position**: The height and hash of the last Bitcoin block that a scan group has fully processed. Each scan group
-in each Via node keeps its own. _Avoid_: cursor, checkpoint, bookmark, last processed block.
+**Consumer progress**: The work a consumer has durably completed from the reader's observations. It may trail the reader
+position. _Avoid_: reader position, when proof or other dependent work is meant.
 
 **Fork point**: The last block that a Via node's stored chain shares with its authoritative Bitcoin node's chain after a
 reorg. _Avoid_: last valid block, and reorg height, which names the first replaced block.
@@ -45,13 +45,14 @@ reorg. _Avoid_: last valid block, and reorg height, which names the first replac
 such as a vote, finalization or payout, based on it. The block itself counts as the first confirmation. Each network
 has its own. _Avoid_: block confirmations, finality depth, horizon.
 
-**Rollback-search limit**: The largest number of stored blocks a Bitcoin reader walks back to find a fork point before
-it stops recovery and waits for an operator. _Avoid_: reorg window, recovery bound, and repair boundary, which names
-what recovery may undo.
+**Confirmed frontier**: The furthest Bitcoin block whose history Via has durably protected against automatic removal.
+It never moves backward. _Avoid_: current maturity height, which may decrease after a chain shrink.
 
-**Recovery barrier**: The committed record that marks a reorg recovery as in progress, from before its first destructive
-step until all affected stores agree. _Avoid_: reorg flag, pause signal, proof gap, which is a separate stop for proofs
-only.
+**Reorg depth**: The number of old-branch blocks replaced by one reorg. _Avoid_: automatic recovery depth, which names a
+recovery policy rather than the size of a reorg.
+
+**Recovery barrier**: The durable hold on new authority while Bitcoin recovery, reconciliation or a fatal stop remains
+unresolved. _Avoid_: proof gap, which can hold only dependent work.
 
 ### Recovering from reorgs
 
@@ -61,11 +62,8 @@ that carried it. A reorg does not change evidence. _Avoid_: observation, when it
 **Canonical membership**: The fact that a piece of evidence is in a given block of the current chain. A re-mined message
 keeps its evidence and gets a new membership. _Avoid_: inclusion status, active flag, confirmed.
 
-**Derived state**: State that a Via node computes from evidence with canonical membership, such as the current bridge
-wallets or the queue of unexecuted deposits. _Avoid_: projection, and evidence, which recovery never rebuilds.
+**Replay reconciliation**: Establishing that kept Via effects and historical facts agree with the Bitcoin history being
+read again. _Avoid_: format upgrade, which alone says nothing about agreement.
 
-**Read-only inspection**: A run that reports what reorg recovery would change, without writing to any store and without
-any component that signs, sends or coordinates. _Avoid_: dry-run, and mutation rehearsal, which writes.
-
-**Mutation rehearsal**: A run of the real recovery writes against a disposable copy of a Via database. _Avoid_: dry-run,
-read-only inspection.
+**Rotation decision prefix**: The fixed Bitcoin history used to decide whether one verifier-set rotation is allowed.
+_Avoid_: latest tip, whose later history cannot change a permanent decision.

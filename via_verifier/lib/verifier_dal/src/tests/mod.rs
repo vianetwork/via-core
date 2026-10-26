@@ -1,8 +1,65 @@
-use rand::random;
+use bitcoin::{hashes::Hash, BlockHash};
+use via_btc_client::{
+    indexer::replay::{DepositOrigin, DepositPayload, ReplayConflict},
+    types::L1ToL2MessageInput,
+};
+use zksync_db_connection::instrument::InstrumentExt;
+use zksync_types::{Address, l1::via_l1::ViaL1Deposit};
+use crate::via_transactions_dal::L1ToL2Transaction;
 use zksync_db_connection::{connection::Connection, connection_pool::ConnectionPool};
 use zksync_types::H256;
 
 use crate::{via_store_mode_dal::StoreMode, Verifier, VerifierDal};
+
+async fn recorded_finality(storage: &mut Connection<'_, Verifier>, id: i64, approved: bool) {
+    sqlx::query("UPDATE via_votable_transactions SET is_finalized=$2 WHERE id=$1")
+        .bind(id)
+        .bind(approved)
+        .instrument("recorded_legacy_finality")
+        .execute(storage)
+        .await
+        .unwrap();
+}
+
+async fn verified_history(
+    storage: &mut Connection<'_, Verifier>,
+    number: u32,
+    proof: H256,
+    id: i64,
+    approved: bool,
+) {
+    storage
+        .via_votes_dal()
+        .verify_votable_transaction(i64::from(number), proof, approved)
+        .await
+        .unwrap();
+    recorded_finality(storage, id, approved).await;
+}
+
+async fn index_history(
+    storage: &mut Connection<'_, Verifier>,
+    number: u32,
+    hash: H256,
+    parent: H256,
+    proof: H256,
+    tag: &str,
+) {
+    storage
+        .via_votes_dal()
+        .insert_votable_transaction(
+            number,
+            hash,
+            parent,
+            "test_da_id".into(),
+            proof,
+            format!("test_blob_id_{tag}"),
+            format!("test_pubdata_tx_id_{tag}"),
+            format!("test_pubdata_blob_id_{tag}"),
+            None,
+        )
+        .await
+        .unwrap();
+}
 
 // Helper functions for testing
 async fn create_test_connection() -> Connection<'static, Verifier> {
@@ -10,56 +67,72 @@ async fn create_test_connection() -> Connection<'static, Verifier> {
     connection_pool.connection().await.unwrap()
 }
 
-fn mock_via_vote() -> (u32, H256, String, bool) {
-    (
-        1, // l1_batch_number
-        H256::random(),
-        "0x1234567890123456789012345678901234567890".to_string(), // verifier_address
-        random::<bool>(),
-    )
-}
-
 #[tokio::test]
-async fn test_via_vote_workflow() {
-    let mut storage = create_test_connection().await;
-
-    // Create test data
-    let (l1_batch_number, proof_reveal_tx_id, verifier_address, vote) = mock_via_vote();
-
-    // First insert a votable transaction
-    insert_test_votable_transaction(&mut storage, proof_reveal_tx_id).await;
-    let votable_transaction_id = 1;
-
-    // Test inserting a vote
-    storage
+async fn proof_replay_preserves_completed_result_and_distinguishes_same_batch_proofs(
+) -> anyhow::Result<()> {
+    let mut db = create_test_connection().await;
+    for number in [1, 2] {
+        db.via_votes_dal()
+            .insert_votable_transaction(
+                1,
+                H256::repeat_byte(7),
+                H256::zero(),
+                "da".into(),
+                H256::from_low_u64_be(number),
+                format!("proof-{number}"),
+                "same-pubdata-tx".into(),
+                "same-pubdata-blob".into(),
+                None,
+            )
+            .await?;
+    }
+    let proof = H256::from_low_u64_be(1);
+    let id = db.via_votes_dal().get_votable_transaction_id(proof.as_bytes()).await?.unwrap();
+    db.via_votes_dal().verify_votable_transaction(1, proof, true).await?;
+    db.via_votes_dal()
+        .insert_votable_transaction(
+            1,
+            H256::repeat_byte(7),
+            H256::zero(),
+            "da".into(),
+            proof,
+            "proof-1".into(),
+            "same-pubdata-tx".into(),
+            "same-pubdata-blob".into(),
+            None,
+        )
+        .await?;
+    let error = db
         .via_votes_dal()
-        .insert_vote(votable_transaction_id, &verifier_address, vote, None)
+        .insert_votable_transaction(
+            1,
+            H256::repeat_byte(7),
+            H256::zero(),
+            "da".into(),
+            proof,
+            "changed-proof".into(),
+            "same-pubdata-tx".into(),
+            "same-pubdata-blob".into(),
+            None,
+        )
         .await
-        .unwrap();
-    storage
-        .via_votes_dal()
-        .verify_votable_transaction(i64::from(l1_batch_number), proof_reveal_tx_id, vote)
-        .await
-        .unwrap();
-
-    // Test getting vote count
-    let (_, ok_votes, total_votes) = storage
-        .via_votes_dal()
-        .get_vote_count(votable_transaction_id)
-        .await
-        .unwrap();
-
-    assert_eq!(total_votes, 1);
-    assert_eq!(ok_votes, if vote { 1 } else { 0 });
-
-    // Test finalizing transaction
-    let is_finalized = storage
-        .via_votes_dal()
-        .finalize_transaction_if_needed(votable_transaction_id, 0.5, 1)
-        .await
-        .unwrap();
-
-    assert_eq!(is_finalized, vote);
+        .unwrap_err();
+    assert_eq!(error.downcast_ref::<ReplayConflict>().unwrap().field, "proof_blob_id");
+    assert_eq!(db.via_votes_dal().get_votable_transaction_id(proof.as_bytes()).await?, Some(id));
+    let status = sqlx::query_scalar::<_, bool>(
+        "SELECT l1_batch_status FROM via_votable_transactions WHERE id=$1",
+    )
+    .bind(id)
+    .instrument("kept_proof_replay_result")
+    .fetch_one(&mut db)
+    .await?;
+    assert!(status);
+    let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM via_votable_transactions")
+        .instrument("distinct_same_batch_proofs")
+        .fetch_one(&mut db)
+        .await?;
+    assert_eq!(count, 2);
+    Ok(())
 }
 
 #[tokio::test]
@@ -73,45 +146,16 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain() {
     for i in 1..5 {
         let l1_batch_number = i;
         let proof_reveal_tx_id = H256::random();
-        let verifier_address = "0x1234567890123456789012345678901234567890".to_string();
         let votable_transaction_id = i64::from(i);
         let l1_batch_hash = H256::random();
-        storage
-            .via_votes_dal()
-            .insert_votable_transaction(
-                l1_batch_number,
-                l1_batch_hash,
-                prev_l1_batch_hash,
-                "test_da_id".to_string(),
-                proof_reveal_tx_id,
-                format!("test_blob_id_{i}").to_string(),
-                format!("test_pubdata_tx_id_{i}").to_string(),
-                format!("test_pubdata_blob_id_{i}").to_string(),
-                None,
-            )
-            .await
-            .unwrap();
+        index_history(&mut storage, l1_batch_number, l1_batch_hash, prev_l1_batch_hash, proof_reveal_tx_id, &format!("{i}")).await;
         prev_l1_batch_hash = l1_batch_hash;
 
         if i >= invalid_l1_batch_id {
             continue;
         }
 
-        storage
-            .via_votes_dal()
-            .insert_vote(votable_transaction_id, &verifier_address, true, None)
-            .await
-            .unwrap();
-        storage
-            .via_votes_dal()
-            .verify_votable_transaction(i64::from(l1_batch_number), proof_reveal_tx_id, true)
-            .await
-            .unwrap();
-        storage
-            .via_votes_dal()
-            .finalize_transaction_if_needed(votable_transaction_id, 1.0, 1)
-            .await
-            .unwrap();
+        verified_history(&mut storage, l1_batch_number, proof_reveal_tx_id, votable_transaction_id, true).await;
     }
 
     let res = storage
@@ -143,21 +187,7 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
         let l1_batch_hash = H256::random();
         votable_transaction_id += 1;
 
-        storage
-            .via_votes_dal()
-            .insert_votable_transaction(
-                l1_batch_number,
-                l1_batch_hash,
-                prev_l1_batch_hash,
-                "test_da_id".to_string(),
-                proof_reveal_tx_id,
-                format!("test_blob_id_{i}").to_string(),
-                format!("test_pubdata_tx_id_{i}").to_string(),
-                format!("test_pubdata_blob_id_{i}").to_string(),
-                None,
-            )
-            .await
-            .unwrap();
+        index_history(&mut storage, l1_batch_number, l1_batch_hash, prev_l1_batch_hash, proof_reveal_tx_id, &format!("{i}")).await;
 
         if i == invalid_l1_batch_id {
             prev_l1_batch_hash_number_2 = prev_l1_batch_hash;
@@ -169,24 +199,9 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
     // Finalize batches 1 and 2, then reject batch 3.
     // The rejection also invalidates indexed batch 4, so a replacement batch 4 can be indexed.
     for (l1_batch_number, (id, proof_reveal_tx_id)) in (1..=invalid_l1_batch_id).zip(indexed) {
-        let verifier_address = "0x1234567890123456789012345678901234567890".to_string();
         let vote = l1_batch_number != invalid_l1_batch_id;
 
-        storage
-            .via_votes_dal()
-            .insert_vote(id, &verifier_address, vote, None)
-            .await
-            .unwrap();
-        storage
-            .via_votes_dal()
-            .verify_votable_transaction(i64::from(l1_batch_number), proof_reveal_tx_id, vote)
-            .await
-            .unwrap();
-        storage
-            .via_votes_dal()
-            .finalize_transaction_if_needed(id, 1.0, 1)
-            .await
-            .unwrap();
+        verified_history(&mut storage, l1_batch_number, proof_reveal_tx_id, id, vote).await;
     }
 
     let res = storage
@@ -226,25 +241,10 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
     for i in 3..6 {
         let l1_batch_number = i;
         let proof_reveal_tx_id = H256::random();
-        let verifier_address = "0x1234567890123456789012345678901234567890".to_string();
         let l1_batch_hash = H256::random();
         votable_transaction_id += 1;
 
-        storage
-            .via_votes_dal()
-            .insert_votable_transaction(
-                l1_batch_number,
-                l1_batch_hash,
-                prev_l1_batch_hash,
-                "test_da_id".to_string(),
-                proof_reveal_tx_id,
-                format!("test_blob_id_{i}_fix").to_string(),
-                format!("test_pubdata_tx_id_{i}_fix").to_string(),
-                format!("test_pubdata_blob_id_{i}_fix").to_string(),
-                None,
-            )
-            .await
-            .unwrap();
+        index_history(&mut storage, l1_batch_number, l1_batch_hash, prev_l1_batch_hash, proof_reveal_tx_id, &format!("{i}_fix")).await;
         if i == expected_not_processed_l1_batch_votable_tx_id {
             break;
         }
@@ -252,23 +252,8 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
         prev_l1_batch_hash = l1_batch_hash;
         let vote = true;
 
-        storage
-            .via_votes_dal()
-            .insert_vote(votable_transaction_id, &verifier_address, vote, None)
-            .await
-            .unwrap();
 
-        storage
-            .via_votes_dal()
-            .verify_votable_transaction(i64::from(l1_batch_number), proof_reveal_tx_id, vote)
-            .await
-            .unwrap();
-
-        storage
-            .via_votes_dal()
-            .finalize_transaction_if_needed(votable_transaction_id, 1.0, 1)
-            .await
-            .unwrap();
+        verified_history(&mut storage, l1_batch_number, proof_reveal_tx_id, votable_transaction_id, vote).await;
 
         // storage
         //     .via_bridge_dal()
@@ -293,19 +278,12 @@ async fn test_get_first_not_verified_l1_batch_in_canonical_inscription_chain_whe
         i64::from(expected_not_processed_l1_batch_votable_tx_id)
     );
 
-    // Delete previous invalid transactions
-    storage
-        .via_votes_dal()
-        .delete_invalid_votable_transactions_if_exists()
-        .await
-        .unwrap();
-
     let rejected_l1_batch = storage
         .via_votes_dal()
         .get_first_rejected_l1_batch()
         .await
         .unwrap();
-    assert!(rejected_l1_batch.is_none());
+    assert!(rejected_l1_batch.is_some());
 }
 
 fn store_mode(dev: bool, network: &str, genesis: &str) -> StoreMode {
@@ -713,4 +691,194 @@ async fn strict_rollback_and_reapply_preserve_historical_verdicts() {
     .await
     .unwrap();
     assert_eq!(persisted, (true, false, 1));
+}
+
+fn deposit_transaction(height: u64, receiver: Address, vout: usize) -> L1ToL2Transaction {
+    let deposit = ViaL1Deposit {
+        l2_receiver_address: receiver,
+        amount: 50_000,
+        calldata: vec![],
+        l1_block_number: height,
+        tx_index: 1,
+        output_vout: vout,
+    };
+    L1ToL2Transaction {
+        priority_id: deposit.priority_id().0 as i64,
+        l1_block_number: height as i64,
+        tx_id: H256::repeat_byte(8),
+        receiver: receiver.to_string(),
+        value: 50_000,
+        calldata: vec![],
+        canonical_tx_hash: deposit.l1_tx().unwrap().hash(),
+    }
+}
+
+async fn completed_deposit_fixture(
+) -> anyhow::Result<(Connection<'static, Verifier>, DepositOrigin, DepositPayload)> {
+    let mut db = create_test_connection().await;
+    let old = deposit_transaction(10, Address::repeat_byte(7), 0);
+    let origin = DepositOrigin { height: 10, hash: BlockHash::from_byte_array([10; 32]), vout: 0 };
+    let payload = DepositPayload {
+        input: (
+            L1ToL2MessageInput {
+                receiver_l2_address: Address::repeat_byte(7),
+                l2_contract_address: Address::zero(),
+                call_data: vec![],
+            },
+            50_000,
+        ),
+        public_key: vec![2; 33],
+        signature: vec![3; 64],
+        sender_script: None,
+    };
+    assert!(db.via_transactions_dal().insert_transaction(old, &origin, &payload).await?);
+    sqlx::query("UPDATE via_transactions SET status=TRUE,l1_batch_number=9,bitcoin_height=NULL,bitcoin_hash=NULL,bitcoin_vout=NULL,bitcoin_payload=NULL")
+        .instrument("seed_completed_legacy_deposit").execute(&mut db).await?;
+    Ok((db, origin, payload))
+}
+
+async fn pending_deposit_fixture(
+) -> anyhow::Result<(Connection<'static, Verifier>, DepositOrigin, DepositPayload)> {
+    let (mut db, origin, payload) = completed_deposit_fixture().await?;
+    sqlx::query("UPDATE via_transactions SET status=NULL,l1_batch_number=NULL,bitcoin_height=$1,bitcoin_hash=$2,bitcoin_vout=$3,bitcoin_payload=$4")
+        .bind(i64::from(origin.height)).bind(origin.hash.to_string()).bind(i64::from(origin.vout)).bind(serde_json::to_value(&payload)?)
+        .instrument("pending_deposit_source").execute(&mut db).await?;
+    Ok((db, origin, payload))
+}
+
+#[tokio::test]
+async fn unattached_verifier_replay_requires_the_same_inclusion() -> anyhow::Result<()> {
+    let (mut db, mut origin, payload) = pending_deposit_fixture().await?;
+    let transaction = deposit_transaction(10, Address::repeat_byte(7), 0);
+    assert!(
+        !db.via_transactions_dal()
+            .insert_transaction(
+                deposit_transaction(10, Address::repeat_byte(7), 0),
+                &origin,
+                &payload
+            )
+            .await?
+    );
+    origin.hash = BlockHash::from_byte_array([11; 32]);
+    let error = db
+        .via_transactions_dal()
+        .insert_transaction(transaction, &origin, &payload)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>().unwrap().field,
+        "deposit_inclusion"
+    );
+    let saved: String = sqlx::query_scalar("SELECT bitcoin_hash FROM via_transactions")
+        .instrument("unchanged_verifier_pending_source")
+        .fetch_one(&mut db)
+        .await?;
+    assert_eq!(saved, BlockHash::from_byte_array([10; 32]).to_string());
+    Ok(())
+}
+
+#[tokio::test]
+async fn unattached_verifier_legacy_payload_is_not_rebound() -> anyhow::Result<()> {
+    let (mut db, origin, payload) = pending_deposit_fixture().await?;
+    sqlx::query("UPDATE via_transactions SET bitcoin_payload=NULL")
+        .instrument("unbound_verifier_pending_payload")
+        .execute(&mut db)
+        .await?;
+    let error = db
+        .via_transactions_dal()
+        .insert_transaction(deposit_transaction(10, Address::repeat_byte(7), 0), &origin, &payload)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<via_btc_client::indexer::replay::ReplayConflict>().unwrap().field,
+        "unreconciled_deposit"
+    );
+    let saved: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT bitcoin_payload FROM via_transactions")
+            .instrument("still_unbound_verifier_payload")
+            .fetch_one(&mut db)
+            .await?;
+    assert!(saved.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn verifier_remine_preserves_execution_and_rejects_conflicts() -> anyhow::Result<()> {
+    let (mut db, mut origin, mut payload) = completed_deposit_fixture().await?;
+    let old = deposit_transaction(10, Address::repeat_byte(7), 0);
+    let original = (old.priority_id, old.canonical_tx_hash, old.receiver);
+    origin.height = 11;
+    origin.hash = BlockHash::from_byte_array([11; 32]);
+    let mut same_abbreviation = [8; 20];
+    same_abbreviation[..2].fill(7);
+    same_abbreviation[18..].fill(7);
+    for (receiver, field) in [
+        (Address::repeat_byte(9), "receiver"),
+        (Address::from(same_abbreviation), "retained_execution"),
+    ] {
+        payload.input.0.receiver_l2_address = receiver;
+        let error = db
+            .via_transactions_dal()
+            .insert_transaction(deposit_transaction(11, receiver, 0), &origin, &payload)
+            .await
+            .unwrap_err();
+        assert_eq!(error.downcast_ref::<ReplayConflict>().unwrap().field, field);
+    }
+    payload.input.0.receiver_l2_address = Address::repeat_byte(7);
+    assert!(
+        !db.via_transactions_dal()
+            .insert_transaction(
+                deposit_transaction(11, Address::repeat_byte(7), 0),
+                &origin,
+                &payload
+            )
+            .await?
+    );
+    payload.public_key[0] ^= 1;
+    let error = db
+        .via_transactions_dal()
+        .insert_transaction(deposit_transaction(11, Address::repeat_byte(7), 0), &origin, &payload)
+        .await
+        .unwrap_err();
+    assert_eq!(error.downcast_ref::<ReplayConflict>().unwrap().field, "public_key");
+    let row = sqlx::query("SELECT * FROM via_transactions")
+        .instrument("retained_completed_deposit")
+        .fetch_optional(&mut db)
+        .await?
+        .unwrap();
+    use sqlx::Row;
+    assert_eq!(row.get::<i64, _>("priority_id"), original.0);
+    assert_eq!(row.get::<Vec<u8>, _>("canonical_tx_hash"), original.1.as_bytes());
+    assert_eq!(row.get::<String, _>("receiver"), original.2);
+    assert_eq!(row.get::<i64, _>("l1_block_number"), 10);
+    assert_eq!(row.get::<i64, _>("bitcoin_height"), 11);
+    assert_eq!(row.get::<i64, _>("l1_batch_number"), 9);
+    assert!(row.get::<bool, _>("status"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn verifier_reset_keeps_assigned_deposit() -> anyhow::Result<()> {
+    let (mut db, mut origin, payload) = completed_deposit_fixture().await?;
+    origin.vout = 1;
+    assert!(
+        db.via_transactions_dal()
+            .insert_transaction(
+                deposit_transaction(10, Address::repeat_byte(7), 1),
+                &origin,
+                &payload
+            )
+            .await?
+    );
+    let mut reset = db.start_transaction().await?;
+    reset.via_indexer_dal().delete_reader_suffix(0).await?;
+    reset.commit().await?;
+    let retained = sqlx::query_scalar::<_, bool>(
+        "SELECT count(*)=1 AND bool_and(status AND l1_batch_number=9) FROM via_transactions",
+    )
+    .instrument("retained_completed_assignment")
+    .fetch_one(&mut db)
+    .await?;
+    assert!(retained);
+    Ok(())
 }

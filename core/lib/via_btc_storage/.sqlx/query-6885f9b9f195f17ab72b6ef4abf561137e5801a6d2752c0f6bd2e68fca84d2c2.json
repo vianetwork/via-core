@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE via_btc_reader SET confirmed_number=$1, confirmed_hash=$2\n            WHERE stopped_reason IS NULL AND confirmed_number<=$1\n              AND (confirmed_number<>$1 OR confirmed_hash=$2)\n              AND $1<=(SELECT number FROM via_btc_headers WHERE id=$3)\n              AND $3=(SELECT id FROM via_btc_headers ORDER BY number DESC LIMIT 1)\n              AND EXISTS(SELECT 1 FROM via_btc_headers WHERE id=$4 AND number=$1 AND hash=$2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6885f9b9f195f17ab72b6ef4abf561137e5801a6d2752c0f6bd2e68fca84d2c2"
+}

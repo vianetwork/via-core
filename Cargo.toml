@@ -99,10 +99,10 @@ members = [
   "core/lib/via_mempool",
   "core/lib/via_test_utils",
   "core/node/via_node_storage_init",
-  "core/node/via_main_node_reorg_detector",
   "core/lib/via_consensus",
   "core/lib/via_da_dispatcher",
   "core/lib/via_reorg",
+  "core/lib/via_btc_storage",
 
   # VIA Verifier
   "via_verifier/bin/verifier_server",
@@ -116,9 +116,7 @@ members = [
   "via_verifier/node/via_btc_sender",
   "via_verifier/lib/via_da_client",
   "via_verifier/lib/via_verifier_types",
-  "via_verifier/node/via_reorg_detector",
   "via_verifier/node/via_verifier_storage_init",
-  "via_verifier/node/via_block_reverter",
   "via_verifier/lib/via_state",
 
   # VIA Indexer
@@ -385,10 +383,10 @@ via_consistency_checker = { version = "0.1.0", path = "core/node/via_consistency
 via_mempool = { version = "0.1.0", path = "core/lib/via_mempool" }
 via_test_utils = { version = "0.1.0", path = "core/lib/via_test_utils" }
 via_node_storage_init = { version = "0.1.0", path = "core/node/via_node_storage_init" }
-via_main_node_reorg_detector = { version = "0.1.0", path = "core/node/via_main_node_reorg_detector" }
 via_consensus = { version = "0.1.0", path = "core/lib/via_consensus" }
 via_da_dispatcher_lib = { version = "0.1.0", path = "core/lib/via_da_dispatcher" }
 via_reorg = { version = "0.1.0", path = "core/lib/via_reorg" }
+via_btc_storage = { version = "0.1.0", path = "core/lib/via_btc_storage" }
 
 # VIA Verifier
 via_withdrawal_client = { version = "0.1.0", path = "via_verifier/lib/via_withdrawal_client" }
@@ -401,9 +399,7 @@ via_verifier_coordinator = { version = "0.1.0", path = "via_verifier/node/via_ve
 via_zk_verifier = { version = "0.1.0", path = "via_verifier/node/via_zk_verifier" }
 via_verifier_btc_watch = { version = "0.1.0", path = "via_verifier/node/via_btc_watch" }
 via_verifier_btc_sender = { version = "0.1.0", path = "via_verifier/node/via_btc_sender" }
-via_verifier_reorg_detector = { version = "0.1.0", path = "via_verifier/node/via_reorg_detector" }
 via_verifier_storage_init = { version = "0.1.0", path = "via_verifier/node/via_verifier_storage_init" }
-via_verifier_block_reverter = { version = "0.1.0", path = "via_verifier/node/via_block_reverter" }
 via_verifier_state = { version = "0.1.0", path = "via_verifier/lib/via_state" }
 
 # VIA indexer

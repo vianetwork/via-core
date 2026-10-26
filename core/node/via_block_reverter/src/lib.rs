@@ -107,45 +107,9 @@ impl ViaBlockReverter {
         let mut storage = self.connection_pool.connection().await?;
         let mut transaction = storage.start_transaction().await?;
         transaction.via_indexer_dal().lock_btc_watch().await?;
-        let mut l1_block_number_to_keep = None;
-
         if !self.allow_rolling_back_executed_batches {
-            if let Some((l1_block_number, l1_batch_number)) = transaction
-                .via_l1_block_dal()
-                .has_reorg_in_progress()
-                .await?
-            {
-                tracing::warn!(
-                    "Found reorg in progress at l1 block number: {} and l1 batch number: {}",
-                    l1_block_number,
-                    l1_batch_number
-                );
-
-                if last_l1_batch_to_keep.0 + 1 != l1_batch_number as u32 {
-                    anyhow::bail!(
-                        "Mismatch between reorg l1_batch_number {} and  last_l1_batch_to_keep {}",
-                        l1_batch_number - 1,
-                        last_l1_batch_to_keep.0,
-                    );
-                }
-
-                l1_block_number_to_keep = Some(l1_block_number - 1);
-            }
-
-            // If there is no reorg we should not revert the verified batches.
-            if l1_block_number_to_keep.is_none() {
-                if let Some(first_l1_batch_can_be_reverted) = transaction
-                    .via_blocks_dal()
-                    .get_first_l1_batch_can_be_reverted()
-                    .await?
-                {
-                    anyhow::ensure!(
-                        last_l1_batch_to_keep >= first_l1_batch_can_be_reverted - 1,
-                        "Attempt to roll back already CommitProofOnchain/executed L1 batches ; the last commited proof \
-                        or finalized batch is: {:?}",
-                        first_l1_batch_can_be_reverted -1
-                    );
-                }
+            if let Some(first) = transaction.via_blocks_dal().get_first_l1_batch_can_be_reverted().await? {
+                anyhow::ensure!(last_l1_batch_to_keep >= first - 1, "Attempt to roll back an executed/finalized L1 batch");
             }
         }
 
@@ -156,7 +120,6 @@ impl ViaBlockReverter {
             self.roll_back_postgres(
                 &mut transaction,
                 last_l1_batch_to_keep,
-                l1_block_number_to_keep,
             )
             .await?
         } else {
@@ -289,7 +252,6 @@ impl ViaBlockReverter {
         &self,
         transaction: &mut Connection<'_, Core>,
         last_l1_batch_to_keep: L1BatchNumber,
-        l1_block_number_to_keep: Option<i64>,
     ) -> anyhow::Result<Vec<SnapshotMetadata>> {
         tracing::info!("Rolling back Postgres data");
         let (_, last_l2_block_to_keep) = transaction
@@ -363,49 +325,6 @@ impl ViaBlockReverter {
             .delete_l2_blocks(last_l2_block_to_keep)
             .await?;
 
-        if let Some(l1_block_number) = l1_block_number_to_keep {
-            transaction
-                .via_transactions_dal()
-                .delete_priority_txs(l1_block_number as i32)
-                .await?;
-
-            transaction
-                .via_l1_block_dal()
-                .delete_l1_blocks(l1_block_number)
-                .await?;
-
-            transaction
-                .via_l1_block_dal()
-                .delete_l1_reorg(l1_block_number)
-                .await?;
-
-            // Bitcoin Core's `CWallet::blockDisconnected` rewinds the wallet's completed position when a block disconnects.
-            // Via headers can lead the reader, so recovery caps its existing replay target at reader progress.
-            // https://github.com/bitcoin/bitcoin/blob/f13ae519de94394314cd63a27924b0998ac65d45/src/wallet/wallet.cpp
-            let reader_progress = transaction
-                .via_indexer_dal()
-                .get_last_processed_l1_block("via_btc_watch")
-                .await
-                .context("Reading completed Bitcoin progress under the recovery owner")?;
-            let checkpoint_to_keep =
-                reader_progress.min(std::cmp::max(0, l1_block_number - 1) as u64);
-            if reader_progress != 0 {
-                transaction
-                    .via_indexer_dal()
-                    .update_last_processed_l1_block(
-                        "via_btc_watch",
-                        u32::try_from(checkpoint_to_keep).context(
-                            "Bitcoin recovery checkpoint exceeds the supported height range",
-                        )?,
-                    )
-                    .await?;
-            }
-
-            transaction
-                .via_wallet_dal()
-                .delete_system_wallet(l1_block_number)
-                .await?;
-        }
 
         if self.node_role == NodeRole::Main {
             tracing::info!("Performing consensus hard fork");

@@ -7,7 +7,7 @@ use bitcoin::{
 };
 use chrono::Utc;
 use via_btc_client::{
-    inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOpsConfig},
+    inscriber::test_utils::{get_mock_inscriber_and_conditions, MockBitcoinOps},
     traits::Serializable,
     types::InscriptionMessage,
 };
@@ -126,18 +126,46 @@ pub fn get_btc_sender_config(
 pub async fn get_inscription_manager_mock(
     pool: ConnectionPool<Core>,
     config: ViaBtcSenderConfig,
-    mock_btc_ops_config: MockBitcoinOpsConfig,
+    mut mock_btc_ops_config: MockBitcoinOps,
 ) -> ViaBtcInscriptionManager {
+    let chain = via_test_utils::chain::Chain::with_height(
+        u32::try_from(mock_btc_ops_config.block_height.max(1)).unwrap(),
+    );
+    mock_btc_ops_config.headers = chain
+        .blocks
+        .iter()
+        .map(|(&height, block)| via_btc_client::types::BlockHeaderInfo {
+            height,
+            hash: block.block_hash(),
+            parent_hash: block.header.prev_blockhash,
+            membership: via_btc_client::types::HeaderMembership::Canonical(
+                std::num::NonZeroU32::new(
+                    u32::try_from(mock_btc_ops_config.block_height.max(1)).unwrap() - height + 1,
+                )
+                .unwrap(),
+            ),
+        })
+        .collect();
+    mock_btc_ops_config.block = Some(chain.blocks.values().last().unwrap().clone());
     let inscriber = get_mock_inscriber_and_conditions(mock_btc_ops_config);
     let mut wallets = test_wallets();
     wallets.sequencer = inscriber.inscriber_address().unwrap();
-    pool.connection()
+    let mut db = pool.connection().await.unwrap();
+    let mut tx = db.start_transaction().await.unwrap();
+    let tip = *chain.blocks.keys().last().unwrap();
+    sqlx::query("UPDATE protocol_patches SET bitcoin_height=0,bitcoin_hash=$1 WHERE bitcoin_payload IS NULL")
+        .bind(chain.blocks[&0].block_hash().to_string()).execute(tx.conn()).await.unwrap();
+    assert!(via_test_utils::reader_at(&mut tx, &chain, tip, tip, bitcoin::Network::Regtest)
         .await
-        .unwrap()
-        .via_wallet_dal()
-        .insert_wallets(&SystemWalletsDetails::try_from(wallets).unwrap(), 0)
+        .unwrap());
+    via_btc_storage::ReaderDal::new(&mut tx)
+        .insert_wallets(
+            &SystemWalletsDetails::try_from(wallets).unwrap(),
+            via_btc_storage::WalletSource::Unbound(0),
+        )
         .await
         .unwrap();
+    tx.commit().await.unwrap();
     Result::unwrap(ViaBtcInscriptionManager::new(inscriber, pool, config).await)
 }
 

@@ -25,3 +25,14 @@ pub struct WithdrawalInclusion {
     pub block_hash: BlockHash,
     pub block_height: u32,
 }
+
+impl From<via_btc_client::indexer::withdrawal::L1Withdrawal> for ObservedWithdrawal {
+    fn from(payment: via_btc_client::indexer::withdrawal::L1Withdrawal) -> Self {
+        Self {
+            vout: payment.vout,
+            reference: payment.l2_meta.l2_id,
+            script_pubkey: payment.receiver.script_pubkey(),
+            amount: payment.value,
+        }
+    }
+}

@@ -191,6 +191,16 @@ impl HttpTest for ViaSettlementSyncTest {
             .prepare_storage(&NetworkConfig::for_tests(), &mut en_storage)
             .await?;
         let mut main_storage = main_pool.connection().await?;
+        sqlx::query("INSERT INTO via_btc_headers(number,hash,parent_hash) VALUES(1,$1,$1)")
+            .bind("01".repeat(32))
+            .execute(main_storage.conn())
+            .await?;
+        sqlx::query(
+            "INSERT INTO via_btc_reader VALUES(TRUE,1,'regtest',$1,1,$1,1,$1,1,$1,TRUE,NULL)",
+        )
+        .bind("01".repeat(32))
+        .execute(main_storage.conn())
+        .await?;
         let transactions: Vec<_> = (0..4).map(|_| create_l2_transaction(10, 200)).collect();
         let mut failed = execute_l2_transaction(create_l2_transaction(10, 200));
         failed.execution_status = TxExecutionStatus::Failure;
@@ -263,24 +273,23 @@ impl HttpTest for ViaSettlementSyncTest {
                 }
             } else if stage == 3 {
                 for batch in 1..=3 {
-                    let mut reveal_txid = stage_hash(batch, 2).as_bytes().to_vec();
-                    reveal_txid.reverse();
-                    main_storage
-                        .via_votes_dal()
-                        .insert_vote(batch, &reveal_txid, "verifier", batch != 3)
-                        .await?;
-                    assert!(
-                        main_storage
-                            .via_votes_dal()
-                            .finalize_transaction_if_needed(batch, 1.0, 1)
-                            .await?
-                    );
+                    let mut proof_txid=stage_hash(batch,2).as_bytes().to_vec();
+                    proof_txid.reverse();
+                    let proof:i64=sqlx::query_scalar("INSERT INTO via_btc_proofs(l1_batch_number,proof_reveal_tx_id,pubdata_reveal_tx_id,l1_block_number,block_hash,transaction_index,message_index,payload,proof_header_id) SELECT $1,$2,$2,1,hash,$1::INTEGER,0,'{}',id FROM via_btc_headers WHERE number=1 RETURNING id")
+                        .bind(i64::from(batch)).bind(proof_txid).fetch_one(main_storage.conn()).await?;
+                    sqlx::query("INSERT INTO via_btc_finalizations(proof_id,approved) VALUES($1,$2)").bind(proof).bind(batch!=3).execute(main_storage.conn()).await?;
+                    sqlx::query("UPDATE via_l1_batch_inscription_request SET is_finalized=$1 WHERE l1_batch_number=$2")
+                        .bind(batch != 3).bind(i64::from(batch)).execute(main_storage.conn()).await?;
                     sqlx::query("UPDATE via_l1_batch_inscription_request SET updated_at = $1 WHERE l1_batch_number = $2")
                         .bind(stage_time(batch, 3).naive_utc())
                         .bind(i64::from(batch))
                         .execute(main_storage.conn())
                         .await?;
                 }
+            }
+            if stage==2 {
+                sqlx::query("UPDATE via_l1_batch_inscription_request SET is_finalized=TRUE").execute(main_storage.conn()).await?;
+                assert_details(main_client,1,transactions[0].hash(),2,false).await?;
             }
             if stage > 0 {
                 synchronize_stage(main_client, &en_pool, stage).await?;
@@ -296,6 +305,19 @@ impl HttpTest for ViaSettlementSyncTest {
                 assert_details(&en_client, batch, tx.hash(), stage, true).await?;
             }
         }
+        for hold in [
+            "UPDATE via_btc_reader SET replay_ready=FALSE",
+            "UPDATE via_btc_reader SET stopped_reason='diagnosis'",
+            "UPDATE via_btc_proofs SET block_hash='orphan'",
+        ] {
+            sqlx::query(hold).execute(main_storage.conn()).await?;
+            assert_details(main_client, 1, transactions[0].hash(), 2, false).await?;
+            sqlx::query("UPDATE via_btc_reader SET replay_ready=TRUE,stopped_reason=NULL")
+                .execute(main_storage.conn())
+                .await?;
+            sqlx::query("UPDATE via_btc_proofs SET block_hash=(SELECT hash FROM via_btc_headers WHERE number=1)").execute(main_storage.conn()).await?;
+        }
+        assert_details(main_client, 1, transactions[0].hash(), 3, false).await?;
         for client in [main_client, &en_client as &DynClient<L2>] {
             assert_matches!(
                 client

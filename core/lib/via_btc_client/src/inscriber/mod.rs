@@ -834,47 +834,22 @@ impl Inscriber {
 
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
     use bitcoin::{
         key::UntweakedPublicKey,
         secp256k1::{
             ecdsa::Signature as ECDSASignature, schnorr::Signature as SchnorrSignature, All,
             Keypair, Message, PublicKey, Secp256k1,
         },
-        Block, BlockHash, CompressedPublicKey, OutPoint, PrivateKey, ScriptBuf, Transaction, TxOut,
-        Txid,
+        CompressedPublicKey, OutPoint, PrivateKey, ScriptBuf, TxOut, Txid,
     };
-    use bitcoincore_rpc::json::GetBlockStatsResult;
     use mockall::{mock, predicate::*};
 
     use super::*;
     use crate::types::{
-        BitcoinClientResult, BitcoinNetwork, BitcoinSignerResult, InscriptionMessage,
-        L1BatchDAReferenceInput,
+        BitcoinNetwork, BitcoinSignerResult, InscriptionMessage, L1BatchDAReferenceInput,
     };
 
-    mock! {
-        BitcoinOps {}
-        #[async_trait]
-        impl BitcoinOps for BitcoinOps {
-            async fn get_transaction(&self, txid: &Txid) -> BitcoinClientResult<Transaction>;
-            async fn fetch_block(&self, block_height: u128) -> BitcoinClientResult<Block>;
-            async fn fetch_block_by_hash(&self, block_hash: &BlockHash) -> BitcoinClientResult<Block>;
-            async fn get_balance(&self, address: &Address) -> BitcoinClientResult<u128>;
-            async fn broadcast_signed_transaction(&self, signed_transaction: &str) -> BitcoinClientResult<Txid>;
-            async fn fetch_utxos(&self, address: &Address) -> BitcoinClientResult<Vec<(OutPoint, TxOut)>>;
-            async fn check_tx_confirmation(&self, txid: &Txid, conf_num: u32) -> BitcoinClientResult<bool>;
-            async fn fetch_block_height(&self) -> BitcoinClientResult<u64>;
-            async fn get_fee_rate(&self, conf_target: u16) -> BitcoinClientResult<u64>;
-            fn get_network(&self) -> BitcoinNetwork;
-            async fn get_block_stats(&self, height: u64) -> BitcoinClientResult<GetBlockStatsResult>;
-            async fn get_fee_history(
-                &self,
-                from_block_height: usize,
-                to_block_height: usize,
-            ) -> BitcoinClientResult<Vec<u64>>;
-        }
-    }
+    use crate::inscriber::test_utils::MockBitcoinOpsExpectations as MockBitcoinOps;
 
     mock! {
         BitcoinSigner {}

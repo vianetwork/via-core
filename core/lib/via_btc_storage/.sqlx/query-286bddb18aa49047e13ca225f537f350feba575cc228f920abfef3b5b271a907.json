@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO via_btc_headers (number, hash, parent_hash)\n             SELECT $1::BIGINT, $2, $3 FROM via_btc_headers\n             WHERE id=$4 AND number=$1::BIGINT-1 AND hash=$3\n               AND id=(SELECT id FROM via_btc_headers ORDER BY number DESC LIMIT 1)\n             RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "286bddb18aa49047e13ca225f537f350feba575cc228f920abfef3b5b271a907"
+}

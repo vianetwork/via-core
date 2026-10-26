@@ -1,9 +1,12 @@
 ---
-status: accepted
+status: superseded by ADR-0020
 date: 2026-10-22
 ---
 
 # Every processor keeps evidence, canonical membership and derived state apart
+
+Superseded by [ADR 0020](0020-tag-bitcoin-rows-and-replay-exactly.md). The original record follows unchanged as history.
+
 
 ## In short
 
