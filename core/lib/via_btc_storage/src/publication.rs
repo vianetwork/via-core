@@ -113,6 +113,20 @@ pub async fn publish_pending<DB: ReaderRole>(
     Ok(())
 }
 
+/// Sender completion uses its configured depth; reader authority protects the database update.
+/// Idea only from Era eth_sender's wait_confirmations; Via checks Bitcoin confirmations before acquiring DB authority: https://github.com/matter-labs/zksync-era/blob/ff5f519b11cff863edcfa0f75af10fea113806b0/core/node/eth_sender/src/abstract_l1_interface.rs
+pub async fn begin_completion<DB: ReaderRole>(
+    pool: &ConnectionPool<DB>,
+    client: &dyn via_btc_client::traits::BitcoinOps,
+    txid: &Txid,
+    block_confirmations: u32,
+) -> anyhow::Result<Option<zksync_db_connection::connection::Connection<'static, DB>>> {
+    if !client.check_tx_confirmation(txid, block_confirmations).await? {
+        return Ok(None);
+    }
+    crate::transition::begin_authority(pool, client, &[]).await.map(Some)
+}
+
 pub async fn stuck_inscription_height(
     client: &dyn via_btc_client::traits::BitcoinOps,
     sent_at: i64,

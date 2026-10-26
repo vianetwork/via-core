@@ -1,6 +1,7 @@
 use anyhow::Result;
 use tokio::sync::watch;
 use via_btc_client::inscriber::Inscriber;
+use via_btc_storage::publication::{begin_completion, publish_pending, stuck_inscription_height};
 use via_verifier_dal::{Connection, ConnectionPool, Verifier, VerifierDal};
 use zksync_config::ViaBtcSenderConfig;
 
@@ -55,12 +56,7 @@ impl ViaBtcInscriptionManager {
         )
         .await?;
         self.update_inscription_status_or_resend(storage).await?;
-        via_btc_storage::publication::publish_pending(
-            &self.pool,
-            &mut self.inscriber,
-            self.config.max_txs_in_flight,
-        )
-        .await?;
+        publish_pending(&self.pool, &mut self.inscriber, self.config.max_txs_in_flight).await?;
         Ok(())
     }
 
@@ -82,21 +78,12 @@ impl ViaBtcInscriptionManager {
             if let Some(last_inscription_history) =
                 storage.via_btc_sender_dal().get_last_inscription_request_history(inscription.id).await?
             {
-                // Keep sender completion at its configured depth, independently of content maturity.
-                // Copied from Via's inherited confirmation path; only the guarded DB write differs: https://github.com/vianetwork/via-core/blob/3694bf7e2712a3ff1530f98d420cba1b262457f1/via_verifier/node/via_btc_sender/src/btc_inscription_manager.rs
-                let is_confirmed = self
-                    .inscriber
-                    .get_client()
-                    .await
-                    .check_tx_confirmation(&last_inscription_history.reveal_tx_id, self.config.block_confirmations)
-                    .await?;
-
-                if is_confirmed {
-                    let mut authority = via_btc_storage::transition::begin_authority(
-                        &self.pool,
-                        self.inscriber.get_client().await,
-                        &[],
-                    ).await?;
+                if let Some(mut authority) = begin_completion(
+                    &self.pool,
+                    self.inscriber.get_client().await,
+                    &last_inscription_history.reveal_tx_id,
+                    self.config.block_confirmations,
+                ).await? {
                     authority
                         .via_btc_sender_dal()
                         .confirm_inscription(inscription.id, last_inscription_history.id)
@@ -109,7 +96,7 @@ impl ViaBtcInscriptionManager {
 
                     via_btc_storage::metrics::METRICS.confirmed("verifier",last_inscription_history.created_at);
                 } else {
-                    let Some(current_block) = via_btc_storage::publication::stuck_inscription_height(
+                    let Some(current_block) = stuck_inscription_height(
                         self.inscriber.get_client().await,
                         last_inscription_history.sent_at_block,
                         self.config.stuck_inscription_block_number(),
